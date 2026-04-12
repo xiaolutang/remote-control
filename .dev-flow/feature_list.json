@@ -3,28 +3,34 @@
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
   "updated_at": "2026-04-12T22:40:00Z",
-  "status": "completed",
+  "status": "in_progress",
   "workflow": {
     "name": "remote-control",
     "mode": "B",
-    "review_provider": "codex_plugin",
-    "audit_provider": "codex_plugin",
-    "risk_provider": "codex_plugin"
+    "runtime": "team_orchestrated",
+    "review_provider": "local",
+    "audit_provider": "local",
+    "risk_provider": "local"
   },
   "summary": {
-    "total": 8,
-    "pending": 0,
+    "total": 11,
+    "pending": 3,
     "in_progress": 0,
     "completed": 8,
     "blocked": 0,
     "cancelled": 0
+  },
+  "next_phase": {
+    "name": "user-persistence",
+    "description": "用户信息持久化存储，从 Redis 迁移到 SQLite",
+    "entry_task": "B060"
   },
   "project_info": {
     "description": "远程控制终端（Server + Agent + Client）。含反馈系统、日志集成、用户信息、Docker 标准化部署。",
     "tech_stack": {
       "backend": "Python FastAPI + WebSocket + PTY",
       "frontend": "Flutter mobile + desktop + xterm",
-      "database": "Redis（session/terminal），log-service SQLite（反馈+日志）"
+      "database": "SQLite（用户+设备持久化），Redis（session/refresh_token/terminal），log-service SQLite（反馈+日志）"
     }
   },
   "features": [
@@ -319,6 +325,129 @@
       "files": [
         "deploy/deploy.sh",
         ".dockerignore",
+        "CLAUDE.md"
+      ]
+    },
+    {
+      "id": "B060",
+      "phase": "user-persistence",
+      "module": "server",
+      "name": "SQLite 数据库层 + 用户表",
+      "description": "创建 server/app/database.py：aiosqlite 连接管理、初始化、get_db()。\n创建 users 表：id (INTEGER PRIMARY KEY AUTOINCREMENT), username (TEXT UNIQUE NOT NULL), password_hash (TEXT NOT NULL), created_at (TEXT NOT NULL)。\n创建 user_devices 表：id (INTEGER PK AUTOINCREMENT), username (TEXT NOT NULL REFERENCES users), device_name (TEXT), device_type (TEXT DEFAULT 'mobile'), bound_at (TEXT)。\n数据库文件路径: /data/users.db（Docker 内）/ 本地 ./data/users.db。\nDocker compose 挂载 volume。",
+      "verification": "L2",
+      "depends_on": [],
+      "status": "pending",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "database.py 提供异步 get_db() 依赖注入函数",
+        "Server 启动时自动执行 CREATE TABLE IF NOT EXISTS",
+        "users 表结构正确（id, username UNIQUE, password_hash, created_at）",
+        "user_devices 表结构正确（id, username, device_name, device_type, bound_at）",
+        "本地开发使用 ./data/users.db",
+        "docker-compose.yml 添加 users.db volume 挂载"
+      ],
+      "risk_tags": ["config"],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "数据库初始化测试",
+          "scenarios": [
+            "get_db() 返回可用连接",
+            "启动时自动创建表",
+            "users 表结构正确",
+            "user_devices 表结构正确"
+          ]
+        }
+      ],
+      "contract_refs": [],
+      "files": [
+        "server/app/database.py",
+        "server/requirements.txt",
+        "deploy/docker-compose.yml"
+      ]
+    },
+    {
+      "id": "B061",
+      "phase": "user-persistence",
+      "module": "server",
+      "name": "用户 API 迁移到 SQLite",
+      "description": "修改 user_api.py 的 get_user/save_user/get_user_devices/add_user_device。\n从 Redis GET/SET 改为 SQLite SELECT/INSERT。\n保持 API 接口不变（客户端无需改动）。\nRedis key `user:*` 和 `user_devices:*` 不再写入。\nRefresh token 和 session 继续用 Redis。",
+      "verification": "L2",
+      "depends_on": ["B060"],
+      "status": "pending",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "get_user 从 SQLite users 表查询",
+        "save_user 向 SQLite users 表插入",
+        "get_user_devices 从 SQLite user_devices 表查询",
+        "add_user_device 向 SQLite user_devices 表插入",
+        "API 接口不变（/register, /login, /devices, /bind-device）",
+        "Redis user:* 和 user_devices:* 不再写入",
+        "refresh_token 相关函数继续使用 Redis"
+      ],
+      "risk_tags": ["api-change"],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "用户 API SQLite 迁移测试",
+          "scenarios": [
+            "注册 → users 表有记录",
+            "登录 → 从 SQLite 验证用户",
+            "绑定设备 → user_devices 表有记录",
+            "查询设备 → 从 SQLite 返回",
+            "重复注册 → 409"
+          ]
+        }
+      ],
+      "contract_refs": ["POST /api/register", "POST /api/login", "GET /api/devices", "POST /api/bind-device"],
+      "files": [
+        "server/app/user_api.py"
+      ]
+    },
+    {
+      "id": "S037",
+      "phase": "user-persistence",
+      "module": "shared",
+      "name": "测试 + Docker 适配 + 文档更新",
+      "description": "单元测试：注册/登录/设备绑定/重复注册。\n集成测试：启动时自动建表 + 数据库文件持久化。\nDocker: deploy/docker-compose.yml 添加 users.db volume 挂载。\n文档: CLAUDE.md 更新数据库说明。",
+      "verification": "L4",
+      "depends_on": ["B061"],
+      "status": "pending",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "单元测试：注册/登录/设备绑定/重复注册覆盖",
+        "集成测试：启动时自动建表",
+        "集成测试：数据库文件持久化（重启后数据存在）",
+        "docker-compose.yml 有 users.db volume 挂载",
+        "CLAUDE.md 更新：数据库架构说明（SQLite 持久化用户，Redis 临时 session/token）",
+        "所有测试通过"
+      ],
+      "risk_tags": ["startup"],
+"test_tasks": [
+        {
+          "type": "unit",
+          "description": "用户核心流程测试",
+          "scenarios": [
+            "注册 → SQLite 有记录",
+            "登录 → SQLite 验证成功",
+            "设备绑定 → SQLite 有记录",
+            "重复注册 → 409 冲突"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "数据库持久化测试",
+          "scenarios": [
+            "启动 → 自动建表",
+            "重启 → 数据保留"
+          ]
+        }
+      ],
+      "contract_refs": [],
+      "files": [
+        "server/tests/test_user_api.py",
+        "server/tests/test_database.py",
+        "deploy/docker-compose.yml",
         "CLAUDE.md"
       ]
     }

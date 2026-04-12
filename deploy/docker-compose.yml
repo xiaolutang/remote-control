@@ -32,6 +32,9 @@ services:
       - JWT_EXPIRY_HOURS=${JWT_EXPIRY_HOURS:-24}
       - LOG_SERVICE_URL=http://log-service:8001
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DATABASE_PATH=/data/users.db
+    volumes:
+      - user_data:/data
     depends_on:
       redis:
         condition: service_healthy
@@ -81,3 +84,4 @@ networks:
 
 volumes:
   redis_data:
+  user_data:
