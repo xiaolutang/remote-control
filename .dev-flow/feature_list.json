@@ -2,25 +2,25 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-12T21:30:00Z",
+  "updated_at": "2026-04-12T22:40:00Z",
   "status": "completed",
   "workflow": {
-    "name": "feedback-to-issues",
+    "name": "remote-control",
     "mode": "B",
     "review_provider": "codex_plugin",
     "audit_provider": "codex_plugin",
     "risk_provider": "codex_plugin"
   },
   "summary": {
-    "total": 5,
+    "total": 8,
     "pending": 0,
     "in_progress": 0,
-    "completed": 5,
+    "completed": 8,
     "blocked": 0,
     "cancelled": 0
   },
   "project_info": {
-    "description": "反馈存储从 Redis 迁移到 log-service Issues API，消除冗余存储和静默失败",
+    "description": "远程控制终端（Server + Agent + Client）。含反馈系统、日志集成、用户信息、Docker 标准化部署。",
     "tech_stack": {
       "backend": "Python FastAPI + WebSocket + PTY",
       "frontend": "Flutter mobile + desktop + xterm",
@@ -131,8 +131,14 @@
             "component='feedback:connection', reporter=username",
             "log-service 不可达 → 503",
             "log-service 返回 500 → 502",
+            "log-service 超时 → 503",
             "日志获取失败 → 反馈仍成功（不带日志）",
-            "FeedbackResponse.feedback_id = str(issue.id)"
+            "FeedbackResponse.feedback_id = str(issue.id)",
+            "仅关联当前 session 日志，同用户不同 session 日志不混入",
+            "无匹配 session 日志 → 反馈仍成功，description 不含日志",
+            "issue 响应缺少 id 字段 → feedback_id 为空字符串",
+            "日志响应无 logs 字段 → 按 [] 处理",
+            "空日志列表 → description 不含 Related Logs"
           ]
         }
       ],
@@ -171,7 +177,11 @@
             "reporter ≠ user_id → 404",
             "log-service 不可达 → 503",
             "issue 不存在 → 404",
-            "feedback_service.py 不含 redis_conn / rc:feedback"
+            "feedback_service.py 不含 redis_conn / rc:feedback",
+            "environment='android / 1.0.0' → platform='android', app_version='1.0.0'",
+            "environment='android'（无版本号）→ platform='android', app_version=''",
+            "environment='' → platform='', app_version=''",
+            "request_id 正确映射为 session_id"
           ]
         }
       ],
@@ -202,6 +212,114 @@
       "smoke_required": true,
       "files": [
         "tests/e2e/test_feedback_to_issues.py"
+      ]
+    },
+    {
+      "id": "S034",
+      "phase": "deploy-standardization",
+      "module": "shared",
+      "name": "deploy/ 目录 + 多阶段 Dockerfile",
+      "description": "创建 deploy/ 目录，编写 server.Dockerfile 和 agent.Dockerfile，使用两阶段构建（builder 安装 gcc/git/依赖，runtime 仅含 venv + app 代码）。SDK 通过 git+https 从 GitHub 安装。Build context 为项目根目录。",
+      "verification": "L3",
+      "depends_on": [],
+      "status": "completed",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "server.Dockerfile 两阶段构建：Stage 1 (builder) 安装 gcc/git + pip 依赖；Stage 2 (runtime) 仅 COPY .venv + app",
+        "agent.Dockerfile 同样两阶段构建",
+        "Runtime 镜像不含 gcc/git（docker run --entrypoint which gcc 返回非零）",
+        "SDK 通过 git+https://github.com/xiaolutang/log-service.git@v0.1.0#subdirectory=sdks/python 安装",
+        "Build context 为项目根目录，Dockerfile 内 COPY 路径为 server/app/ 或 agent/app/",
+        "docker build -f deploy/server.Dockerfile . 构建成功",
+        "docker build -f deploy/agent.Dockerfile . 构建成功"
+      ],
+      "risk_tags": ["config"],
+      "test_tasks": [
+        {
+          "type": "manual",
+          "description": "构建验证",
+          "scenarios": [
+            "docker build -f deploy/server.Dockerfile . 成功",
+            "docker build -f deploy/agent.Dockerfile . 成功",
+            "runtime 镜像内 which gcc 返回非零"
+          ]
+        }
+      ],
+      "files": [
+        "deploy/server.Dockerfile",
+        "deploy/agent.Dockerfile"
+      ]
+    },
+    {
+      "id": "S035",
+      "phase": "deploy-standardization",
+      "module": "shared",
+      "name": "build.sh + docker-compose 迁移",
+      "description": "创建 deploy/build.sh 标准化构建脚本，支持 server/agent/all 参数。将 docker-compose.prod.yml 迁入 deploy/ 并调整为标准 image 引用模式。",
+      "verification": "L3",
+      "depends_on": ["S034"],
+      "status": "completed",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "build.sh 用法：./deploy/build.sh [server|agent|all] [--no-cache]，默认 all",
+        "build.sh 使用 -f deploy/server.Dockerfile 和 -f deploy/agent.Dockerfile，context 为项目根目录",
+        "镜像命名为 remote-control-server:latest 和 remote-control-agent:latest",
+        "docker-compose.yml 引用镜像名而非 build 指令（image: remote-control-server:latest）",
+        "docker-compose.yml 使用 image 引用模式，与 log-service 一致",
+        "./deploy/build.sh 构建两个镜像均成功"
+      ],
+      "risk_tags": ["config"],
+      "test_tasks": [
+        {
+          "type": "manual",
+          "description": "构建脚本验证",
+          "scenarios": [
+            "./deploy/build.sh 构建两个镜像成功",
+            "./deploy/build.sh server 只构建 server",
+            "./deploy/build.sh --no-cache 无缓存构建成功"
+          ]
+        }
+      ],
+      "files": [
+        "deploy/build.sh",
+        "deploy/docker-compose.yml"
+      ]
+    },
+    {
+      "id": "S036",
+      "phase": "deploy-standardization",
+      "module": "shared",
+      "name": "deploy.sh + .dockerignore + 清理 + CLAUDE.md",
+      "description": "将根目录 deploy.sh 移入 deploy/ 目录，增加 custom_build() 覆盖调用 build.sh。创建 .dockerignore。删除旧的散落 Dockerfile 和 compose 文件。更新 CLAUDE.md。",
+      "verification": "L3",
+      "depends_on": ["S035"],
+      "status": "completed",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "deploy/deploy.sh 覆盖 custom_build() 调用 bash deploy/build.sh $BUILD_CACHE_FLAG",
+        "deploy/deploy.sh 的 COMPOSE_FILE 改为 deploy/docker-compose.yml",
+        "deploy/deploy.sh 的 HEALTH_PATH 保持 /rc/health",
+        ".dockerignore 位于项目根目录，排除：.git, .venv, __pycache__, .pytest_cache, tests, .env, .dev-flow, client/, *.pyc, *.db",
+        "旧文件已删除：server/Dockerfile, agent/Dockerfile, 根目录 docker-compose.prod.yml, 根目录 docker-compose.local.yml, 根目录 deploy.sh",
+        "CLAUDE.md 更新：构建命令改为 ./deploy/build.sh，部署命令改为 ./deploy/deploy.sh，目录结构更新",
+        "./deploy/deploy.sh --no-cache 可端到端执行（前置：基础设施层已启动）"
+      ],
+      "risk_tags": ["startup", "config"],
+      "test_tasks": [
+        {
+          "type": "manual",
+          "description": "部署脚本端到端验证",
+          "scenarios": [
+            "旧文件已删除",
+            "deploy/deploy.sh --help 或 --no-cache 可执行",
+            "deploy/.dockerignore 包含所有排除项"
+          ]
+        }
+      ],
+      "files": [
+        "deploy/deploy.sh",
+        ".dockerignore",
+        "CLAUDE.md"
       ]
     }
   ],

@@ -1,5 +1,5 @@
 # Remote Control 生产部署配置
-# 使用方式: ./deploy.sh
+# 使用方式: ./deploy/deploy.sh
 # 三网模式: gateway(对外) + infra-network(共享服务) + rc-network(项目私有)
 
 services:
@@ -21,18 +21,14 @@ services:
 
   # ===== Server =====
   server:
-    build:
-      context: ./server
-      dockerfile: Dockerfile
+    image: remote-control-server:latest
     container_name: rc-server
     restart: unless-stopped
     expose:
       - "8000"
     environment:
       - REDIS_URL=redis://redis:6379
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-}
       - JWT_SECRET=${JWT_SECRET:?请在 .env 或环境变量中设置 JWT_SECRET}
-      - JWT_EXPIRATION_HOURS=${JWT_EXPIRATION_HOURS:-}
       - JWT_EXPIRY_HOURS=${JWT_EXPIRY_HOURS:-24}
       - LOG_SERVICE_URL=http://log-service:8001
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -59,9 +55,7 @@ services:
 
   # ===== Agent =====
   agent:
-    build:
-      context: ./agent
-      dockerfile: Dockerfile
+    image: remote-control-agent:latest
     container_name: rc-agent
     restart: unless-stopped
     environment:

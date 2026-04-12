@@ -63,8 +63,11 @@
 | **日志集成** | **Client 日志代理转发** | **CONTRACT-029** | **completed** | **not_applicable** | **completed** | **log_api.py 异步转发到 log-service** |
 | **日志集成** | **Agent SDK 接入** | **CONTRACT-029** | **completed** | **not_applicable** | **completed** | **Agent log-service-sdk + Desktop 可选配置** |
 | **日志集成** | **Docker 标准化 + E2E 验证** | **CONTRACT-029** | **completed** | **pending** | **pending** | **三网模式 + Traefik + 三端日志可见（smoke 需手动验证）** |
-| **用户信息** | **修复反馈 user_id + LoginResponse 增强** | **CONTRACT-004** | **pending** | **not_applicable** | **pending** | **B056: feedback_api 通过 session 记录获取真实 user_id；LoginResponse 新增 username** |
-| **用户信息** | **用户信息本地存储** | — | **not_applicable** | **pending** | **pending** | **F054: UserInfoService + rc_login_time 保存/清理** |
-| **用户信息** | **用户信息页面** | — | **not_applicable** | **pending** | **pending** | **F055: UserProfileScreen 含反馈+退出入口** |
-| **用户信息** | **菜单去重 + 个人信息入口** | — | **not_applicable** | **pending** | **pending** | **F056: 三处菜单移除反馈/退出，统一收口到个人信息页** |
-| **用户信息** | **集成测试** | **CONTRACT-004** | **pending** | **pending** | **pending** | **S032: 端到端验证反馈 user_id + 前端菜单去重检查** |
+| **用户信息** | **修复反馈 user_id + LoginResponse 增强** | **CONTRACT-004** | **completed** | **not_applicable** | **completed** | **B056: feedback_api 通过 session 记录获取真实 user_id；LoginResponse 新增 username** |
+| **用户信息** | **用户信息本地存储** | — | **not_applicable** | **completed** | **completed** | **F054: UserInfoService + rc_login_time 保存/清理** |
+| **用户信息** | **用户信息页面** | — | **not_applicable** | **completed** | **completed** | **F055: UserProfileScreen 含反馈+退出入口** |
+| **用户信息** | **菜单去重 + 个人信息入口** | — | **not_applicable** | **completed** | **completed** | **F056: 三处菜单移除反馈/退出，统一收口到个人信息页** |
+| **用户信息** | **集成测试** | **CONTRACT-004** | **completed** | **completed** | **completed** | **S032: 端到端验证反馈 user_id + 前端菜单去重检查** |
+| **部署标准化** | **多阶段 Dockerfile** | — | **completed** | **not_applicable** | **completed** | **S034: deploy/ 目录 + server/agent 两阶段构建** |
+| **部署标准化** | **build.sh + compose 迁移** | — | **completed** | **not_applicable** | **completed** | **S035: 构建脚本 + compose 文件统一到 deploy/** |
+| **部署标准化** | **deploy.sh + 清理 + CLAUDE.md** | — | **completed** | **not_applicable** | **completed** | **S036: 部署脚本迁移 + 旧文件删除 + 文档更新** |

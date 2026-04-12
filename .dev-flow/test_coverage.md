@@ -2,7 +2,7 @@
 
 > 项目：remote-control
 > 更新时间：2026-04-12
-> 状态：user-info 阶段规划中
+> 状态：deploy-standardization + feedback-to-issues 阶段已完成
 
 ## 测试统计
 
@@ -26,7 +26,8 @@
 | 桌面端平台差异 (Phase 12) | unit, integration | 待开始 | 🔶 |
 | PTY 进程组清理 (Phase 14) | unit, integration | 19 passed | ✅ |
 | **Agent 生命周期管理 (Phase 15)** | unit, integration, manual | 待开始 | 🔶 |
-| **用户信息 (user-info)** | unit, e2e | 待开始 | 🔶 |
+| **用户信息 (user-info)** | unit, e2e | 已完成 | ✅ |
+| **部署标准化 (deploy-standardization)** | manual, L3 | 已完成 | ✅ |
 
 ## 模块覆盖详情
 
@@ -102,11 +103,11 @@
 
 | Module | Task IDs | Test Type | Required Scenarios | Status |
 |--------|----------|-----------|--------------------|--------|
-| 反馈 user_id 修复 + LoginResponse | B056 | unit | feedback user_id 为真实用户名；session 查无→401；session user_id 为空→401；token 无效→401；归属不匹配→404；login/register 响应含 username | ⬜ |
-| 用户信息本地存储 | F054 | unit | UserInfoService 读写；rc_login_time 保存/清理；autoLogin 不覆写；username 来自 rc_username | ⬜ |
-| 用户信息页面 | F055 | unit | 页面显示用户名/时间；时间格式化；反馈→FeedbackScreen；退出→logoutAndNavigate | ⬜ |
-| 菜单去重 | F056 | unit | 三处菜单不含反馈/退出；三处含个人信息入口；导航到 UserProfileScreen | ⬜ |
-| 集成测试 | S032 | e2e | 真实 user_id 链路；不同用户隔离；前端菜单结构检查 | ⬜ |
+| 反馈 user_id 修复 + LoginResponse | B056 | unit | feedback user_id 为真实用户名；session 查无→401；session user_id 为空→401；token 无效→401；归属不匹配→404；login/register 响应含 username | ✅ |
+| 用户信息本地存储 | F054 | unit | UserInfoService 读写；rc_login_time 保存/清理；autoLogin 不覆写；username 来自 rc_username | ✅ |
+| 用户信息页面 | F055 | unit | 页面显示用户名/时间；时间格式化；反馈→FeedbackScreen；退出→logoutAndNavigate | ✅ |
+| 菜单去重 | F056 | unit | 三处菜单不含反馈/退出；三处含个人信息入口；导航到 UserProfileScreen | ✅ |
+| 集成测试 | S032 | e2e | 真实 user_id 链路；不同用户隔离；前端菜单结构检查 | ✅ |
 
 ## 关键测试场景覆盖
 
@@ -254,7 +255,25 @@
 - [x] 手机端能正确显示远程设备的 Agent 状态
 - [x] 状态文件孤儿进程检测和清理
 
-### PTY 进程组清理（Phase 14）
+### 部署标准化（deploy-standardization phase）
+
+| Module | Task IDs | Test Type | Required Scenarios | Status |
+|--------|----------|-----------|--------------------|--------|
+| 多阶段 Dockerfile | S034 | manual, L3 | server/agent 构建成功；runtime 无 gcc | ✅ |
+| build.sh + compose | S035 | manual, L3 | build.sh all/server/agent/--no-cache；compose 引用镜像 | ✅ |
+| deploy.sh + 清理 | S036 | manual, L3 | 旧文件已删除；deploy.sh 端到端；.dockerignore 完整 | ✅ |
+
+#### 部署验证场景
+- [x] `docker build -f deploy/server.Dockerfile .` 构建成功（2026-04-13 验证，325MB）
+- [x] `docker build -f deploy/agent.Dockerfile .` 构建成功（2026-04-13 验证，288MB）
+- [x] `docker run --rm --entrypoint which remote-control-server:latest gcc` 返回非零（2026-04-13 验证）
+- [x] `./deploy/build.sh` 构建两个镜像均成功（2026-04-13 验证）
+- [x] `./deploy/build.sh server` 只构建 server（2026-04-13 验证）
+- [x] `./deploy/build.sh nonexistent` 无效参数正确拒绝 exit 1（2026-04-13 验证）
+- [x] `./deploy/deploy.sh` 端到端部署成功（2026-04-13 验证）
+- [x] `curl http://localhost/rc/health` 返回 200（2026-04-13 验证）
+
+### PTY 进程组清理（Phase 14）(原文)
 - [x] **B032 进程组清理**：PTYWrapper.stop() 使用 os.killpg() 杀死整个进程组
   - [x] 杀死进程组时所有子孙进程都收到信号
   - [x] 进程组不存在时错误被正确处理（不抛异常）

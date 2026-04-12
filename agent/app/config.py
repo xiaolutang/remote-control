@@ -56,7 +56,11 @@ def normalize_config_path(config_path: Optional[Path | str] = None) -> Path:
 
 
 def load_config(config_path: Optional[Path | str] = None) -> Config:
-    """加载配置"""
+    """加载配置
+
+    优先级：配置文件 > 环境变量 > 默认值。
+    环境变量用于 Docker 容器场景（无持久化配置文件时）。
+    """
     config_path = normalize_config_path(config_path)
 
     if config_path.exists():
@@ -64,10 +68,20 @@ def load_config(config_path: Optional[Path | str] = None) -> Config:
             with open(config_path, "r") as f:
                 data = json.load(f)
             return Config(**data)
-        except (json.JSONDecodeError, Exception):
-            pass
+        except json.JSONDecodeError:
+            pass  # 配置文件格式错误，回退到环境变量
 
-    return Config()
+    # 无配置文件时，从环境变量回退
+    server_url = os.environ.get("SERVER_URL")
+    agent_token = os.environ.get("AGENT_TOKEN")
+    overrides = {}
+    if server_url:
+        overrides["server_url"] = server_url
+    if agent_token:
+        overrides["access_token"] = agent_token
+        overrides["token"] = agent_token
+
+    return Config(**overrides)
 
 
 def save_config(config: Config, config_path: Optional[Path | str] = None) -> None:
