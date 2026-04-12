@@ -18,6 +18,7 @@ from app.middleware import (
     RequestLoggingMiddleware,
     ErrorHandlerMiddleware,
 )
+from app.database import init_db
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,10 @@ _ttl_checker_task: asyncio.Task | None = None
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     global _ttl_checker_task
+
+    # 初始化数据库（用户持久化存储）
+    await init_db()
+    logger.info("Database initialized")
 
     # 初始化远程日志（通过适配层）
     init_logging(component="server")

@@ -5,25 +5,25 @@ from fastapi import APIRouter, HTTPException, status, Depends, Header
 from pydantic import BaseModel
 from typing import Optional
 import hashlib
-import secrets
-import json
 from datetime import datetime, timezone, timedelta
 
-from app.session import get_redis, create_session, get_session, verify_session_ownership
+from app.session import get_redis, create_session, get_session, verify_session_ownership, get_session_by_name
 from app.auth import (
     create_token_response,
     generate_refresh_token,
     verify_refresh_token,
-    verify_token,
     async_verify_token,
     generate_token,
     increment_token_version,
     get_token_version,
     normalize_view_type,
+    create_token_with_session,
     TokenVerificationError,
     JWT_EXPIRATION_HOURS,
     REFRESH_TOKEN_EXPIRATION_DAYS,
 )
+from app.database import get_user as db_get_user, save_user as db_save_user
+from app.database import get_user_devices as db_get_user_devices, add_user_device as db_add_user_device
 
 router = APIRouter()
 
@@ -90,43 +90,23 @@ def hash_password(password: str) -> str:
 
 
 async def get_user(username: str) -> Optional[dict]:
-    """获取用户信息"""
-    redis = await get_redis()
-    key = f"user:{username}"
-    data = await redis.get(key)
-    if data:
-        return json.loads(data)
-    return None
+    """获取用户信息（从 SQLite）"""
+    return await db_get_user(username)
 
 
 async def save_user(username: str, password_hash: str):
-    """保存用户"""
-    redis = await get_redis()
-    key = f"user:{username}"
-    await redis.set(key, json.dumps({
-        "username": username,
-        "password_hash": password_hash,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }))
+    """保存用户（到 SQLite）"""
+    await db_save_user(username, password_hash)
 
 
 async def get_user_devices(username: str) -> list:
-    """获取用户绑定的设备列表"""
-    redis = await get_redis()
-    key = f"user_devices:{username}"
-    devices = await redis.get(key)
-    if devices:
-        return json.loads(devices)
-    return []
+    """获取用户绑定的设备列表（从 SQLite）"""
+    return await db_get_user_devices(username)
 
 
 async def add_user_device(username: str, device_info: dict):
-    """添加用户设备"""
-    redis = await get_redis()
-    key = f"user_devices:{username}"
-    devices = await get_user_devices(username)
-    devices.append(device_info)
-    await redis.set(key, json.dumps(devices))
+    """添加用户设备（到 SQLite）"""
+    await db_add_user_device(username, device_info)
 
 
 # Refresh Token Redis 管理函数
@@ -235,12 +215,10 @@ async def login(user: UserLogin):
         )
 
     # 检查是否已有该用户的 session（实现同用户多设备共享 session）
-    from app.session import get_session_by_name
     existing_session = await get_session_by_name(f"{user.username}_session")
 
     if existing_session:
         # 使用现有 session，生成新 token
-        from app.auth import create_token_with_session
         token_response = create_token_with_session(existing_session["id"])
     else:
         # 生成新 token 和 session
