@@ -1,0 +1,34 @@
+{
+  "phase": "logging-integration",
+  "archived_at": "2026-04-10T14:03:03Z",
+  "tasks": {
+    "B043": {
+      "name": "Server 接入 log-service-sdk",
+      "status": "completed"
+    },
+    "B044": {
+      "name": "Server 请求日志中间件",
+      "status": "completed"
+    },
+    "B045": {
+      "name": "Server 关键业务模块结构化日志",
+      "status": "completed"
+    },
+    "B046": {
+      "name": "Server 转发 Client 日志到 log-service",
+      "status": "completed"
+    },
+    "B047": {
+      "name": "Agent 接入 log-service-sdk",
+      "status": "completed"
+    },
+    "S028": {
+      "name": "Docker 标准化部署",
+      "status": "completed"
+    },
+    "S029": {
+      "name": "端到端验证：日志接入 + Docker 部署",
+      "status": "completed"
+    }
+  }
+}

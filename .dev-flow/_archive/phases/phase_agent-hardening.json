@@ -1,0 +1,169 @@
+{
+  "phase": "agent-hardening",
+  "archived_at": "2026-04-10T14:03:03Z",
+  "summary": {
+    "total": 4,
+    "completed": 4,
+    "cancelled": 0
+  },
+  "tasks": [
+    {
+      "id": "F041",
+      "phase": "agent-hardening",
+      "module": "client",
+      "name": "DesktopAgentSupervisor 基础设施强化",
+      "description": "Supervisor 层新增 syncAndEnsureOnline 原子方法（绑定配置同步与进程启动）和 PID 进程校验（防止 PID 复用误判）",
+      "verification": "F1",
+      "depends_on": [],
+      "status": "completed",
+      "priority": "high",
+      "acceptance_criteria": [
+        "新增 syncAndEnsureOnline()：内部先 syncManagedAgentConfig 再 ensureAgentOnline，不可分割",
+        "ensureAgentOnline 的 agentConfigPath 参数保持可选（向后兼容），但 syncAndEnsureOnline 强制内部传递",
+        "_isProcessRunning(pid) 额外校验进程命令行包含 app.cli，防止 PID 复用",
+        "PID 不匹配时自动清除 SharedPreferences 中的 managed PID",
+        "现有 DesktopAgentManager 测试和 DesktopAgentSupervisor 测试全部通过"
+      ],
+      "test_tasks": [
+        "单元测试：syncAndEnsureOnline 内部按序调用 sync → ensure",
+        "单元测试：sync 失败时 syncAndEnsureOnline 返回 false，不启动进程",
+        "单元测试：PID 有效且命令行匹配 → isProcessRunning=true",
+        "单元测试：PID 有效但命令行不匹配 → isProcessRunning=false + 清除缓存 PID",
+        "单元测试：DesktopAgentManager.startAgent 改用 syncAndEnsureOnline 后行为不变"
+      ],
+      "risk_tags": [
+        "auth",
+        "startup"
+      ],
+      "smoke_required": true,
+      "files": [
+        "client/lib/services/desktop_agent_supervisor.dart",
+        "client/lib/services/desktop_agent_manager.dart",
+        "client/test/services/desktop_agent_supervisor_test.dart",
+        "client/test/services/desktop_agent_manager_test.dart"
+      ],
+      "estimated_minutes": 30
+    },
+    {
+      "id": "F042",
+      "phase": "agent-hardening",
+      "module": "client",
+      "name": "DesktopAgentManager 升级为唯一权威（extends ChangeNotifier）",
+      "description": "将 DesktopAgentManager 重构为 ChangeNotifier，合并 AgentLifecycleManager 的全部职责（登录启动/登出停止/App 启动恢复/App 关闭决策），成为 Agent 生命周期的唯一管理入口",
+      "verification": "F2",
+      "depends_on": [
+        "F041"
+      ],
+      "status": "completed",
+      "priority": "high",
+      "acceptance_criteria": [
+        "DesktopAgentManager extends ChangeNotifier",
+        "新增 onLogin(serverUrl, token, deviceId, username)：内部调用 syncAndEnsureOnline，存住凭证",
+        "新增 onLogout()：使用存住的凭证调用 stopManagedAgent + deleteManagedAgentConfig + 清除凭证",
+        "新增 onAppStart(serverUrl, token, deviceId, username)：检查 ownership 并复用/重启",
+        "新增 onAppClose()：根据 keepAgentRunningInBackground 决定是否停止",
+        "新增 ownership 管理：AgentOwnershipInfo 持久化到 SharedPreferences",
+        "拥有 DesktopAgentState 状态，状态变更自动 notifyListeners",
+        "现有 loadState() 和 startAgent() 保持可用（向后兼容手动启动场景）"
+      ],
+      "test_tasks": [
+        "单元测试：onLogin 调用 syncAndEnsureOnline 并更新状态为 running",
+        "单元测试：onLogin 启动失败 → 状态为 startFailed",
+        "单元测试：onLogout 使用存留凭证停止 Agent（非空 token）",
+        "单元测试：onLogout 清除凭证和 ownership",
+        "单元测试：onAppStart 复用当前用户的 Agent",
+        "单元测试：onAppStart 关闭非当前用户的 Agent 并重启",
+        "单元测试：onAppClose 根据 config 决定是否停止",
+        "单元测试：状态变更触发 notifyListeners",
+        "单元测试：移动端（supported=false）所有方法 no-op"
+      ],
+      "risk_tags": [
+        "auth",
+        "startup",
+        "first_use"
+      ],
+      "smoke_required": true,
+      "files": [
+        "client/lib/services/desktop_agent_manager.dart",
+        "client/test/services/desktop_agent_manager_test.dart"
+      ],
+      "estimated_minutes": 45
+    },
+    {
+      "id": "F043",
+      "phase": "agent-hardening",
+      "module": "client",
+      "name": "删除 AgentLifecycleManager，更新全部调用方",
+      "description": "移除 agent_lifecycle_manager.dart，将 main.dart / login_screen.dart / auth_service.dart 的调用从 AgentLifecycleManager 替换为 DesktopAgentManager",
+      "verification": "F2",
+      "depends_on": [
+        "F042"
+      ],
+      "status": "completed",
+      "priority": "high",
+      "acceptance_criteria": [
+        "删除 client/lib/services/agent_lifecycle_manager.dart",
+        "main.dart：Provider 注册从 AgentLifecycleManager 改为 DesktopAgentManager",
+        "main.dart：_AppShell 的 didChangeAppLifecycleState 调用 DesktopAgentManager.onAppClose()",
+        "login_screen.dart：登录成功后调用 DesktopAgentManager.onLogin()",
+        "auth_service.dart：logout 中调用 DesktopAgentManager.onLogout()",
+        "desktop_workspace_controller.dart：从 Provider 获取 DesktopAgentManager 实例",
+        "所有 import 和引用更新完毕，无编译错误",
+        "删除 client/test/services/agent_lifecycle_manager_test.dart（被 DesktopAgentManager 测试替代）"
+      ],
+      "test_tasks": [
+        "回归测试：编译通过，无未使用的 import",
+        "回归测试：login_screen_test 适配新 DesktopAgentManager Provider",
+        "回归测试：DesktopWorkspaceController 测试适配"
+      ],
+      "risk_tags": [
+        "startup"
+      ],
+      "smoke_required": true,
+      "files": [
+        "client/lib/main.dart",
+        "client/lib/screens/login_screen.dart",
+        "client/lib/services/auth_service.dart",
+        "client/lib/services/desktop_workspace_controller.dart",
+        "client/lib/services/desktop_agent_manager.dart",
+        "client/lib/services/agent_lifecycle_manager.dart"
+      ],
+      "estimated_minutes": 30
+    },
+    {
+      "id": "F044",
+      "phase": "agent-hardening",
+      "module": "client",
+      "name": "集成测试与 smoke 验证",
+      "description": "补充 token 写入流程集成测试，验证 DesktopAgentManager 作为唯一入口的完整生命周期",
+      "verification": "F2",
+      "depends_on": [
+        "F043"
+      ],
+      "status": "completed",
+      "priority": "medium",
+      "acceptance_criteria": [
+        "测试验证 onLogin 内部按序执行：syncConfig → writeConfig → startProcess → waitForOnline",
+        "测试验证 onLogout 使用真实 token（非空字符串）调用 stopManagedAgent",
+        "测试验证 PID 进程校验（命令行不匹配时清除缓存）",
+        "测试验证 App 重启后 ownership 匹配时复用 Agent",
+        "手工 smoke：登录 → Agent 在线 → 退出登录 → Agent 离线 → 关闭 App（开关=true）→ Agent 仍在线"
+      ],
+      "test_tasks": [
+        "集成测试：完整 onLogin → onLogout 周期，验证 token 写入和清除",
+        "集成测试：onLogin 配置写入失败 → startFailed + 无进程启动",
+        "集成测试：PID 校验拒绝非 Agent 进程",
+        "手工 smoke：登录/登出/关闭 App 完整流程"
+      ],
+      "risk_tags": [
+        "auth",
+        "first_use"
+      ],
+      "smoke_required": true,
+      "files": [
+        "client/test/services/desktop_agent_manager_test.dart"
+      ],
+      "estimated_minutes": 25
+    }
+  ]
+}

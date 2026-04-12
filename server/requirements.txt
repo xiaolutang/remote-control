@@ -1,0 +1,20 @@
+fastapi>=0.100.0
+uvicorn>=0.23.0
+python-multipart>=0.0.0
+python-jose[cryptography]>=3.3.0
+
+# 日志（Docker 构建时通过 --build-context 从本地挂载安装）
+log-service-sdk
+
+# 测试依赖
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+
+# WebSocket
+websockets>=12.0
+
+# Redis
+redis>=5.0.0
+
+# HTTP 客户端（Client 日志代理转发）
+httpx>=0.25.0

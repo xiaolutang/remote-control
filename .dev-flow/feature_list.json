@@ -1,0 +1,312 @@
+{
+  "version": "1.4",
+  "project": "remote-control",
+  "created_at": "2026-03-27T16:45:00Z",
+  "updated_at": "2026-04-12T21:30:00Z",
+  "status": "completed",
+  "workflow": {
+    "name": "feedback-to-issues",
+    "mode": "B",
+    "review_provider": "codex_plugin",
+    "audit_provider": "codex_plugin",
+    "risk_provider": "codex_plugin"
+  },
+  "summary": {
+    "total": 5,
+    "pending": 0,
+    "in_progress": 0,
+    "completed": 5,
+    "blocked": 0,
+    "cancelled": 0
+  },
+  "project_info": {
+    "description": "反馈存储从 Redis 迁移到 log-service Issues API，消除冗余存储和静默失败",
+    "tech_stack": {
+      "backend": "Python FastAPI + WebSocket + PTY",
+      "frontend": "Flutter mobile + desktop + xterm",
+      "database": "Redis（session/terminal），log-service SQLite（反馈+日志）"
+    }
+  },
+  "features": [
+    {
+      "id": "B057",
+      "phase": "feedback-to-issues",
+      "module": "server",
+      "name": "修复转发 URL + raise_for_status + 日志补 uid",
+      "description": "三部分修复（代码前两部分已完成）：\n1) feedback_api.py 和 log_api.py 的 /api/ingest 改为 /api/logs/ingest，补 response.raise_for_status()（已完成）\n2) 修正 test_log_forward.py 的 mock 路径，补 URL 断言和 404 warning 测试（已完成）\n3) log_api.py upload_logs 端点接收客户端传来的 uid（请求 body 新增 uid 字段），直接传递给 _forward_to_log_service 写入 entry.uid。不需要服务端查 Redis session。\n\n数据流：Client 传 uid → Server 透传 uid → log-service entry.uid",
+      "verification": "L2",
+      "depends_on": ["F057"],
+      "status": "completed",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "feedback_api.py 路径为 /api/logs/ingest + raise_for_status()",
+        "log_api.py 路径为 /api/logs/ingest + raise_for_status()",
+        "log_api.py upload_logs 接收请求 body 中的 uid 字段",
+        "log_api.py _forward_to_log_service 接收 uid 参数，写入 entry.uid",
+        "test_log_forward.py mock 路径使用 get_shared_http_client",
+        "新增测试：转发 URL 断言",
+        "新增测试：404 触发 warning",
+        "新增测试：转发 entry 包含 uid 字段且值与客户端传来的一致",
+        "所有测试通过"
+      ],
+      "risk_tags": ["network"],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "转发修复 + uid 字段验证",
+          "scenarios": [
+            "log 转发 URL 以 /api/logs/ingest 结尾",
+            "log 转发 entry 包含 uid=客户端传来的 uid",
+            "feedback 转发 URL 以 /api/logs/ingest 结尾",
+            "log-service 返回 404/500 → raise_for_status → warning",
+            "请求 body 无 uid → uid 为空字符串（不阻塞转发）"
+          ]
+        }
+      ],
+      "contract_refs": ["POST /api/logs"],
+      "fix_level": "L2",
+      "root_cause_analysis": "L1 路径笔误 + L2 无 raise_for_status + 日志缺少 uid 字段",
+      "similar_locations": [
+        "所有调用外部服务的 best-effort 转发函数"
+      ],
+      "files": [
+        "server/app/feedback_api.py",
+        "server/app/log_api.py",
+        "server/tests/test_feedback_api.py",
+        "server/tests/test_log_forward.py"
+      ],
+      "planning_notes": "URL/raise_for_status/mock/测试已完成。uid 字段等 F057 客户端改完后再补服务端接收逻辑。"
+    },
+    {
+      "id": "F057",
+      "phase": "feedback-to-issues",
+      "module": "client",
+      "name": "客户端日志上报携带 uid",
+      "description": "客户端本地已有 username（SharedPreferences rc_username，即 uid），在日志上报时补传：\nlogger_service.dart POST /api/logs body 新增 uid 字段，值从 rc_username 读取。\n\n数据流：SharedPreferences rc_username → 请求 body uid → Server 透传 → log-service entry.uid",
+      "verification": "F1",
+      "depends_on": [],
+      "status": "completed",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "logger_service.dart POST /api/logs body 包含 uid 字段",
+        "uid 从 SharedPreferences rc_username 读取",
+        "未登录时 uid 为空字符串（不阻塞日志上报）",
+        "日志上报功能正常（新增字段不破坏现有功能）"
+      ],
+      "files": [
+        "client/lib/services/logger_service.dart"
+      ]
+    },
+    {
+      "id": "B058",
+      "phase": "feedback-to-issues",
+      "module": "server",
+      "name": "反馈提交迁移到 log-service Issues API",
+      "description": "将反馈提交从 Redis 存储改为调用 log-service POST /api/issues。映射：\n- category → severity（connection=high, terminal=medium, crash=critical, suggestion=low, other=low）\n- category 存入 component 字段（'feedback:connection'，确保反向映射准确）\n- user_id(=username) → reporter\n- session_id → request_id\n- platform+app_version → environment\n- description + related_logs → description\n\n核心改动：feedback_service.py 的 create_feedback 函数内部改为调用 POST /api/issues（替代 Redis pipeline）。\nfeedback_api.py 的 submit_feedback 路由保持调用 create_feedback，删除 _forward_feedback_to_log_service。\n\n相关日志获取：GET /api/logs?uid={user_id}&service_name=remote-control&component=client&page_size=50，本地按 extra.session_id 过滤。日志获取失败时 best-effort。\n\nFeedbackResponse.feedback_id = str(issue.id)。\n客户端 API 契约不变。",
+      "verification": "L2",
+      "depends_on": ["B057", "F057"],
+      "status": "completed",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "submit_feedback 调用 POST {log_service_url}/api/issues",
+        "category → severity 映射正确（5 种分类）",
+        "component 字段为 'feedback:{category}'",
+        "reporter 为 user_id（username）",
+        "相关日志从 log-service GET /api/logs?uid={user_id} 获取",
+        "日志获取失败 → best-effort，反馈仍提交",
+        "删除 _forward_feedback_to_log_service 函数",
+        "log-service issues API 不可达 → 503",
+        "log-service 返回 500 → 502",
+        "response.raise_for_status()",
+        "FeedbackResponse.feedback_id = str(issue.id)",
+        "单元测试覆盖：正常提交、503、日志获取失败、参数映射"
+      ],
+      "risk_tags": ["network"],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "反馈提交迁移到 Issues API",
+          "scenarios": [
+            "正常提交 → POST /api/issues 参数正确（severity/reporter/component/environment）",
+            "component='feedback:connection', reporter=username",
+            "log-service 不可达 → 503",
+            "log-service 返回 500 → 502",
+            "日志获取失败 → 反馈仍成功（不带日志）",
+            "FeedbackResponse.feedback_id = str(issue.id)"
+          ]
+        }
+      ],
+      "contract_refs": ["POST /api/feedback", "POST /api/issues", "GET /api/logs"],
+      "files": [
+        "server/app/feedback_api.py",
+        "server/app/feedback_service.py"
+      ]
+    },
+    {
+      "id": "B059",
+      "phase": "feedback-to-issues",
+      "module": "server",
+      "name": "反馈查询迁移 + Redis 反馈存储清理",
+      "description": "反馈查询改为调用 log-service GET /api/issues/{id}。反向映射：\n- issue.component（'feedback:connection'）→ category（'connection'）\n- issue.reporter → user_id\n- issue.environment → platform + app_version\n- issue.request_id → session_id\n\n归属校验：reporter ≠ 当前 user_id → 404。\n\n清理 feedback_service.py：删除 Redis 存储代码（create_feedback/get_feedback 的 pipeline/HGETALL、rc:feedback:*/rc:user_feedbacks:* 常量）。保留文件作为 log-service 调用封装。",
+      "verification": "L2",
+      "depends_on": ["B058"],
+      "status": "completed",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "get_feedback_detail 调用 GET {log_service_url}/api/issues/{id}",
+        "从 issue.component 提取 category（'feedback:xxx' → 'xxx'）",
+        "reporter ≠ user_id → 404（归属校验）",
+        "log-service 不可达 → 503",
+        "issue 不存在 → 404",
+        "feedback_service.py 无 Redis import 和 rc:feedback 相关键名",
+        "单元测试覆盖：正常查询、503、404、归属校验、component 解析"
+      ],
+      "risk_tags": ["network"],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "反馈查询迁移 + Redis 清理",
+          "scenarios": [
+            "正常查询 → component='feedback:connection' → category='connection'",
+            "reporter ≠ user_id → 404",
+            "log-service 不可达 → 503",
+            "issue 不存在 → 404",
+            "feedback_service.py 不含 redis_conn / rc:feedback"
+          ]
+        }
+      ],
+      "contract_refs": ["GET /api/feedback/{id}", "GET /api/issues/{id}"],
+      "files": [
+        "server/app/feedback_api.py",
+        "server/app/feedback_service.py",
+        "server/tests/test_feedback_api.py"
+      ]
+    },
+    {
+      "id": "S033",
+      "phase": "feedback-to-issues",
+      "module": "shared",
+      "name": "反馈迁移集成测试 + 部署验证",
+      "description": "端到端验证：\n1. 提交反馈 → log-service POST /api/issues 被调用 → issues 表有记录\n2. 查询反馈 → 返回正确数据（category 从 component 解析）\n3. 日志转发包含 uid=user_id → log-service 可按用户查询\n4. 部署 smoke：Flutter 提交反馈 → http://localhost/logs/ 问题 Tab 可见",
+      "verification": "L4",
+      "depends_on": ["B059"],
+      "status": "completed",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "集成测试：提交反馈 → POST /api/issues 被调用",
+        "集成测试：查询反馈 → category 正确（从 component 解析）",
+        "集成测试：日志转发 entry 包含 uid=user_id",
+        "部署 smoke：Flutter 提交反馈 → 问题 Tab 可见",
+        "部署 smoke：Redis 中无 rc:feedback:* 相关键"
+      ],
+      "smoke_required": true,
+      "files": [
+        "tests/e2e/test_feedback_to_issues.py"
+      ]
+    }
+  ],
+  "archived_phases": [
+    {
+      "phase": "agent",
+      "status": "completed",
+      "task_count": 1,
+      "task_ids": ["B013"],
+      "conclusion": "agent 阶段完成，1 个任务",
+      "archived_at": "2026-03-30T17:00:00Z",
+      "archive_file": "_archive/phases/phase_agent.json"
+    },
+    {
+      "phase": "backend",
+      "status": "completed",
+      "task_count": 23,
+      "task_ids": ["B001","B002","B003","B004","B005","B006","B007","B008","B009","B010","B011","B012","B014","B015","B016","B017","B018","B019","B022","B032","B033","B034","B035"],
+      "conclusion": "backend 阶段完成，23 个任务",
+      "archived_at": "2026-03-30T17:00:00Z",
+      "archive_file": "_archive/phases/phase_backend.json"
+    },
+    {
+      "phase": "frontend",
+      "status": "completed",
+      "task_count": 31,
+      "task_ids": ["F001","F002","F003","F004","F005","F006","F007","F008","F009","F010","F011","F012","F013","F014","F015","F016","F017","F018","F019","F020","F021","F022","F023","F024","F025","F026","F027","F028","F029","F030","F031"],
+      "conclusion": "frontend 阶段完成，31 个任务",
+      "archived_at": "2026-03-30T17:00:00Z",
+      "archive_file": "_archive/phases/phase_frontend.json"
+    },
+    {
+      "phase": "shared",
+      "status": "completed",
+      "task_count": 14,
+      "task_ids": ["S001","S002","S003","S011","S012","S013","S014","S015","S016","S017","S018","S019","S022","S023"],
+      "conclusion": "shared 阶段完成，14 个任务",
+      "archived_at": "2026-03-30T17:00:00Z",
+      "archive_file": "_archive/phases/phase_shared.json"
+    },
+    {
+      "phase": "agent-lifecycle",
+      "task_ids": ["S024","F032","F033","F034","F035","F036","F037","F038"],
+      "archived_at": "2026-04-10T14:03:03Z",
+      "summary": { "total": 8, "completed": 7, "cancelled": 1 }
+    },
+    {
+      "phase": "ws-lifecycle",
+      "task_ids": ["F039","F040"],
+      "archived_at": "2026-04-10T14:03:03Z",
+      "summary": { "total": 2, "completed": 2, "cancelled": 0 }
+    },
+    {
+      "phase": "agent-hardening",
+      "task_ids": ["F041","F042","F043","F044"],
+      "archived_at": "2026-04-10T14:03:03Z",
+      "summary": { "total": 4, "completed": 4, "cancelled": 0 }
+    },
+    {
+      "phase": "device-online-limit",
+      "task_ids": ["B036","B037","F045","F046","F047"],
+      "archived_at": "2026-04-10T14:03:03Z",
+      "summary": { "total": 5, "completed": 5, "cancelled": 0 }
+    },
+    {
+      "phase": "login-device-limit",
+      "task_ids": ["B038","B039","F048","F049","S025"],
+      "archived_at": "2026-04-10T14:03:03Z",
+      "summary": { "total": 5, "completed": 5, "cancelled": 0 }
+    },
+    {
+      "phase": "token-unification",
+      "task_ids": ["B040","B041","S026"],
+      "archived_at": "2026-04-10T14:03:03Z",
+      "summary": { "total": 3, "completed": 3, "cancelled": 0 }
+    },
+    {
+      "phase": "remove-conflict-dialog",
+      "task_ids": ["B042","F050","S027"],
+      "archived_at": "2026-04-10T14:03:03Z",
+      "summary": { "total": 3, "completed": 3, "cancelled": 0 }
+    },
+    {
+      "phase": "feedback-feature",
+      "task_ids": ["B048","B049","F051","F052","F053","S030"],
+      "archived_at": "2026-04-12T14:00:00Z",
+      "summary": { "total": 6, "completed": 6, "cancelled": 0 }
+    },
+    {
+      "phase": "log-decoupling",
+      "task_ids": ["B054","B055","S031"],
+      "archived_at": "2026-04-12T14:00:00Z",
+      "summary": { "total": 3, "completed": 3, "cancelled": 0 }
+    },
+    {
+      "phase": "logging-integration",
+      "task_ids": ["B043","B044","B045","B046","B047","S028","S029"],
+      "archived_at": "2026-04-10T14:03:03Z",
+      "summary": { "total": 7, "completed": 7, "cancelled": 0 }
+    },
+    {
+      "phase": "user-info",
+      "task_ids": ["B056","F054","F055","F056","S032"],
+      "archived_at": "2026-04-12T19:00:00Z",
+      "summary": { "total": 5, "completed": 5, "cancelled": 0 }
+    }
+  ]
+}

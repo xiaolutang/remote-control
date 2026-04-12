@@ -1,0 +1,86 @@
+{
+  "S001": {
+    "name": "共享会话契约与验收基线",
+    "status": "completed",
+    "module": "共享会话",
+    "verification": "L4"
+  },
+  "S002": {
+    "name": "双端共控主链路联调",
+    "status": "completed",
+    "module": "共享会话",
+    "verification": "L4"
+  },
+  "S003": {
+    "name": "发布与部署验收",
+    "status": "completed",
+    "module": "共享会话",
+    "verification": "L3"
+  },
+  "S011": {
+    "name": "设备与多 terminal 契约及自动化基线",
+    "status": "completed",
+    "module": "多终端架构",
+    "verification": "L4"
+  },
+  "S012": {
+    "name": "多 terminal 主链路联调与回归验收",
+    "status": "completed",
+    "module": "多终端架构",
+    "verification": "L4"
+  },
+  "S013": {
+    "name": "设备在线与终端视图权威语义基线",
+    "status": "completed",
+    "module": "状态语义收口",
+    "verification": "L4"
+  },
+  "S014": {
+    "name": "终端工作台 tab 主路径与初始化快照基线",
+    "status": "completed",
+    "module": "终端工作台",
+    "verification": "L4"
+  },
+  "S015": {
+    "name": "terminal 创建准入与 closed 清理语义基线",
+    "status": "completed",
+    "module": "创建与关闭语义",
+    "verification": "L4"
+  },
+  "S016": {
+    "name": "顶部状态栏瘦身与 terminal 菜单化基线",
+    "status": "completed",
+    "module": "终端工作台瘦身",
+    "verification": "L4"
+  },
+  "S017": {
+    "name": "设备离线后的 terminal 收口与统一关闭语义",
+    "status": "completed",
+    "module": "设备离线收口",
+    "verification": "L4"
+  },
+  "S018": {
+    "name": "桌面端 Agent 后台模式与退出语义基线",
+    "status": "cancelled",
+    "module": "桌面 Agent 后台模式",
+    "verification": "L4"
+  },
+  "S019": {
+    "name": "桌面 Agent 管理子系统与工作台状态机基线",
+    "status": "cancelled",
+    "module": "桌面 Agent 管理子系统",
+    "verification": "L4"
+  },
+  "S022": {
+    "name": "Agent 本地 HTTP Server",
+    "status": "completed",
+    "module": "Agent Supervisor",
+    "verification": "L2"
+  },
+  "S023": {
+    "name": "状态文件持久化与端口发现",
+    "status": "completed",
+    "module": "Agent Supervisor",
+    "verification": "L2"
+  }
+}

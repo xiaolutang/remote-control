@@ -1,0 +1,82 @@
+{
+  "phase": "user-info",
+  "archived_at": "2026-04-12T19:00:00Z",
+  "summary": {
+    "total": 5,
+    "completed": 5,
+    "cancelled": 0
+  },
+  "tasks": [
+    {
+      "id": "B056",
+      "phase": "user-info",
+      "module": "server",
+      "name": "修复反馈 user_id + LoginResponse 增强",
+      "description": "修复 feedback_api.py 的 user_id 取值错误：通过 JWT 的 sub（即 session_id）查 Redis session 记录获取真实 user_id（用户名）。同时 LoginResponse 新增 username 字段。",
+      "verification": "L2",
+      "status": "completed",
+      "priority": "P0",
+      "files": [
+        "server/app/feedback_api.py",
+        "server/app/user_api.py",
+        "server/tests/test_feedback_api.py"
+      ]
+    },
+    {
+      "id": "F054",
+      "phase": "user-info",
+      "module": "client",
+      "name": "用户信息本地存储与服务",
+      "description": "新建 user_info_service.dart，封装用户信息的读取。登录成功后保存 login_time 到 SharedPreferences。",
+      "verification": "F1",
+      "status": "completed",
+      "priority": "P1",
+      "files": [
+        "client/lib/services/user_info_service.dart",
+        "client/lib/services/auth_service.dart"
+      ]
+    },
+    {
+      "id": "F055",
+      "phase": "user-info",
+      "module": "client",
+      "name": "用户信息页面 UI",
+      "description": "新建 user_profile_screen.dart，展示用户名、登录时间、平台信息，包含反馈和退出登录入口。",
+      "verification": "F2",
+      "status": "completed",
+      "priority": "P1",
+      "files": [
+        "client/lib/screens/user_profile_screen.dart"
+      ]
+    },
+    {
+      "id": "F056",
+      "phase": "user-info",
+      "module": "client",
+      "name": "菜单去重 + 个人信息入口",
+      "description": "三处菜单移除反馈和退出登录，新增个人信息入口，统一收口到 UserProfileScreen。",
+      "verification": "F2",
+      "status": "completed",
+      "priority": "P1",
+      "files": [
+        "client/lib/screens/terminal_workspace_screen.dart",
+        "client/lib/screens/runtime_selection_screen.dart",
+        "client/lib/screens/terminal_screen.dart",
+        "client/lib/services/auth_service.dart"
+      ]
+    },
+    {
+      "id": "S032",
+      "phase": "user-info",
+      "module": "shared",
+      "name": "用户信息 + 反馈修复集成测试",
+      "description": "端到端验证：登录获取 username → 提交反馈 → 反馈记录中 user_id 为真实用户名。",
+      "verification": "L4",
+      "status": "completed",
+      "priority": "P1",
+      "files": [
+        "tests/e2e/test_feedback_user_id_fix.py"
+      ]
+    }
+  ]
+}

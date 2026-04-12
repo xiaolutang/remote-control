@@ -1,0 +1,1348 @@
+[
+  {
+    "id": "B001",
+    "phase": "backend",
+    "module": "服务端",
+    "slice": "会话状态",
+    "name": "服务端扩展共享会话状态模型",
+    "description": "扩展 session 记录，支持 owner、agent_online、mobile/desktop presence、pty 尺寸与更新时间。",
+    "verification": "L2",
+    "depends_on": [
+      "S001"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "remote-control/server/app/session.py",
+      "remote-control/server/app/ws_agent.py",
+      "remote-control/server/app/ws_client.py",
+      "remote-control/server/tests/test_session.py",
+      "remote-control/server/tests/test_ws.py"
+    ],
+    "contract_refs": [
+      "CONTRACT-001",
+      "CONTRACT-002",
+      "CONTRACT-003"
+    ],
+    "acceptance_criteria": [
+      "session 可记录 owner 与多视图状态",
+      "查询会话状态可返回 mobile/desktop 连接数量与 PTY 尺寸",
+      "状态变更在 Agent 和 client 附着/断开时正确更新"
+    ],
+    "risk_tags": [
+      "network",
+      "auth",
+      "startup"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "unit",
+        "description": "session 状态模型测试",
+        "scenarios": [
+          "正常更新 mobile/desktop presence",
+          "非法 owner 查询被拒绝",
+          "Agent 断开后状态回写"
+        ],
+        "estimated_minutes": 15
+      },
+      {
+        "type": "manual",
+        "description": "首次启动 session 状态 smoke",
+        "scenarios": [
+          "冷启动后查询 session 状态成功",
+          "未附着视图时返回 0 连接数"
+        ],
+        "estimated_minutes": 5
+      }
+    ],
+    "blocked_by": [],
+    "notes": "",
+    "estimated_minutes": 25,
+    "actual_minutes": 20,
+    "created_at": "2026-03-27T16:45:00Z",
+    "started_at": "2026-03-27T17:15:00Z",
+    "completed_at": "2026-03-27T17:35:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "B002",
+    "phase": "backend",
+    "module": "服务端",
+    "slice": "relay",
+    "name": "服务端支持多终端视图双向转发",
+    "description": "基于共享 session 支持多个 client view 附着到同一个 PTY，会话输出广播给所有视图，输入和 resize 转发给唯一 Agent。",
+    "verification": "L2",
+    "depends_on": [
+      "B001"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "remote-control/server/app/ws_agent.py",
+      "remote-control/server/app/ws_client.py",
+      "remote-control/server/tests/test_ws.py"
+    ],
+    "contract_refs": [
+      "CONTRACT-002",
+      "CONTRACT-003"
+    ],
+    "acceptance_criteria": [
+      "一个 session 支持 desktop 和 mobile 同时连接",
+      "Agent 输出广播到全部已连接视图",
+      "视图输入和 resize 正确转发到唯一 Agent"
+    ],
+    "risk_tags": [
+      "network",
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "多视图 relay 测试",
+        "scenarios": [
+          "双 client 同时收到同一 PTY 输出",
+          "mobile 输入写入 PTY 后 desktop 可看到结果",
+          "desktop resize 更新 PTY 尺寸"
+        ],
+        "estimated_minutes": 20
+      },
+      {
+        "type": "manual",
+        "description": "双端附着 smoke",
+        "scenarios": [
+          "电脑端附着后手机再附着成功",
+          "手机断开后电脑端会话仍可继续"
+        ],
+        "estimated_minutes": 5
+      }
+    ],
+    "blocked_by": [],
+    "notes": "",
+    "estimated_minutes": 30,
+    "actual_minutes": 25,
+    "created_at": "2026-03-27T16:45:00Z",
+    "started_at": "2026-03-27T17:35:00Z",
+    "completed_at": "2026-03-27T18:00:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "B003",
+    "phase": "backend",
+    "module": "Agent",
+    "slice": "pty-core",
+    "name": "Agent 单 PTY 会话管理与宿主终端隔离",
+    "description": "让 Agent 只维护唯一 PTY 会话，不再依赖宿主终端镜像；确保输入输出、resize、生命周期都围绕 PTY 本身运行。",
+    "verification": "L2",
+    "depends_on": [
+      "S001"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "remote-control/agent/app/pty_wrapper.py",
+      "remote-control/agent/app/websocket_client.py",
+      "remote-control/agent/tests/test_pty.py",
+      "remote-control/agent/tests/test_forwarding.py"
+    ],
+    "contract_refs": [
+      "CONTRACT-002",
+      "CONTRACT-003"
+    ],
+    "acceptance_criteria": [
+      "Agent 只向 PTY 写入 client 输入，不读取宿主 stdin 造成污染",
+      "PTY 输出按会话协议发回 server，不依赖宿主终端显示",
+      "resize 和进程退出在双端场景下行为稳定"
+    ],
+    "risk_tags": [
+      "startup",
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "PTY 生命周期与污染隔离测试",
+        "scenarios": [
+          "启动 Claude Code 不再注入宿主终端控制序列",
+          "PTY 退出后 session 正确回写 offline",
+          "重复 attach 不会生成第二个 PTY"
+        ],
+        "estimated_minutes": 20
+      },
+      {
+        "type": "manual",
+        "description": "Claude Code 首用 smoke",
+        "scenarios": [
+          "启动 claude code 后电脑端不出现控制序列乱码",
+          "手机端发送一条消息后 Claude 正常响应"
+        ],
+        "estimated_minutes": 10
+      }
+    ],
+    "blocked_by": [],
+    "notes": "",
+    "estimated_minutes": 30,
+    "actual_minutes": 20,
+    "created_at": "2026-03-27T16:45:00Z",
+    "started_at": "2026-03-27T17:15:00Z",
+    "completed_at": "2026-03-27T17:35:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "B004",
+    "phase": "backend",
+    "module": "Agent",
+    "slice": "bootstrap",
+    "name": "Agent 登录配置与会话恢复稳定化",
+    "description": "统一 login / refresh / ws server 配置，保证 Agent 首次登录、token 刷新、重启恢复与错误提示可用。",
+    "verification": "L2",
+    "depends_on": [
+      "B001"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "remote-control/agent/app/cli.py",
+      "remote-control/agent/app/config.py",
+      "remote-control/agent/app/auth_service.py",
+      "remote-control/agent/tests/test_cli.py",
+      "remote-control/agent/tests/test_reconnect.py"
+    ],
+    "contract_refs": [
+      "CONTRACT-001",
+      "CONTRACT-004",
+      "CONTRACT-005"
+    ],
+    "acceptance_criteria": [
+      "登录写入 http api_url 与 ws server_url 的职责清晰",
+      "refresh token 成功后能继续连接共享会话",
+      "配置损坏或地址错误时提示明确且可恢复"
+    ],
+    "risk_tags": [
+      "auth",
+      "config",
+      "startup",
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "Agent 登录恢复测试",
+        "scenarios": [
+          "首次登录成功并持久化配置",
+          "token 过期自动刷新成功",
+          "refresh token 失效时要求重新登录"
+        ],
+        "estimated_minutes": 20
+      },
+      {
+        "type": "manual",
+        "description": "首次启动配置 smoke",
+        "scenarios": [
+          "空配置首次登录成功",
+          "server_url 错误时展示可理解提示"
+        ],
+        "estimated_minutes": 5
+      }
+    ],
+    "blocked_by": [],
+    "notes": "",
+    "estimated_minutes": 25,
+    "actual_minutes": 15,
+    "created_at": "2026-03-27T16:45:00Z",
+    "started_at": "2026-03-27T17:35:00Z",
+    "completed_at": "2026-03-27T17:50:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "B005",
+    "phase": "backend",
+    "module": "服务端",
+    "slice": "auth",
+    "name": "会话归属校验与附着握手清理",
+    "description": "清理 session_id 与 owner/token 的校验逻辑，确保用户只能附着自己的会话，connected 消息和错误语义稳定。",
+    "verification": "L2",
+    "depends_on": [
+      "B001",
+      "B004"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "remote-control/server/app/ws_client.py",
+      "remote-control/server/app/ws_agent.py",
+      "remote-control/server/app/auth.py",
+      "remote-control/server/tests/test_auth.py",
+      "remote-control/server/tests/test_ws.py"
+    ],
+    "contract_refs": [
+      "CONTRACT-001",
+      "CONTRACT-002",
+      "CONTRACT-003"
+    ],
+    "acceptance_criteria": [
+      "client/agent 附着时明确校验 owner 与 session 归属",
+      "不再接受不一致的 session_id/token 组合绕过校验",
+      "connected 和 error 消息结构与契约一致"
+    ],
+    "risk_tags": [
+      "auth",
+      "network",
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "归属校验测试",
+        "scenarios": [
+          "本人 token 可附着本人 session",
+          "他人 token 附着本人 session 返回 403",
+          "session 不存在返回 404"
+        ],
+        "estimated_minutes": 15
+      },
+      {
+        "type": "manual",
+        "description": "会话隔离 smoke",
+        "scenarios": [
+          "仅同账号双端可见同一终端",
+          "错误 token 不会连入已有会话"
+        ],
+        "estimated_minutes": 5
+      }
+    ],
+    "blocked_by": [],
+    "notes": "",
+    "estimated_minutes": 20,
+    "actual_minutes": 10,
+    "created_at": "2026-03-27T16:45:00Z",
+    "started_at": "2026-03-27T17:50:00Z",
+    "completed_at": "2026-03-27T18:00:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "B006",
+    "phase": "backend",
+    "module": "服务端",
+    "slice": "device-state",
+    "name": "服务端设备注册与在线状态模型",
+    "description": "在服务端引入 device 级状态，支持 device 在线注册、心跳更新时间、agent_online 与 device 元数据存储。",
+    "verification": "L1",
+    "depends_on": [
+      "S011"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "remote-control/server/app/session.py",
+      "remote-control/server/app/ws_agent.py",
+      "remote-control/server/tests/test_session.py",
+      "remote-control/server/tests/test_ws.py"
+    ],
+    "contract_refs": [
+      "CONTRACT-010",
+      "CONTRACT-014"
+    ],
+    "acceptance_criteria": [
+      "session 记录可升级为 device 级在线状态与元数据",
+      "device 心跳、更新时间与 agent_online 状态可独立查询",
+      "相关逻辑可在不启动真实 PTY 的情况下通过 mock 测试验证"
+    ],
+    "risk_tags": [
+      "network",
+      "startup",
+      "config"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": false,
+    "test_tasks": [
+      {
+        "type": "unit",
+        "description": "device 状态模型测试",
+        "scenarios": [
+          "首次注册 device 后初始字段完整",
+          "心跳更新仅刷新在线字段与时间戳",
+          "device 离线后 terminal 仍保留元数据但不允许新附着"
+        ],
+        "estimated_minutes": 20
+      }
+    ],
+    "blocked_by": [],
+    "notes": "device 默认结构、兼容归一化、metadata 更新和 heartbeat helper 已落地，并通过纯 mock session 测试。",
+    "estimated_minutes": 30,
+    "actual_minutes": 20,
+    "created_at": "2026-03-29T01:40:00Z",
+    "started_at": "2026-03-29T01:55:00Z",
+    "completed_at": "2026-03-29T02:10:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "B007",
+    "phase": "backend",
+    "module": "服务端",
+    "slice": "terminal-state",
+    "name": "服务端 terminal 状态模型与设备上限",
+    "description": "为 device 下多个 terminal 建立状态模型，支持 `cwd / command / env / title` 元数据、terminal 状态和每设备 terminal 上限检查。",
+    "verification": "L1",
+    "depends_on": [
+      "B006"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "remote-control/server/app/session.py",
+      "remote-control/server/tests/test_session.py"
+    ],
+    "contract_refs": [
+      "CONTRACT-011",
+      "CONTRACT-014"
+    ],
+    "acceptance_criteria": [
+      "terminal 元数据支持 cwd、command、env、title",
+      "每设备最大 terminal 数可校验且超限时给出稳定错误语义",
+      "terminal 状态流转可在纯逻辑测试中覆盖正常、边界、异常路径"
+    ],
+    "risk_tags": [
+      "config",
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": false,
+    "test_tasks": [
+      {
+        "type": "unit",
+        "description": "terminal 状态与上限测试",
+        "scenarios": [
+          "同一 device 下创建多个 terminal 成功",
+          "超过 max_terminals 时拒绝创建",
+          "terminal 关闭后释放可用名额"
+        ],
+        "estimated_minutes": 20
+      }
+    ],
+    "blocked_by": [],
+    "notes": "terminal registry、状态校验、上限控制和关闭释放名额 helper 已落地，并通过纯 mock session 测试。",
+    "estimated_minutes": 30,
+    "actual_minutes": 15,
+    "created_at": "2026-03-29T01:40:00Z",
+    "started_at": "2026-03-29T02:10:00Z",
+    "completed_at": "2026-03-29T02:25:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "B008",
+    "phase": "backend",
+    "module": "服务端",
+    "slice": "device-terminal-api",
+    "name": "设备列表与 terminal 列表/创建 API",
+    "description": "增加在线设备列表、terminal 列表、terminal 创建接口，并在服务端执行在线 gating 与归属校验。",
+    "verification": "L2",
+    "depends_on": [
+      "B006",
+      "B007"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "remote-control/server/app/routes.py",
+      "remote-control/server/app/session.py",
+      "remote-control/server/tests/test_integration.py",
+      "remote-control/server/tests/test_auth.py"
+    ],
+    "contract_refs": [
+      "CONTRACT-010",
+      "CONTRACT-011"
+    ],
+    "acceptance_criteria": [
+      "客户端可查询在线 device 列表和 terminal 列表",
+      "device 离线或不属于当前用户时不允许创建或连接 terminal",
+      "接口测试可使用 mock 状态，不依赖真实 Agent/PTY"
+    ],
+    "risk_tags": [
+      "network",
+      "auth",
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "device/terminal API 测试",
+        "scenarios": [
+          "查询在线 device 列表返回用户自己的设备",
+          "device online 时创建 terminal 成功",
+          "device offline 时创建 terminal 返回 gating 错误"
+        ],
+        "estimated_minutes": 25
+      },
+      {
+        "type": "manual",
+        "description": "API 首用 smoke",
+        "scenarios": [
+          "登录后可看到在线设备",
+          "未上线设备不显示可连接 terminal"
+        ],
+        "estimated_minutes": 5
+      }
+    ],
+    "blocked_by": [],
+    "notes": "新增 /api/runtime/devices 与 /api/runtime/devices/{device_id}/terminals，完成在线 gating 与 terminal 创建 API 集成测试。",
+    "estimated_minutes": 35,
+    "actual_minutes": 20,
+    "created_at": "2026-03-29T01:40:00Z",
+    "started_at": "2026-03-29T02:25:00Z",
+    "completed_at": "2026-03-29T02:45:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "B009",
+    "phase": "backend",
+    "module": "服务端",
+    "slice": "terminal-relay",
+    "name": "按 terminal_id 的 WebSocket 附着与在线 gating",
+    "description": "将现有 relay 从 session 级升级为 terminal 级，client 附着时必须带 terminal_id，并校验 device/terminal 在线状态。",
+    "verification": "L2",
+    "depends_on": [
+      "B008"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "remote-control/server/app/ws_agent.py",
+      "remote-control/server/app/ws_client.py",
+      "remote-control/server/tests/test_ws.py",
+      "remote-control/server/tests/test_integration.py"
+    ],
+    "contract_refs": [
+      "CONTRACT-012",
+      "CONTRACT-013",
+      "CONTRACT-014"
+    ],
+    "acceptance_criteria": [
+      "client 附着改为 terminal 级而不是 session 级",
+      "device offline 或 terminal closed 时拒绝附着",
+      "relay 测试可通过 mock terminal registry 覆盖输入、输出、resize 与 presence"
+    ],
+    "risk_tags": [
+      "network",
+      "auth",
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "terminal relay 测试",
+        "scenarios": [
+          "两个 view 同时附着同一 terminal 成功",
+          "向 terminal 发送输入时只路由到对应 PTY",
+          "terminal closed 后客户端收到明确错误"
+        ],
+        "estimated_minutes": 25
+      },
+      {
+        "type": "manual",
+        "description": "terminal 附着 smoke",
+        "scenarios": [
+          "从设备列表进入 terminal 成功",
+          "错误 terminal_id 无法附着"
+        ],
+        "estimated_minutes": 5
+      }
+    ],
+    "blocked_by": [],
+    "notes": "client ws 支持 device_id/terminal_id，relay 与 broadcast 升级为 terminal 级，并保持旧 session 链路兼容。",
+    "estimated_minutes": 35,
+    "actual_minutes": 20,
+    "created_at": "2026-03-29T01:40:00Z",
+    "started_at": "2026-03-29T02:45:00Z",
+    "completed_at": "2026-03-29T03:00:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "B010",
+    "phase": "backend",
+    "module": "服务端",
+    "slice": "disconnect-lifecycle",
+    "name": "断线原因与 grace period 生命周期状态机",
+    "description": "为 device 和 terminal 增加 `network_lost / agent_shutdown / terminal_exit / server_forced_close` 等关闭语义，并支持短线 grace period。",
+    "verification": "L1",
+    "depends_on": [
+      "B007",
+      "B009"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "remote-control/server/app/session.py",
+      "remote-control/server/app/ws_agent.py",
+      "remote-control/server/tests/test_session.py",
+      "remote-control/server/tests/test_ws.py"
+    ],
+    "contract_refs": [
+      "CONTRACT-014"
+    ],
+    "acceptance_criteria": [
+      "服务端能记录 terminal 关闭原因与更新时间",
+      "短线场景进入 grace period，而不是立刻销毁 terminal 元数据",
+      "状态机测试覆盖正常、超时、主动关闭和强制关闭"
+    ],
+    "risk_tags": [
+      "network",
+      "startup"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": false,
+    "test_tasks": [
+      {
+        "type": "unit",
+        "description": "关闭原因与 grace period 状态机测试",
+        "scenarios": [
+          "心跳超时标记为 network_lost",
+          "Agent 主动下线标记为 agent_shutdown",
+          "grace period 内重连恢复原 terminal"
+        ],
+        "estimated_minutes": 20
+      }
+    ],
+    "blocked_by": [],
+    "notes": "terminal 状态新增 grace_expires_at，Agent 清理时回写 disconnect_reason 与 60s 恢复窗口。",
+    "estimated_minutes": 30,
+    "actual_minutes": 15,
+    "created_at": "2026-03-29T01:40:00Z",
+    "started_at": "2026-03-29T03:00:00Z",
+    "completed_at": "2026-03-29T03:10:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "B011",
+    "phase": "backend",
+    "module": "Agent",
+    "slice": "multi-terminal-runtime",
+    "name": "Agent 多 terminal runtime 与 cwd 启动参数",
+    "description": "让 Agent 持有多个 terminal runtime，每个 runtime 可按 `cwd / command / env / title` 拉起独立 PTY，并向服务端上报 terminal 生命周期事件。",
+    "verification": "L1",
+    "depends_on": [
+      "S011",
+      "B007"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "remote-control/agent/app/pty_wrapper.py",
+      "remote-control/agent/app/websocket_client.py",
+      "remote-control/agent/tests/test_pty.py",
+      "remote-control/agent/tests/test_forwarding.py",
+      "remote-control/agent/tests/test_reconnect.py"
+    ],
+    "contract_refs": [
+      "CONTRACT-013",
+      "CONTRACT-014"
+    ],
+    "acceptance_criteria": [
+      "Agent 可同时管理多个 terminal runtime，而不是唯一 PTY",
+      "新 terminal 可按 cwd、command、env 启动",
+      "相关 runtime 管理与事件上报逻辑可通过 mock PTY 测试验证"
+    ],
+    "risk_tags": [
+      "startup",
+      "config",
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "unit",
+        "description": "Agent multi-terminal runtime 测试",
+        "scenarios": [
+          "创建两个不同 cwd 的 terminal runtime",
+          "某个 terminal 退出不影响其他 terminal",
+          "断线重连时 runtime 在 grace period 内可恢复"
+        ],
+        "estimated_minutes": 25
+      },
+      {
+        "type": "manual",
+        "description": "Agent 多 terminal 启动 smoke",
+        "scenarios": [
+          "同一 Agent 下创建两个不同目录 terminal 成功",
+          "关闭其中一个 terminal 后另一个仍可继续使用"
+        ],
+        "estimated_minutes": 10
+      }
+    ],
+    "blocked_by": [],
+    "notes": "新增 TerminalRuntimeManager、TerminalSpec 和 cwd/env 启动支持，并通过 mock PTY 与真实 cwd 测试验证。",
+    "estimated_minutes": 40,
+    "actual_minutes": 20,
+    "created_at": "2026-03-29T01:40:00Z",
+    "started_at": "2026-03-29T03:10:00Z",
+    "completed_at": "2026-03-29T03:30:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "B012",
+    "phase": "backend",
+    "module": "状态语义收口",
+    "slice": "后端权威状态",
+    "name": "服务端权威在线态与实时视图数收口",
+    "description": "将 runtime API、terminal 关闭 gating、列表快照和返回值统一切到服务端权威状态，不再混用 Redis 历史 views 或客户端内存状态。",
+    "verification": "L2",
+    "depends_on": [
+      "S013",
+      "B008",
+      "B009"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "remote-control/server/app/runtime_api.py",
+      "remote-control/server/app/session.py",
+      "remote-control/server/tests/test_integration.py",
+      "remote-control/server/tests/test_ws.py"
+    ],
+    "contract_refs": [
+      "CONTRACT-011",
+      "CONTRACT-012",
+      "CONTRACT-015"
+    ],
+    "acceptance_criteria": [
+      "runtime terminal 列表返回的 views 来自后端当前活跃连接数",
+      "关闭 terminal 的允许/禁止条件只按后端当前 view 数判断",
+      "客户端进入页面时拉到的 device/terminal 快照与后续 presence 增量能够一致收敛"
+    ],
+    "risk_tags": [
+      "network",
+      "config"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "runtime API 权威状态回归",
+        "scenarios": [
+          "terminal 列表返回实时 views",
+          "active views > 0 时关闭被拒绝",
+          "stale attached 状态不会误导 close/new create"
+        ],
+        "estimated_minutes": 20
+      }
+    ],
+    "blocked_by": [],
+    "notes": "重点修正 attached+0 views 脏状态、进入页面数量掉 0、客户端与后端状态源混杂的问题。",
+    "estimated_minutes": 35,
+    "actual_minutes": 30,
+    "created_at": "2026-03-29T20:20:00Z",
+    "started_at": "2026-03-29T20:55:00Z",
+    "completed_at": "2026-03-29T21:20:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "B014",
+    "phase": "backend",
+    "module": "创建与关闭语义",
+    "slice": "服务端准入",
+    "name": "服务端收敛 terminal 创建准入并移除公开 max_terminals 入参",
+    "description": "收敛 runtime API 的 terminal 创建准入，只按 device online 与 active terminals 上限判断；移除普通 device 更新接口中的 max_terminals 入参，并将其保留为服务端内部配置。",
+    "verification": "L2",
+    "depends_on": [
+      "S015",
+      "B012"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "remote-control/server/app/runtime_api.py",
+      "remote-control/server/app/session.py",
+      "remote-control/server/tests/test_integration.py",
+      "remote-control/server/tests/test_session.py"
+    ],
+    "contract_refs": [
+      "CONTRACT-011",
+      "CONTRACT-017"
+    ],
+    "acceptance_criteria": [
+      "普通 runtime device 更新接口不再接受 max_terminals",
+      "创建 terminal 的前置准入只按 device online 与 active terminals < max_terminals 判断",
+      "创建执行失败与准入失败在错误语义上明确分离"
+    ],
+    "risk_tags": [
+      "network",
+      "config",
+      "startup"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "创建准入与接口收口测试",
+        "scenarios": [
+          "电脑在线且未达上限时 create 成功进入执行阶段",
+          "电脑离线或已达上限时 create 被前置拒绝",
+          "PATCH device 传入 max_terminals 被拒绝或忽略"
+        ],
+        "estimated_minutes": 25
+      }
+    ],
+    "blocked_by": [],
+    "notes": "服务端继续返回 max_terminals 供客户端展示，但不再接受普通客户端修改。",
+    "estimated_minutes": 35,
+    "actual_minutes": 25,
+    "started_at": "2026-03-29T00:10:00Z",
+    "completed_at": "2026-03-29T00:35:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "B015",
+    "phase": "backend",
+    "module": "创建与关闭语义",
+    "slice": "Agent 恢复与清理",
+    "name": "桌面端首个 terminal 创建前 Agent 恢复链与 closed terminal 清理",
+    "description": "为桌面端首个 terminal 创建补齐本机 Agent 恢复链，并在 terminal 关闭时彻底清理活动连接记录与活动集合占位。",
+    "verification": "L3",
+    "depends_on": [
+      "S015",
+      "B013"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "remote-control/agent/app/websocket_client.py",
+      "remote-control/server/app/ws_agent.py",
+      "remote-control/server/app/ws_client.py",
+      "remote-control/server/app/session.py",
+      "remote-control/agent/tests",
+      "remote-control/server/tests/test_ws.py"
+    ],
+    "contract_refs": [
+      "CONTRACT-014",
+      "CONTRACT-017",
+      "CONTRACT-018"
+    ],
+    "acceptance_criteria": [
+      "桌面端在本机 Agent 离线且无 terminal 时，可先恢复 Agent 再创建首个 terminal",
+      "terminal 关闭后会清理其活动连接记录，不再继续占用活动 terminal 名额",
+      "close 后再次 create 不会被 stale closed terminal 或 stale view 阻塞"
+    ],
+    "risk_tags": [
+      "startup",
+      "network",
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "Agent 恢复与 close 清理测试",
+        "scenarios": [
+          "本机 Agent 离线时首个 terminal 创建先走恢复链",
+          "closed terminal 不再维持活动 views/connectivity",
+          "close 后立即 create 新 terminal 成功"
+        ],
+        "estimated_minutes": 30
+      },
+      {
+        "type": "manual",
+        "description": "桌面端首个 terminal 创建 smoke",
+        "scenarios": [
+          "本机 Agent 离线时桌面端点击创建可恢复 Agent 并进入 terminal",
+          "关闭 terminal 后能继续创建新 terminal"
+        ],
+        "estimated_minutes": 15
+      }
+    ],
+    "blocked_by": [],
+    "notes": "这一任务收口“App 在线但 Agent 离线时无法建立第一个 terminal”的断层体验。",
+    "estimated_minutes": 45,
+    "actual_minutes": 35,
+    "started_at": "2026-03-29T00:35:00Z",
+    "completed_at": "2026-03-29T01:10:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "B016",
+    "phase": "backend",
+    "module": "设备离线收口",
+    "slice": "服务端状态机",
+    "name": "服务端离线即清理 terminal 活跃态",
+    "description": "当 Agent 断开或设备进入 offline 时，统一将该设备下 terminal 收口为不可用/关闭终态，并释放活动视图数与活动 terminal 名额。",
+    "verification": "L2",
+    "depends_on": [
+      "S017"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "remote-control/server/app/session.py",
+      "remote-control/server/app/ws_agent.py",
+      "remote-control/server/app/runtime_api.py",
+      "remote-control/server/tests/test_session.py",
+      "remote-control/server/tests/test_integration.py",
+      "remote-control/server/tests/test_ws.py"
+    ],
+    "contract_refs": [
+      "CONTRACT-020"
+    ],
+    "acceptance_criteria": [
+      "device offline 后 terminal 不再保留 attached/detached 活动态",
+      "closed/unavailable terminal 不再占用活动 terminal 计数和视图数",
+      "runtime API 返回的 terminal 快照与在线语义一致"
+    ],
+    "risk_tags": [
+      "network",
+      "startup"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "离线收口与快照测试",
+        "scenarios": [
+          "Agent 断开后列表中的 terminal 被收口",
+          "offline 设备 active_terminals 只统计仍可承载的 terminal",
+          "closed terminal 不再保留 views"
+        ],
+        "estimated_minutes": 30
+      }
+    ],
+    "blocked_by": [],
+    "notes": "重点收 server 状态机，不改普通创建准入定义。",
+    "estimated_minutes": 35,
+    "actual_minutes": 15,
+    "started_at": "2026-03-29T00:00:00Z",
+    "completed_at": "2026-03-29T00:12:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "B017",
+    "phase": "backend",
+    "module": "设备离线收口",
+    "slice": "恢复与回归",
+    "name": "首个 terminal 创建与离线恢复链回归",
+    "description": "在设备离线、Agent 恢复、terminal 重建之间建立一致的恢复链，确保 offline->recover->create 不受旧 terminal 脏状态影响。",
+    "verification": "L3",
+    "depends_on": [
+      "B016"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "remote-control/server/app/ws_agent.py",
+      "remote-control/server/tests/test_integration.py",
+      "remote-control/agent/app/websocket_client.py",
+      "remote-control/agent/tests/test_forwarding.py"
+    ],
+    "contract_refs": [
+      "CONTRACT-018",
+      "CONTRACT-020"
+    ],
+    "acceptance_criteria": [
+      "设备离线后恢复 Agent，可以继续创建新的第一个 terminal",
+      "旧 terminal 的 closed/unavailable 状态不会阻塞后续 create",
+      "Agent 重连后的恢复链不再把离线前 terminal 误判为活动 terminal"
+    ],
+    "risk_tags": [
+      "network",
+      "startup",
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "offline->recover->create 回归测试",
+        "scenarios": [
+          "Agent offline 后 create 被拒绝",
+          "恢复 Agent 后可成功创建 terminal",
+          "旧 terminal 不会导致 active_terminal_count 虚高"
+        ],
+        "estimated_minutes": 25
+      }
+    ],
+    "blocked_by": [],
+    "notes": "这条任务收的是恢复链，不新增客户端入口。",
+    "estimated_minutes": 30,
+    "actual_minutes": 10,
+    "started_at": "2026-03-29T00:02:00Z",
+    "completed_at": "2026-03-29T00:12:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "B018",
+    "phase": "backend",
+    "module": "桌面 Agent 后台模式",
+    "slice": "agent-supervisor",
+    "name": "桌面端 AgentSupervisor 与优雅停机链路",
+    "description": "在桌面端引入本机 AgentSupervisor，支持探测、启动、停止 Agent，并区分桌面端自启动与外部已存在 Agent。",
+    "verification": "L2",
+    "depends_on": [
+      "S018"
+    ],
+    "status": "cancelled",
+    "priority": "P0",
+    "files": [
+      "remote-control/client/lib/services/desktop_agent_bootstrap_service.dart",
+      "remote-control/client/lib/services/desktop_agent_supervisor.dart",
+      "remote-control/client/test/services/desktop_agent_supervisor_test.dart"
+    ],
+    "contract_refs": [
+      "CONTRACT-018",
+      "CONTRACT-021"
+    ],
+    "acceptance_criteria": [
+      "桌面端可探测本机 Agent 在线状态，并区分当前实例自启动与外部已存在 Agent",
+      "桌面端支持优雅停止自己托管的 Agent，缩短服务端在线状态收口时间",
+      "重复启动 Agent 会被幂等处理，不会产生多个并行本地 Agent"
+    ],
+    "risk_tags": [
+      "startup",
+      "config",
+      "auth"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "unit",
+        "description": "桌面 AgentSupervisor 逻辑测试",
+        "scenarios": [
+          "已存在外部 Agent 时不会重复拉起",
+          "自己拉起的 Agent 可被记录为 managed",
+          "优雅停机失败时返回明确错误"
+        ],
+        "estimated_minutes": 20
+      },
+      {
+        "type": "manual",
+        "description": "桌面 Agent 启停 smoke",
+        "scenarios": [
+          "桌面端首次启动自动拉起 Agent",
+          "桌面端退出时仅 managed Agent 会被停止"
+        ],
+        "estimated_minutes": 10
+      }
+    ],
+    "blocked_by": [],
+    "notes": "实现上优先本地监督逻辑，避免改动服务端在线定义。",
+    "estimated_minutes": 35,
+    "created_at": "2026-03-29T09:20:00Z",
+    "execution_state": "pending",
+    "commit": null,
+    "cancelled_reason": "被 S022+S023+F029 覆盖（本地 HTTP Server 方案）"
+  },
+  {
+    "id": "B019",
+    "phase": "backend",
+    "module": "桌面 Agent 管理子系统",
+    "slice": "agent-manager",
+    "name": "DesktopAgentManager 与稳定 Agent 发现链",
+    "description": "以独立 DesktopAgentManager 统一 Agent 发现、启动、停止、托管所有权与退出语义，并去除对 Directory.current 的主路径依赖。",
+    "verification": "L2",
+    "depends_on": [
+      "S019",
+      "B018"
+    ],
+    "status": "cancelled",
+    "priority": "P0",
+    "files": [
+      "remote-control/client/lib/services/desktop_agent_supervisor.dart",
+      "remote-control/client/lib/services/desktop_agent_bootstrap_service.dart",
+      "remote-control/client/lib/services/desktop_agent_manager.dart",
+      "remote-control/client/lib/services/desktop_agent_exit_bridge.dart",
+      "remote-control/client/test/services/desktop_agent_supervisor_test.dart",
+      "remote-control/client/test/services/desktop_agent_manager_test.dart"
+    ],
+    "contract_refs": [
+      "CONTRACT-021",
+      "CONTRACT-022"
+    ],
+    "acceptance_criteria": [
+      "Agent 发现顺序正式化，显式配置路径或环境变量优先，Directory.current 不再是主要发现来源",
+      "桌面端能稳定区分 managed/external Agent，并复用单实例，不再依赖页面临时逻辑",
+      "Agent 启动失败时能输出明确的 startFailed 结果，供工作台状态机消费"
+    ],
+    "risk_tags": [
+      "startup",
+      "config",
+      "auth"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "unit",
+        "description": "DesktopAgentManager 逻辑测试",
+        "scenarios": [
+          "显式配置路径优先于环境变量和 fallback",
+          "已存在外部 Agent 时不重复启动",
+          "工作目录/可执行路径解析失败时返回 startFailed"
+        ],
+        "estimated_minutes": 25
+      }
+    ],
+    "blocked_by": [],
+    "notes": "系统性解决桌面 Agent 启动不稳定的核心任务。",
+    "estimated_minutes": 40,
+    "created_at": "2026-03-29T11:02:00Z",
+    "execution_state": "pending",
+    "commit": null,
+    "cancelled_reason": "被 S023 覆盖（状态文件发现机制）"
+  },
+  {
+    "id": "B022",
+    "phase": "backend",
+    "module": "Agent 状态管理",
+    "slice": "TTL 机制",
+    "name": "Server 端 Agent 状态 TTL 与 stale 语义",
+    "description": "WebSocket 断开时不立即清理 Agent 状态，而是标记 stale，等待 TTL 过期后再清理",
+    "verification": "L2",
+    "depends_on": [],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "server/app/ws_agent.py",
+      "server/app/__init__.py"
+    ],
+    "contract_refs": [
+      "CONTRACT-025"
+    ],
+    "acceptance_criteria": [
+      "WebSocket 断开时 Agent 状态标记为 stale 而非 offline",
+      "心跳刷新 Agent 状态 TTL（90 秒）",
+      "TTL 过期后状态自动变为 offline",
+      "Agent 重连时能恢复在线状态（如果仍在 TTL 内）"
+    ],
+    "risk_tags": [
+      "network",
+      "auth"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "unit",
+        "description": "TTL 机制测试",
+        "scenarios": [
+          "心跳刷新 TTL",
+          "TTL 过期后状态变为 offline",
+          "stale 状态下重连恢复"
+        ],
+        "estimated_minutes": 15
+      }
+    ],
+    "started_at": "2026-03-30T11:35:00Z",
+    "completed_at": "2026-03-30T12:00:00Z",
+    "actual_minutes": 25,
+    "notes": "实现 stale 机制：Agent 断开时标记为 stale，90 秒 TTL 后过期变 offline。后台 TTL checker 每 10 秒检查。重连时自动恢复。"
+  },
+  {
+    "id": "B032",
+    "phase": "backend",
+    "module": "PTY 管理",
+    "slice": "进程组清理",
+    "name": "PTY 进程组清理（os.killpg）",
+    "description": "修改 PTYWrapper.stop() 使用 os.killpg() 杀死整个进程组，避免孤儿进程",
+    "verification": "L1",
+    "depends_on": [],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "agent/app/pty_wrapper.py",
+      "agent/tests/test_pty.py"
+    ],
+    "acceptance_criteria": [
+      "PTYWrapper.stop() 使用 os.killpg(-self.pid, signal.SIGTERM) 杀死整个进程组",
+      "进程组中的所有子孙进程都会收到 SIGTERM 信号",
+      "不再只杀死直接子进程，避免孤儿进程残留",
+      "错误处理：进程组不存在时不会抛出异常"
+    ],
+    "risk_tags": [
+      "network"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "unit",
+        "description": "进程组清理单元测试",
+        "scenarios": [
+          "杀死进程组时所有子孙进程都收到信号",
+          "进程组不存在时错误被正确处理",
+          "孤儿进程场景验证"
+        ],
+        "estimated_minutes": 15
+      }
+    ],
+    "started_at": "2026-03-30T15:00:00Z",
+    "completed_at": "2026-03-30T15:15:00Z",
+    "actual_minutes": 15,
+    "notes": "使用 os.killpg(-self.pid) 杀死整个进程组，添加精确异常处理，单元测试通过"
+  },
+  {
+    "id": "B033",
+    "phase": "backend",
+    "module": "PTY 管理",
+    "slice": "超时强制终止",
+    "name": "超时后 SIGKILL 强制终止",
+    "description": "添加超时机制，SIGTERM 发送后等待 3 秒，超时则发送 SIGKILL 强制终止",
+    "verification": "L1",
+    "depends_on": [
+      "B032"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "agent/app/pty_wrapper.py"
+    ],
+    "acceptance_criteria": [
+      "发送 SIGTERM 后使用 select 或 asyncio 设置 3 秒超时",
+      "超时后发送 SIGKILL 强制终止进程组",
+      "SIGKILL 后确保进程被回收（使用 waitpid）",
+      "强制终止失败时记录错误日志"
+    ],
+    "risk_tags": [
+      "network"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "unit",
+        "description": "超时强制终止单元测试",
+        "scenarios": [
+          "正常终止时不触发 SIGKILL",
+          "超时后发送 SIGKILL",
+          "SIGKILL 后进程被正确回收"
+        ],
+        "estimated_minutes": 15
+      }
+    ],
+    "started_at": "2026-03-30T15:15:00Z",
+    "completed_at": "2026-03-30T04:25:11Z",
+    "actual_minutes": 15,
+    "notes": "添加 3 秒超时机制，超时后发送 SIGKILL 强制终止，添加轮询等待逻辑，单元测试通过"
+  },
+  {
+    "id": "B034",
+    "phase": "backend",
+    "module": "PTY 管理",
+    "slice": "资源清理",
+    "name": "资源清理完整性保障",
+    "description": "确保文件描述符、异步任务和内存资源在 PTY 关闭时被完整清理",
+    "verification": "L1",
+    "depends_on": [
+      "B033"
+    ],
+    "status": "completed",
+    "priority": "P1",
+    "files": [
+      "agent/app/pty_wrapper.py"
+    ],
+    "acceptance_criteria": [
+      "关闭 fd 前先取消正在运行的异步读取任务",
+      "master_fd 和 slave_fd 都被正确关闭",
+      "清理后 self.master_fd 和 self.slave_fd 被设置为 None",
+      "清理后 self.pid 被设置为 None",
+      "清理后 self._running 被设置为 False"
+    ],
+    "risk_tags": [],
+    "delivery_unit": "atomic",
+    "smoke_required": false,
+    "test_tasks": [
+      {
+        "type": "unit",
+        "description": "资源清理单元测试",
+        "scenarios": [
+          "fd 被正确关闭",
+          "异步任务被取消",
+          "多次调用 stop() 不会出错"
+        ],
+        "estimated_minutes": 10
+      }
+    ],
+    "started_at": "2026-03-30T15:30:00Z",
+    "completed_at": "2026-03-30T04:29:29Z",
+    "actual_minutes": 10,
+    "notes": "确保 fd 关闭前有短暂等待，添加 CLEANUP_GRACE_PERIOD 常量，添加状态重置、幂等性和 fd 关闭测试"
+  },
+  {
+    "id": "B035",
+    "phase": "backend",
+    "module": "PTY 管理",
+    "slice": "集成测试",
+    "name": "进程组清理集成测试",
+    "description": "添加进程组清理的集成测试，覆盖边界和异常场景",
+    "verification": "L2",
+    "depends_on": [
+      "B034"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "agent/tests/test_pty_wrapper.py"
+    ],
+    "acceptance_criteria": [
+      "测试创建多层子进程后能全部清理",
+      "测试 shell 脚本创建子进程的场景",
+      "测试 SIGTERM 被忽略时 SIGKILL 能强制终止",
+      "测试网络断开触发的终端关闭流程",
+      "所有边界和异常场景都有对应测试用例"
+    ],
+    "risk_tags": [
+      "network"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "进程组清理集成测试",
+        "scenarios": [
+          "多层子进程场景（shell -> bash -> sleep）",
+          "SIGTERM 被忽略场景",
+          "快速连续创建/销毁终端",
+          "Agent 断开后的终端清理"
+        ],
+        "estimated_minutes": 20
+      }
+    ],
+    "started_at": "2026-03-30T15:45:00Z",
+    "completed_at": "2026-03-30T16:15:00Z",
+    "actual_minutes": 30,
+    "notes": "19 个测试全部通过：进程组清理、超时强制终止、资源完整性、边界异常场景全覆盖；修复 os.waitpid 阻塞问题",
+    "commit": "370be9e"
+  }
+]

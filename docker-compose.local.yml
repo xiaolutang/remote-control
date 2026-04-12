@@ -1,0 +1,28 @@
+# Remote Control 本地开发配置
+# 使用方式: docker compose -f docker-compose.local.yml up --build
+# 服务地址: http://localhost:8000
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: rc-redis-dev
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: rc-server-dev
+    ports:
+      - "8890:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET:-dev-local-secret-key-change-before-production}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-}
+      - JWT_EXPIRY_HOURS=24
+      - LOG_SERVICE_URL=http://localhost:8001
+      - LOG_LEVEL=DEBUG
+    depends_on:
+      - redis

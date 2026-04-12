@@ -1,0 +1,132 @@
+{
+  "phase": "remove-conflict-dialog",
+  "archived_at": "2026-04-10T14:03:03Z",
+  "summary": {
+    "total": 3,
+    "completed": 3,
+    "cancelled": 0
+  },
+  "tasks": [
+    {
+      "id": "B042",
+      "phase": "remove-conflict-dialog",
+      "module": "server",
+      "name": "移除 WS 层冲突解决机制，简化为直接踢出",
+      "description": "移除 ws_client.py 中的 conflict_futures、CONFLICT_TIMEOUT、弹窗等待流程。同端检测到已有连接时直接发送 device_kicked 并 close 旧连接。保留同端互斥保护防止两个新 Client 同时通过检测。",
+      "verification": "L2",
+      "depends_on": [],
+      "status": "completed",
+      "started_at": "2026-04-10T01:10:00Z",
+      "completed_at": "2026-04-10T01:40:00Z",
+      "actual_minutes": 30,
+      "evidence_file": ".dev-flow/evidence/B042.md",
+      "priority": "high",
+      "commit": "pending",
+      "acceptance_criteria": [
+        "移除 conflict_futures 全局字典和 CONFLICT_TIMEOUT 常量",
+        "移除 _resolve_conflict、_cleanup_conflict_future 函数",
+        "移除 _handle_client_message 中的 conflict_response 分支",
+        "移除 _cleanup_client 中的 _cleanup_conflict_future 调用",
+        "冲突检测改为：发现已有同端连接 → 直接发送 device_kicked(replaced_by_new_device) → close 旧连接(4011)",
+        "保留 _find_client_by_view_type（简化后踢出逻辑仍需要查找同端 Client）",
+        "同端互斥保护：两个新 Client 同时连接时，后注册的发现前一个已踢出旧 Client，前一个的新 Client 正常保留（不再需要 4013 排队拒绝）",
+        "device_kicked 消息格式不变（type + reason + timestamp）",
+        "删除 test_ws_client_conflict.py，在 test_token_unification.py 中补充直接踢出测试",
+        "部署顺序：Server 必须先于 Client 部署"
+      ],
+      "test_tasks": [
+        "单元测试：新设备连接 → 旧设备收到 device_kicked + close(4011)",
+        "单元测试：新设备连接 → 旧设备被移除 → 新设备正常连接",
+        "单元测试：跨端不互踢（mobile + desktop 同时在线）",
+        "回归测试：全部测试通过"
+      ],
+      "risk_tags": [
+        "auth"
+      ],
+      "files": [
+        "server/app/ws_client.py",
+        "server/tests/test_ws_client_conflict.py",
+        "server/tests/test_token_unification.py"
+      ],
+      "estimated_minutes": 30
+    },
+    {
+      "id": "F050",
+      "phase": "remove-conflict-dialog",
+      "module": "client",
+      "name": "移除客户端冲突弹窗与 conflict_response",
+      "description": "移除 DeviceConflictDialog 组件、conflict_pending 横幅、4010/4013 close code 处理。保留 device_kicked 处理和 4011 close code。",
+      "verification": "F2",
+      "depends_on": [
+        "B042"
+      ],
+      "status": "completed",
+      "started_at": "2026-04-10T01:40:00Z",
+      "completed_at": "2026-04-10T01:55:00Z",
+      "actual_minutes": 15,
+      "commit": "pending",
+      "priority": "high",
+      "acceptance_criteria": [
+        "移除 lib/widgets/device_conflict_dialog.dart",
+        "移除 test/widgets/device_conflict_dialog_test.dart",
+        "清理 Xcode 项目文件（project.pbxproj）中对 device_conflict_dialog.dart 的引用",
+        "websocket_service.dart: 移除 deviceConflictStream、conflictPendingStream、sendConflictResponse",
+        "websocket_service.dart: 保留 deviceKickedStream",
+        "websocket_service.dart: 移除 4010/4013 close code 处理",
+        "websocket_service.dart: 保留 4011 close code 处理",
+        "terminal_screen.dart: 移除 _onDeviceConflict 方法和冲突对话框相关状态",
+        "terminal_screen.dart: 移除 _showConflictRejectedDialog 方法",
+        "terminal_screen.dart: 移除 _conflictPendingShowing 状态和横幅 UI",
+        "terminal_screen.dart: 保留 _onDeviceKicked",
+        "客户端能正常编译运行（flutter build apk/ios --debug 无错误）"
+      ],
+      "test_tasks": [
+        "编译测试：flutter build apk --debug 无错误",
+        "编译测试：flutter build ios --debug 无错误（模拟器）"
+      ],
+      "files": [
+        "client/lib/widgets/device_conflict_dialog.dart",
+        "client/test/widgets/device_conflict_dialog_test.dart",
+        "client/lib/services/websocket_service.dart",
+        "client/lib/screens/terminal_screen.dart",
+        "client/macos/Runner.xcodeproj/project.pbxproj"
+      ],
+      "estimated_minutes": 20
+    },
+    {
+      "id": "S027",
+      "phase": "remove-conflict-dialog",
+      "module": "shared",
+      "name": "集成测试与架构更新",
+      "description": "更新 architecture.md 不变量和禁止模式，更新 api_contracts.md CONTRACT-027，回归测试，部署 smoke",
+      "verification": "L4",
+      "depends_on": [
+        "F050"
+      ],
+      "status": "completed",
+      "started_at": "2026-04-10T01:55:00Z",
+      "completed_at": "2026-04-10T02:10:00Z",
+      "actual_minutes": 15,
+      "commit": "pending",
+      "priority": "medium",
+      "acceptance_criteria": [
+        "architecture.md: 不变量 #13 改为「同用户同端同时只允许一个 Client WS 连接，新设备直接替换旧设备」",
+        "architecture.md: 不变量 #14 删除",
+        "architecture.md: 禁止模式「客户端绕过 Server 冲突解决协议自行踢掉同端其他设备」简化为「客户端不得自行踢出同端其他设备」",
+        "architecture.md: 关键决策表「冲突解决通知用户选择」改为「新设备直接替换旧设备（token_version + WS 直接踢出）」",
+        "api_contracts.md: CONTRACT-027 标记为 deprecated 或重写为简化版直接踢出协议",
+        "回归测试全部通过"
+      ],
+      "test_tasks": [
+        "回归测试：全量测试通过"
+      ],
+      "risk_tags": [],
+      "smoke_required": true,
+      "files": [
+        ".dev-flow/architecture.md",
+        ".dev-flow/api_contracts.md"
+      ],
+      "estimated_minutes": 15
+    }
+  ]
+}

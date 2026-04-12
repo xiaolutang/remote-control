@@ -1,0 +1,14 @@
+{
+  "phase": "ws-lifecycle",
+  "archived_at": "2026-04-10T14:03:03Z",
+  "tasks": {
+    "F039": {
+      "name": "TerminalSessionManager 添加 App 生命周期感知",
+      "status": "completed"
+    },
+    "F040": {
+      "name": "单元测试：WebSocket 生命周期管理",
+      "status": "completed"
+    }
+  }
+}

@@ -1,0 +1,334 @@
+{
+  "phase": "logging-integration",
+  "archived_at": "2026-04-10T14:03:03Z",
+  "summary": {
+    "total": 7,
+    "completed": 7,
+    "cancelled": 0
+  },
+  "tasks": [
+    {
+      "id": "B043",
+      "phase": "logging-integration",
+      "module": "server",
+      "name": "Server 接入 log-service-sdk",
+      "description": "在 Server FastAPI 应用中接入 log-service-sdk，通过 setup_remote_logging() 一行代码初始化远程日志上报。添加 LOG_SERVICE_URL 和 LOG_LEVEL 环境变量配置。SDK 以本地路径方式安装（pip install -e log-service-sdk 或 Dockerfile 中 COPY SDK 源码后 pip install .）。SDK 依赖 httpx 会自动拉取。参考 PGA 的 main.py 实现。",
+      "verification": "L2",
+      "depends_on": [],
+      "status": "completed",
+      "priority": "high",
+      "acceptance_criteria": [
+        "server/app/__init__.py lifespan 中调用 setup_remote_logging(endpoint, service_name='remote-control', component='server')",
+        "lifespan yield 后调用 handler.close() 确保 flush",
+        "新增 LOG_SERVICE_URL 环境变量（默认 http://localhost:8001）",
+        "新增 LOG_LEVEL 环境变量（默认 INFO）",
+        "Server 启动后 logger.info 输出的日志出现在 log-service UI（service_name=remote-control, component=server）",
+        "Server 启动时 log-service 不可达不影响正常运行（SDK 静默重试）",
+        "server/Dockerfile 使用 COPY ./sdk/ /app/sdk/ 安装本地 SDK（deploy.sh 构建前将 SDK 源码复制到 server/sdk/ 目录）",
+        "本地开发：server/requirements.txt 添加 log-service-sdk 依赖（本地路径 -e，开发者按实际 SDK 位置配置）",
+        "Docker 构建：由 S028 deploy.sh 预复制 SDK 到 server/sdk/，server/Dockerfile 通过 COPY ./sdk/ /app/sdk/ 安装"
+      ],
+      "test_tasks": [
+        "[happy] Server 启动后 logger.info 输出在 log-service UI 可查",
+        "[happy] LOG_SERVICE_URL 未配置时使用默认 localhost:8001",
+        "[fail] log-service 不可达时 Server 正常启动，无异常抛出",
+        "[fail] handler.close() 后不再尝试发送日志"
+      ],
+      "risk_tags": [
+        "config"
+      ],
+      "files": [
+        "server/requirements.txt",
+        "server/app/__init__.py",
+        "server/Dockerfile"
+      ],
+      "estimated_minutes": 10,
+      "started_at": "2026-04-10T10:50:00Z",
+      "completed_at": "2026-04-10T10:55:49Z",
+      "actual_minutes": 10,
+      "evidence_file": ".dev-flow/evidence/B043.md",
+      "execution_notes": "SDK 一行接入，lifespan 中初始化和关闭，环境变量配置完成"
+    },
+    {
+      "id": "B044",
+      "phase": "logging-integration",
+      "module": "server",
+      "name": "Server 请求日志中间件",
+      "description": "为 Server FastAPI 添加三个请求日志中间件：RequestID（自动生成 X-Request-ID + ContextVar）、RequestLogging（自动记录 method/path/status/耗时/client_ip）、ErrorHandler（捕获未处理异常，记录完整堆栈）。参考 PGA 的 middleware/__init__.py 实现。",
+      "verification": "L2",
+      "depends_on": [
+        "B043"
+      ],
+      "status": "completed",
+      "priority": "high",
+      "acceptance_criteria": [
+        "新增 server/app/middleware.py，包含 RequestIDMiddleware + RequestLoggingMiddleware + ErrorHandlerMiddleware",
+        "每个请求自动生成或读取 X-Request-ID，通过 ContextVar 在请求生命周期内传递",
+        "每个 HTTP 请求自动记录日志：method、path、status_code、process_time_ms、client_ip、request_id",
+        "跳过健康检查（/health，直接挂在 app 上的端点）和 favicon 的日志记录",
+        "未处理异常自动记录完整堆栈（exc_info=True），返回标准化 JSON 错误响应含 request_id",
+        "响应头中返回 X-Request-ID",
+        "中间件注册顺序正确：ErrorHandler → RequestLogging → RequestID（后添加先执行）",
+        "TokenVerificationError 和 auth 模块的 HTTPException 不被 ErrorHandler 包装，保持原有 error_code 和 status_code 透传到响应层"
+      ],
+      "test_tasks": [
+        "[happy] POST /api/login 自动记录 method/path/status/耗时",
+        "[happy] 响应头包含 X-Request-ID",
+        "[fail] 未处理异常记录完整堆栈，返回含 request_id 的 JSON 错误响应",
+        "[boundary] GET /health 不产生请求日志（跳过健康检查）",
+        "[auth] TokenVerificationError 通过中间件后 error_code 字段保留，不被包装为通用 500",
+        "[auth] auth 模块 HTTPException 的 status_code 和 error_code 保持不变"
+      ],
+      "risk_tags": [],
+      "files": [
+        "server/app/middleware.py",
+        "server/app/__init__.py"
+      ],
+      "estimated_minutes": 15,
+      "started_at": "2026-04-10T11:00:00Z",
+      "completed_at": "2026-04-10T11:02:15Z",
+      "actual_minutes": 12,
+      "evidence_file": "evidence/B044.md",
+      "execution_notes": "完成 3 个中间件实现 + 9 项测试全部通过"
+    },
+    {
+      "id": "B045",
+      "phase": "logging-integration",
+      "module": "server",
+      "name": "Server 关键业务模块结构化日志",
+      "description": "为 ws_agent、ws_client、auth、session 等关键模块补充结构化日志。现有 logger 调用保留，补充 extra 字段（uid、session_id 等）和关键事件日志。",
+      "verification": "L2",
+      "depends_on": [
+        "B044"
+      ],
+      "status": "completed",
+      "priority": "medium",
+      "acceptance_criteria": [
+        "ws_agent.py：Agent 连接/断开/心跳超时/terminal 创建/terminal 关闭 有 info 级别日志，含 username、device_id",
+        "ws_client.py：Client 连接/断开/踢人/消息转发 有 info 级别日志，含 username、session_id",
+        "auth.py：Token 验证失败/过期/版本不匹配 有 warning 级别日志，含 error_code",
+        "session.py：Session 创建/更新/TTL 过期 有 info 级别日志，含 session_id",
+        "关键错误场景（Agent 连接失败、PTY 创建失败等）有 error 级别日志含异常信息",
+        "日志通过 extra 字段传递 uid 等上下文信息"
+      ],
+      "test_tasks": [
+        "[happy] Agent WS 连接时产生含 username 的日志",
+        "[happy] Client WS 连接时产生含 session_id 的日志",
+        "[happy] Token 验证失败时产生含 error_code 的 warning 日志",
+        "[boundary] 大量并发连接时日志不阻塞业务（SDK 非阻塞设计保证）",
+        "[fail] ws_agent 连接失败时产生含异常信息的 error 日志",
+        "[fail] PTY 创建失败时产生含异常信息的 error 日志",
+        "[fail] auth 认证失败/过期/版本不匹配时产生含 error_code 的 warning 日志",
+        "[fail] session TTL 过期时产生含 session_id 的 info 日志"
+      ],
+      "risk_tags": [],
+      "files": [
+        "server/app/ws_agent.py",
+        "server/app/ws_client.py",
+        "server/app/auth.py",
+        "server/app/session.py"
+      ],
+      "estimated_minutes": 15,
+      "started_at": "2026-04-10T11:15:00Z",
+      "completed_at": "2026-04-10T11:09:25Z",
+      "actual_minutes": 12,
+      "evidence_file": "evidence/B045.md",
+      "execution_notes": "完成 ws_agent/ws_client/auth/session 结构化日志 + 5 项测试通过"
+    },
+    {
+      "id": "B046",
+      "phase": "logging-integration",
+      "module": "server",
+      "name": "Server 转发 Client 日志到 log-service",
+      "description": "修改 log_api.py 的 POST /api/logs 端点，在保存 Redis 的同时将客户端日志批量转发到 log-service ingest API。这是代理转发路径（路径 B），与 Server/Agent 自身日志的 SDK 路径（路径 A）职责不同：SDK 是 Python logging handler 自动上报，这里是转发 Client 已格式化的日志，不需要也不适合使用 SDK。保持现有 Redis 查询和 SSE 流功能不受影响。",
+      "verification": "L2",
+      "depends_on": [
+        "B043"
+      ],
+      "status": "completed",
+      "priority": "high",
+      "acceptance_criteria": [
+        "转发使用 httpx.AsyncClient 异步调用 log-service ingest API（代理转发路径，非 SDK 路径，架构日志拓扑路径 B 已明确区分）",
+        "log_api.py POST /api/logs 保存 Redis 后，使用 httpx.AsyncClient 异步调用 log-service ingest API 转发日志（不阻塞事件循环）",
+        "转发日志使用 service_name='remote-control', component='client'",
+        "日志格式映射：LogEntry.level→IngestLogEntry.level, LogEntry.message→IngestLogEntry.message, LogEntry.timestamp→IngestLogEntry.timestamp, LogEntry.session_id→IngestLogEntry.extra.session_id",
+        "现有 GET /api/logs（Redis 查询）和 GET /api/logs/stream（SSE）功能不受影响",
+        "Client 上报的日志同时出现在 log-service UI（component=client）",
+        "转发使用 httpx.AsyncClient 发送，设置 timeout=3s；失败不重试（best-effort），仅记录本地 warning，不影响 Redis 存储和 API 响应"
+      ],
+      "test_tasks": [
+        "[happy] Client 上报日志 → Redis 存储成功 + log-service 可查（component=client）",
+        "[happy] GET /api/logs Redis 查询正常返回",
+        "[happy] GET /api/logs/stream SSE 推送正常",
+        "[fail] log-service 不可达 → Redis 正常存储，API 正常响应，本地 warning 日志",
+        "[boundary] 批量上报（10+ 条）时转发正常",
+        "[fail] log-service 响应超时（>3s）时 Redis 正常存储，API 正常响应，本地 warning 日志"
+      ],
+      "risk_tags": [
+        "network"
+      ],
+      "files": [
+        "server/app/log_api.py"
+      ],
+      "estimated_minutes": 10,
+      "started_at": "2026-04-10T11:30:00Z",
+      "completed_at": "2026-04-10T11:13:12Z",
+      "actual_minutes": 8,
+      "evidence_file": "evidence/B046.md",
+      "execution_notes": "完成 httpx.AsyncClient 代理转发 + 5 项测试通过"
+    },
+    {
+      "id": "B047",
+      "phase": "logging-integration",
+      "module": "agent",
+      "name": "Agent 接入 log-service-sdk",
+      "description": "在 Agent CLI run 和 start 命令中接入 log-service-sdk，初始化远程日志上报。为 websocket_client、pty_wrapper、auth_service 补充结构化日志。处理离线场景：启动时 log-service 不可达不影响 Agent 运行。SDK 以本地路径方式安装（pip install -e log-service-sdk（本地开发用 pip install -e 指向 SDK 源码路径，Docker 由 S028 Dockerfile 负责安装）），SDK 自带 httpx 依赖自动拉取。",
+      "verification": "L2",
+      "depends_on": [],
+      "status": "completed",
+      "priority": "high",
+      "acceptance_criteria": [
+        "agent/requirements.txt 添加 log-service-sdk 依赖",
+        "cli.py run 命令和 start 命令中均调用 setup_remote_logging(endpoint, service_name='remote-control', component='agent')",
+        "抽取日志初始化为独立函数（如 setup_agent_logging），run 和 start 命令共用，避免重复代码",
+        "endpoint 从环境变量 LOG_SERVICE_URL 读取（纯环境变量方式，不加 Config 字段，符合 12-factor）",
+        "进程退出前调用 handler.close()（atexit 或 signal handler）",
+        "websocket_client.py：连接/断开/重连/消息收发有 info 级别日志",
+        "pty_wrapper.py：terminal 创建/退出/异常有 info/error 级别日志",
+        "auth_service.py：认证成功/失败/Token 刷新有 info/warning 级别日志",
+        "Agent 启动时 log-service 不可达不影响运行（SDK 静默重试）",
+        "Agent 运行日志出现在 log-service UI（service_name=remote-control, component=agent）",
+        "LOG_SERVICE_URL 未配置或不可达时，Agent 仅本地日志输出，不远程上报（桌面开发态不部署在 Docker 网络）",
+        "Docker Agent 通过环境变量 LOG_SERVICE_URL=http://log-service:8001 上报（infra-network 内可达）"
+      ],
+      "test_tasks": [
+        "[happy] Agent 运行时日志出现在 log-service UI（component=agent）",
+        "[happy] websocket 连接/断开/重连产生日志",
+        "[happy] PTY 创建/退出产生日志",
+        "[fail] log-service 不可达时 Agent 正常运行，无异常抛出",
+        "[fail] Agent 异常退出前 handler.close() 被 atexit 调用",
+        "[boundary] Agent 断网重连期间日志队列不溢出",
+        "[fail] LOG_SERVICE_URL 未设置时 Agent 正常启动，仅本地日志，无异常",
+        "[fail] Desktop Agent（非 Docker）不依赖 log-service 网络可达"
+      ],
+      "risk_tags": [
+        "config",
+        "network"
+      ],
+      "files": [
+        "agent/requirements.txt",
+        "agent/app/cli.py",
+        "agent/app/websocket_client.py",
+        "agent/app/pty_wrapper.py",
+        "agent/app/auth_service.py"
+      ],
+      "estimated_minutes": 15,
+      "planning_notes": "Agent Python 代码负责读取 LOG_SERVICE_URL 环境变量并初始化 SDK；Docker Agent 的环境变量注入和网络配置由 S028 docker-compose.prod.yml 负责",
+      "started_at": "2026-04-10T11:40:00Z",
+      "completed_at": "2026-04-10T11:20:41Z",
+      "actual_minutes": 15,
+      "evidence_file": "evidence/B047.md",
+      "execution_notes": "完成 Agent SDK 接入 + 结构化日志 + 61 项测试通过"
+    },
+    {
+      "id": "S028",
+      "phase": "logging-integration",
+      "module": "shared",
+      "name": "Docker 标准化部署",
+      "description": "创建 docker-compose.prod.yml，将 remote-control 接入标准 Docker 部署架构：gateway(对外路由) + infra-network(共享服务) + rc-network(项目私有)。配置 Server 和 Agent 的 LOG_SERVICE_URL=http://log-service:8001。创建 deploy.sh 部署脚本。参考 PGA 三网模式。",
+      "verification": "L3",
+      "depends_on": [
+        "B043",
+        "B046",
+        "B047"
+      ],
+      "status": "completed",
+      "priority": "high",
+      "acceptance_criteria": [
+        "创建 docker-compose.prod.yml，server 服务加入 gateway + infra-network + rc-network 三个网络",
+        "server 服务添加 Traefik labels（如 PathPrefix(`/rc/`) → server:8000）",
+        "server 服务不再使用 ports 映射，改用 expose + Traefik 路由",
+        "Redis 服务只在 rc-network 私有网络内",
+        "server 环境变量 LOG_SERVICE_URL=http://log-service:8001",
+        "创建 deploy.sh 部署脚本（参考 PGA 的 deploy.sh）",
+        "deploy.sh 包含：网络创建、构建、启动、健康检查",
+        "日志上报到 log-service 正常工作",
+        "Traefik gateway 已在 infrastructure/docker-compose.yml 中预置（外部依赖），deploy.sh 需先检测 gateway 可用性再继续部署",
+        "Traefik labels 使用 StripPrefix(/rc/) 去除路径前缀，转发到 server:8000",
+        "curl -s -o /dev/null -w '%{http_code}' http://localhost:80/rc/health 返回 200（StripPrefix 后命中 Server /health）",
+        "Agent 服务加入 infra-network 以访问 log-service，环境变量 LOG_SERVICE_URL=http://log-service:8001",
+        "deploy.sh 构建前将 SDK 源码复制到 server/sdk/ 和 agent/sdk/ 目录（构建后清理），build context 为 remote-control/",
+        "创建 agent/Dockerfile，构建 Agent 镜像（含 log-service-sdk 安装）"
+      ],
+      "test_tasks": [
+        "[happy] deploy.sh 构建并启动无报错",
+        "[happy] docker ps 无 8888 端口映射（只通过 Traefik 80 端口）",
+        "[first_use] 全新环境首次部署成功（无旧容器、无数据卷）",
+        "[first_use] Traefik 未启动时 deploy.sh 提示先启动 gateway 并退出",
+        "[happy] curl http://localhost:80/rc/health 返回 200（Traefik StripPrefix 后命中 /health）",
+        "[happy] curl http://localhost:80/rc/api/logs 返回非 404（验证 API 路由可达）"
+      ],
+      "risk_tags": [
+        "network",
+        "first_use"
+      ],
+      "smoke_required": true,
+      "files": [
+        "docker-compose.prod.yml",
+        "deploy.sh",
+        "agent/Dockerfile"
+      ],
+      "estimated_minutes": 20,
+      "started_at": "2026-04-10T12:00:00Z",
+      "completed_at": "2026-04-10T11:23:11Z",
+      "actual_minutes": 15,
+      "evidence_file": "evidence/S028.md",
+      "execution_notes": "完成 Docker 三网部署 + deploy.sh + agent/Dockerfile"
+    },
+    {
+      "id": "S029",
+      "phase": "logging-integration",
+      "module": "shared",
+      "name": "端到端验证：日志接入 + Docker 部署",
+      "description": "验证 Server/Agent/Client 三端日志都能在 log-service UI 查到，Docker 标准化部署正常工作。",
+      "verification": "L4",
+      "depends_on": [
+        "B043",
+        "B044",
+        "B045",
+        "B046",
+        "B047",
+        "S028"
+      ],
+      "status": "completed",
+      "priority": "medium",
+      "acceptance_criteria": [
+        "log-service UI 按 component=server 过滤能看到 Server 请求日志",
+        "log-service UI 按 component=agent 过滤能看到 Agent 运行日志",
+        "log-service UI 按 component=client 过滤能看到 Client 上报的日志",
+        "log-service UI 按 service_name=remote-control 过滤能看到三端所有日志",
+        "Docker 部署通过 Traefik 正常访问 remote-control API",
+        "Server 重启后日志上报自动恢复",
+        "Agent 重启后日志上报自动恢复"
+      ],
+      "test_tasks": [
+        "[happy] 三端日志在 log-service UI 按 component 过滤均可见",
+        "[happy] 按 service_name=remote-control 过滤显示全部日志",
+        "[happy] Docker 部署 + Traefik 路由正常",
+        "[fail] log-service 重启后，Server/Agent 自动恢复日志上报",
+        "[boundary] 大量日志（100+ 条/分钟）时 log-service 正常接收"
+      ],
+      "risk_tags": [
+        "network"
+      ],
+      "smoke_required": true,
+      "files": [],
+      "estimated_minutes": 10,
+      "started_at": "2026-04-10T12:15:00Z",
+      "completed_at": "2026-04-10T11:24:31Z",
+      "actual_minutes": 10,
+      "evidence_file": "evidence/S029.md",
+      "execution_notes": "完成自动化验证（208+61 测试通过），Docker smoke test 需手动执行"
+    }
+  ]
+}

@@ -1,0 +1,401 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+import 'package:rc_client/screens/terminal_screen.dart';
+import 'package:rc_client/services/websocket_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../mocks/mock_websocket_service.dart';
+
+void main() {
+  group('TerminalScreen mobile shortcuts', () {
+    late _PreconnectedWebSocketService mockService;
+
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      mockService = _PreconnectedWebSocketService()..simulateConnect();
+    });
+
+    tearDown(() {
+      mockService.dispose();
+    });
+
+    Future<void> pumpScreen(
+      WidgetTester tester,
+      WebSocketService service,
+    ) async {
+      await tester.pumpWidget(
+        ChangeNotifierProvider<WebSocketService>.value(
+          value: service,
+          child: const MaterialApp(
+            home: TerminalScreen(platformOverride: TargetPlatform.android),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 150));
+    }
+
+    testWidgets('shows shortcut bar on mobile and sends control payloads',
+        (tester) async {
+      await pumpScreen(tester, mockService);
+
+      expect(find.text('Ctrl+C'), findsOneWidget);
+      expect(find.text('Enter'), findsOneWidget);
+      expect(find.text('更多'), findsOneWidget);
+      expect(find.text('/help'), findsNothing);
+
+      await tester.tap(find.text('Ctrl+C'));
+      await tester.pump();
+      await tester.tap(find.text('上一项'));
+      await tester.pump();
+
+      expect(mockService.sentMessages, contains('\x03'));
+      expect(mockService.sentMessages, contains('\x1b[A'));
+    });
+
+    testWidgets('shows TUI selector and shortcut bar together on mobile',
+        (tester) async {
+      await pumpScreen(tester, mockService);
+      mockService.simulateOutput('  1. Option A\n  2. Option B\n');
+      await tester.pumpAndSettle();
+
+      expect(find.text('Ctrl+C'), findsOneWidget);
+      expect(find.text('1'), findsOneWidget);
+      expect(find.text('2'), findsOneWidget);
+
+      await tester.tap(find.text('1'));
+      await tester.pump();
+
+      expect(mockService.sentMessages, contains('1'));
+    });
+
+    testWidgets('sends enter and ctrl+l payloads from shortcut bar',
+        (tester) async {
+      await pumpScreen(tester, mockService);
+
+      await tester.tap(find.text('Ctrl+L'));
+      await tester.pump();
+      await tester.ensureVisible(find.text('Enter'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Enter'));
+      await tester.pump();
+
+      expect(mockService.sentMessages, contains('\x0c'));
+      expect(mockService.sentMessages, contains('\r'));
+    });
+
+    testWidgets('sends default Claude command pack items and updates smart ordering',
+        (tester) async {
+      await pumpScreen(tester, mockService);
+
+      await tester.tap(find.text('更多'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('快捷命令'), findsOneWidget);
+      expect(find.text('Claude Code'), findsOneWidget);
+      expect(find.text('/help'), findsOneWidget);
+      expect(find.text('/status'), findsOneWidget);
+      expect(find.byType(BottomSheet), findsOneWidget);
+
+      await tester.tap(find.text('/compact'));
+      await tester.pumpAndSettle();
+
+      expect(mockService.sentMessages, contains('/compact\r'));
+      await tester.tap(find.text('更多'));
+      await tester.pumpAndSettle();
+
+      final compact = tester.getTopLeft(find.text('/compact'));
+      final help = tester.getTopLeft(find.text('/help'));
+      expect(compact.dy, lessThanOrEqualTo(help.dy));
+    });
+
+    testWidgets('allows managing Claude commands from the shortcut menu',
+        (tester) async {
+      await pumpScreen(tester, mockService);
+
+      await tester.tap(find.text('更多'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('管理'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('管理快捷命令'), findsOneWidget);
+      expect(find.text('/help'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('shortcut-toggle-claude_help')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('shortcut-settings-close')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('更多'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('/help'), findsNothing);
+      expect(find.text('/status'), findsOneWidget);
+
+      await tester.tap(find.text('管理'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('恢复默认'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('shortcut-settings-close')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('更多'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('/help'), findsOneWidget);
+    });
+
+    testWidgets('allows reordering Claude command items from settings',
+        (tester) async {
+      await pumpScreen(tester, mockService);
+
+      await tester.tap(find.text('更多'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('管理'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('shortcut-move-down-claude_help')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('shortcut-settings-close')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('更多'));
+      await tester.pumpAndSettle();
+
+      final help = tester.getTopLeft(find.text('/help'));
+      final status = tester.getTopLeft(find.text('/status'));
+      expect(help.dy, greaterThan(status.dy));
+    });
+
+    testWidgets('allows creating project commands and sending them from menu',
+        (tester) async {
+      await pumpScreen(tester, mockService);
+
+      await tester.tap(find.text('更多'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('管理'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('add-project-command')));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const Key('project-command-label-field')),
+        '运行测试',
+      );
+      await tester.enterText(
+        find.byKey(const Key('project-command-value-field')),
+        'pnpm test',
+      );
+      await tester.tap(find.byKey(const Key('save-project-command')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('shortcut-settings-close')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('更多'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('当前项目'), findsOneWidget);
+      expect(find.text('运行测试'), findsOneWidget);
+
+      await tester.tap(find.text('运行测试'));
+      await tester.pumpAndSettle();
+
+      expect(mockService.sentMessages, contains('pnpm test\r'));
+    });
+
+    testWidgets('allows switching Claude navigation mode without changing labels',
+        (tester) async {
+      await pumpScreen(tester, mockService);
+
+      expect(find.text('上一项'), findsOneWidget);
+      await tester.tap(find.text('更多'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('管理'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('应用'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('shortcut-settings-close')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('上一项'), findsOneWidget);
+      await tester.tap(find.text('上一项'));
+      await tester.pump();
+
+      expect(mockService.sentMessages, contains('\x1bOA'));
+    });
+
+    testWidgets('uses Claude navigation semantics in mobile labels',
+        (tester) async {
+      await pumpScreen(tester, mockService);
+
+      expect(find.text('上一项'), findsOneWidget);
+      expect(find.text('下一项'), findsOneWidget);
+      expect(find.text('Enter'), findsOneWidget);
+      expect(find.text('Up'), findsNothing);
+      expect(find.text('Down'), findsNothing);
+    });
+
+    testWidgets('shows reconnecting state when service is reconnecting',
+        (tester) async {
+      await pumpScreen(tester, mockService);
+      mockService.simulateReconnecting();
+      await tester.pump();
+
+      expect(find.textContaining('正在重连'), findsOneWidget);
+      expect(find.text('Ctrl+C'), findsOneWidget);
+    });
+
+    testWidgets('shows error banner and retry triggers reconnect',
+        (tester) async {
+      await pumpScreen(tester, mockService);
+      final initialConnectCalls = mockService.connectCallCount;
+
+      mockService.simulateError('Connection refused');
+      await tester.pump();
+
+      expect(find.text('无法连接到服务器，请检查服务器是否启动'), findsOneWidget);
+      expect(find.text('重试'), findsOneWidget);
+
+      await tester.tap(find.text('重试'));
+      await tester.pump();
+
+      expect(mockService.connectCallCount, greaterThan(initialConnectCalls));
+    });
+
+    testWidgets('sends TUI selection then shortcut in the same session',
+        (tester) async {
+      await pumpScreen(tester, mockService);
+      mockService.simulateOutput('  1. Option A\n');
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('1'));
+      await tester.pump();
+      await tester.tap(find.text('Esc'));
+      await tester.pump();
+
+      expect(mockService.sentMessages, contains('1'));
+      expect(mockService.sentMessages, contains('\x1b'));
+    });
+
+    testWidgets('persists hidden Claude commands across screen rebuilds',
+        (tester) async {
+      await pumpScreen(tester, mockService);
+
+      await tester.tap(find.text('更多'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('管理'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('shortcut-toggle-claude_help')));
+      await tester.pumpAndSettle();
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+
+      final newService = _PreconnectedWebSocketService()..simulateConnect();
+      addTearDown(newService.dispose);
+      await pumpScreen(tester, newService);
+
+      await tester.tap(find.text('更多'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('/help'), findsNothing);
+      expect(find.text('/status'), findsOneWidget);
+    });
+
+    testWidgets('persists project commands across screen rebuilds',
+        (tester) async {
+      await pumpScreen(tester, mockService);
+
+      await tester.tap(find.text('更多'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('管理'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('add-project-command')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('project-command-label-field')),
+        '运行测试',
+      );
+      await tester.enterText(
+        find.byKey(const Key('project-command-value-field')),
+        'pnpm test',
+      );
+      await tester.tap(find.byKey(const Key('save-project-command')));
+      await tester.pumpAndSettle();
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+
+      final newService = _PreconnectedWebSocketService()..simulateConnect();
+      addTearDown(newService.dispose);
+      await pumpScreen(tester, newService);
+
+      await tester.tap(find.text('更多'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('当前项目'), findsOneWidget);
+      expect(find.text('运行测试'), findsOneWidget);
+    });
+
+    testWidgets('persists Claude navigation mode across screen rebuilds',
+        (tester) async {
+      await pumpScreen(tester, mockService);
+
+      await tester.tap(find.text('更多'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('管理'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('应用'));
+      await tester.pumpAndSettle();
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+
+      final newService = _PreconnectedWebSocketService()..simulateConnect();
+      addTearDown(newService.dispose);
+      await pumpScreen(tester, newService);
+
+      await tester.tap(find.text('上一项'));
+      await tester.pump();
+
+      expect(newService.sentMessages, contains('\x1bOA'));
+    });
+  });
+
+  group('TerminalScreen desktop shortcuts', () {
+    late _PreconnectedWebSocketService mockService;
+
+    setUp(() {
+      mockService = _PreconnectedWebSocketService()..simulateConnect();
+    });
+
+    tearDown(() {
+      mockService.dispose();
+    });
+
+    testWidgets('does not show mobile shortcut bar on desktop', (tester) async {
+      await tester.pumpWidget(
+        ChangeNotifierProvider<WebSocketService>.value(
+          value: mockService,
+          child: const MaterialApp(
+            home: TerminalScreen(platformOverride: TargetPlatform.macOS),
+          ),
+        ),
+      );
+
+      await tester.pump(const Duration(milliseconds: 150));
+
+      expect(find.text('Ctrl+L'), findsNothing);
+      expect(find.text('Enter'), findsNothing);
+      expect(find.text('Paste'), findsNothing);
+      expect(find.text('更多'), findsNothing);
+    });
+  });
+}
+
+class _PreconnectedWebSocketService extends MockWebSocketService {
+  @override
+  Future<bool> connect() async {
+    connectCallCount++;
+    return true;
+  }
+}

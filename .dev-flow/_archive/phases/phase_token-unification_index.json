@@ -1,0 +1,18 @@
+{
+  "phase": "token-unification",
+  "archived_at": "2026-04-10T14:03:03Z",
+  "tasks": {
+    "B040": {
+      "name": "统一 Token 校验：WS 路由 + get_current_session 改用 async_verify_token",
+      "status": "completed"
+    },
+    "B041": {
+      "name": "统一 Token 校验单元测试",
+      "status": "completed"
+    },
+    "S026": {
+      "name": "集成测试与端到端验证：Token 统一校验",
+      "status": "completed"
+    }
+  }
+}

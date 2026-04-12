@@ -1,0 +1,26 @@
+{
+  "phase": "login-device-limit",
+  "archived_at": "2026-04-10T14:03:03Z",
+  "tasks": {
+    "B038": {
+      "name": "登录层 Token 版本机制：同端设备并发限制",
+      "status": "completed"
+    },
+    "B039": {
+      "name": "登录层同端限制单元测试",
+      "status": "completed"
+    },
+    "F048": {
+      "name": "客户端登录请求携带 view 参数 + 401 被踢处理",
+      "status": "completed"
+    },
+    "F049": {
+      "name": "客户端单元测试：登录 view 参数与 401 处理",
+      "status": "completed"
+    },
+    "S025": {
+      "name": "集成测试与端到端验证：登录层同端限制",
+      "status": "completed"
+    }
+  }
+}

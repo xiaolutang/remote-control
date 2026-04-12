@@ -1,0 +1,140 @@
+{
+  "B001": {
+    "name": "服务端扩展共享会话状态模型",
+    "status": "completed",
+    "module": "服务端",
+    "verification": "L2"
+  },
+  "B002": {
+    "name": "服务端支持多终端视图双向转发",
+    "status": "completed",
+    "module": "服务端",
+    "verification": "L2"
+  },
+  "B003": {
+    "name": "Agent 单 PTY 会话管理与宿主终端隔离",
+    "status": "completed",
+    "module": "Agent",
+    "verification": "L2"
+  },
+  "B004": {
+    "name": "Agent 登录配置与会话恢复稳定化",
+    "status": "completed",
+    "module": "Agent",
+    "verification": "L2"
+  },
+  "B005": {
+    "name": "会话归属校验与附着握手清理",
+    "status": "completed",
+    "module": "服务端",
+    "verification": "L2"
+  },
+  "B006": {
+    "name": "服务端设备注册与在线状态模型",
+    "status": "completed",
+    "module": "服务端",
+    "verification": "L1"
+  },
+  "B007": {
+    "name": "服务端 terminal 状态模型与设备上限",
+    "status": "completed",
+    "module": "服务端",
+    "verification": "L1"
+  },
+  "B008": {
+    "name": "设备列表与 terminal 列表/创建 API",
+    "status": "completed",
+    "module": "服务端",
+    "verification": "L2"
+  },
+  "B009": {
+    "name": "按 terminal_id 的 WebSocket 附着与在线 gating",
+    "status": "completed",
+    "module": "服务端",
+    "verification": "L2"
+  },
+  "B010": {
+    "name": "断线原因与 grace period 生命周期状态机",
+    "status": "completed",
+    "module": "服务端",
+    "verification": "L1"
+  },
+  "B011": {
+    "name": "Agent 多 terminal runtime 与 cwd 启动参数",
+    "status": "completed",
+    "module": "Agent",
+    "verification": "L1"
+  },
+  "B012": {
+    "name": "服务端权威在线态与实时视图数收口",
+    "status": "completed",
+    "module": "状态语义收口",
+    "verification": "L2"
+  },
+  "B014": {
+    "name": "服务端收敛 terminal 创建准入并移除公开 max_terminals 入参",
+    "status": "completed",
+    "module": "创建与关闭语义",
+    "verification": "L2"
+  },
+  "B015": {
+    "name": "桌面端首个 terminal 创建前 Agent 恢复链与 closed terminal 清理",
+    "status": "completed",
+    "module": "创建与关闭语义",
+    "verification": "L3"
+  },
+  "B016": {
+    "name": "服务端离线即清理 terminal 活跃态",
+    "status": "completed",
+    "module": "设备离线收口",
+    "verification": "L2"
+  },
+  "B017": {
+    "name": "首个 terminal 创建与离线恢复链回归",
+    "status": "completed",
+    "module": "设备离线收口",
+    "verification": "L3"
+  },
+  "B018": {
+    "name": "桌面端 AgentSupervisor 与优雅停机链路",
+    "status": "cancelled",
+    "module": "桌面 Agent 后台模式",
+    "verification": "L2"
+  },
+  "B019": {
+    "name": "DesktopAgentManager 与稳定 Agent 发现链",
+    "status": "cancelled",
+    "module": "桌面 Agent 管理子系统",
+    "verification": "L2"
+  },
+  "B022": {
+    "name": "Server 端 Agent 状态 TTL 与 stale 语义",
+    "status": "completed",
+    "module": "Agent 状态管理",
+    "verification": "L2"
+  },
+  "B032": {
+    "name": "PTY 进程组清理（os.killpg）",
+    "status": "completed",
+    "module": "PTY 管理",
+    "verification": "L1"
+  },
+  "B033": {
+    "name": "超时后 SIGKILL 强制终止",
+    "status": "completed",
+    "module": "PTY 管理",
+    "verification": "L1"
+  },
+  "B034": {
+    "name": "资源清理完整性保障",
+    "status": "completed",
+    "module": "PTY 管理",
+    "verification": "L1"
+  },
+  "B035": {
+    "name": "进程组清理集成测试",
+    "status": "completed",
+    "module": "PTY 管理",
+    "verification": "L2"
+  }
+}
