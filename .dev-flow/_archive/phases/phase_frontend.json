@@ -1,0 +1,1968 @@
+[
+  {
+    "id": "F001",
+    "phase": "frontend",
+    "module": "Flutter 客户端",
+    "slice": "terminal-core",
+    "name": "Flutter 共享终端核心统一用于 mobile/desktop",
+    "description": "基于 xterm 抽象共享终端层，统一输出渲染、输入发送、resize、粘贴和状态监听逻辑，供移动端与桌面端复用。",
+    "verification": "F1",
+    "depends_on": [
+      "S001",
+      "B002",
+      "B003"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "remote-control/client/lib/services/websocket_service.dart",
+      "remote-control/client/lib/screens/terminal_screen.dart",
+      "remote-control/client/lib/widgets",
+      "remote-control/client/test"
+    ],
+    "contract_refs": [
+      "CONTRACT-001",
+      "CONTRACT-003"
+    ],
+    "acceptance_criteria": [
+      "mobile 与 desktop 使用同一终端会话核心",
+      "PTY 输出在客户端由 xterm 渲染而非纯文本列表渲染",
+      "终端输入、粘贴、resize 接线对两个平台一致"
+    ],
+    "risk_tags": [
+      "first_use",
+      "config"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "共享终端核心测试",
+        "scenarios": [
+          "ANSI 输出正确渲染",
+          "键盘输入转发到 websocket",
+          "resize 事件正确发送"
+        ],
+        "estimated_minutes": 20
+      },
+      {
+        "type": "manual",
+        "description": "终端首屏 smoke",
+        "scenarios": [
+          "首次进入终端页能看到连接状态与终端内容",
+          "终端页错误时有明确提示"
+        ],
+        "estimated_minutes": 5
+      }
+    ],
+    "blocked_by": [],
+    "notes": "",
+    "estimated_minutes": 30,
+    "actual_minutes": 20,
+    "created_at": "2026-03-27T16:45:00Z",
+    "started_at": "2026-03-27T18:00:00Z",
+    "completed_at": "2026-03-27T18:20:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "F002",
+    "phase": "frontend",
+    "module": "Flutter 客户端",
+    "slice": "desktop-view",
+    "name": "桌面端本地终端窗口接入共享会话",
+    "description": "提供电脑端本地终端窗口，使用户在电脑上看到同一共享会话，并可从该窗口直接操作。",
+    "verification": "F2",
+    "depends_on": [
+      "F001",
+      "B002",
+      "B004",
+      "B005"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "remote-control/client/lib/main.dart",
+      "remote-control/client/lib/screens",
+      "remote-control/client/macos",
+      "remote-control/client/windows",
+      "remote-control/client/linux"
+    ],
+    "contract_refs": [
+      "CONTRACT-001",
+      "CONTRACT-003"
+    ],
+    "acceptance_criteria": [
+      "电脑端有独立可见终端窗口，而不是依赖宿主 shell 镜像",
+      "桌面端可附着到同一 session 并查看实时输出",
+      "桌面端输入可直接写入共享 PTY"
+    ],
+    "risk_tags": [
+      "first_use",
+      "config"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "桌面端终端窗口测试",
+        "scenarios": [
+          "桌面端附着现有 session 成功",
+          "会话状态栏显示 agent_online 与连接信息",
+          "断开重连后窗口状态恢复"
+        ],
+        "estimated_minutes": 20
+      },
+      {
+        "type": "manual",
+        "description": "macOS 本地窗口 smoke",
+        "scenarios": [
+          "打开桌面端后看到终端内容",
+          "在桌面端输入一条命令，手机端同步看到输出"
+        ],
+        "estimated_minutes": 10
+      }
+    ],
+    "blocked_by": [],
+    "notes": "",
+    "estimated_minutes": 30,
+    "actual_minutes": 15,
+    "created_at": "2026-03-27T16:45:00Z",
+    "started_at": "2026-03-27T18:20:00Z",
+    "completed_at": "2026-03-27T18:35:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "F003",
+    "phase": "frontend",
+    "module": "Flutter 客户端",
+    "slice": "mobile-view",
+    "name": "移动端双端共控交互完善",
+    "description": "完善移动端快捷键、焦点、键盘、粘贴、错误提示和会话附着体验，适配双端共控场景。",
+    "verification": "F2",
+    "depends_on": [
+      "F001",
+      "B002",
+      "B004",
+      "B005"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "remote-control/client/lib/screens/terminal_screen.dart",
+      "remote-control/client/lib/services/websocket_service.dart",
+      "remote-control/client/lib/services/auth_service.dart",
+      "remote-control/client/test"
+    ],
+    "contract_refs": [
+      "CONTRACT-003",
+      "CONTRACT-004"
+    ],
+    "acceptance_criteria": [
+      "移动端可在已存在桌面端附着的情况下继续共控同一会话",
+      "Tab、Esc、Ctrl+C、Paste 等关键交互可用",
+      "错误 banner、重试、登录过期提示在真机可用"
+    ],
+    "risk_tags": [
+      "network",
+      "auth",
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "移动端交互测试",
+        "scenarios": [
+          "连接成功后发送输入",
+          "token 过期时跳转重新登录",
+          "断线后自动重连"
+        ],
+        "estimated_minutes": 20
+      },
+      {
+        "type": "manual",
+        "description": "Android 真机交互 smoke",
+        "scenarios": [
+          "真机上发送消息后 Claude 正常执行",
+          "Tab/Esc/Ctrl+C 生效且无乱码"
+        ],
+        "estimated_minutes": 10
+      }
+    ],
+    "blocked_by": [],
+    "notes": "",
+    "estimated_minutes": 30,
+    "actual_minutes": 15,
+    "created_at": "2026-03-27T16:45:00Z",
+    "started_at": "2026-03-27T18:20:00Z",
+    "completed_at": "2026-03-27T18:35:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "F004",
+    "phase": "frontend",
+    "module": "Flutter 客户端",
+    "slice": "mobile-input",
+    "name": "移动端输入修复与 IME 支持",
+    "description": "修复移动端无法发送消息的问题，添加中文输入法（IME）支持，使用隐藏 TextField 转发模式实现完整的输入体验。",
+    "verification": "F2",
+    "depends_on": [
+      "F001"
+    ],
+    "status": "completed",
+    "started_at": "2026-03-28T01:30:00Z",
+    "completed_at": "2026-03-28T01:50:00Z",
+    "actual_minutes": 20,
+    "commit": "a108787",
+    "priority": "P0",
+    "files": [
+      "remote-control/client/lib/screens/terminal_screen.dart",
+      "remote-control/client/lib/widgets/mobile_input_delegate.dart"
+    ],
+    "contract_refs": [
+      "CONTRACT-003"
+    ],
+    "acceptance_criteria": [
+      "移动端键盘输入能正确发送到终端",
+      "中文输入法可正常工作（拼音输入、候选词选择）",
+      "英文、数字、符号输入正常",
+      "回车键能正确发送命令"
+    ],
+    "risk_tags": [
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "unit",
+        "description": "MobileInputDelegate 组件单元测试",
+        "scenarios": [
+          "隐藏 TextField 创建与配置正确",
+          "onInput 回调触发时传入正确文本",
+          "onSubmit 回调触发时发送回车符",
+          "IME 组合状态正确处理（composing -> committed）"
+        ],
+        "estimated_minutes": 15,
+        "automated": true
+      },
+      {
+        "type": "integration",
+        "description": "Mock WebSocketService 集成测试",
+        "scenarios": [
+          "输入文本后 WebSocketService.send 被调用",
+          "回车键发送 '\\r' 字符",
+          "焦点切换不影响已输入内容",
+          "多次输入连续发送正确"
+        ],
+        "estimated_minutes": 20,
+        "automated": true,
+        "mock": "WebSocketService"
+      },
+      {
+        "type": "edge",
+        "description": "输入边缘场景测试",
+        "scenarios": [
+          "空输入不发送",
+          "超长输入（>1000字符）正常处理",
+          "特殊字符（@#$%^&*）正确发送",
+          "连续快速输入不丢字符",
+          "IME 模拟：拼音输入 -> 选择候选词 -> 确认发送"
+        ],
+        "estimated_minutes": 15,
+        "automated": true
+      },
+      {
+        "type": "manual",
+        "description": "Android 真机 IME smoke",
+        "scenarios": [
+          "切换中文输入法，输入拼音选择候选词发送成功"
+        ],
+        "estimated_minutes": 5,
+        "automated": false
+      }
+    ],
+    "blocked_by": [],
+    "notes": "使用隐藏 TextField 接收 IME 输入，然后转发到终端。这是 xterm 包的已知限制，需要特殊处理。",
+    "estimated_minutes": 30,
+    "created_at": "2026-03-28T01:15:00Z"
+  },
+  {
+    "id": "F005",
+    "phase": "frontend",
+    "module": "Flutter 客户端",
+    "slice": "tui-selection",
+    "name": "移动端 TUI 选项触摸选择支持",
+    "description": "为移动端添加 TUI（终端用户界面）选项的触摸选择支持，让用户能通过触摸屏选择 Claude Code 等终端应用的快捷命令提示。",
+    "verification": "F2",
+    "depends_on": [
+      "F004"
+    ],
+    "status": "completed",
+    "started_at": "2026-03-28T01:55:00Z",
+    "completed_at": "2026-03-28T02:15:00Z",
+    "actual_minutes": 20,
+    "commit": "f0b8691",
+    "priority": "P1",
+    "files": [
+      "remote-control/client/lib/screens/terminal_screen.dart",
+      "remote-control/client/lib/widgets/tui_selector.dart"
+    ],
+    "contract_refs": [
+      "CONTRACT-003"
+    ],
+    "acceptance_criteria": [
+      "终端输出中检测到选项列表时显示可点击按钮",
+      "点击按钮发送对应的选择键（数字/字母/Enter）",
+      "支持 Claude Code 风格的快捷命令选择",
+      "不影响桌面端的正常键盘操作"
+    ],
+    "risk_tags": [
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "unit",
+        "description": "TuiSelector 组件单元测试",
+        "scenarios": [
+          "检测数字选项（1. xxx, 2. xxx）生成对应按钮",
+          "检测 [y/n] 选项生成 Yes/No 按钮",
+          "检测 > 提示符生成确认按钮",
+          "无选项时不显示选择器"
+        ],
+        "estimated_minutes": 15,
+        "automated": true
+      },
+      {
+        "type": "integration",
+        "description": "TUI 选择与终端交互测试",
+        "scenarios": [
+          "点击按钮后发送正确的选择键（数字/字母/Enter）",
+          "选择后终端输出更新，选择器自动刷新",
+          "选项变化时按钮列表正确更新"
+        ],
+        "estimated_minutes": 15,
+        "automated": true,
+        "mock": "WebSocketService"
+      },
+      {
+        "type": "edge",
+        "description": "TUI 选择边缘场景测试",
+        "scenarios": [
+          "空终端输出不生成按钮",
+          "选项超过 9 个时正确处理",
+          "特殊字符选项（含空格、括号）正确解析",
+          "终端滚动时选择器保持可见",
+          "快速连续点击防抖处理"
+        ],
+        "estimated_minutes": 15,
+        "automated": true
+      },
+      {
+        "type": "manual",
+        "description": "Claude Code 真机选择 smoke",
+        "scenarios": [
+          "Claude Code 显示选项时点击按钮，Claude 正确响应"
+        ],
+        "estimated_minutes": 5,
+        "automated": false
+      }
+    ],
+    "blocked_by": [],
+    "notes": "需要解析终端输出中的选项模式，如 '1. 选项A'、'[y/n]'、'>' 提示符等。",
+    "estimated_minutes": 25,
+    "created_at": "2026-03-28T01:15:00Z"
+  },
+  {
+    "id": "F006",
+    "phase": "frontend",
+    "module": "Flutter 客户端",
+    "slice": "mobile-polish",
+    "name": "移动端输入体验优化与联调验证",
+    "description": "优化移动端输入体验，包括键盘弹出、焦点管理、输入区域布局，并在真机上完成完整联调验证。",
+    "verification": "F2",
+    "depends_on": [
+      "F004",
+      "F005"
+    ],
+    "status": "completed",
+    "started_at": "2026-03-28T02:15:00Z",
+    "completed_at": "2026-03-28T02:30:00Z",
+    "actual_minutes": 15,
+    "commit": "a4d0de3",
+    "priority": "P1",
+    "files": [
+      "remote-control/client/lib/screens/terminal_screen.dart",
+      "remote-control/client/lib/widgets"
+    ],
+    "contract_refs": [
+      "CONTRACT-003"
+    ],
+    "acceptance_criteria": [
+      "键盘弹出时不遮挡重要内容",
+      "焦点管理流畅，点击终端区域自动聚焦",
+      "中文输入、英文输入、选项选择全部正常工作",
+      "双端共控场景下移动端体验良好"
+    ],
+    "risk_tags": [
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "键盘布局与焦点管理测试",
+        "scenarios": [
+          "键盘弹出时终端内容可见（不遮挡）",
+          "点击终端区域自动聚焦输入框",
+          "键盘收起后焦点正确恢复",
+          "横竖屏切换布局正确"
+        ],
+        "estimated_minutes": 15,
+        "automated": true
+      },
+      {
+        "type": "integration",
+        "description": "双端共控场景测试",
+        "scenarios": [
+          "桌面端输入时移动端实时显示",
+          "移动端输入时桌面端实时显示",
+          "双端交替输入不冲突",
+          "网络断开重连后输入恢复"
+        ],
+        "estimated_minutes": 20,
+        "automated": true
+      },
+      {
+        "type": "manual",
+        "description": "移动端完整体验 smoke",
+        "scenarios": [
+          "登录 -> 输入中文 -> 选择 TUI 选项 -> 双端交替输入"
+        ],
+        "estimated_minutes": 10,
+        "automated": false
+      }
+    ],
+    "blocked_by": [],
+    "notes": "这是移动端体验的收尾任务。",
+    "estimated_minutes": 20,
+    "created_at": "2026-03-28T01:15:00Z"
+  },
+  {
+    "id": "F007",
+    "phase": "frontend",
+    "module": "Flutter 客户端",
+    "slice": "mobile-shortcuts-model",
+    "name": "移动端终端快捷键动作模型与 Claude 预设",
+    "description": "抽象移动端终端快捷键动作模型，提供 `claude_code` 默认 profile，并保留后续扩展其他终端的能力。",
+    "verification": "F1",
+    "depends_on": [
+      "F001",
+      "F006"
+    ],
+    "status": "completed",
+    "started_at": "2026-03-28T20:30:00Z",
+    "completed_at": "2026-03-28T22:30:00Z",
+    "actual_minutes": 40,
+    "commit": "f4d10a9",
+    "priority": "P0",
+    "files": [
+      "remote-control/client/lib/models",
+      "remote-control/client/lib/screens/terminal_screen.dart",
+      "remote-control/client/lib/widgets"
+    ],
+    "contract_refs": [
+      "CONTRACT-006"
+    ],
+    "acceptance_criteria": [
+      "快捷键能力抽象为终端动作模型，而不是在页面中硬编码 Claude 逻辑",
+      "默认提供 `claude_code` profile，覆盖 Esc、Tab、Ctrl+C、Ctrl+L、方向键、Enter",
+      "模型支持后续为其他终端增加 profile，不要求改动终端页主流程"
+    ],
+    "risk_tags": [
+      "first_use",
+      "config"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "unit",
+        "description": "快捷键动作模型测试",
+        "scenarios": [
+          "动作类型能正确表达 sendText、sendControl、sendEscapeSequence",
+          "`claude_code` profile 生成的按钮顺序和字段稳定",
+          "未知 profile 回退到空集合或默认集合"
+        ],
+        "estimated_minutes": 15
+      },
+      {
+        "type": "manual",
+        "description": "Claude 快捷键配置 smoke",
+        "scenarios": [
+          "移动端进入终端页后能看到 Claude 默认快捷键集合",
+          "桌面端不显示快捷键栏"
+        ],
+        "estimated_minutes": 5
+      }
+    ],
+    "blocked_by": [],
+    "notes": "这是从 Claude Code 当前需求抽象成通用终端快捷键层的第一步。",
+    "estimated_minutes": 25,
+    "created_at": "2026-03-28T04:05:00Z",
+    "execution_state": "completed"
+  },
+  {
+    "id": "F008",
+    "phase": "frontend",
+    "module": "Flutter 客户端",
+    "slice": "mobile-shortcuts-ui",
+    "name": "移动端软键盘快捷键栏接入终端页",
+    "description": "在移动端终端页中渲染快捷键栏，复用现有终端发送链路，并确保与软键盘、IME 和双端共控场景兼容。",
+    "verification": "F2",
+    "depends_on": [
+      "F007"
+    ],
+    "status": "completed",
+    "started_at": "2026-03-28T20:40:00Z",
+    "completed_at": "2026-03-28T22:30:00Z",
+    "actual_minutes": 60,
+    "commit": "f4d10a9",
+    "priority": "P0",
+    "files": [
+      "remote-control/client/lib/screens/terminal_screen.dart",
+      "remote-control/client/lib/widgets/terminal_shortcut_bar.dart",
+      "remote-control/client/test"
+    ],
+    "contract_refs": [
+      "CONTRACT-003",
+      "CONTRACT-006"
+    ],
+    "acceptance_criteria": [
+      "快捷键栏只在移动端显示，桌面端不受影响",
+      "点击快捷键可通过现有终端发送链路正确产生控制字符或转义序列",
+      "快捷键栏不会破坏软键盘焦点、中文 IME 输入和双端共控体验"
+    ],
+    "risk_tags": [
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "快捷键栏交互测试",
+        "scenarios": [
+          "点击 Esc、Tab、Ctrl+C、Ctrl+L 后向终端发送正确动作",
+          "方向键 Up/Down/Left/Right 发送标准 escape sequence",
+          "点击快捷键后软键盘仍保持可继续输入"
+        ],
+        "estimated_minutes": 20
+      },
+      {
+        "type": "manual",
+        "description": "Android 真机快捷键 smoke",
+        "scenarios": [
+          "Claude Code 会话中可用快捷键完成一次中断、清屏和方向导航",
+          "中文输入正常后再点击快捷键，终端与输入法状态都不异常"
+        ],
+        "estimated_minutes": 10
+      }
+    ],
+    "blocked_by": [],
+    "notes": "先交付 Claude Code 最小可用集合，后续 profile 复用同一组件扩展。",
+    "estimated_minutes": 30,
+    "created_at": "2026-03-28T04:05:00Z",
+    "execution_state": "completed"
+  },
+  {
+    "id": "F009",
+    "phase": "frontend",
+    "module": "Flutter 客户端",
+    "slice": "shortcut-item-model",
+    "name": "统一快捷项模型与排序策略",
+    "description": "将基础按键、Claude 默认命令、用户项和项目命令统一抽象为快捷项模型，并实现核心固定区与智能区排序规则。",
+    "verification": "F1",
+    "depends_on": [
+      "F007",
+      "F008"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "remote-control/client/lib/models",
+      "remote-control/client/lib/services",
+      "remote-control/client/test/models"
+    ],
+    "contract_refs": [
+      "CONTRACT-007"
+    ],
+    "acceptance_criteria": [
+      "快捷项模型支持 builtin/user/project 三种来源",
+      "核心固定区与智能区分层明确，核心项不参与自动重排",
+      "智能区支持 `pinned -> last_used_at -> order` 的稳定排序"
+    ],
+    "risk_tags": [
+      "config",
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "unit",
+        "description": "快捷项模型与排序测试",
+        "scenarios": [
+          "核心固定区项目不因最近使用而漂移",
+          "智能区按 pinned、recent、order 排序",
+          "不同 source 的快捷项能共存并稳定序列化"
+        ],
+        "estimated_minutes": 20
+      },
+      {
+        "type": "manual",
+        "description": "快捷项排序 smoke",
+        "scenarios": [
+          "核心固定区位置稳定",
+          "非核心项使用后可按最近使用前移"
+        ],
+        "estimated_minutes": 5
+      }
+    ],
+    "blocked_by": [],
+    "notes": "模型、排序与最近使用统计已完成，作为后续用户配置 UI 与项目命令的基础层。",
+    "estimated_minutes": 30,
+    "actual_minutes": 25,
+    "created_at": "2026-03-28T23:40:00Z",
+    "started_at": "2026-03-28T23:41:00Z",
+    "completed_at": "2026-03-28T23:50:00Z",
+    "execution_state": "completed",
+    "commit": "c564923"
+  },
+  {
+    "id": "F010",
+    "phase": "frontend",
+    "module": "Flutter 客户端",
+    "slice": "claude-command-pack",
+    "name": "Claude Code 默认命令包与用户调整配置",
+    "description": "提供一组 Claude Code 默认热门命令快捷项，并支持用户显示/隐藏、排序和恢复默认。",
+    "verification": "F2",
+    "depends_on": [
+      "F009"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "remote-control/client/lib/screens",
+      "remote-control/client/lib/services",
+      "remote-control/client/test"
+    ],
+    "contract_refs": [
+      "CONTRACT-006",
+      "CONTRACT-007"
+    ],
+    "acceptance_criteria": [
+      "默认展示一组 Claude Code 热门命令快捷项",
+      "用户可调整显示状态、顺序并恢复默认配置",
+      "调整结果本地持久化，重启后仍可恢复"
+    ],
+    "risk_tags": [
+      "config",
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "默认命令包与配置测试",
+        "scenarios": [
+          "首次进入使用默认命令包",
+          "修改可见项和顺序后重启仍保留",
+          "恢复默认后回到初始集合"
+        ],
+        "estimated_minutes": 20
+      },
+      {
+        "type": "manual",
+        "description": "Claude 命令包 smoke",
+        "scenarios": [
+          "默认命令可直接发送到 Claude Code",
+          "用户隐藏某项后 UI 立即生效"
+        ],
+        "estimated_minutes": 10
+      }
+    ],
+    "blocked_by": [],
+    "notes": "默认命令包、显示/隐藏、排序、恢复默认和跨重建持久化均已完成，管理入口并入命令面板。",
+    "estimated_minutes": 35,
+    "actual_minutes": 40,
+    "created_at": "2026-03-28T23:40:00Z",
+    "started_at": "2026-03-29T00:05:00Z",
+    "completed_at": "2026-03-29T00:32:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "F011",
+    "phase": "frontend",
+    "module": "Flutter 客户端",
+    "slice": "project-commands",
+    "name": "当前项目快捷命令接入与选择",
+    "description": "为当前项目引入用户维护的项目快捷命令，并在快捷项系统中支持选择、展示和发送。",
+    "verification": "F2",
+    "depends_on": [
+      "F009",
+      "F010"
+    ],
+    "status": "completed",
+    "priority": "P1",
+    "files": [
+      "remote-control/client/lib/screens",
+      "remote-control/client/lib/models",
+      "remote-control/client/test"
+    ],
+    "contract_refs": [
+      "CONTRACT-007"
+    ],
+    "acceptance_criteria": [
+      "用户可维护当前项目的命令集合",
+      "项目命令在快捷项系统中作为独立来源展示",
+      "项目命令可被选择和发送，不与核心固定区冲突"
+    ],
+    "risk_tags": [
+      "config"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": false,
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "项目命令选择测试",
+        "scenarios": [
+          "新增项目命令后可显示在智能区",
+          "选择项目命令后发送对应文本",
+          "切换项目时命令集合可独立维护"
+        ],
+        "estimated_minutes": 20
+      }
+    ],
+    "blocked_by": [],
+    "notes": "项目命令已支持新增、编辑、删除、排序、选择发送，并通过 projectId 独立持久化。",
+    "estimated_minutes": 25,
+    "actual_minutes": 25,
+    "created_at": "2026-03-28T23:40:00Z",
+    "started_at": "2026-03-29T00:20:00Z",
+    "completed_at": "2026-03-29T00:35:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "F012",
+    "phase": "frontend",
+    "module": "Flutter 客户端",
+    "slice": "claude-navigation",
+    "name": "Claude Code 导航语义校准",
+    "description": "将移动端导航从底层方向键语义升级为 `上一项 / 下一项 / 确认`，并验证 Claude Code 选择场景下的真实行为。",
+    "verification": "F2",
+    "depends_on": [
+      "F008",
+      "F009"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "remote-control/client/lib/models",
+      "remote-control/client/lib/widgets",
+      "remote-control/client/lib/screens/terminal_screen.dart",
+      "remote-control/client/test"
+    ],
+    "contract_refs": [
+      "CONTRACT-008"
+    ],
+    "acceptance_criteria": [
+      "移动端导航按钮文案改为 `上一项 / 下一项 / 确认`",
+      "底层导航映射可独立校准，不影响 UI 语义",
+      "Claude Code 选择场景下导航行为符合逐项选择预期"
+    ],
+    "risk_tags": [
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "导航语义与映射测试",
+        "scenarios": [
+          "上一项/下一项/确认 按钮发送当前配置的导航动作",
+          "修改底层映射后 UI 文案不变",
+          "与 TUI 选择器共存时导航入口不冲突"
+        ],
+        "estimated_minutes": 20
+      },
+      {
+        "type": "manual",
+        "description": "Claude 导航行为 smoke",
+        "scenarios": [
+          "Claude Code 选项列表中可逐项移动选中",
+          "确认按钮能完成一次选择"
+        ],
+        "estimated_minutes": 10
+      }
+    ],
+    "blocked_by": [],
+    "notes": "导航语义与底层映射已解耦，现支持标准/应用两套方向键模式并持久化，便于按 Claude Code 实际行为校准。",
+    "estimated_minutes": 30,
+    "actual_minutes": 30,
+    "created_at": "2026-03-28T23:40:00Z",
+    "started_at": "2026-03-29T00:30:00Z",
+    "completed_at": "2026-03-29T00:45:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "F013",
+    "phase": "frontend",
+    "module": "Flutter 客户端",
+    "slice": "theme-controls",
+    "name": "主题模式切换与持久化",
+    "description": "支持 `system / light / dark` 手动主题切换，并在登录页与终端页提供入口和本地持久化。",
+    "verification": "F2",
+    "depends_on": [
+      "F001",
+      "F003"
+    ],
+    "status": "completed",
+    "priority": "P1",
+    "files": [
+      "remote-control/client/lib/main.dart",
+      "remote-control/client/lib/models/config.dart",
+      "remote-control/client/lib/services/theme_controller.dart",
+      "remote-control/client/lib/screens/login_screen.dart",
+      "remote-control/client/lib/screens/terminal_screen.dart",
+      "remote-control/client/test/models/config_test.dart",
+      "remote-control/client/test/services/config_service_test.dart"
+    ],
+    "contract_refs": [
+      "CONTRACT-009"
+    ],
+    "acceptance_criteria": [
+      "App 支持 `system / light / dark` 三档主题模式",
+      "登录页和终端页均可切换主题",
+      "主题模式本地持久化，重启后仍生效"
+    ],
+    "risk_tags": [
+      "config",
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "unit",
+        "description": "主题模式持久化测试",
+        "scenarios": [
+          "配置模型正确序列化主题模式",
+          "重启后仍可恢复上次主题模式"
+        ],
+        "estimated_minutes": 15
+      },
+      {
+        "type": "manual",
+        "description": "手动主题切换 smoke",
+        "scenarios": [
+          "Android 端切换浅色和深色后即时生效",
+          "桌面端切换主题后返回页面仍保持一致"
+        ],
+        "estimated_minutes": 10
+      }
+    ],
+    "blocked_by": [],
+    "notes": "主题切换入口已接入登录页和终端页，依赖 ThemeController 与本地配置。",
+    "estimated_minutes": 30,
+    "actual_minutes": 20,
+    "created_at": "2026-03-28T23:50:00Z",
+    "started_at": "2026-03-28T23:50:00Z",
+    "completed_at": "2026-03-28T23:56:00Z",
+    "execution_state": "completed",
+    "commit": "c564923"
+  },
+  {
+    "id": "F014",
+    "phase": "frontend",
+    "module": "Flutter 客户端",
+    "slice": "command-sheet-polish",
+    "name": "移动端命令面板与终端主题抛光",
+    "description": "将移动端非核心快捷项收口为命令面板，并补齐浅色终端主题、桌面端快捷栏移除和终端边框裁字修复。",
+    "verification": "F2",
+    "depends_on": [
+      "F008",
+      "F009",
+      "F013"
+    ],
+    "status": "completed",
+    "priority": "P1",
+    "files": [
+      "remote-control/client/lib/screens/terminal_screen.dart",
+      "remote-control/client/lib/widgets/terminal_shortcut_bar.dart",
+      "remote-control/client/lib/services/shortcut_config_service.dart",
+      "remote-control/client/test/screens/terminal_screen_shortcuts_test.dart",
+      "remote-control/client/test/services/shortcut_config_service_test.dart"
+    ],
+    "contract_refs": [
+      "CONTRACT-006",
+      "CONTRACT-007",
+      "CONTRACT-009"
+    ],
+    "acceptance_criteria": [
+      "移动端默认仅显示一排核心键，`更多` 通过命令面板展示非核心项",
+      "浅色主题下终端外壳与终端内部主题均保持可读",
+      "桌面端不显示移动端快捷栏，终端边框不再裁掉左上角文字"
+    ],
+    "risk_tags": [
+      "first_use",
+      "config"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "命令面板与主题联动测试",
+        "scenarios": [
+          "更多 面板可展示默认 Claude 命令且选择后自动关闭",
+          "旧配置下默认命令仍能正确回填",
+          "主题切换后终端页与命令面板配色同步更新"
+        ],
+        "estimated_minutes": 20
+      },
+      {
+        "type": "manual",
+        "description": "移动端命令面板与浅色终端 smoke",
+        "scenarios": [
+          "Android 真机上命令面板可见且命令可执行",
+          "浅色主题下终端正文完整可见，左上角文字不再被边框遮挡"
+        ],
+        "estimated_minutes": 10
+      }
+    ],
+    "blocked_by": [],
+    "notes": "该任务承接了真实设备反馈，包括命令面板视觉层级、终端内部主题和裁字问题。",
+    "estimated_minutes": 35,
+    "actual_minutes": 30,
+    "created_at": "2026-03-28T23:56:00Z",
+    "started_at": "2026-03-28T23:56:00Z",
+    "completed_at": "2026-03-28T23:59:00Z",
+    "execution_state": "completed",
+    "commit": "c564923"
+  },
+  {
+    "id": "F015",
+    "phase": "frontend",
+    "module": "Flutter 客户端",
+    "slice": "device-terminal-state",
+    "name": "设备与 terminal 选择状态模块",
+    "description": "新增客户端设备列表、terminal 列表、在线 gating、创建/连接 terminal 的状态模块，优先通过 mock 服务完成逻辑测试。",
+    "verification": "F1",
+    "depends_on": [
+      "B008",
+      "B009",
+      "B010"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "remote-control/client/lib/services",
+      "remote-control/client/lib/models",
+      "remote-control/client/test/services",
+      "remote-control/client/test/models"
+    ],
+    "contract_refs": [
+      "CONTRACT-010",
+      "CONTRACT-011",
+      "CONTRACT-012",
+      "CONTRACT-014"
+    ],
+    "acceptance_criteria": [
+      "客户端可维护设备列表、terminal 列表和当前选择状态",
+      "device offline 时不允许进入连接流程",
+      "状态模块测试通过 mock API 覆盖正常、边界、异常路径"
+    ],
+    "risk_tags": [
+      "network",
+      "auth",
+      "config",
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": false,
+    "test_tasks": [
+      {
+        "type": "unit",
+        "description": "设备与 terminal 选择状态测试",
+        "scenarios": [
+          "在线设备列表加载成功",
+          "离线设备被标记为不可连接",
+          "terminal 创建失败时状态与错误提示稳定"
+        ],
+        "estimated_minutes": 25
+      }
+    ],
+    "blocked_by": [],
+    "notes": "新增 runtime device/terminal 模型、HTTP 服务和选择状态控制器，覆盖 preferred device、离线 gating 与创建异常分支。",
+    "estimated_minutes": 35,
+    "actual_minutes": 35,
+    "created_at": "2026-03-29T01:40:00Z",
+    "started_at": "2026-03-29T04:10:00Z",
+    "completed_at": "2026-03-29T06:10:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "F016",
+    "phase": "frontend",
+    "module": "Flutter 客户端",
+    "slice": "device-terminal-ui",
+    "name": "设备与 terminal 选择页及连接 gating",
+    "description": "实现在线设备列表、terminal 列表与创建入口页面，客户端只能在服务端确认在线时进入 terminal 会话。",
+    "verification": "F2",
+    "depends_on": [
+      "F015"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "remote-control/client/lib/screens",
+      "remote-control/client/lib/main.dart",
+      "remote-control/client/test/screens"
+    ],
+    "contract_refs": [
+      "CONTRACT-010",
+      "CONTRACT-011",
+      "CONTRACT-012"
+    ],
+    "acceptance_criteria": [
+      "用户可先选设备，再选 terminal 或创建 terminal",
+      "device offline 或 terminal closed 时 UI 禁止连接并给出明确提示",
+      "页面交互测试优先使用 mock state/service 覆盖"
+    ],
+    "risk_tags": [
+      "network",
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "设备/terminal 选择页测试",
+        "scenarios": [
+          "在线设备点击后显示 terminal 列表",
+          "离线设备显示禁用态",
+          "创建 terminal 成功后自动进入终端页"
+        ],
+        "estimated_minutes": 25
+      },
+      {
+        "type": "manual",
+        "description": "设备与 terminal 选择 smoke",
+        "scenarios": [
+          "用户可从设备页进入已有 terminal",
+          "离线设备在 UI 上不可点入"
+        ],
+        "estimated_minutes": 10
+      }
+    ],
+    "blocked_by": [],
+    "notes": "登录后进入设备/terminal 选择页，支持在线 gating、创建终端入口与 mock widget 测试；真实进入终端页的 smoke 保留到 S012。",
+    "estimated_minutes": 35,
+    "actual_minutes": 40,
+    "created_at": "2026-03-29T01:40:00Z",
+    "started_at": "2026-03-29T04:40:00Z",
+    "completed_at": "2026-03-29T06:15:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "F017",
+    "phase": "frontend",
+    "module": "状态语义收口",
+    "slice": "客户端状态对齐",
+    "name": "客户端状态文案与后端实时刷新策略对齐",
+    "description": "统一桌面端本机工作台文案和设备在线语义，进入 terminal 页与返回列表页时始终以后端快照刷新，客户端本地连接状态只做暂存不做权威源。",
+    "verification": "F2",
+    "depends_on": [
+      "S013",
+      "B012"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "remote-control/client/lib/screens/runtime_selection_screen.dart",
+      "remote-control/client/lib/screens/terminal_screen.dart",
+      "remote-control/client/lib/services/runtime_device_service.dart",
+      "remote-control/client/test/screens/runtime_selection_screen_test.dart"
+    ],
+    "contract_refs": [
+      "CONTRACT-010",
+      "CONTRACT-011",
+      "CONTRACT-015"
+    ],
+    "acceptance_criteria": [
+      "桌面端显示“本机 Agent 在线/离线”，不再把桌面客户端是否打开混同为电脑在线",
+      "进入 terminal 页和返回列表页后，设备状态与 mobile/desktop 数量以后端返回值为准",
+      "同一 terminal 复用连接时，列表展示不会反复 +1 或回到 0"
+    ],
+    "risk_tags": [
+      "first_use",
+      "startup",
+      "config"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "widget",
+        "description": "客户端状态文案与刷新策略测试",
+        "scenarios": [
+          "桌面端本机视图文案正确",
+          "terminal 页 init 会先拉后端快照",
+          "返回列表页后会刷新 devices/terminals"
+        ],
+        "estimated_minutes": 20
+      },
+      {
+        "type": "manual",
+        "description": "三端状态展示 smoke",
+        "scenarios": [
+          "macOS 显示本机 Agent 在线即设备可创建 terminal",
+          "Android/iOS 进入退出 terminal 后数量不漂移"
+        ],
+        "estimated_minutes": 15
+      }
+    ],
+    "blocked_by": [],
+    "notes": "解决桌面端在线态认知错位、数量显示依赖本地缓存和页面往返后显示漂移的问题。",
+    "estimated_minutes": 40,
+    "actual_minutes": 25,
+    "created_at": "2026-03-29T20:20:00Z",
+    "started_at": "2026-03-29T21:20:00Z",
+    "completed_at": "2026-03-29T21:45:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "F018",
+    "phase": "frontend",
+    "module": "终端工作台",
+    "slice": "workspace-tabs",
+    "name": "terminal workspace tab 化与初始化快照接入",
+    "description": "在终端页内实现 terminal tabs、默认 terminal 进入、tab 切换和 + 新建入口，初始化时先向后端拉取 terminal 列表与上限快照。",
+    "verification": "F2",
+    "depends_on": [
+      "S014"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "remote-control/client/lib/screens/terminal_screen.dart",
+      "remote-control/client/lib/services/runtime_device_service.dart",
+      "remote-control/client/lib/services/terminal_session_manager.dart",
+      "remote-control/client/test/screens/runtime_selection_screen_test.dart"
+    ],
+    "contract_refs": [
+      "CONTRACT-011",
+      "CONTRACT-015",
+      "CONTRACT-016"
+    ],
+    "acceptance_criteria": [
+      "terminal 页顶部可通过 tabs 切换现有 terminal",
+      "存在 terminal 时默认进入最近活跃 terminal；不存在时显示创建首个 terminal 空态",
+      "点击 + 会调用服务端创建 terminal，并在成功后新增 tab 并切换过去"
+    ],
+    "risk_tags": [
+      "startup",
+      "first_use",
+      "network"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "widget",
+        "description": "workspace tab 与初始化快照测试",
+        "scenarios": [
+          "初始化先拉后端快照并选中默认 terminal",
+          "tab 切换时复用已有 terminal session",
+          "+ 新建成功后插入新 tab 并切换"
+        ],
+        "estimated_minutes": 25
+      }
+    ],
+    "blocked_by": [],
+    "notes": "以 terminal 为主对象，不再让用户先停留在设备/terminal 选择页。",
+    "estimated_minutes": 50,
+    "actual_minutes": 35,
+    "started_at": "2026-03-29T22:20:00Z",
+    "completed_at": "2026-03-29T22:40:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "F019",
+    "phase": "frontend",
+    "module": "终端工作台",
+    "slice": "入口重构",
+    "name": "移除设备选择页主路径并收敛终端内创建/关闭流",
+    "description": "调整登录后主入口，默认进入 terminal workspace；保留旧 runtime 选择页为后备/调试入口，同时把 terminal 的创建、关闭、重命名尽量收敛到 workspace 内完成。",
+    "verification": "F2",
+    "depends_on": [
+      "F018"
+    ],
+    "status": "completed",
+    "priority": "P1",
+    "files": [
+      "remote-control/client/lib/main.dart",
+      "remote-control/client/lib/screens/login_screen.dart",
+      "remote-control/client/lib/screens/runtime_selection_screen.dart",
+      "remote-control/client/test/screens/runtime_selection_screen_test.dart"
+    ],
+    "contract_refs": [
+      "CONTRACT-010",
+      "CONTRACT-016"
+    ],
+    "acceptance_criteria": [
+      "登录成功后主路径直接进入 terminal workspace",
+      "旧设备/terminal 选择页不再作为默认入口，但仍可保留为后备入口",
+      "创建、关闭与重命名 terminal 的主操作发生在 workspace 内，不再依赖列表页"
+    ],
+    "risk_tags": [
+      "startup",
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "主入口与回退路径测试",
+        "scenarios": [
+          "登录后直接进入 workspace",
+          "workspace 内创建/关闭后列表与 tab 同步",
+          "保留后备入口时不会抢占主路径"
+        ],
+        "estimated_minutes": 25
+      }
+    ],
+    "blocked_by": [],
+    "notes": "当前范围先面向单设备主路径收敛；若后续支持多设备，再把设备切换做成次级入口。",
+    "estimated_minutes": 45,
+    "actual_minutes": 15,
+    "started_at": "2026-03-29T22:25:00Z",
+    "completed_at": "2026-03-29T22:40:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "F020",
+    "phase": "frontend",
+    "module": "创建与关闭语义",
+    "slice": "workspace交互",
+    "name": "workspace 创建与关闭交互对齐服务端权威语义",
+    "description": "在 terminal workspace 中按服务端权威状态展示“可创建/不可创建”，桌面端对首个 terminal 提供 Agent 恢复前置，并在关闭 terminal 后立即刷新快照和清空旧连接痕迹。",
+    "verification": "F2",
+    "depends_on": [
+      "S015",
+      "B014",
+      "B015",
+      "F019"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "remote-control/client/lib/screens/terminal_workspace_screen.dart",
+      "remote-control/client/lib/screens/terminal_screen.dart",
+      "remote-control/client/lib/services/runtime_selection_controller.dart",
+      "remote-control/client/lib/services/runtime_device_service.dart",
+      "remote-control/client/test/screens/terminal_workspace_screen_test.dart",
+      "remote-control/client/test/services/runtime_selection_controller_test.dart"
+    ],
+    "contract_refs": [
+      "CONTRACT-017",
+      "CONTRACT-018"
+    ],
+    "acceptance_criteria": [
+      "workspace 只根据电脑在线与当前 terminal 数量上限决定是否允许创建",
+      "桌面端首个 terminal 创建在 Agent 离线时会先进入恢复/启动流程",
+      "关闭 terminal 后界面会立即刷新快照，closed terminal 不再表现为仍有活动连接"
+    ],
+    "risk_tags": [
+      "first_use",
+      "startup",
+      "network"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "widget",
+        "description": "workspace 创建与关闭交互测试",
+        "scenarios": [
+          "电脑在线且未达上限时显示可创建态",
+          "桌面端首个 terminal 在离线时进入 Agent 恢复前置提示/流程",
+          "关闭 terminal 后刷新快照并移除旧连接状态"
+        ],
+        "estimated_minutes": 25
+      },
+      {
+        "type": "manual",
+        "description": "三端创建与关闭语义 smoke",
+        "scenarios": [
+          "macOS 首个 terminal 创建链正确",
+          "Android/iOS 只在满足准入条件时允许创建",
+          "关闭 terminal 后三端数量与状态一致"
+        ],
+        "estimated_minutes": 20
+      }
+    ],
+    "blocked_by": [],
+    "notes": "客户端只展示和引导，不再把 max_terminals 作为可编辑字段，也不再让 closed terminal 的旧状态污染 UI。",
+    "estimated_minutes": 40,
+    "actual_minutes": 30,
+    "started_at": "2026-03-29T01:10:00Z",
+    "completed_at": "2026-03-29T01:40:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "F021",
+    "phase": "frontend",
+    "module": "终端工作台瘦身",
+    "slice": "顶部状态栏",
+    "name": "workspace 顶部状态栏与 terminal 菜单面板",
+    "description": "移除顶部 tabs 常驻展示，改成轻量状态栏；用菜单或底部面板承载 terminal 切换、新建、重命名和关闭等操作。",
+    "verification": "F2",
+    "depends_on": [
+      "S016"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "remote-control/client/lib/screens/terminal_workspace_screen.dart",
+      "remote-control/client/test/screens/terminal_workspace_screen_test.dart"
+    ],
+    "contract_refs": [
+      "CONTRACT-019"
+    ],
+    "acceptance_criteria": [
+      "顶部显示电脑在线/离线状态图标和当前 terminal 标题",
+      "terminal 切换通过菜单/面板进行，不再长期显示 tabs",
+      "菜单可完成新建、切换、重命名、关闭当前 terminal"
+    ],
+    "risk_tags": [
+      "first_use",
+      "startup"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "widget",
+        "description": "顶部状态栏与菜单交互测试",
+        "scenarios": [
+          "顶部状态图标与当前 terminal 标题渲染正确",
+          "点击菜单可看到 terminal 切换、新建、关闭入口",
+          "执行菜单操作后仍以服务端快照刷新当前 terminal"
+        ],
+        "estimated_minutes": 30
+      }
+    ],
+    "blocked_by": [],
+    "notes": "本任务只改客户端顶部布局与交互，不改变创建准入和 close 语义。",
+    "estimated_minutes": 40,
+    "actual_minutes": 35,
+    "started_at": "2026-03-28T15:20:00Z",
+    "completed_at": "2026-03-28T15:43:57Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "F022",
+    "phase": "frontend",
+    "module": "终端工作台瘦身",
+    "slice": "旧交互降级",
+    "name": "tabs 交互降级并收口到菜单主路径",
+    "description": "将旧的 terminal tabs 交互降级为内部实现细节或移除，确保主路径完全通过顶部菜单进行 terminal 管理，并补回归测试。",
+    "verification": "F2",
+    "depends_on": [
+      "F021"
+    ],
+    "status": "completed",
+    "priority": "P1",
+    "files": [
+      "remote-control/client/lib/screens/terminal_workspace_screen.dart",
+      "remote-control/client/test/screens/terminal_workspace_screen_test.dart"
+    ],
+    "contract_refs": [
+      "CONTRACT-019"
+    ],
+    "acceptance_criteria": [
+      "终端主页面不再依赖常驻 tabs 完成 terminal 管理",
+      "菜单化主路径不会破坏当前 terminal 的默认进入、close 后切换和空态逻辑",
+      "回归测试覆盖由 tabs 到菜单主路径的切换"
+    ],
+    "risk_tags": [
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "widget",
+        "description": "菜单主路径回归测试",
+        "scenarios": [
+          "登录后进入 workspace 不再展示整排 tabs",
+          "close 当前 terminal 后自动切换到下一个可用 terminal 或空态",
+          "菜单主路径下仍可完成 create/rename/close"
+        ],
+        "estimated_minutes": 25
+      }
+    ],
+    "blocked_by": [],
+    "notes": "保持旧逻辑只作为实现细节，不再暴露为主要视觉结构。",
+    "estimated_minutes": 35,
+    "actual_minutes": 15,
+    "started_at": "2026-03-28T15:30:00Z",
+    "completed_at": "2026-03-28T15:43:57Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "F023",
+    "phase": "frontend",
+    "module": "设备离线收口",
+    "slice": "workspace 展示",
+    "name": "客户端离线展示与 terminal 可用性对齐",
+    "description": "客户端按后端快照展示 device offline 后的 terminal 不可用状态，不再在离线时显示可连接/可切换的活动 terminal。",
+    "verification": "F2",
+    "depends_on": [
+      "B016"
+    ],
+    "status": "completed",
+    "priority": "P1",
+    "files": [
+      "remote-control/client/lib/screens/terminal_workspace_screen.dart",
+      "remote-control/client/lib/services/runtime_selection_controller.dart",
+      "remote-control/client/test/screens/terminal_workspace_screen_test.dart",
+      "remote-control/client/test/services/runtime_selection_controller_test.dart"
+    ],
+    "contract_refs": [
+      "CONTRACT-020"
+    ],
+    "acceptance_criteria": [
+      "电脑离线时，workspace 不再把旧 terminal 作为可切换 terminal 展示",
+      "离线空态、恢复 Agent 提示与 create 按钮文案一致",
+      "终端菜单和空态逻辑以后端快照为准，不依赖本地残留连接状态"
+    ],
+    "risk_tags": [
+      "first_use",
+      "startup"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "widget",
+        "description": "离线 workspace 回归测试",
+        "scenarios": [
+          "device offline 时菜单不再展示可切换的活跃 terminal",
+          "offline 空态下恢复 Agent / 新建 terminal 的提示正确",
+          "close 后刷新不会把已关闭 terminal 当作活跃 terminal"
+        ],
+        "estimated_minutes": 25
+      }
+    ],
+    "blocked_by": [],
+    "notes": "这条只收客户端展示与交互，不改服务端状态源。",
+    "estimated_minutes": 30,
+    "actual_minutes": 10,
+    "started_at": "2026-03-29T00:04:00Z",
+    "completed_at": "2026-03-29T00:12:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "F024",
+    "phase": "frontend",
+    "module": "桌面 Agent 后台模式",
+    "slice": "settings",
+    "name": "桌面端后台运行开关与本机 Agent 状态入口",
+    "description": "在桌面端提供“退出桌面端后保持 Agent 后台运行”开关，并展示本机 Agent 状态与控制入口。",
+    "verification": "F2",
+    "depends_on": [
+      "S018",
+      "B018"
+    ],
+    "status": "cancelled",
+    "priority": "P0",
+    "files": [
+      "remote-control/client/lib/models/config.dart",
+      "remote-control/client/lib/services/config_service.dart",
+      "remote-control/client/lib/screens/terminal_workspace_screen.dart",
+      "remote-control/client/test/screens/terminal_workspace_screen_test.dart"
+    ],
+    "contract_refs": [
+      "CONTRACT-021"
+    ],
+    "acceptance_criteria": [
+      "桌面端可切换后台运行开关，并本地持久化",
+      "workspace 顶部或菜单能展示本机 Agent 在线/离线与启动/停止入口",
+      "移动端不展示该开关，保持现有远程控制交互"
+    ],
+    "risk_tags": [
+      "config",
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "widget",
+        "description": "后台运行开关 UI 测试",
+        "scenarios": [
+          "仅桌面端显示开关",
+          "切换开关后配置持久化",
+          "Agent 离线时展示启动入口"
+        ],
+        "estimated_minutes": 20
+      },
+      {
+        "type": "manual",
+        "description": "桌面端本机 Agent 设置 smoke",
+        "scenarios": [
+          "切换后台模式后重启桌面端仍保留设置",
+          "桌面端看到的 Agent 状态与手机端在线状态一致"
+        ],
+        "estimated_minutes": 10
+      }
+    ],
+    "blocked_by": [],
+    "notes": "只改桌面端入口和配置，不改移动端主路径。",
+    "estimated_minutes": 30,
+    "created_at": "2026-03-29T09:20:00Z",
+    "execution_state": "pending",
+    "commit": null,
+    "cancelled_reason": "被 F030+F031 覆盖（平台差异 + 退出语义）"
+  },
+  {
+    "id": "F025",
+    "phase": "frontend",
+    "module": "桌面 Agent 后台模式",
+    "slice": "lifecycle",
+    "name": "桌面端退出生命周期与在线语义对齐",
+    "description": "根据后台运行开关和 managed Agent 所有权，在桌面端退出时决定是否停止本机 Agent，并让手机端在线状态快速收口。",
+    "verification": "F2",
+    "depends_on": [
+      "B018",
+      "F024"
+    ],
+    "status": "cancelled",
+    "priority": "P0",
+    "files": [
+      "remote-control/client/lib/main.dart",
+      "remote-control/client/lib/screens/terminal_workspace_screen.dart",
+      "remote-control/client/lib/services/desktop_agent_supervisor.dart",
+      "remote-control/client/test/screens/terminal_workspace_screen_test.dart",
+      "remote-control/client/test/services/desktop_agent_supervisor_test.dart"
+    ],
+    "contract_refs": [
+      "CONTRACT-021"
+    ],
+    "acceptance_criteria": [
+      "后台运行开关关闭且 Agent 由桌面端当前实例托管时，退出桌面端会触发优雅停机",
+      "后台运行开关开启时，退出桌面端不会停止 Agent，手机端仍可看到电脑在线",
+      "外部已存在 Agent 时，桌面端退出不会误杀 Agent"
+    ],
+    "risk_tags": [
+      "startup",
+      "first_use",
+      "network"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "widget",
+        "description": "桌面端退出策略测试",
+        "scenarios": [
+          "managed Agent + 开关关闭 => 请求停机",
+          "managed Agent + 开关开启 => 不停机",
+          "external Agent => 始终不停机"
+        ],
+        "estimated_minutes": 20
+      },
+      {
+        "type": "manual",
+        "description": "跨端在线状态 smoke",
+        "scenarios": [
+          "退出 mac 桌面端后手机端在线状态按开关语义变化",
+          "重开桌面端后本机 Agent 状态恢复正确"
+        ],
+        "estimated_minutes": 10
+      }
+    ],
+    "blocked_by": [],
+    "notes": "这是桌面端生命周期收口任务，需重点防止假在线与误杀。",
+    "estimated_minutes": 30,
+    "created_at": "2026-03-29T09:20:00Z",
+    "execution_state": "pending",
+    "commit": null,
+    "cancelled_reason": "被 F031 覆盖（退出语义）"
+  },
+  {
+    "id": "F026",
+    "phase": "frontend",
+    "module": "桌面 Agent 管理子系统",
+    "slice": "workspace-controller",
+    "name": "DesktopWorkspaceController 与单一 WorkspaceState",
+    "description": "抽离工作台状态机，把 Agent 状态、设备/terminal 快照和创建中状态收敛成单一 WorkspaceState，页面只负责渲染与弹窗。",
+    "verification": "F2",
+    "depends_on": [
+      "S019",
+      "B019"
+    ],
+    "status": "cancelled",
+    "priority": "P0",
+    "files": [
+      "remote-control/client/lib/screens/terminal_workspace_screen.dart",
+      "remote-control/client/lib/services/desktop_workspace_controller.dart",
+      "remote-control/client/test/screens/terminal_workspace_screen_test.dart"
+    ],
+    "contract_refs": [
+      "CONTRACT-022"
+    ],
+    "acceptance_criteria": [
+      "header、空态、主按钮和菜单可用性都只读取统一 WorkspaceState",
+      "桌面端无可用 terminal + Agent 离线时，稳定进入 bootstrapping/createFailed/readyToCreateFirstTerminal 三态",
+      "页面不再直接调用 ensureAgentOnline、stopManagedAgent 等生命周期动作"
+    ],
+    "risk_tags": [
+      "startup",
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "widget",
+        "description": "桌面工作台状态机测试",
+        "scenarios": [
+          "历史 closed terminal 不会打断桌面空工作台三态",
+          "header 与 body 文案一致，不再互相打架",
+          "createInProgress / createFailed / offlineWithUsableTerminal 分支可稳定复现"
+        ],
+        "estimated_minutes": 25
+      }
+    ],
+    "blocked_by": [],
+    "notes": "这条任务把页面从编排层降到渲染层。",
+    "estimated_minutes": 35,
+    "created_at": "2026-03-29T11:02:00Z",
+    "execution_state": "pending",
+    "commit": null,
+    "cancelled_reason": "被 F029 覆盖（HTTP 客户端作为单一状态源）"
+  },
+  {
+    "id": "F027",
+    "phase": "frontend",
+    "module": "桌面 Agent 管理子系统",
+    "slice": "desktop-first-create",
+    "name": "桌面端首个 terminal 创建链与离线/失败体验收口",
+    "description": "将“启动本机 Agent -> 创建第一个 terminal”做成正式两阶段链路，并让桌面端空态、失败态与手机端在线状态保持一致。",
+    "verification": "F2",
+    "depends_on": [
+      "B019",
+      "F026"
+    ],
+    "status": "cancelled",
+    "priority": "P0",
+    "files": [
+      "remote-control/client/lib/screens/terminal_workspace_screen.dart",
+      "remote-control/client/lib/services/desktop_workspace_controller.dart",
+      "remote-control/client/test/screens/terminal_workspace_screen_test.dart"
+    ],
+    "contract_refs": [
+      "CONTRACT-018",
+      "CONTRACT-021",
+      "CONTRACT-022"
+    ],
+    "acceptance_criteria": [
+      "桌面端点击“启动并创建终端”时，先确保 Agent Ready，再创建 terminal，并对失败原因有明确反馈",
+      "电脑在线语义、header 文案、空态文案与创建按钮行为在桌面端保持一致",
+      "手机端看到的在线状态与桌面端启动结果一致，不再出现桌面端失败但手机端仍显示可创建的矛盾体验"
+    ],
+    "risk_tags": [
+      "startup",
+      "network",
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "widget",
+        "description": "桌面端首个 terminal 创建链测试",
+        "scenarios": [
+          "Agent 启动成功后创建第一个 terminal 并进入 workspace",
+          "Agent 启动失败时展示明确失败态与重试动作",
+          "桌面端工作台与手机端设备在线状态在刷新后保持一致"
+        ],
+        "estimated_minutes": 25
+      },
+      {
+        "type": "manual",
+        "description": "桌面首个 terminal 真机 smoke",
+        "scenarios": [
+          "macOS 无 terminal 时自动/手动启动 Agent 后可创建第一个 terminal",
+          "失败后重试路径与手机端在线状态一致"
+        ],
+        "estimated_minutes": 10
+      }
+    ],
+    "blocked_by": [],
+    "notes": "这条任务收最终产品体验，不再接受页面条件拼接式修复。",
+    "estimated_minutes": 35,
+    "created_at": "2026-03-29T11:02:00Z",
+    "execution_state": "pending",
+    "commit": null,
+    "cancelled_reason": "被 F029+F031 覆盖（创建链通过 HTTP 协调）"
+  },
+  {
+    "id": "F028",
+    "phase": "frontend",
+    "module": "桌面 Agent 管理子系统",
+    "slice": "workspace-normalization",
+    "name": "关闭最后一个 terminal 后的桌面工作台状态归一化",
+    "description": "关闭最后一个可用 terminal 后，工作台必须重新判断 AgentState + usableTerminalCount，回到正确状态。基于新的 HTTP Supervisor 架构实现。",
+    "verification": "F2",
+    "depends_on": [
+      "F029",
+      "F030",
+      "F031"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "started_at": "2026-03-30T12:00:00Z",
+    "completed_at": "2026-03-30T12:30:00Z",
+    "actual_minutes": 30,
+    "notes": "这是 F027 之后暴露出的状态机补丁任务，避免继续隐式 patch。",
+    "files": [
+      "remote-control/client/lib/services/desktop_workspace_controller.dart",
+      "remote-control/client/lib/screens/terminal_workspace_screen.dart",
+      "remote-control/client/test/screens/terminal_workspace_screen_test.dart"
+    ],
+    "contract_refs": [
+      "CONTRACT-022",
+      "CONTRACT-023"
+    ],
+    "acceptance_criteria": [
+      "关闭最后一个可用 terminal 后，工作台会重新归一化为空工作台状态，而不是继续显示历史 createFailed",
+      "历史 bootstrap 失败不会阻止用户重新进入“创建第一个 terminal”路径",
+      "header、空态和主按钮在 terminal 关闭后的状态切换中保持一致"
+    ],
+    "risk_tags": [
+      "first_use",
+      "state_machine"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": false,
+    "test_tasks": [
+      {
+        "type": "widget",
+        "description": "桌面空工作台归一化回归测试",
+        "scenarios": [
+          "关闭最后一个 terminal 后不再继续显示启动本机 Agent 失败",
+          "空工作台重新进入创建第一个 terminal 路径",
+          "关闭 terminal 后 header 与 body 状态一致"
+        ],
+        "estimated_minutes": 20
+      }
+    ],
+    "blocked_by": [],
+    "estimated_minutes": 25,
+    "created_at": "2026-03-29T12:10:00Z",
+    "execution_state": "pending",
+    "commit": null
+  },
+  {
+    "id": "F029",
+    "phase": "frontend",
+    "module": "桌面 Agent 管理",
+    "slice": "生命周期管理",
+    "name": "桌面端 Agent 本地 HTTP 通信",
+    "description": "Flutter 桌面端通过本地 HTTP 与 Agent 通信，实现状态检测、启动/停止控制",
+    "verification": "F2",
+    "depends_on": [
+      "S022",
+      "S023"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "client/lib/services/desktop_agent_http_client.dart"
+    ],
+    "contract_refs": [
+      "CONTRACT-024"
+    ],
+    "acceptance_criteria": [
+      "启动时能检测本地是否有 Agent 运行",
+      "能通过 HTTP 获取 Agent 状态",
+      "能通过 HTTP 发送停止命令",
+      "能通过 HTTP 更新 keep_running 配置",
+      "状态文件不可用时能扫描端口范围"
+    ],
+    "risk_tags": [
+      "startup",
+      "first_use",
+      "network"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "unit",
+        "description": "HTTP 客户端测试",
+        "scenarios": [
+          "健康检查",
+          "状态获取",
+          "停止命令",
+          "配置更新"
+        ],
+        "estimated_minutes": 15
+      },
+      {
+        "type": "integration",
+        "description": "端口扫描测试",
+        "scenarios": [
+          "状态文件存在时快速发现",
+          "状态文件不存在时扫描端口"
+        ],
+        "estimated_minutes": 10
+      }
+    ],
+    "started_at": "2026-03-30T12:00:00Z",
+    "completed_at": "2026-03-30T12:30:00Z",
+    "actual_minutes": 30,
+    "notes": "实现 DesktopAgentHttpClient，支持状态文件发现和端口扫描。包含 LocalAgentStatus 模型。单元测试 10 个全部通过。"
+  },
+  {
+    "id": "F030",
+    "phase": "frontend",
+    "module": "平台差异",
+    "slice": "行为模式区分",
+    "name": "桌面端与手机端行为模式区分",
+    "description": "明确区分桌面端（本地 Agent 主机）和手机端（远程查看器）的行为模式",
+    "verification": "F2",
+    "depends_on": [
+      "F029"
+    ],
+    "status": "completed",
+    "priority": "P1",
+    "started_at": "2026-03-30T11:00:00Z",
+    "completed_at": "2026-03-30T11:30:00Z",
+    "actual_minutes": 30,
+    "notes": "添加平台判断测试、handleViewDispose 行为测试。验证桌面端退出时根据 keepAgentRunningInBackground 决定是否停止 Agent。单元测试 23 个全部通过。",
+    "files": [
+      "client/lib/services/runtime_selection_controller.dart",
+      "client/lib/services/desktop_workspace_controller.dart"
+    ],
+    "contract_refs": [
+      "CONTRACT-026"
+    ],
+    "acceptance_criteria": [
+      "桌面端显示后台运行开关，手机端不显示",
+      "桌面端退出时根据开关决定是否停止 Agent",
+      "手机端退出时只是断开 WebSocket，不影响远程 Agent",
+      "平台判断逻辑使用 Platform.isMacOS/isLinux/isWindows"
+    ],
+    "risk_tags": [
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "unit",
+        "description": "平台判断测试",
+        "scenarios": [
+          "macOS 识别为桌面端",
+          "iOS 识别为手机端",
+          "Android 识别为手机端"
+        ],
+        "estimated_minutes": 10
+      }
+    ]
+  },
+  {
+    "id": "F031",
+    "phase": "frontend",
+    "module": "桌面 Agent 管理",
+    "slice": "退出语义",
+    "name": "桌面端退出语义与后台运行开关",
+    "description": "完善桌面端退出流程，根据后台运行开关决定是否停止 Agent",
+    "verification": "F2",
+    "depends_on": [
+      "F029",
+      "F030"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "started_at": "2026-03-30T11:30:00Z",
+    "completed_at": "2026-03-30T12:00:00Z",
+    "actual_minutes": 30,
+    "notes": "实现 HTTP /stop 优雅关闭，失败时回退到 SIGTERM。测试覆盖退出语义和后台运行开关。9 个测试用例全部通过。",
+    "files": [
+      "client/lib/services/desktop_agent_supervisor.dart",
+      "client/lib/services/desktop_agent_exit_bridge.dart"
+    ],
+    "contract_refs": [
+      "CONTRACT-021",
+      "CONTRACT-024"
+    ],
+    "acceptance_criteria": [
+      "后台运行开关关闭时，退出桌面端会停止 Agent",
+      "后台运行开关开启时，退出桌面端不会停止 Agent",
+      "只停止桌面端自己启动的 Agent（managed），不停止外部 Agent",
+      "停止 Agent 时先发送 HTTP /stop，等待优雅关闭"
+    ],
+    "risk_tags": [
+      "startup",
+      "first_use",
+      "auth"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "退出流程测试",
+        "scenarios": [
+          "开关关闭时 Agent 被停止",
+          "开关开启时 Agent 继续运行",
+          "外部 Agent 不被停止"
+        ],
+        "estimated_minutes": 15
+      }
+    ]
+  }
+]

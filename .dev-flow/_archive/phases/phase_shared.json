@@ -1,0 +1,893 @@
+[
+  {
+    "id": "S001",
+    "phase": "shared",
+    "module": "共享会话",
+    "slice": "契约",
+    "name": "共享会话契约与验收基线",
+    "description": "定义单 PTY、多终端视图的会话协议、presence、输入输出和验收标准。",
+    "verification": "L4",
+    "depends_on": [],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      ".dev-flow/api_contracts.md",
+      ".dev-flow/project_spec.md",
+      ".dev-flow/alignment_checklist.md",
+      ".dev-flow/test_coverage.md"
+    ],
+    "contract_refs": [
+      "CONTRACT-001",
+      "CONTRACT-002",
+      "CONTRACT-003",
+      "CONTRACT-004",
+      "CONTRACT-005"
+    ],
+    "acceptance_criteria": [
+      "服务端、Agent、mobile、desktop 对同一 session 的角色定义一致",
+      "输入、输出、resize、presence 的消息字段在契约中明确",
+      "双端共控的验收基线可直接用于执行与测试"
+    ],
+    "risk_tags": [
+      "network",
+      "auth",
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "quality_gates": {
+      "unit_test": "skip",
+      "integration_test": "optional",
+      "simplify": "required",
+      "commit": "manual"
+    },
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "契约字段一致性检查",
+        "scenarios": [
+          "Agent connected 消息含 owner 与 views",
+          "Client connected 消息含 view 类型与 agent_online",
+          "非法 view 值被拒绝"
+        ],
+        "estimated_minutes": 10
+      },
+      {
+        "type": "manual",
+        "description": "双端共控验收基线确认",
+        "scenarios": [
+          "电脑端和手机端均可附着同一 session",
+          "双端交替输入时输出同步且无乱码"
+        ],
+        "estimated_minutes": 5
+      }
+    ],
+    "blocked_by": [],
+    "notes": "先稳定契约，再进入执行。",
+    "estimated_minutes": 20,
+    "actual_minutes": 15,
+    "created_at": "2026-03-27T16:45:00Z",
+    "started_at": "2026-03-27T17:00:00Z",
+    "completed_at": "2026-03-27T17:15:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "S002",
+    "phase": "shared",
+    "module": "共享会话",
+    "slice": "integration",
+    "name": "双端共控主链路联调",
+    "description": "验证电脑端与手机端同时附着同一 session 时，输入、输出、resize、重连和存在感同步都符合预期。",
+    "verification": "L4",
+    "depends_on": [
+      "B002",
+      "B003",
+      "B004",
+      "B005",
+      "F002",
+      "F003"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "remote-control/server/tests",
+      "remote-control/agent/tests",
+      "remote-control/client/test",
+      "remote-control/README.md"
+    ],
+    "contract_refs": [
+      "CONTRACT-001",
+      "CONTRACT-002",
+      "CONTRACT-003",
+      "CONTRACT-004",
+      "CONTRACT-005"
+    ],
+    "acceptance_criteria": [
+      "桌面端和手机端同时连接同一 session 并交替输入成功",
+      "Claude 输出在双端一致且无控制序列乱码",
+      "任一端断开后另一端仍可继续使用，恢复后可重新附着"
+    ],
+    "risk_tags": [
+      "network",
+      "auth",
+      "first_use",
+      "startup"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "e2e",
+        "description": "双端共控自动化链路",
+        "scenarios": [
+          "desktop 连接后 mobile 再附着",
+          "mobile 输入后 desktop 收到相同输出",
+          "desktop resize 后 Agent 尺寸更新"
+        ],
+        "estimated_minutes": 25
+      },
+      {
+        "type": "manual",
+        "description": "真实双端 smoke",
+        "scenarios": [
+          "桌面端和手机端轮流发送消息，Claude 都正常响应",
+          "桌面端和手机端都能观察到相同终端画面变化"
+        ],
+        "estimated_minutes": 10
+      }
+    ],
+    "blocked_by": [],
+    "notes": "这是核心里程碑任务。",
+    "estimated_minutes": 35,
+    "actual_minutes": 20,
+    "created_at": "2026-03-27T16:45:00Z",
+    "started_at": "2026-03-27T18:35:00Z",
+    "completed_at": "2026-03-27T18:55:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "S003",
+    "phase": "shared",
+    "module": "共享会话",
+    "slice": "release",
+    "name": "发布与部署验收",
+    "description": "完成本地 Docker 验收、云端环境参数清单、发布步骤与回滚说明，保证双端共控能力可发布。",
+    "verification": "L3",
+    "depends_on": [
+      "S002"
+    ],
+    "status": "completed",
+    "priority": "P1",
+    "files": [
+      "remote-control/docker-compose.yml",
+      "remote-control/README.md",
+      "remote-control/server/Dockerfile"
+    ],
+    "contract_refs": [],
+    "acceptance_criteria": [
+      "本地 Docker 环境健康检查、登录和双端共控 smoke 全部通过",
+      "云端发布步骤和环境变量清单完整",
+      "提供失败回滚和验收检查点"
+    ],
+    "risk_tags": [
+      "network",
+      "startup",
+      "config"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "本地 Docker 发布验证",
+        "scenarios": [
+          "docker compose up 后 rc-server healthy",
+          "登录与 ws 连接成功",
+          "healthcheck 在容器内可执行"
+        ],
+        "estimated_minutes": 15
+      },
+      {
+        "type": "manual",
+        "description": "发布 smoke",
+        "scenarios": [
+          "云端环境按文档配置后可完成一次登录与连接",
+          "发布失败时按回滚步骤恢复"
+        ],
+        "estimated_minutes": 10
+      }
+    ],
+    "blocked_by": [],
+    "notes": "本地先完成，云端作为收尾任务。",
+    "estimated_minutes": 20,
+    "actual_minutes": 10,
+    "created_at": "2026-03-27T16:45:00Z",
+    "started_at": "2026-03-27T18:55:00Z",
+    "completed_at": "2026-03-27T19:05:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "S011",
+    "phase": "shared",
+    "module": "多终端架构",
+    "slice": "契约",
+    "name": "设备与多 terminal 契约及自动化基线",
+    "description": "定义 device、terminal、view 三层模型，明确在线 gating、terminal 创建/附着、关闭原因与自动化优先验收基线。",
+    "verification": "L4",
+    "depends_on": [],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      ".dev-flow/api_contracts.md",
+      ".dev-flow/project_spec.md",
+      ".dev-flow/alignment_checklist.md",
+      ".dev-flow/test_coverage.md"
+    ],
+    "contract_refs": [
+      "CONTRACT-010",
+      "CONTRACT-011",
+      "CONTRACT-012",
+      "CONTRACT-013",
+      "CONTRACT-014"
+    ],
+    "acceptance_criteria": [
+      "device、terminal、view 的职责边界与主键关系在契约中明确",
+      "客户端只能在服务端确认 device online 时创建或连接 terminal",
+      "测试顺序明确为先 mock/logic，再真实 PTY 与手工 smoke"
+    ],
+    "risk_tags": [
+      "network",
+      "auth",
+      "startup",
+      "first_use",
+      "config"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "quality_gates": {
+      "unit_test": "required",
+      "integration_test": "required",
+      "simplify": "required",
+      "commit": "manual"
+    },
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "契约与状态机 mock 基线",
+        "scenarios": [
+          "device 在线时允许列出 terminal 与创建 terminal",
+          "device 离线时客户端获取到明确 gating 响应",
+          "terminal 关闭原因在 connected/status 响应中可见"
+        ],
+        "estimated_minutes": 15
+      },
+      {
+        "type": "manual",
+        "description": "多 terminal 主链路 smoke 基线",
+        "scenarios": [
+          "客户端先选设备再选 terminal",
+          "同一设备的不同 terminal 可分别附着"
+        ],
+        "estimated_minutes": 10
+      }
+    ],
+    "blocked_by": [],
+    "notes": "这是多 terminal phase 的主契约任务，后续所有任务按该基线执行。",
+    "estimated_minutes": 25,
+    "created_at": "2026-03-29T01:40:00Z",
+    "started_at": "2026-03-29T01:45:00Z",
+    "completed_at": "2026-03-29T01:55:00Z",
+    "actual_minutes": 10,
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "S012",
+    "phase": "shared",
+    "module": "多终端架构",
+    "slice": "integration",
+    "name": "多 terminal 主链路联调与回归验收",
+    "description": "验证设备在线感知、terminal 选择、不同 cwd terminal、双端附着、断线 grace period 与关闭原因在真实链路中闭环可用。",
+    "verification": "L4",
+    "depends_on": [
+      "B009",
+      "B010",
+      "B011",
+      "F016"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "remote-control/server/tests",
+      "remote-control/agent/tests",
+      "remote-control/client/test",
+      "remote-control/README.md"
+    ],
+    "contract_refs": [
+      "CONTRACT-010",
+      "CONTRACT-011",
+      "CONTRACT-012",
+      "CONTRACT-013",
+      "CONTRACT-014"
+    ],
+    "acceptance_criteria": [
+      "同一设备下可创建并选择多个不同 cwd 的 terminal",
+      "手机端与电脑端可同时附着到同一 terminal，且不会串到其他 terminal",
+      "短线重连、terminal 关闭与设备离线的真实反馈符合契约"
+    ],
+    "risk_tags": [
+      "network",
+      "auth",
+      "startup",
+      "first_use",
+      "config"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "e2e",
+        "description": "多 terminal 自动化链路",
+        "scenarios": [
+          "创建两个不同 cwd terminal 并分别附着",
+          "输入输出只在对应 terminal 内流动",
+          "device offline 后客户端不能新建 terminal"
+        ],
+        "estimated_minutes": 30
+      },
+      {
+        "type": "manual",
+        "description": "真实多 terminal smoke",
+        "scenarios": [
+          "Android 与 macOS 连接同一 terminal 成功",
+          "关闭一个 terminal 后列表状态及时更新",
+          "短线后在 grace period 内恢复到原 terminal"
+        ],
+        "estimated_minutes": 15
+      }
+    ],
+    "blocked_by": [],
+    "notes": "已完成真实链路联调：fresh terminal 创建、不同 cwd、同 terminal 双视图附着、connected 首包顺序、terminal_exit 回写，以及 agent 下线后的 offline gating。测试过程中额外修复了 runtime token 兼容、terminal close EOF 处理和 connected/presence 顺序。",
+    "estimated_minutes": 45,
+    "actual_minutes": 105,
+    "created_at": "2026-03-29T01:40:00Z",
+    "started_at": "2026-03-29T08:00:00Z",
+    "completed_at": "2026-03-29T09:25:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "S013",
+    "phase": "shared",
+    "module": "状态语义收口",
+    "slice": "契约",
+    "name": "设备在线与终端视图权威语义基线",
+    "description": "定义电脑在线、Agent 在线、terminal 运行中、view 数之间的语义边界，并将“进入页面先查后端、presence 只做增量”的验收口径固定下来。",
+    "verification": "L4",
+    "depends_on": [],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      ".dev-flow/api_contracts.md",
+      ".dev-flow/project_spec.md",
+      ".dev-flow/alignment_checklist.md",
+      ".dev-flow/test_coverage.md"
+    ],
+    "contract_refs": [
+      "CONTRACT-015"
+    ],
+    "acceptance_criteria": [
+      "“电脑在线”明确定义为本机 Agent 在线且当前可创建并承载 terminal",
+      "terminal 的 mobile/desktop 数量以后端实时连接数为权威来源",
+      "进入 terminal 页与返回列表页都必须先查后端快照，再依赖 presence 做增量更新"
+    ],
+    "risk_tags": [
+      "first_use",
+      "startup",
+      "config"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": false,
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "状态语义契约回归",
+        "scenarios": [
+          "device_online 与 desktop_client_open 语义分离",
+          "terminal views 以后端快照为准",
+          "页面进出后的数量展示不依赖本地旧缓存"
+        ],
+        "estimated_minutes": 15
+      }
+    ],
+    "blocked_by": [],
+    "notes": "来自真实回流：桌面端登录但设备仍显示离线、terminal 数量在页面进出后掉成 0、关闭 terminal 后无法稳定再创建。",
+    "estimated_minutes": 25,
+    "actual_minutes": 20,
+    "created_at": "2026-03-29T20:20:00Z",
+    "started_at": "2026-03-29T20:25:00Z",
+    "completed_at": "2026-03-29T20:55:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "S014",
+    "phase": "shared",
+    "module": "终端工作台",
+    "slice": "交互基线",
+    "name": "终端工作台 tab 主路径与初始化快照基线",
+    "description": "将当前主路径从“设备与 terminal 选择页”收敛为“登录后直接进入 terminal workspace”，明确初始化快照、默认 terminal、tab 切换和空态语义。",
+    "verification": "L4",
+    "depends_on": [
+      "S013",
+      "F017"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      ".dev-flow/project_spec.md",
+      ".dev-flow/api_contracts.md",
+      ".dev-flow/alignment_checklist.md",
+      ".dev-flow/test_coverage.md"
+    ],
+    "contract_refs": [
+      "CONTRACT-015",
+      "CONTRACT-016"
+    ],
+    "acceptance_criteria": [
+      "登录后优先进入 terminal workspace，而不是先停留在设备选择页",
+      "workspace 初始化会先拉取后端 device + terminal 快照，并确定默认 terminal",
+      "tab 切换、+ 新建、空态与上限语义在契约中明确"
+    ],
+    "risk_tags": [
+      "startup",
+      "first_use",
+      "config"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "quality_gates": {
+      "unit_test": "skip",
+      "integration_test": "optional",
+      "simplify": "required",
+      "commit": "manual"
+    },
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "workspace 初始化与默认 terminal 契约检查",
+        "scenarios": [
+          "已有 terminal 时默认进入最近活跃 terminal",
+          "无 terminal 时展示创建首个 terminal 空态",
+          "device offline 时工作台展示不可创建态"
+        ],
+        "estimated_minutes": 15
+      }
+    ],
+    "blocked_by": [],
+    "notes": "来源于真实使用反馈：本机终端/设备选择页不再是合适的主入口。",
+    "estimated_minutes": 20,
+    "created_at": "2026-03-29T22:05:00Z",
+    "actual_minutes": 10,
+    "started_at": "2026-03-29T22:10:00Z",
+    "completed_at": "2026-03-29T22:20:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "S015",
+    "phase": "shared",
+    "module": "创建与关闭语义",
+    "slice": "契约",
+    "name": "terminal 创建准入与 closed 清理语义基线",
+    "description": "定义 terminal 创建的前置准入条件、桌面端首个 terminal 的 Agent 恢复前置，以及 closed terminal 退出活动连接集合的统一语义。",
+    "verification": "L4",
+    "depends_on": [
+      "S014"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      ".dev-flow/project_spec.md",
+      ".dev-flow/api_contracts.md",
+      ".dev-flow/alignment_checklist.md",
+      ".dev-flow/test_coverage.md"
+    ],
+    "contract_refs": [
+      "CONTRACT-017",
+      "CONTRACT-018"
+    ],
+    "acceptance_criteria": [
+      "创建 terminal 的前置准入条件只保留“电脑在线”和“terminal 数量未达上限”",
+      "桌面端在本机 Agent 离线且 terminal 数为 0 时，先恢复 Agent 再创建第一个 terminal",
+      "closed terminal 不再维持活动连接记录，也不再参与活动 terminal 数与视图数统计"
+    ],
+    "risk_tags": [
+      "startup",
+      "first_use",
+      "config"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "创建与关闭语义契约检查",
+        "scenarios": [
+          "电脑在线且 terminal 数小于上限时允许创建",
+          "电脑离线时桌面端首个 terminal 走 Agent 恢复前置",
+          "closed terminal 不再出现在活动连接与名额统计里"
+        ],
+        "estimated_minutes": 20
+      }
+    ],
+    "blocked_by": [],
+    "notes": "来源于真实使用反馈：用户将“能否创建 terminal”的条件收敛为电脑在线 + 未达服务端上限，并要求 closed terminal 不再维持连接记录。",
+    "estimated_minutes": 25,
+    "actual_minutes": 10,
+    "started_at": "2026-03-28T23:59:00Z",
+    "completed_at": "2026-03-29T00:10:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "S016",
+    "phase": "shared",
+    "module": "终端工作台瘦身",
+    "slice": "交互基线",
+    "name": "顶部状态栏瘦身与 terminal 菜单化基线",
+    "description": "定义 terminal workspace 顶部精简为“在线状态图标 + 当前 terminal 标题 + 菜单入口”，并将 terminal 管理操作收纳进菜单面板。",
+    "verification": "L4",
+    "depends_on": [
+      "F020"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      ".dev-flow/project_spec.md",
+      ".dev-flow/api_contracts.md",
+      ".dev-flow/alignment_checklist.md",
+      ".dev-flow/test_coverage.md"
+    ],
+    "contract_refs": [
+      "CONTRACT-019"
+    ],
+    "acceptance_criteria": [
+      "顶部不再长期显示 terminal tabs，而是精简为状态图标、当前 terminal 标题和菜单入口",
+      "新建、切换、重命名、关闭 terminal 均通过顶部菜单/面板承载",
+      "交互重构后终端内容区可见空间明显增加，且不改变服务端权威状态来源"
+    ],
+    "risk_tags": [
+      "first_use",
+      "startup"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "顶部瘦身语义契约检查",
+        "scenarios": [
+          "顶部状态图标与当前 terminal 标题可同时展示",
+          "terminal 管理操作从菜单入口进入",
+          "terminal 内容区不再被整排 tabs 长期占用"
+        ],
+        "estimated_minutes": 20
+      }
+    ],
+    "blocked_by": [],
+    "notes": "来源于真实反馈：当前 tab 区持续占据终端垂直空间，不利于长内容查看。",
+    "estimated_minutes": 20,
+    "actual_minutes": 10,
+    "started_at": "2026-03-28T15:20:00Z",
+    "completed_at": "2026-03-28T15:43:57Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "S017",
+    "phase": "shared",
+    "module": "设备离线收口",
+    "slice": "状态语义",
+    "name": "设备离线后的 terminal 收口与统一关闭语义",
+    "description": "明确 device offline 后 terminal 必须统一进入不可用/关闭终态，不再保留活动 terminal 语义或活动连接痕迹。",
+    "verification": "L4",
+    "depends_on": [
+      "F022"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      ".dev-flow/project_spec.md",
+      ".dev-flow/api_contracts.md",
+      ".dev-flow/alignment_checklist.md",
+      ".dev-flow/test_coverage.md"
+    ],
+    "contract_refs": [
+      "CONTRACT-020"
+    ],
+    "acceptance_criteria": [
+      "电脑离线后，该设备下 terminal 不再以 attached/detached 活动态暴露",
+      "closed 或不可用 terminal 不再保留活动视图数和活动名额",
+      "创建 terminal 的准入条件仍只看“电脑在线 + 未达上限”"
+    ],
+    "risk_tags": [
+      "network",
+      "startup",
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "设备离线后的 terminal 状态机基线",
+        "scenarios": [
+          "Agent 断开后 terminal 从活动态收口为 closed 或不可用终态",
+          "device offline 时客户端不再看到可附着 terminal",
+          "offline 后恢复 Agent 再创建 terminal 不受旧 terminal 污染"
+        ],
+        "estimated_minutes": 20
+      }
+    ],
+    "blocked_by": [],
+    "notes": "来源于真实反馈：设备离线后不应继续保留“活着的 terminal”语义。",
+    "estimated_minutes": 20,
+    "actual_minutes": 10,
+    "started_at": "2026-03-29T00:00:00Z",
+    "completed_at": "2026-03-29T00:12:00Z",
+    "execution_state": "completed",
+    "commit": null
+  },
+  {
+    "id": "S018",
+    "phase": "shared",
+    "module": "桌面 Agent 后台模式",
+    "slice": "契约",
+    "name": "桌面端 Agent 后台模式与退出语义基线",
+    "description": "定义桌面端作为本机 Agent 控制台、后台运行开关、Agent 所有权与退出收口语义。",
+    "verification": "L4",
+    "depends_on": [
+      "S017"
+    ],
+    "status": "cancelled",
+    "priority": "P0",
+    "files": [
+      ".dev-flow/api_contracts.md",
+      ".dev-flow/project_spec.md",
+      ".dev-flow/alignment_checklist.md",
+      ".dev-flow/test_coverage.md"
+    ],
+    "contract_refs": [
+      "CONTRACT-021"
+    ],
+    "acceptance_criteria": [
+      "桌面端与本机 Agent 的角色边界明确，桌面端不再被当成普通 remote client 的在线来源",
+      "后台运行开关、Agent 所有权与退出是否停止 Agent 的规则在契约中明确",
+      "风险点包括重复启动、误杀外部 Agent、崩溃残留与假在线窗口均被记录"
+    ],
+    "risk_tags": [
+      "startup",
+      "config",
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "quality_gates": {
+      "unit_test": "skip",
+      "integration_test": "optional",
+      "simplify": "required",
+      "commit": "manual"
+    },
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "桌面 Agent 后台模式契约检查",
+        "scenarios": [
+          "桌面端自己拉起 Agent 后退出且后台开关关闭，设备快速离线",
+          "外部已存在 Agent 时桌面端退出不误杀",
+          "后台开关开启时桌面端退出后手机端仍看到电脑在线"
+        ],
+        "estimated_minutes": 15
+      },
+      {
+        "type": "manual",
+        "description": "桌面退出语义 smoke",
+        "scenarios": [
+          "macOS 退出桌面端后按开关行为保持或停止 Agent",
+          "手机端在线状态与开关行为一致"
+        ],
+        "estimated_minutes": 10
+      }
+    ],
+    "blocked_by": [],
+    "notes": "先固化生命周期语义，再做桌面控制台实现。",
+    "estimated_minutes": 20,
+    "created_at": "2026-03-29T09:20:00Z",
+    "execution_state": "pending",
+    "commit": null,
+    "cancelled_reason": "被 S022+S023+F029 覆盖（本地 HTTP Server 方案）"
+  },
+  {
+    "id": "S019",
+    "phase": "shared",
+    "module": "桌面 Agent 管理子系统",
+    "slice": "契约",
+    "name": "桌面 Agent 管理子系统与工作台状态机基线",
+    "description": "将桌面端收敛为 DesktopAgentManager + DesktopWorkspaceController 两层结构，固化 Agent 发现模型、所有权语义和工作台单一状态源。",
+    "verification": "L4",
+    "depends_on": [
+      "S018"
+    ],
+    "status": "cancelled",
+    "priority": "P0",
+    "files": [
+      ".dev-flow/api_contracts.md",
+      ".dev-flow/project_spec.md",
+      ".dev-flow/alignment_checklist.md",
+      ".dev-flow/test_coverage.md"
+    ],
+    "contract_refs": [
+      "CONTRACT-021",
+      "CONTRACT-022"
+    ],
+    "acceptance_criteria": [
+      "桌面端系统结构明确拆成 Agent 管理子系统与工作台状态机两层",
+      "Agent 发现模型、所有权边界、页面职责边界和首个 terminal 两阶段创建链被正式记录",
+      "页面不再被允许直接拼接 Agent 生命周期状态、设备快照和临时 UI 状态"
+    ],
+    "risk_tags": [
+      "startup",
+      "config",
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "quality_gates": {
+      "unit_test": "skip",
+      "integration_test": "optional",
+      "simplify": "required",
+      "commit": "manual"
+    },
+    "test_tasks": [
+      {
+        "type": "integration",
+        "description": "桌面 Agent 管理子系统契约检查",
+        "scenarios": [
+          "桌面 Agent 状态机与工作台状态机职责不再混合",
+          "Agent 发现失败时进入 createFailed 而非远程离线页",
+          "启动本机 Agent 与创建第一个 terminal 两阶段语义清晰"
+        ],
+        "estimated_minutes": 15
+      }
+    ],
+    "blocked_by": [],
+    "notes": "这是系统重构基线，后续执行以此为约束。",
+    "estimated_minutes": 20,
+    "created_at": "2026-03-29T11:02:00Z",
+    "execution_state": "pending",
+    "commit": null,
+    "cancelled_reason": "被 F029 覆盖（HTTP 客户端统一管理）"
+  },
+  {
+    "id": "S022",
+    "phase": "shared",
+    "module": "Agent Supervisor",
+    "slice": "基础设施",
+    "name": "Agent 本地 HTTP Server",
+    "description": "Agent 启动时同时启动本地 HTTP Server，提供控制面 API（/health, /status, /stop, /config, /terminals）",
+    "verification": "L2",
+    "depends_on": [],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "agent/local_server.py",
+      "agent/app/websocket_client.py"
+    ],
+    "contract_refs": [
+      "CONTRACT-024"
+    ],
+    "acceptance_criteria": [
+      "Agent 启动时成功绑定端口 18765-18769 之一",
+      "GET /health 返回 {\"status\": \"ok\"}",
+      "GET /status 返回 Agent 运行状态",
+      "POST /stop 能优雅停止 Agent",
+      "POST /config 能更新 keep_running 配置"
+    ],
+    "risk_tags": [
+      "startup",
+      "config",
+      "network"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "unit",
+        "description": "HTTP Server 端点测试",
+        "scenarios": [
+          "健康检查返回正确",
+          "状态返回完整信息",
+          "停止命令触发关闭流程"
+        ],
+        "estimated_minutes": 15
+      },
+      {
+        "type": "integration",
+        "description": "端口冲突处理",
+        "scenarios": [
+          "默认端口被占用时尝试下一个",
+          "所有端口被占用时报错退出"
+        ],
+        "estimated_minutes": 10
+      }
+    ],
+    "started_at": "2026-03-30T10:00:00Z",
+    "completed_at": "2026-03-30T11:30:00Z",
+    "actual_minutes": 30,
+    "notes": "实现 LocalServer 类，集成到 WebSocketClient。包含跨平台状态文件、端口发现、进程检测。单元测试 16 个全部通过，/simplify 审查后修复 3 个问题。"
+  },
+  {
+    "id": "S023",
+    "phase": "shared",
+    "module": "Agent Supervisor",
+    "slice": "状态持久化",
+    "name": "状态文件持久化与端口发现",
+    "description": "使用平台标准目录存储 Agent 状态文件，处理端口发现和孤儿进程检测",
+    "verification": "L2",
+    "depends_on": [
+      "S022"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "agent/local_server.py"
+    ],
+    "contract_refs": [
+      "CONTRACT-024"
+    ],
+    "acceptance_criteria": [
+      "状态文件写入平台标准目录",
+      "状态文件包含 pid, port, server_url, device_id, keep_running",
+      "UI 启动时能通过状态文件发现 Agent",
+      "状态文件不可用时能通过端口扫描发现 Agent",
+      "孤儿状态文件能被正确检测和清理"
+    ],
+    "risk_tags": [
+      "startup",
+      "config",
+      "first_use"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "unit",
+        "description": "状态文件读写测试",
+        "scenarios": [
+          "正确写入 JSON",
+          "读取并解析",
+          "损坏文件处理"
+        ],
+        "estimated_minutes": 10
+      },
+      {
+        "type": "integration",
+        "description": "跨平台路径测试",
+        "scenarios": [
+          "macOS 路径正确",
+          "Linux 路径正确",
+          "Windows 路径正确"
+        ],
+        "estimated_minutes": 15
+      }
+    ],
+    "started_at": "2026-03-30T11:30:00Z",
+    "completed_at": "2026-03-30T11:35:00Z",
+    "actual_minutes": 5,
+    "notes": "验收条件已在 S022 实现中覆盖，包含跨平台状态文件、端口发现、进程检测。相关测试 7 个全部通过。"
+  }
+]

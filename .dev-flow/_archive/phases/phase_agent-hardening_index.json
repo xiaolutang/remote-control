@@ -1,0 +1,22 @@
+{
+  "phase": "agent-hardening",
+  "archived_at": "2026-04-10T14:03:03Z",
+  "tasks": {
+    "F041": {
+      "name": "DesktopAgentSupervisor 基础设施强化",
+      "status": "completed"
+    },
+    "F042": {
+      "name": "DesktopAgentManager 升级为唯一权威（extends ChangeNotifier）",
+      "status": "completed"
+    },
+    "F043": {
+      "name": "删除 AgentLifecycleManager，更新全部调用方",
+      "status": "completed"
+    },
+    "F044": {
+      "name": "集成测试与 smoke 验证",
+      "status": "completed"
+    }
+  }
+}

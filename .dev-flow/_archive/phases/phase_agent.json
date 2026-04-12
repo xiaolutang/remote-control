@@ -1,0 +1,72 @@
+[
+  {
+    "id": "B013",
+    "phase": "agent",
+    "module": "状态语义收口",
+    "slice": "Agent 稳定性",
+    "name": "本机 Agent 在线稳定性与 create_failed 收口",
+    "description": "定位并收敛 agent websocket 反复 open/close 导致的设备离线与 terminal create_failed 问题，确保电脑在线语义稳定可靠。",
+    "verification": "L3",
+    "depends_on": [
+      "S013",
+      "B011"
+    ],
+    "status": "completed",
+    "priority": "P0",
+    "files": [
+      "remote-control/agent/app/websocket_client.py",
+      "remote-control/agent/app/auth_service.py",
+      "remote-control/server/app/ws_agent.py",
+      "remote-control/agent/tests"
+    ],
+    "contract_refs": [
+      "CONTRACT-010",
+      "CONTRACT-013",
+      "CONTRACT-014",
+      "CONTRACT-015"
+    ],
+    "acceptance_criteria": [
+      "Agent 正常运行时 device_online 稳定为 true，不因桌面客户端页面切换而波动",
+      "关闭一个 terminal 后，只要 Agent 仍在线，就仍可继续创建新 terminal",
+      "create_failed 仅在真实创建失败时出现，并带有明确原因"
+    ],
+    "risk_tags": [
+      "network",
+      "auth",
+      "startup",
+      "config"
+    ],
+    "delivery_unit": "atomic",
+    "smoke_required": true,
+    "test_tasks": [
+      {
+        "type": "unit",
+        "description": "Agent 重连与 create_failed 分类测试",
+        "scenarios": [
+          "Agent 心跳稳定时 device online 不抖动",
+          "terminal close 后再次 create 成功",
+          "真实 agent offline 才返回 device offline/create_failed"
+        ],
+        "estimated_minutes": 25
+      },
+      {
+        "type": "manual",
+        "description": "本机 Agent 稳定性 smoke",
+        "scenarios": [
+          "关闭 terminal 后仍可新建 terminal",
+          "桌面端保持打开且 Agent 在线时，设备持续可创建 terminal"
+        ],
+        "estimated_minutes": 15
+      }
+    ],
+    "blocked_by": [],
+    "notes": "来源于真实日志：server 侧 ws/agent 反复 open-close、设备离线、terminal create_failed 堆积。",
+    "estimated_minutes": 50,
+    "actual_minutes": 25,
+    "created_at": "2026-03-29T20:20:00Z",
+    "started_at": "2026-03-29T21:05:00Z",
+    "completed_at": "2026-03-29T21:30:00Z",
+    "execution_state": "completed",
+    "commit": null
+  }
+]

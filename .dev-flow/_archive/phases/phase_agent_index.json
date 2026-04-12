@@ -1,0 +1,8 @@
+{
+  "B013": {
+    "name": "本机 Agent 在线稳定性与 create_failed 收口",
+    "status": "completed",
+    "module": "状态语义收口",
+    "verification": "L3"
+  }
+}

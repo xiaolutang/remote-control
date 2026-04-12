@@ -1,0 +1,26 @@
+{
+  "phase": "user-info",
+  "archived_at": "2026-04-12T19:00:00Z",
+  "tasks": {
+    "B056": {
+      "name": "修复反馈 user_id + LoginResponse 增强",
+      "status": "completed"
+    },
+    "F054": {
+      "name": "用户信息本地存储与服务",
+      "status": "completed"
+    },
+    "F055": {
+      "name": "用户信息页面 UI",
+      "status": "completed"
+    },
+    "F056": {
+      "name": "菜单去重 + 个人信息入口",
+      "status": "completed"
+    },
+    "S032": {
+      "name": "用户信息 + 反馈修复集成测试",
+      "status": "completed"
+    }
+  }
+}

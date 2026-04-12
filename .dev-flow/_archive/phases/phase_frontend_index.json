@@ -1,0 +1,188 @@
+{
+  "F001": {
+    "name": "Flutter 共享终端核心统一用于 mobile/desktop",
+    "status": "completed",
+    "module": "Flutter 客户端",
+    "verification": "F1"
+  },
+  "F002": {
+    "name": "桌面端本地终端窗口接入共享会话",
+    "status": "completed",
+    "module": "Flutter 客户端",
+    "verification": "F2"
+  },
+  "F003": {
+    "name": "移动端双端共控交互完善",
+    "status": "completed",
+    "module": "Flutter 客户端",
+    "verification": "F2"
+  },
+  "F004": {
+    "name": "移动端输入修复与 IME 支持",
+    "status": "completed",
+    "module": "Flutter 客户端",
+    "verification": "F2"
+  },
+  "F005": {
+    "name": "移动端 TUI 选项触摸选择支持",
+    "status": "completed",
+    "module": "Flutter 客户端",
+    "verification": "F2"
+  },
+  "F006": {
+    "name": "移动端输入体验优化与联调验证",
+    "status": "completed",
+    "module": "Flutter 客户端",
+    "verification": "F2"
+  },
+  "F007": {
+    "name": "移动端终端快捷键动作模型与 Claude 预设",
+    "status": "completed",
+    "module": "Flutter 客户端",
+    "verification": "F1"
+  },
+  "F008": {
+    "name": "移动端软键盘快捷键栏接入终端页",
+    "status": "completed",
+    "module": "Flutter 客户端",
+    "verification": "F2"
+  },
+  "F009": {
+    "name": "统一快捷项模型与排序策略",
+    "status": "completed",
+    "module": "Flutter 客户端",
+    "verification": "F1"
+  },
+  "F010": {
+    "name": "Claude Code 默认命令包与用户调整配置",
+    "status": "completed",
+    "module": "Flutter 客户端",
+    "verification": "F2"
+  },
+  "F011": {
+    "name": "当前项目快捷命令接入与选择",
+    "status": "completed",
+    "module": "Flutter 客户端",
+    "verification": "F2"
+  },
+  "F012": {
+    "name": "Claude Code 导航语义校准",
+    "status": "completed",
+    "module": "Flutter 客户端",
+    "verification": "F2"
+  },
+  "F013": {
+    "name": "主题模式切换与持久化",
+    "status": "completed",
+    "module": "Flutter 客户端",
+    "verification": "F2"
+  },
+  "F014": {
+    "name": "移动端命令面板与终端主题抛光",
+    "status": "completed",
+    "module": "Flutter 客户端",
+    "verification": "F2"
+  },
+  "F015": {
+    "name": "设备与 terminal 选择状态模块",
+    "status": "completed",
+    "module": "Flutter 客户端",
+    "verification": "F1"
+  },
+  "F016": {
+    "name": "设备与 terminal 选择页及连接 gating",
+    "status": "completed",
+    "module": "Flutter 客户端",
+    "verification": "F2"
+  },
+  "F017": {
+    "name": "客户端状态文案与后端实时刷新策略对齐",
+    "status": "completed",
+    "module": "状态语义收口",
+    "verification": "F2"
+  },
+  "F018": {
+    "name": "terminal workspace tab 化与初始化快照接入",
+    "status": "completed",
+    "module": "终端工作台",
+    "verification": "F2"
+  },
+  "F019": {
+    "name": "移除设备选择页主路径并收敛终端内创建/关闭流",
+    "status": "completed",
+    "module": "终端工作台",
+    "verification": "F2"
+  },
+  "F020": {
+    "name": "workspace 创建与关闭交互对齐服务端权威语义",
+    "status": "completed",
+    "module": "创建与关闭语义",
+    "verification": "F2"
+  },
+  "F021": {
+    "name": "workspace 顶部状态栏与 terminal 菜单面板",
+    "status": "completed",
+    "module": "终端工作台瘦身",
+    "verification": "F2"
+  },
+  "F022": {
+    "name": "tabs 交互降级并收口到菜单主路径",
+    "status": "completed",
+    "module": "终端工作台瘦身",
+    "verification": "F2"
+  },
+  "F023": {
+    "name": "客户端离线展示与 terminal 可用性对齐",
+    "status": "completed",
+    "module": "设备离线收口",
+    "verification": "F2"
+  },
+  "F024": {
+    "name": "桌面端后台运行开关与本机 Agent 状态入口",
+    "status": "cancelled",
+    "module": "桌面 Agent 后台模式",
+    "verification": "F2"
+  },
+  "F025": {
+    "name": "桌面端退出生命周期与在线语义对齐",
+    "status": "cancelled",
+    "module": "桌面 Agent 后台模式",
+    "verification": "F2"
+  },
+  "F026": {
+    "name": "DesktopWorkspaceController 与单一 WorkspaceState",
+    "status": "cancelled",
+    "module": "桌面 Agent 管理子系统",
+    "verification": "F2"
+  },
+  "F027": {
+    "name": "桌面端首个 terminal 创建链与离线/失败体验收口",
+    "status": "cancelled",
+    "module": "桌面 Agent 管理子系统",
+    "verification": "F2"
+  },
+  "F028": {
+    "name": "关闭最后一个 terminal 后的桌面工作台状态归一化",
+    "status": "completed",
+    "module": "桌面 Agent 管理子系统",
+    "verification": "F2"
+  },
+  "F029": {
+    "name": "桌面端 Agent 本地 HTTP 通信",
+    "status": "completed",
+    "module": "桌面 Agent 管理",
+    "verification": "F2"
+  },
+  "F030": {
+    "name": "桌面端与手机端行为模式区分",
+    "status": "completed",
+    "module": "平台差异",
+    "verification": "F2"
+  },
+  "F031": {
+    "name": "桌面端退出语义与后台运行开关",
+    "status": "completed",
+    "module": "桌面 Agent 管理",
+    "verification": "F2"
+  }
+}

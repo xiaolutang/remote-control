@@ -1,0 +1,26 @@
+{
+  "phase": "device-online-limit",
+  "archived_at": "2026-04-10T14:03:03Z",
+  "tasks": {
+    "B036": {
+      "name": "同端设备在线限制 + 冲突解决核心逻辑",
+      "status": "completed"
+    },
+    "B037": {
+      "name": "同端设备在线限制单元测试",
+      "status": "completed"
+    },
+    "F045": {
+      "name": "旧设备收到冲突通知与被踢处理",
+      "status": "completed"
+    },
+    "F046": {
+      "name": "新设备被拒绝与等待体验",
+      "status": "completed"
+    },
+    "F047": {
+      "name": "集成测试与端到端验证",
+      "status": "completed"
+    }
+  }
+}

@@ -1,0 +1,225 @@
+{
+  "phase": "device-online-limit",
+  "archived_at": "2026-04-10T14:03:03Z",
+  "summary": {
+    "total": 5,
+    "completed": 5,
+    "cancelled": 0
+  },
+  "tasks": [
+    {
+      "id": "B036",
+      "phase": "device-online-limit",
+      "module": "server",
+      "name": "同端设备在线限制 + 冲突解决核心逻辑",
+      "description": "在 ws_client.py 中实现同端设备在线数限制：新 Client 连接时检测同 view_type 是否已有连接，有则启动冲突解决流程。超时默认新设备优先。连接模型：WS 先建立连接，再检测冲突。检查和注册必须原子化防止 TOCTOU 竞态。",
+      "verification": "L2",
+      "depends_on": [],
+      "status": "completed",
+      "priority": "high",
+      "acceptance_criteria": [
+        "新增 _find_client_by_view_type(session_id, view_type) 遍历 active_clients 查找同端已有连接",
+        "新增 conflict_futures dict 跟踪进行中的冲突解决（key: session_id:view_type）",
+        "原子化语义：对 conflict_futures 的「检查是否存在 → 不存在则创建 Future」必须无 await 插入，形成 per-view-type 的串行化占位；两个同端新设备同时连入时，只有第一个能创建 Future，第二个直接被拒绝",
+        "排队冲突规则：当 conflict_futures 已存在（即 B 正在等待旧设备确认），第三个同端设备 C 连入 → 立即拒绝（close code=4013，reason='conflict already in progress'），不排队、不覆盖 B 的 Future",
+        "WS 连接模型：先 accept WS 连接建立，再进行冲突检测，新 Client 先收到 conflict_pending 再等待",
+        "同端限制在 MAX_CLIENTS_PER_SESSION 之前检查",
+        "新 Client 连接时检测同端冲突，无冲突则正常连接",
+        "有冲突时：向旧 Client 发送 device_conflict 消息（含 new_device_name、timeout=15），向新 Client 发送 conflict_pending 消息",
+        "旧 Client 消息循环处理 conflict_response（yield/reject），通过 Future 传递结果",
+        "用户选择 yield 或超时 15s → 断开旧 Client（code=4011），接受新 Client",
+        "用户选择 reject → 拒绝新 Client（code=4010）",
+        "旧 Client 在冲突解决过程中断开 → 新 Client 直接连接",
+        "新 Client 在冲突解决过程中断开 → 清理 conflict_futures 条目，旧 Client 不受影响",
+        "conflict_futures 生命周期：(1)创建于冲突检测时 (2)完成于收到响应时 (3)超时于 15s 时 (4)异常清理于新设备断开时",
+        "冲突解决中以 Server 收到的第一个有效响应为准，后续响应忽略",
+        "跨端（mobile + desktop）不触发冲突检查",
+        "冲突状态仅在内存中维护，不持久化，Server 重启后丢失（可接受）",
+        "新增 WS close code 4013（conflict_already_in_progress）"
+      ],
+      "test_tasks": [
+        "正常流程：无冲突 → 新 Client 正常连接",
+        "冲突 + yield → 旧 Client 断开，新 Client 接受",
+        "冲突 + reject → 新 Client 被拒绝（code=4010），旧 Client 保持",
+        "冲突 + 超时 → 默认新设备优先，旧 Client 断开",
+        "旧 Client 在冲突中掉线 → 新 Client 直接连接",
+        "新 Client 在冲突中断开 → conflict_futures 清理，旧 Client 不受影响",
+        "跨端不冲突：mobile + desktop 同时连接 → 都成功",
+        "TOCTOU 竞态：两个同端设备几乎同时连接 → 只有一个成功",
+        "排队冲突：设备 A 在线，B 触发冲突等待中，C 也连入 → C 被立即拒绝（code=4013），不影响 A/B 的冲突解决"
+      ],
+      "risk_tags": [
+        "network",
+        "first_use"
+      ],
+      "smoke_required": true,
+      "contract_refs": [
+        "CONTRACT-027"
+      ],
+      "files": [
+        "server/app/ws_client.py",
+        "server/app/routes.py"
+      ],
+      "estimated_minutes": 45,
+      "started_at": "2026-04-09T12:00:00Z",
+      "completed_at": "2026-04-09T14:30:00Z",
+      "actual_minutes": 150,
+      "commit": "pending"
+    },
+    {
+      "id": "B037",
+      "phase": "device-online-limit",
+      "module": "server",
+      "name": "同端设备在线限制单元测试",
+      "description": "为 B036 的冲突解决逻辑编写完整单元测试",
+      "verification": "L2",
+      "depends_on": [
+        "B036"
+      ],
+      "status": "completed",
+      "priority": "high",
+      "acceptance_criteria": [
+        "覆盖无冲突正常连接",
+        "覆盖 yield/reject/超时三种冲突结果",
+        "覆盖旧设备掉线和断设备断开的边界场景",
+        "覆盖跨端不冲突场景",
+        "覆盖 TOCTOU 竞态：两个同端设备几乎同时连接",
+        "覆盖排队冲突：A 在线、B 冲突等待中、C 也连入",
+        "覆盖 conflict_futures 四个生命周期场景的清理验证",
+        "Mock WebSocket 和 asyncio.Future"
+      ],
+      "test_tasks": [
+        "单元测试：_find_client_by_view_type 正确查找",
+        "单元测试：冲突解决完整流程（yield/reject/timeout）",
+        "单元测试：边界场景（旧设备掉线、断设备断开）",
+        "单元测试：TOCTOU 竞态保护（两个同端设备同时连接只有一个成功）",
+        "单元测试：排队冲突（三个设备依次连入的正确处理）",
+        "单元测试：conflict_futures 清理验证（超时/完成/异常三路径均清理）"
+      ],
+      "risk_tags": [],
+      "files": [
+        "server/tests/test_ws_client_conflict.py"
+      ],
+      "estimated_minutes": 30
+    },
+    {
+      "id": "F045",
+      "phase": "device-online-limit",
+      "module": "client",
+      "name": "旧设备收到冲突通知与被踢处理",
+      "description": "Client 端处理 device_conflict 消息（弹窗让用户选择让位/拒绝）、处理 WS close code 4011（被新设备踢出时提示并导航）。包含本地超时保护，不依赖 WS close code 的可靠送达。",
+      "verification": "F2",
+      "depends_on": [
+        "B036"
+      ],
+      "status": "completed",
+      "priority": "high",
+      "acceptance_criteria": [
+        "收到 device_conflict 消息时弹出对话框：标题「新设备请求连接」、内容含设备名、按钮「让位」和「保持连接」",
+        "对话框显示 15 秒倒计时，倒计时结束自动让位",
+        "用户点击「让位」→ 发送 conflict_response(action=yield)",
+        "用户点击「保持连接」→ 发送 conflict_response(action=reject)",
+        "WS 被 close(code=4011) 时显示「您已在其他设备上登录」提示，导航到登录页",
+        "本地超时保护：收到 device_conflict 后启动本地 15s 定时器，如果 WS 在此期间断开（无论 close code），都按「被踢」处理",
+        "被踢后导航到登录页而非工作台（避免用户困惑），但不强制清除 token（桌面端合盖重开场景）",
+        "对话框使用 App 主题样式"
+      ],
+      "test_tasks": [
+        "Widget 测试：device_conflict 消息触发对话框显示",
+        "Widget 测试：点击「让位」发送 conflict_response(yield)",
+        "Widget 测试：点击「保持连接」发送 conflict_response(reject)",
+        "Widget 测试：倒计时结束自动让位",
+        "Widget 测试：WS close 4011 触发被踢提示和导航",
+        "Widget 测试：WS 在 conflict 弹窗期间异常断开（非 4011 close code）→ 本地超时保护生效，仍按「被踢」处理"
+      ],
+      "risk_tags": [
+        "first_use"
+      ],
+      "files": [
+        "client/lib/services/terminal_session_manager.dart",
+        "client/lib/widgets/device_conflict_dialog.dart",
+        "client/test/widgets/device_conflict_dialog_test.dart"
+      ],
+      "estimated_minutes": 30
+    },
+    {
+      "id": "F046",
+      "phase": "device-online-limit",
+      "module": "client",
+      "name": "新设备被拒绝与等待体验",
+      "description": "Client 端处理 conflict_pending 消息（显示等待动画）、WS close code 4010（旧设备拒绝）和 4013（排队冲突被拒）时显示错误并提供重试。冲突提示在 WS 连接层（TerminalSessionManager）处理，不依赖特定页面挂载状态。",
+      "verification": "F1",
+      "depends_on": [
+        "B036"
+      ],
+      "status": "completed",
+      "priority": "medium",
+      "acceptance_criteria": [
+        "收到 conflict_pending 消息时显示「正在等待旧设备确认...」等待提示",
+        "WS 被 close(code=4010) 时显示「旧设备拒绝了连接请求」错误",
+        "WS 被 close(code=4013) 时显示「已有设备正在等待确认」错误",
+        "错误提示提供「重试」按钮，点击后重新发起连接",
+        "等待提示在连接成功后自动消失（收到 connected 消息即清除）",
+        "冲突提示 UI 承载在 TerminalSessionManager 层（通过全局 overlay 或 snackbar），不依赖 terminal_workspace_screen 已挂载"
+      ],
+      "test_tasks": [
+        "Widget 测试：conflict_pending 消息触发等待提示",
+        "Widget 测试：WS close 4010 显示错误提示",
+        "Widget 测试：WS close 4013 显示排队冲突错误提示",
+        "Widget 测试：重试按钮触发重新连接",
+        "Widget 测试：conflict_pending 后连接成功 → 等待提示自动消失"
+      ],
+      "risk_tags": [
+        "first_use"
+      ],
+      "files": [
+        "client/lib/services/terminal_session_manager.dart"
+      ],
+      "estimated_minutes": 20
+    },
+    {
+      "id": "F047",
+      "phase": "device-online-limit",
+      "module": "shared",
+      "name": "集成测试与端到端验证",
+      "description": "验证同端设备在线限制的完整流程：冲突检测、用户选择、设备踢出、被拒重试",
+      "verification": "L4",
+      "depends_on": [
+        "B037",
+        "F045",
+        "F046"
+      ],
+      "status": "completed",
+      "priority": "medium",
+      "notes": "Server 集成测试被 B037（27个单元测试）完整覆盖；手工 smoke 需要真实设备验证",
+      "acceptance_criteria": [
+        "Server 集成测试：完整 yield 流程（connect → conflict → yield → old disconnected → new accepted）",
+        "Server 集成测试：完整 reject 流程（connect → conflict → reject → new rejected → old stays）",
+        "Server 集成测试：超时默认让位",
+        "Server 集成测试：排队冲突（B 等待中 C 连入 → C 被拒绝 4013）",
+        "手工 smoke：手机 A 连着 → 手机 B 登录 → A 收到通知 → A 让位 → B 连接成功",
+        "手工 smoke：手机 A 连着 → 手机 B 登录 → A 拒绝 → B 收到拒绝提示 → B 重试",
+        "手工 smoke：被踢设备重连（A 被踢后重新连接 → B 收到冲突通知）",
+        "手工 smoke：桌面 + 手机同时在线不冲突"
+      ],
+      "test_tasks": [
+        "集成测试：完整 yield 流程",
+        "集成测试：完整 reject 流程",
+        "集成测试：超时默认让位",
+        "集成测试：排队冲突（A 在线，B 触发冲突等待中，C 连入 → C 收到 4013）",
+        "集成测试：被踢设备重连（A 被踢 → A 重连 → B 收到冲突通知）",
+        "手工 smoke：双手机冲突场景（yield + reject 各一条）",
+        "手工 smoke：手机 + 桌面不冲突"
+      ],
+      "risk_tags": [
+        "network",
+        "first_use"
+      ],
+      "smoke_required": true,
+      "files": [
+        "server/tests/test_device_online_limit_integration.py"
+      ],
+      "estimated_minutes": 25
+    }
+  ]
+}

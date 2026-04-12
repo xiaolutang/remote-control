@@ -1,0 +1,89 @@
+# Remote Control 生产部署配置
+# 使用方式: ./deploy.sh
+# 三网模式: gateway(对外) + infra-network(共享服务) + rc-network(项目私有)
+
+services:
+  # ===== Redis (项目私有) =====
+  redis:
+    image: redis:7-alpine
+    container_name: rc-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - rc-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ===== Server =====
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: rc-server
+    restart: unless-stopped
+    expose:
+      - "8000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-}
+      - JWT_SECRET=${JWT_SECRET:?请在 .env 或环境变量中设置 JWT_SECRET}
+      - JWT_EXPIRATION_HOURS=${JWT_EXPIRATION_HOURS:-}
+      - JWT_EXPIRY_HOURS=${JWT_EXPIRY_HOURS:-24}
+      - LOG_SERVICE_URL=http://log-service:8001
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - gateway
+      - infra-network
+      - rc-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.rc.rule=PathPrefix(`/rc/`)"
+      - "traefik.http.routers.rc.entrypoints=web"
+      - "traefik.http.routers.rc.middlewares=rc-strip"
+      - "traefik.http.middlewares.rc-strip.stripprefix.prefixes=/rc"
+      - "traefik.http.routers.rc.service=rc-server"
+      - "traefik.http.services.rc-server.loadbalancer.server.port=8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ===== Agent =====
+  agent:
+    build:
+      context: ./agent
+      dockerfile: Dockerfile
+    container_name: rc-agent
+    restart: unless-stopped
+    environment:
+      - SERVER_URL=${SERVER_URL:-ws://server:8000}
+      - AGENT_TOKEN=${AGENT_TOKEN:-}
+      - LOG_SERVICE_URL=http://log-service:8001
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on:
+      server:
+        condition: service_healthy
+    networks:
+      - infra-network
+      - rc-network
+
+networks:
+  gateway:
+    external: true
+  infra-network:
+    external: true
+  rc-network:
+    name: rc-network
+    driver: bridge
+
+volumes:
+  redis_data:

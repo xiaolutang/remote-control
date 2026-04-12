@@ -1,0 +1,18 @@
+{
+  "phase": "remove-conflict-dialog",
+  "archived_at": "2026-04-10T14:03:03Z",
+  "tasks": {
+    "B042": {
+      "name": "移除 WS 层冲突解决机制，简化为直接踢出",
+      "status": "completed"
+    },
+    "F050": {
+      "name": "移除客户端冲突弹窗与 conflict_response",
+      "status": "completed"
+    },
+    "S027": {
+      "name": "集成测试与架构更新",
+      "status": "completed"
+    }
+  }
+}

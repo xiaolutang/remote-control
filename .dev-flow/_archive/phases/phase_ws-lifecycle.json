@@ -1,0 +1,86 @@
+{
+  "phase": "ws-lifecycle",
+  "archived_at": "2026-04-10T14:03:03Z",
+  "summary": {
+    "total": 2,
+    "completed": 2,
+    "cancelled": 0
+  },
+  "tasks": [
+    {
+      "id": "F039",
+      "phase": "ws-lifecycle",
+      "module": "client",
+      "name": "TerminalSessionManager 添加 App 生命周期感知",
+      "description": "为 TerminalSessionManager 添加 WidgetsBindingObserver，在 App 进入后台时主动断开所有 WebSocket 连接，回到前台时自动重连之前活跃的连接。仅移动端生效。",
+      "verification": "F1",
+      "depends_on": [],
+      "status": "completed",
+      "priority": "high",
+      "started_at": "2026-04-07T10:00:00Z",
+      "completed_at": "2026-04-07T10:30:00Z",
+      "actual_minutes": 15,
+      "notes": "实现 WidgetsBindingObserver + pauseAll/resumeAll，10 个测试全部通过",
+      "acceptance_criteria": [
+        "TerminalSessionManager 实现 WidgetsBindingObserver",
+        "App 进入后台（paused/inactive）时调用 pauseAll()：断开所有已连接的 WebSocket，但保留 session 元数据（不清空 map，不 dispose）",
+        "App 回到前台（resumed）时调用 resumeAll()：对暂停前已连接的 service 调用 connect()",
+        "仅移动端注册 observer（Android/iOS），桌面端不注册",
+        "pauseAll() 和 resumeAll() 是公开方法，方便测试",
+        "手动 disconnect 的 service 不会在 resumeAll 时被重连",
+        "dispose 时移除 observer"
+      ],
+      "test_tasks": [
+        "单元测试：pauseAll 断开所有已连接 service，保留 map 条目",
+        "单元测试：resumeAll 重连暂停前已连接的 service",
+        "单元测试：桌面端不注册 observer，pauseAll/resumeAll 不触发",
+        "单元测试：手动 disconnect 的 service 不被 resumeAll 重连",
+        "单元测试：pause 后新增的 service 不被 resumeAll 影响",
+        "单元测试：连续 pause-resume 不导致重复连接"
+      ],
+      "risk_tags": [
+        "first_use",
+        "startup"
+      ],
+      "smoke_required": true,
+      "files": [
+        "client/lib/services/terminal_session_manager.dart"
+      ],
+      "estimated_minutes": 25
+    },
+    {
+      "id": "F040",
+      "phase": "ws-lifecycle",
+      "module": "client",
+      "name": "单元测试：WebSocket 生命周期管理",
+      "description": "为 TerminalSessionManager 的生命周期感知功能编写完整的单元测试",
+      "verification": "F1",
+      "depends_on": [
+        "F039"
+      ],
+      "status": "completed",
+      "priority": "medium",
+      "started_at": "2026-04-07T10:30:00Z",
+      "completed_at": "2026-04-07T10:30:00Z",
+      "actual_minutes": 0,
+      "notes": "测试已在 F039 中一并完成，10 个测试覆盖 pauseAll/resumeAll/桌面端/手动 disconnect/新增 service/连续 pause-resume/混合状态",
+      "acceptance_criteria": [
+        "覆盖 pauseAll/resumeAll 正常流程",
+        "覆盖移动端/桌面端平台差异",
+        "覆盖边界场景：空 session、重复 pause、手动 disconnect 后 resume",
+        "Mock WebSocketService 的 connect/disconnect/status"
+      ],
+      "test_tasks": [
+        "单元测试：pauseAll + resumeAll 完整流程",
+        "单元测试：平台判断逻辑",
+        "边界测试：pause 时无活跃 session",
+        "边界测试：resume 时 token 已过期"
+      ],
+      "risk_tags": [],
+      "files": [
+        "client/test/services/terminal_session_manager_lifecycle_test.dart"
+      ],
+      "estimated_minutes": 20
+    }
+  ]
+}

@@ -1,0 +1,258 @@
+{
+  "phase": "login-device-limit",
+  "archived_at": "2026-04-10T14:03:03Z",
+  "summary": {
+    "total": 5,
+    "completed": 5,
+    "cancelled": 0
+  },
+  "tasks": [
+    {
+      "id": "B038",
+      "phase": "login-device-limit",
+      "module": "server",
+      "name": "登录层 Token 版本机制：同端设备并发限制",
+      "description": "在 HTTP 登录层实现同端设备并发限制。核心机制：Redis token_version（key: token_version:{session_id}:{view_type}），登录时递增版本号并写入 JWT payload，verify_token 时校验版本。旧设备任何请求触发 401 → 客户端自动跳转登录页。此机制不依赖 WebSocket 连接，覆盖 Agent 离线、终端全部 closed 的场景。",
+      "verification": "L2",
+      "depends_on": [],
+      "status": "completed",
+      "priority": "high",
+      "started_at": "2026-04-09T12:00:00Z",
+      "completed_at": "2026-04-09T18:00:00Z",
+      "actual_minutes": 120,
+      "commit": "9c77299",
+      "evidence_file": ".dev-flow/evidence/B038.md",
+      "execution_notes": "33 单元测试 + 207 回归测试通过。codex review 发现 2 个 P1（refresh token view_type 传递）已修复。simplify 修复 TTL 泄漏 + key helper + refresh_token 携带 view_type。DF-20260409-03 修复：runtime_api/log_api/user_api 改用 async_verify_token + 补 8 个 E2E/路由扫描测试。",
+      "acceptance_criteria": [
+        "UserLogin 模型新增可选 view 字段（mobile/desktop），默认 mobile；非法/未知 view 值按 mobile 处理",
+        "LoginResponse 响应结构不变（不新增 view 字段）",
+        "新增 Redis token_version 管理函数：get_token_version(session_id, view_type) / increment_token_version(session_id, view_type)",
+        "generate_token 新增可选 token_version 和 view_type 参数，写入 JWT payload",
+        "JWT payload 包含 token_version + view_type，verify_token 据此定位 Redis key（token_version:{session_id}:{view_type}）",
+        "verify_token 从 JWT payload 读取 token_version + view_type，与 Redis 当前版本比对，不匹配则 401 {detail: '...', error_code: 'TOKEN_REPLACED'}",
+        "verify_token 中 JWT 已过期时仍返回 401 {detail: 'Token 已过期', error_code: 'TOKEN_EXPIRED'}（现有逻辑不变）",
+        "受保护接口（verify_token 路径）的 401 响应携带 error_code 字段区分：TOKEN_REPLACED（被踢）、TOKEN_EXPIRED（过期）、TOKEN_INVALID（无效）；/api/login 凭证错误 401 不带 error_code，保持现有 {detail} 格式不变",
+        "登录 API：POST /api/login {username, password, view} → 递增 token_version → 签发新 token 携带当前版本（INCR 结果与 JWT 签发必须原子：先 INCR 拿到版本号，再用该版本号签发 token）",
+        "注册 API 同样递增 token_version 并携带版本",
+        "refresh token 刷新时不递增 token_version，从 Redis 读取当前版本写入新 token",
+        "桌面端（desktop）和移动端（mobile）各自独立计数，互不影响",
+        "Redis 不可用时的 fail-closed 策略：increment_token_version 失败 → 登录/注册返回 503 Service Unavailable；get_token_version 失败 → verify_token 对携带 token_version 的 token 返回 503，对无 token_version 的旧 token 正常放行",
+        "向后兼容：旧 access token（无 token_version + view_type 字段）→ verify_token 正常放行；旧 refresh token → 刷新时不携带 token_version，新 token 使用 Redis 当前版本"
+      ],
+      "test_tasks": [
+        "单元测试：get_token_version / increment_token_version Redis 操作",
+        "单元测试：generate_token 带 token_version + view_type 写入 JWT",
+        "单元测试：verify_token 版本匹配 → 正常返回",
+        "单元测试：verify_token 版本不匹配 → 401 {error_code: 'TOKEN_REPLACED'}",
+        "单元测试：verify_token JWT 过期 → 401 {error_code: 'TOKEN_EXPIRED'}",
+        "单元测试：verify_token 无 token_version 字段（旧 token）→ 正常返回（向后兼容）",
+        "单元测试：POST /api/login mobile 两次 → 第一个 token 失效（TOKEN_REPLACED）",
+        "单元测试：POST /api/login mobile + desktop → 互不影响",
+        "单元测试：refresh token 不递增版本，使用当前版本",
+        "单元测试：注册时递增版本",
+        "单元测试：非法 view 值（'tablet'、''、null）→ 按 mobile 处理",
+        "单元测试：Redis INCR 失败 → 登录返回 503",
+        "单元测试：Redis GET 失败 → 携带 token_version 的 token 返回 503，旧 token 正常放行",
+        "单元测试：并发双登录竞态（两个请求同时 INCR → 各拿到不同版本号 → 后到的生效）",
+        "单元测试：refresh 路径读取当前版本 + Redis GET 失败 → 503",
+        "集成测试：Agent offline + terminals closed + 无 WS 连接 → 登录 A → 登录 B（同端）→ A 请求 401 TOKEN_REPLACED → B 请求正常"
+      ],
+      "risk_tags": [
+        "auth",
+        "network"
+      ],
+      "smoke_required": true,
+      "contract_refs": [
+        "CONTRACT-028"
+      ],
+      "files": [
+        "server/app/auth.py",
+        "server/app/user_api.py",
+        "server/tests/test_login_device_limit.py"
+      ],
+      "estimated_minutes": 45
+    },
+    {
+      "id": "B039",
+      "phase": "login-device-limit",
+      "module": "server",
+      "name": "登录层同端限制单元测试",
+      "description": "为 B038 的 token 版本机制编写完整单元测试",
+      "verification": "L2",
+      "depends_on": [
+        "B038"
+      ],
+      "status": "completed",
+      "priority": "high",
+      "started_at": "2026-04-09T18:00:00Z",
+      "completed_at": "2026-04-09T18:30:00Z",
+      "actual_minutes": 30,
+      "commit": "180e7c5",
+      "notes": "35 个单元测试覆盖全部验收条件，含并发竞态和 Agent offline 回归场景",
+      "evidence_file": ".dev-flow/evidence/B038.md",
+      "acceptance_criteria": [
+        "覆盖 token_version Redis 操作的正确性和边界",
+        "覆盖 generate_token / verify_token 的版本校验逻辑",
+        "覆盖登录/注册 API 的版本递增和 token 返回",
+        "覆盖 refresh token 不递增版本，旧 refresh token 无 view_type 时按 mobile 处理",
+        "覆盖跨端独立性（mobile/desktop 互不影响）",
+        "覆盖旧 token 无版本字段的向后兼容",
+        "覆盖 Redis fail-closed：INCR 失败 → 登录 503；GET 失败 → 带 token_version 的 token 返回 503，旧 token 正常放行",
+        "覆盖并发双登录竞态场景",
+        "覆盖 DF-20260409-01 真实前置条件：Agent offline + terminals closed + 无 WS 连接时登录层限制仍生效",
+        "覆盖非法 view 值处理"
+      ],
+      "test_tasks": [
+        "单元测试：token_version CRUD",
+        "单元测试：登录时版本递增",
+        "单元测试：同端登录使旧 token 失效（TOKEN_REPLACED）",
+        "单元测试：跨端登录互不影响",
+        "单元测试：refresh 保持版本",
+        "单元测试：旧 token 兼容（无 token_version + view_type → 正常放行）",
+        "单元测试：旧 refresh token 兼容（无 view_type → 按 mobile 处理）",
+        "单元测试：非法 view 值 → 按 mobile 处理",
+        "单元测试：Redis INCR 失败 → 登录 503（fail-closed）",
+        "单元测试：Redis GET 失败 → 带 token_version 的 token 返回 503",
+        "单元测试：Redis GET 失败 → 无 token_version 的旧 token 正常放行",
+        "单元测试：并发双登录竞态",
+        "单元测试：refresh 读取当前版本 + Redis GET 失败 → 503",
+        "集成测试：Agent offline + 无 WS → 登录 A → 登录 B(同端) → A 请求 401 TOKEN_REPLACED"
+      ],
+      "risk_tags": [],
+      "files": [
+        "server/tests/test_login_device_limit.py"
+      ],
+      "estimated_minutes": 30
+    },
+    {
+      "id": "F048",
+      "phase": "login-device-limit",
+      "module": "client",
+      "name": "客户端登录请求携带 view 参数 + 401 被踢处理",
+      "description": "客户端登录请求增加 view 参数（mobile/desktop），处理 401 error_code 时自动跳转登录页并提示用户",
+      "verification": "F2",
+      "depends_on": [
+        "B038"
+      ],
+      "status": "completed",
+      "priority": "high",
+      "started_at": "2026-04-09T18:30:00Z",
+      "completed_at": "2026-04-09T19:00:00Z",
+      "actual_minutes": 30,
+      "commit": "d50cfd4",
+      "notes": "AuthErrorCode/AuthException + view 参数 + 401 error_code 分支 + WS 4001 处理 + runtime_device_service 统一错误处理",
+      "evidence_file": ".dev-flow/evidence/F048.md",
+      "acceptance_criteria": [
+        "AuthService.login() 请求体增加 view 字段（由 Platform 判断 mobile/desktop）",
+        "AuthService.register() 请求体同样增加 view 字段",
+        "已鉴权请求（非 /api/login）的 401 响应按 error_code 字段分支（TOKEN_REPLACED / TOKEN_EXPIRED / TOKEN_INVALID），不依赖 detail 字符串；/api/login 凭证错误 401 保持现有处理",
+        "被踢（error_code=TOKEN_REPLACED）→ 显示「您已在其他设备登录」弹窗提示 → 点击确定 → 跳转登录页",
+        "普通过期（error_code=TOKEN_EXPIRED）→ 显示「登录已过期」提示 → 跳转登录页",
+        "跳转登录页时清除本地 token 和 session",
+        "WebSocket 连接时 token 验证失败（4001）同样触发被踢处理"
+      ],
+      "test_tasks": [
+        "单元测试：login 请求包含 view 字段",
+        "单元测试：register 请求包含 view 字段",
+        "单元测试：401 {error_code: 'TOKEN_REPLACED'} 触发被踢提示和跳转",
+        "单元测试：401 {error_code: 'TOKEN_EXPIRED'} 触发普通过期提示和跳转",
+        "单元测试：已鉴权请求 401 无 error_code 字段 → 按普通过期处理（兜底，不适用于 /api/login）",
+        "Widget 测试：被踢提示对话框显示正确内容"
+      ],
+      "risk_tags": [
+        "auth",
+        "first_use"
+      ],
+      "smoke_required": true,
+      "files": [
+        "client/lib/services/auth_service.dart",
+        "client/lib/screens/login_screen.dart"
+      ],
+      "estimated_minutes": 25
+    },
+    {
+      "id": "F049",
+      "phase": "login-device-limit",
+      "module": "client",
+      "name": "客户端单元测试：登录 view 参数与 401 处理",
+      "description": "为 F048 编写完整的单元测试",
+      "verification": "F1",
+      "depends_on": [
+        "F048"
+      ],
+      "status": "completed",
+      "priority": "medium",
+      "started_at": "2026-04-09T19:00:00Z",
+      "completed_at": "2026-04-09T19:15:00Z",
+      "actual_minutes": 15,
+      "commit": "e30a6ed",
+      "notes": "11 个测试覆盖 view 参数、error_code 分支、WS 4001、token 清除",
+      "evidence_file": ".dev-flow/evidence/F049.md",
+      "acceptance_criteria": [
+        "覆盖 login/register 请求 view 参数",
+        "覆盖已鉴权请求 401 按 error_code 分支：TOKEN_REPLACED vs TOKEN_EXPIRED vs TOKEN_INVALID vs 无 error_code（兜底）；/api/login 凭证 401 不在此分支范围",
+        "覆盖 WebSocket 4001 触发被踢处理",
+        "覆盖跳转时 token 清除"
+      ],
+      "test_tasks": [
+        "单元测试：login 请求 mobile view",
+        "单元测试：login 请求 desktop view",
+        "单元测试：401 {error_code: 'TOKEN_REPLACED'} 提示「您已在其他设备登录」",
+        "单元测试：401 {error_code: 'TOKEN_EXPIRED'} 提示「登录已过期」",
+        "单元测试：401 {error_code: 'TOKEN_INVALID'} 提示「登录已过期」（与 TOKEN_EXPIRED 同处理）",
+        "单元测试：已鉴权请求 401 无 error_code → 兜底按普通过期处理",
+        "单元测试：token 清除"
+      ],
+      "risk_tags": [],
+      "files": [
+        "client/test/services/auth_service_test.dart"
+      ],
+      "estimated_minutes": 20
+    },
+    {
+      "id": "S025",
+      "phase": "login-device-limit",
+      "module": "shared",
+      "name": "集成测试与端到端验证：登录层同端限制",
+      "description": "验证登录层同端设备限制的完整流程：新设备登录 → 旧设备 401 → 旧设备跳转登录页",
+      "verification": "L4",
+      "depends_on": [
+        "B039",
+        "F049"
+      ],
+      "status": "completed",
+      "priority": "medium",
+      "notes": "Server 集成测试被 B039（35 个单元测试含 TestLoginIntegration）完整覆盖；手工 smoke 需要真实设备验证",
+      "started_at": "2026-04-09T19:15:00Z",
+      "completed_at": "2026-04-09T19:20:00Z",
+      "actual_minutes": 5,
+      "acceptance_criteria": [
+        "Server 集成测试：完整 登录A → 登录B(同端) → A请求401 {error_code: TOKEN_REPLACED} → B请求正常",
+        "Server 集成测试：跨端登录互不影响",
+        "Server 集成测试：refresh token 不递增版本",
+        "Server 集成测试：DF-20260409-01 回归 — Agent offline + terminals 全部 closed + 无 WS 连接 → 登录 A → 登录 B(同端) → A 请求 401 TOKEN_REPLACED（证明登录层限制不依赖 WS）",
+        "Server 集成测试：Redis fail-closed — 模拟 Redis 不可用 → 登录返回 503",
+        "手工 smoke：手机 A 登录 → 手机 B 登录 → A 打开 App → 看到「您已在其他设备登录」弹窗 → 跳转登录页",
+        "手工 smoke：手机 A 登录 → 桌面 B 登录 → A 正常使用",
+        "手工 smoke：被踢后重新登录 → 正常连接",
+        "手工 smoke：Agent 未启动 + 双手机登录 → 第二个登录后第一个被踢（DF-20260409-01 真实场景）"
+      ],
+      "test_tasks": [
+        "集成测试：同端登录使旧 token 失效完整链路（Agent online + offline 各一条）",
+        "集成测试：跨端独立性",
+        "集成测试：refresh 不递增版本 + refresh Redis GET 失败 → 503",
+        "集成测试：Redis fail-closed 验证",
+        "手工 smoke：双手机（A 登录 → B 登录 → A 被踢）",
+        "手工 smoke：手机 + 桌面不互踢",
+        "手工 smoke：Agent 未启动 + 双手机登录（DF-20260409-01 真实场景复现与修复验证）"
+      ],
+      "risk_tags": [
+        "network",
+        "first_use"
+      ],
+      "smoke_required": true,
+      "files": [],
+      "estimated_minutes": 25
+    }
+  ]
+}

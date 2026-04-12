@@ -1,0 +1,38 @@
+{
+  "phase": "agent-lifecycle",
+  "archived_at": "2026-04-10T14:03:03Z",
+  "tasks": {
+    "S024": {
+      "name": "定义 Agent 生命周期状态与接口",
+      "status": "completed"
+    },
+    "F032": {
+      "name": "实现 AgentLifecycleManager 核心逻辑",
+      "status": "completed"
+    },
+    "F033": {
+      "name": "修改 AuthService 集成 AgentLifecycleManager",
+      "status": "completed"
+    },
+    "F034": {
+      "name": "修改 App 启动逻辑恢复 Agent",
+      "status": "completed"
+    },
+    "F035": {
+      "name": "移除 terminal_workspace_screen 中的 Agent 启动逻辑",
+      "status": "completed"
+    },
+    "F036": {
+      "name": "单元测试：AgentLifecycleManager",
+      "status": "completed"
+    },
+    "F037": {
+      "name": "集成测试：登录登出与 Agent 生命周期",
+      "status": "completed"
+    },
+    "F038": {
+      "name": "端到端测试：完整生命周期验证",
+      "status": "cancelled"
+    }
+  }
+}

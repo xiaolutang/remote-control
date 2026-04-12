@@ -1,0 +1,163 @@
+{
+  "phase": "token-unification",
+  "archived_at": "2026-04-10T14:03:03Z",
+  "summary": {
+    "total": 3,
+    "completed": 3,
+    "cancelled": 0
+  },
+  "tasks": [
+    {
+      "id": "B040",
+      "phase": "token-unification",
+      "module": "server",
+      "name": "统一 Token 校验：WS 路由 + get_current_session 改用 async_verify_token",
+      "description": "将 WS Client、WS Agent 路由和 get_current_session 的 token 校验从同步 verify_token 改为 async_verify_token。同时补齐 _http_to_ws_code 的 503 映射，确保 Redis 不可用时 WS 返回专用 close code 而非 4500。消除后端两套 token 校验逻辑的分裂，覆盖 DF-20260409-03 遗漏的 history_api.py。",
+      "verification": "L2",
+      "depends_on": [],
+      "status": "completed",
+      "started_at": "2026-04-09T23:45:00Z",
+      "completed_at": "2026-04-10T00:30:00Z",
+      "actual_minutes": 45,
+      "evidence_file": ".dev-flow/evidence/B040.md",
+      "commit": "05368d4",
+      "priority": "high",
+      "acceptance_criteria": [
+        "ws_client.py:148 改用 async_verify_token(token)，错误处理覆盖 TokenVerificationError 和 HTTPException",
+        "ws_agent.py:95 改用 async_verify_token(token)，错误处理对齐 ws_client.py（覆盖 TokenVerificationError + HTTPException + 通用 Exception）",
+        "ws_agent.py 的 _http_to_ws_code 补充 503: 4503 映射（与 ws_client.py 对齐）",
+        "ws_client.py 的 _http_to_ws_code 补充 503: 4503 映射（注意：现有 4503 用于 Too many clients，需改用新 code 4504 避免冲突）",
+        "被踢设备（token_version 不匹配）用旧 token 重连 WS → 服务端返回 close code 4001（reason=TOKEN_REPLACED），拒绝连接",
+        "Token 过期 → WS 返回 4001（reason=TOKEN_EXPIRED），拒绝连接",
+        "旧 token（无 token_version 字段）→ 正常放行（向后兼容）",
+        "Redis 不可用 → 携带 token_version 的 token WS 返回 4504（Service Unavailable），旧 token 正常放行",
+        "auth.py 中 sync verify_token 不再被 ws_client.py / ws_agent.py / history_api.py 直接 import（仅 auth.py 内部使用）",
+        "get_current_session 改为 get_current_session_async，内部调用 async_verify_token，history_api.py 使用新版本",
+        "所有 patch('app.ws_client.verify_token') / patch('app.ws_agent.verify_token') 的测试 mock 同步改为 patch('app.ws_client.async_verify_token') / patch('app.ws_agent.async_verify_token')",
+        "Agent 的 _NON_RECOVERABLE_CODES 已包含 4001，确认 Agent 收到 4001 后停止重连"
+      ],
+      "test_tasks": [
+        "单元测试：WS Client 用旧 token_version 连接 → 被拒绝（4001 reason=TOKEN_REPLACED）",
+        "单元测试：WS Client 用当前 token_version 连接 → 成功",
+        "单元测试：WS Client token 过期 → 4001 reason=TOKEN_EXPIRED",
+        "单元测试：WS Agent 用旧 token_version 连接 → 被拒绝（4001 reason=TOKEN_REPLACED）",
+        "单元测试：WS Agent token 过期 → 4001 reason=TOKEN_EXPIRED",
+        "单元测试：WS Agent 用无 token_version 的旧 token → 正常放行",
+        "单元测试：Redis 不可用 + token 携带 token_version → WS 返回 4504",
+        "单元测试：Redis 不可用 + 旧 token（无 token_version）→ 正常放行",
+        "回归测试：全部现有测试套件通过（含 mock 路径同步修改）"
+      ],
+      "risk_tags": [
+        "auth",
+        "network"
+      ],
+      "smoke_required": true,
+      "contract_refs": [],
+      "files": [
+        "server/app/ws_client.py",
+        "server/app/ws_agent.py",
+        "server/app/auth.py",
+        "server/app/history_api.py",
+        "server/tests/test_integration.py",
+        "server/tests/test_ws_client_conflict.py",
+        "server/tests/test_agent_lifecycle.py",
+        "server/tests/test_agent_creation_integration.py",
+        "server/tests/test_ws.py",
+        "server/tests/test_login_device_limit.py"
+      ],
+      "estimated_minutes": 45,
+      "review_notes": "codex review conditional_pass，3 个 P0 已修复：503 映射、mock 路径同步、history_api 遗漏；P1 补 Agent token 过期/无效测试 + reason 文本验证"
+    },
+    {
+      "id": "B041",
+      "phase": "token-unification",
+      "module": "server",
+      "name": "统一 Token 校验单元测试",
+      "description": "为 B040 的 WS 路由 token 版本校验编写完整单元测试，覆盖 DF-20260409-04 真实场景",
+      "verification": "L2",
+      "depends_on": [
+        "B040"
+      ],
+      "status": "completed",
+      "started_at": "2026-04-10T00:31:00Z",
+      "completed_at": "2026-04-10T00:45:00Z",
+      "actual_minutes": 14,
+      "commit": "db7e63e",
+      "priority": "high",
+      "acceptance_criteria": [
+        "覆盖 WS Client 旧 token 被拒绝（4001 reason=TOKEN_REPLACED）",
+        "覆盖 WS Client 当前 token 正常连接",
+        "覆盖 WS Client token 过期（4001 reason=TOKEN_EXPIRED）",
+        "覆盖 WS Client token 无效（4001 reason 含无效信息）",
+        "覆盖 WS Agent 旧 token 被拒绝（4001 reason=TOKEN_REPLACED）",
+        "覆盖 WS Agent token 过期（4001 reason=TOKEN_EXPIRED）",
+        "覆盖 WS Agent token 无效（4001 reason 含无效信息）",
+        "覆盖 WS Agent 旧 token（无 token_version）正常放行",
+        "覆盖 Redis 不可用 + 携带 token_version → WS 返回 4504（Service Unavailable）",
+        "覆盖 Redis 不可用 + 旧 token → 正常放行",
+        "覆盖 history_api.py 的 get_current_session_async 使用 async_verify_token",
+        "回归测试全部通过"
+      ],
+      "test_tasks": [
+        "单元测试：WS Client token_version 不匹配 → 4001（验证 reason 含 TOKEN_REPLACED）",
+        "单元测试：WS Client token 过期 → 4001（验证 reason 含 TOKEN_EXPIRED）",
+        "单元测试：WS Client token 无效 → 4001",
+        "单元测试：WS Agent token_version 不匹配 → 4001（验证 reason 含 TOKEN_REPLACED）",
+        "单元测试：WS Agent token 过期 → 4001（验证 reason 含 TOKEN_EXPIRED）",
+        "单元测试：WS Agent token 无效 → 4001",
+        "单元测试：Redis GET 失败 + 携带 token_version → 4504",
+        "单元测试：Redis GET 失败 + 无 token_version → 正常放行",
+        "单元测试：history_api get_current_session_async 使用 async_verify_token",
+        "集成测试：DF-20260409-04 回归 — 设备 A 登录 → 设备 B 登录(同端) → A WS 用旧 token 重连 → 被拒绝(4001) → B 不受影响",
+        "回归测试：完整测试套件通过"
+      ],
+      "risk_tags": [],
+      "files": [
+        "server/tests/test_token_unification.py"
+      ],
+      "estimated_minutes": 30,
+      "review_notes": "codex review P1 修复：补 WS Agent 过期/无效测试 + reason 文本验证 + history_api 测试 + DF-20260409-04 回归集成测试"
+    },
+    {
+      "id": "S026",
+      "phase": "token-unification",
+      "module": "shared",
+      "name": "集成测试与端到端验证：Token 统一校验",
+      "description": "验证 WS 路由 token 版本校验的完整流程：被踢设备旧 token 无法通过 WS 重连，消除互踢乒乓问题",
+      "verification": "L4",
+      "depends_on": [
+        "B041"
+      ],
+      "status": "completed",
+      "started_at": "2026-04-10T00:46:00Z",
+      "completed_at": "2026-04-10T00:50:00Z",
+      "actual_minutes": 4,
+      "commit": "509b9ef",
+      "priority": "medium",
+      "acceptance_criteria": [
+        "Server 集成测试：设备 A 登录 → 设备 B 登录(同端) → A 的 WS 重连被拒绝(4001) → B 保持在线",
+        "Server 集成测试：设备 A 被踢后 WS 用旧 token 重连 → 返回 4001 TOKEN_REPLACED",
+        "Server 集成测试：跨端不互踢（mobile 被踢 → desktop WS 不受影响）",
+        "Server 集成测试：Agent WS 用旧 token 重连 → 被拒绝",
+        "手工 smoke：iOS 登录 → Android 登录 → iOS 被踢后不会自动重连 WS 把 Android 踢回来",
+        "手工 smoke：iOS 被踢后显示「您已在其他设备登录」→ 不再反复互踢"
+      ],
+      "test_tasks": [
+        "集成测试：被踢设备旧 token WS 重连被拒绝",
+        "集成测试：新设备不受被踢设备重连影响",
+        "集成测试：跨端 WS 不受 token_version 影响",
+        "集成测试：Agent WS 旧 token 被拒绝后 Agent 停止重连",
+        "集成测试：并发重连 — 旧设备 WS 重连与新设备 WS 连接并发时，旧设备被拒绝，新设备不受影响",
+        "手工 smoke：iOS + Android 互踢场景（不再乒乓）",
+        "手工 smoke：确认已部署 Agent 版本的 _NON_RECOVERABLE_CODES 包含 4001"
+      ],
+      "risk_tags": [
+        "auth",
+        "first_use"
+      ],
+      "smoke_required": true,
+      "files": [],
+      "estimated_minutes": 20
+    }
+  ]
+}
