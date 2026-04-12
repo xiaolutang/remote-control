@@ -54,7 +54,7 @@ docker compose -f deploy/docker-compose.yml down
 
 ## 技术栈
 
-- **Server**: Python 3.11, FastAPI, uvicorn, Redis, httpx
+- **Server**: Python 3.11, FastAPI, uvicorn, Redis, SQLite (aiosqlite), httpx
 - **Agent**: Python CLI, websockets
 - **Client**: Flutter 3.6+, Dart
 
@@ -71,6 +71,8 @@ remote-control/
 ├── .dockerignore              # 构建排除规则（build context 为根目录）
 ├── server/                   # FastAPI 后端
 │   ├── app/                  # 应用代码
+│   │   ├── database.py       # SQLite 数据库层（用户持久化）
+│   │   └── ...               # 其他模块
 │   └── tests/                # 服务端测试
 ├── agent/                    # 终端代理
 │   ├── app/                  # Agent 代码
@@ -85,5 +87,6 @@ remote-control/
 
 - 所有受保护路由使用 `async_verify_token` 鉴权
 - Redis 不可用时 fail-closed 返回 503
+- 用户数据（账号、设备）持久化到 SQLite，session/token 用 Redis
 - 反馈 API 路径: `/api/feedback`
 - 日志通过 `log-service-sdk` 接入
