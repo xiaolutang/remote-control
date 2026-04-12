@@ -3,7 +3,7 @@
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
   "updated_at": "2026-04-12T22:40:00Z",
-  "status": "in_progress",
+  "status": "completed",
   "workflow": {
     "name": "remote-control",
     "mode": "B",
@@ -14,9 +14,9 @@
   },
   "summary": {
     "total": 11,
-    "pending": 3,
+    "pending": 0,
     "in_progress": 0,
-    "completed": 8,
+    "completed": 11,
     "blocked": 0,
     "cancelled": 0
   },
@@ -336,7 +336,7 @@
       "description": "创建 server/app/database.py：aiosqlite 连接管理、初始化、get_db()。\n创建 users 表：id (INTEGER PRIMARY KEY AUTOINCREMENT), username (TEXT UNIQUE NOT NULL), password_hash (TEXT NOT NULL), created_at (TEXT NOT NULL)。\n创建 user_devices 表：id (INTEGER PK AUTOINCREMENT), username (TEXT NOT NULL REFERENCES users), device_name (TEXT), device_type (TEXT DEFAULT 'mobile'), bound_at (TEXT)。\n数据库文件路径: /data/users.db（Docker 内）/ 本地 ./data/users.db。\nDocker compose 挂载 volume。",
       "verification": "L2",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": "P0",
       "acceptance_criteria": [
         "database.py 提供异步 get_db() 依赖注入函数",
@@ -374,7 +374,7 @@
       "description": "修改 user_api.py 的 get_user/save_user/get_user_devices/add_user_device。\n从 Redis GET/SET 改为 SQLite SELECT/INSERT。\n保持 API 接口不变（客户端无需改动）。\nRedis key `user:*` 和 `user_devices:*` 不再写入。\nRefresh token 和 session 继续用 Redis。",
       "verification": "L2",
       "depends_on": ["B060"],
-      "status": "pending",
+      "status": "completed",
       "priority": "P0",
       "acceptance_criteria": [
         "get_user 从 SQLite users 表查询",
@@ -412,7 +412,7 @@
       "description": "单元测试：注册/登录/设备绑定/重复注册。\n集成测试：启动时自动建表 + 数据库文件持久化。\nDocker: deploy/docker-compose.yml 添加 users.db volume 挂载。\n文档: CLAUDE.md 更新数据库说明。",
       "verification": "L4",
       "depends_on": ["B061"],
-      "status": "pending",
+      "status": "completed",
       "priority": "P1",
       "acceptance_criteria": [
         "单元测试：注册/登录/设备绑定/重复注册覆盖",
