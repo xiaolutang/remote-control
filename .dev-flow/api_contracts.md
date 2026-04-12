@@ -6,35 +6,35 @@
 
 | CONTRACT | 行号 | 主题 | 关联任务 |
 |----------|------|------|---------|
-| CONTRACT-001 | 9 | Session 状态查询 | B001, B004, F002, F003 |
-| CONTRACT-002 | 46 | Agent WebSocket 连接 | B001, B002, B003, B004 |
-| CONTRACT-003 | 114 | Client / View WebSocket 连接 | B001, B002, F002, F003, S002 |
-| CONTRACT-004 | 176 | 登录 | B004, F003 |
-| CONTRACT-005 | 214 | 刷新 Token | B004 |
-| CONTRACT-006 | 435 | 移动端终端快捷键配置 | F007, F008 |
-| CONTRACT-007 | 475 | 快捷项配置模型 | F009, F010, F011 |
-| CONTRACT-008 | 511 | Claude 导航语义 | F012 |
-| CONTRACT-009 | 554 | 主题模式配置 | F013, F014 |
-| CONTRACT-010 | 251 | 在线设备列表 | S011, B006, B008, F015, F016 |
-| CONTRACT-011 | 279 | 设备 terminal 列表与创建 | S011, B007, B008, F015, F016 |
-| CONTRACT-012 | 332 | Terminal Client WebSocket | S011, B009, F015, F016, S012 |
-| CONTRACT-013 | 364 | Agent Terminal 生命周期事件 | S011, B009, B011, S012 |
-| CONTRACT-014 | 402 | 关闭原因与状态语义 | S011, B006-B011, F015, S012 |
-| CONTRACT-015 | 580 | 设备在线与实时视图数 | S013, B012, B013, F017, S014 |
-| CONTRACT-016 | 625 | Workspace 初始化与 Tab | S014, F018, F019 |
-| CONTRACT-017 | 660 | 创建准入与关闭清理 | S015, B014, B015, F020 |
-| CONTRACT-018 | 677 | 桌面端 Agent 恢复前置 | S015, B015, F020 |
-| CONTRACT-019 | 693 | 顶部状态栏与菜单 | S016, F021, F022 |
-| CONTRACT-020 | 710 | 设备离线 terminal 收口 | S017, B016, B017, F023 |
-| CONTRACT-021 | 728 | Agent 后台与退出语义 | S018, B018, F024, F025 |
-| CONTRACT-022 | 747 | Agent 管理子系统 | S019, B019, F026, F027 |
-| CONTRACT-023 | 766 | 工作台空状态归一化 | S020, F028 |
-| CONTRACT-024 | 783 | Agent 本地 HTTP Supervisor | S021, B020, F029 |
-| CONTRACT-025 | 842 | Server Agent TTL 机制 | S021, B021 |
-| CONTRACT-026 | 876 | 桌面端与手机端行为差异 | S021, F030 |
-| CONTRACT-027 | 1039 | 同端设备在线数限制（简化为直接踢出） | B036, B042, F050 |
-| CONTRACT-028 | 1128 | 登录层 Token 版本与同端限制 | B038, B039, F048, F049, S025 |
-| CONTRACT-029 | 39 | 日志集成（SDK + Client 转发） | B043, B044, B045, B046, B047, S028, S029 |
+| CONTRACT-001 | 93 | Session 状态查询 | B001, B004, F002, F003 |
+| CONTRACT-002 | 130 | Agent WebSocket 连接 | B001, B002, B003, B004 |
+| CONTRACT-003 | 198 | Client / View WebSocket 连接 | B001, B002, F002, F003, S002 |
+| CONTRACT-004 | 260 | 登录 | B004, F003 |
+| CONTRACT-005 | 301 | 刷新 Token | B004 |
+| CONTRACT-006 | 522 | 移动端终端快捷键配置 | F007, F008 |
+| CONTRACT-007 | 562 | 快捷项配置模型 | F009, F010, F011 |
+| CONTRACT-008 | 598 | Claude 导航语义 | F012 |
+| CONTRACT-009 | 641 | 主题模式配置 | F013, F014 |
+| CONTRACT-010 | 338 | 在线设备列表 | S011, B006, B008, F015, F016 |
+| CONTRACT-011 | 366 | 设备 terminal 列表与创建 | S011, B007, B008, F015, F016 |
+| CONTRACT-012 | 419 | Terminal Client WebSocket | S011, B009, F015, F016, S012 |
+| CONTRACT-013 | 451 | Agent Terminal 生命周期事件 | S011, B009, B011, S012 |
+| CONTRACT-014 | 489 | 关闭原因与状态语义 | S011, B006-B011, F015, S012 |
+| CONTRACT-015 | 667 | 设备在线与实时视图数 | S013, B012, B013, F017, S014 |
+| CONTRACT-016 | 712 | Workspace 初始化与 Tab | S014, F018, F019 |
+| CONTRACT-017 | 747 | 创建准入与关闭清理 | S015, B014, B015, F020 |
+| CONTRACT-018 | 764 | 桌面端 Agent 恢复前置 | S015, B015, F020 |
+| CONTRACT-019 | 780 | 顶部状态栏与菜单 | S016, F021, F022 |
+| CONTRACT-020 | 797 | 设备离线 terminal 收口 | S017, B016, B017, F023 |
+| CONTRACT-021 | 815 | Agent 后台与退出语义 | S018, B018, F024, F025 |
+| CONTRACT-022 | 834 | Agent 管理子系统 | S019, B019, F026, F027 |
+| CONTRACT-023 | 853 | 工作台空状态归一化 | S020, F028 |
+| CONTRACT-024 | 870 | Agent 本地 HTTP Supervisor | S021, B020, F029 |
+| CONTRACT-025 | 929 | Server Agent TTL 机制 | S021, B021 |
+| CONTRACT-026 | 963 | 桌面端与手机端行为差异 | S021, F030 |
+| CONTRACT-027 | 995 | 同端设备在线数限制（简化为直接踢出） | B036, B042, F050 |
+| CONTRACT-028 | 1139 | 登录层 Token 版本与同端限制 | B038, B039, F048, F049, S025 |
+| CONTRACT-029 | 45 | 日志集成（SDK + Client 转发） | B043, B044, B045, B046, B047, S028, S029 |
 
 ## 日志集成
 

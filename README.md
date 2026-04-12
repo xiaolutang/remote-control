@@ -20,19 +20,21 @@
 # 克隆仓库
 cd remote-control
 
-# 启动 Docker 服务
-docker-compose up -d
+# 构建镜像
+./deploy/build.sh
+
+# 启动服务（通过 Traefik 网关）
+./deploy/deploy.sh
 
 # 检查服务状态
-docker-compose ps
-curl http://localhost:8000/health
+curl http://localhost/rc/health
 ```
 
 ### 2. 生成 Token
 
 ```bash
 # 生成一个新的 session token
-curl -X POST http://localhost:8000/api/token
+curl -X POST http://localhost/rc/api/token
 # 返回: {"session_id": "xxx", "token": "eyJ..."}
 ```
 
@@ -45,7 +47,7 @@ cd agent
 pip install -r requirements.txt
 
 # 启动 Agent
-python -m app.cli start --server ws://localhost:8000 --token <YOUR_TOKEN>
+python -m app.cli start --server ws://localhost/rc --token <YOUR_TOKEN>
 ```
 
 ### 4. 启动 Flutter 客户端 (移动设备)
@@ -61,7 +63,7 @@ flutter run
 ```
 
 在 App 中输入:
-- 服务器地址: `ws://your-server:8000`
+- 服务器地址: `ws://your-server/rc`
 - Session ID: 从步骤 2 获取
 - Token: 从步骤 2 获取
 
@@ -79,7 +81,6 @@ remote-control/
 │   │   ├── history_api.py # 历史记录 API
 │   │   └── routes.py     # 路由定义
 │   ├── tests/
-│   ├── Dockerfile
 │   └── requirements.txt
 ├── agent/            # Python Agent (本地运行)
 │   ├── app/
@@ -88,13 +89,18 @@ remote-control/
 │   │   ├── pty_wrapper.py # PTY 包装器
 │   │   └── websocket_client.py # WebSocket 客户端
 │   └── tests/
+├── deploy/           # Docker 与部署（集中管理）
+│   ├── server.Dockerfile
+│   ├── agent.Dockerfile
+│   ├── docker-compose.yml
+│   ├── build.sh
+│   └── deploy.sh
 ├── client/           # Flutter 客户端 (移动端)
 │   └── lib/
 │       ├── main.dart
 │       ├── models/
 │       ├── screens/
 │       └── services/
-└── docker-compose.yml
 ```
 
 ## 功能特性
@@ -143,13 +149,14 @@ flutter test
 
 ## 部署到云服务器
 
-1. 修改 `docker-compose.yml` 中的环境变量:
+1. 修改 `.env` 中的环境变量:
    - `JWT_SECRET`: 设置一个强密码
    - 配置 HTTPS (使用 nginx 反向代理)
 
 2. 构建并启动:
    ```bash
-   docker-compose up -d --build
+   ./deploy/build.sh
+   ./deploy/deploy.sh
    ```
 
 3. 配置防火墙开放端口 8000 (或通过 nginx 代理)

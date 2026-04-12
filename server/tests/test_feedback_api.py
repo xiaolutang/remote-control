@@ -321,6 +321,80 @@ class TestFeedbackLogFetchFails:
                 p.stop()
 
 
+class TestFeedbackLogSessionIsolation:
+    """跨 session 日志隔离测试"""
+
+    def test_only_current_session_logs_included(self, client, auth_headers):
+        """[isolation] 仅关联当前 session 的日志，同用户不同 session 的日志不混入"""
+        logs_data = {
+            "logs": [
+                {"level": "error", "message": "current session log", "extra": {"session_id": "test-session-fb"}},
+                {"level": "info", "message": "other session log", "extra": {"session_id": "other-session-999"}},
+                {"level": "warning", "message": "another session log", "extra": {"session_id": "yet-another-session"}},
+            ],
+            "total": 3,
+        }
+        patches, mock_http = _patch_issue_deps(issue_data=DEFAULT_ISSUE, logs_data=logs_data)
+
+        for p in patches:
+            p.start()
+        try:
+            resp = client.post(
+                "/api/feedback",
+                json={
+                    "session_id": "test-session-fb",
+                    "category": "connection",
+                    "description": "仅当前 session 日志",
+                },
+                headers=auth_headers,
+            )
+            assert resp.status_code == 200
+
+            # 验证 POST /api/issues 的 description 只包含当前 session 的日志
+            call_args = mock_http.post.call_args
+            body = call_args.kwargs.get("json") or call_args[1].get("json")
+            description = body["description"]
+            assert "current session log" in description
+            assert "other session log" not in description
+            assert "another session log" not in description
+        finally:
+            for p in patches:
+                p.stop()
+
+    def test_no_matching_session_logs_still_succeeds(self, client, auth_headers):
+        """[isolation] 日志返回但无匹配 session → 反馈提交成功，description 不含日志"""
+        logs_data = {
+            "logs": [
+                {"level": "info", "message": "unrelated log", "extra": {"session_id": "completely-different-session"}},
+            ],
+            "total": 1,
+        }
+        patches, mock_http = _patch_issue_deps(issue_data=DEFAULT_ISSUE, logs_data=logs_data)
+
+        for p in patches:
+            p.start()
+        try:
+            resp = client.post(
+                "/api/feedback",
+                json={
+                    "session_id": "test-session-fb",
+                    "category": "suggestion",
+                    "description": "无匹配日志",
+                },
+                headers=auth_headers,
+            )
+            assert resp.status_code == 200
+            assert resp.json()["feedback_id"] == "42"
+
+            # 验证 description 不含任何日志
+            call_args = mock_http.post.call_args
+            body = call_args.kwargs.get("json") or call_args[1].get("json")
+            assert "Related Logs" not in body["description"]
+        finally:
+            for p in patches:
+                p.stop()
+
+
 class TestFeedbackIssueParams:
     """参数映射验证"""
 
@@ -627,6 +701,96 @@ class TestGetFeedbackViaLogService:
         assert result is None
 
 
+    @pytest.mark.asyncio
+    async def test_environment_with_platform_and_version(self):
+        """environment='android / 1.0.0' → platform='android', app_version='1.0.0'"""
+        from app.feedback_service import get_feedback
+
+        issue_resp = {
+            "id": 43,
+            "component": "feedback:terminal",
+            "reporter": "testuser",
+            "request_id": "sess-456",
+            "description": "终端无响应",
+            "environment": "ios / 2.1.0",
+            "created_at": "2026-04-12T13:00:00Z",
+        }
+
+        with patch("app.feedback_service.get_shared_http_client") as mock_client:
+            mock_http = AsyncMock()
+            mock_resp = MagicMock(status_code=200)
+            mock_resp.raise_for_status = MagicMock()
+            mock_resp.json = MagicMock(return_value=issue_resp)
+            mock_http.get = AsyncMock(return_value=mock_resp)
+            mock_client.return_value = mock_http
+
+            result = await get_feedback("43", "testuser")
+
+        assert result is not None
+        assert result["platform"] == "ios"
+        assert result["app_version"] == "2.1.0"
+        assert result["session_id"] == "sess-456"
+
+    @pytest.mark.asyncio
+    async def test_environment_platform_only(self):
+        """environment='android'（无版本号）→ platform='android', app_version=''"""
+        from app.feedback_service import get_feedback
+
+        issue_resp = {
+            "id": 44,
+            "component": "feedback:crash",
+            "reporter": "testuser",
+            "request_id": "sess-789",
+            "description": "崩溃了",
+            "environment": "android",
+            "created_at": "2026-04-12T14:00:00Z",
+        }
+
+        with patch("app.feedback_service.get_shared_http_client") as mock_client:
+            mock_http = AsyncMock()
+            mock_resp = MagicMock(status_code=200)
+            mock_resp.raise_for_status = MagicMock()
+            mock_resp.json = MagicMock(return_value=issue_resp)
+            mock_http.get = AsyncMock(return_value=mock_resp)
+            mock_client.return_value = mock_http
+
+            result = await get_feedback("44", "testuser")
+
+        assert result is not None
+        assert result["platform"] == "android"
+        assert result["app_version"] == ""
+
+    @pytest.mark.asyncio
+    async def test_environment_empty(self):
+        """environment='' → platform='', app_version=''"""
+        from app.feedback_service import get_feedback
+
+        issue_resp = {
+            "id": 45,
+            "component": "feedback:suggestion",
+            "reporter": "testuser",
+            "request_id": "",
+            "description": "建议",
+            "environment": "",
+            "created_at": "2026-04-12T15:00:00Z",
+        }
+
+        with patch("app.feedback_service.get_shared_http_client") as mock_client:
+            mock_http = AsyncMock()
+            mock_resp = MagicMock(status_code=200)
+            mock_resp.raise_for_status = MagicMock()
+            mock_resp.json = MagicMock(return_value=issue_resp)
+            mock_http.get = AsyncMock(return_value=mock_resp)
+            mock_client.return_value = mock_http
+
+            result = await get_feedback("45", "testuser")
+
+        assert result is not None
+        assert result["platform"] == ""
+        assert result["app_version"] == ""
+        assert result["session_id"] == ""
+
+
 class TestFeedbackServiceNoRedis:
     """feedback_service.py 不含 Redis 相关代码"""
 
@@ -638,3 +802,80 @@ class TestFeedbackServiceNoRedis:
         assert "redis_conn" not in source, "feedback_service.py 不应包含 redis_conn"
         assert "rc:feedback" not in source, "feedback_service.py 不应包含 rc:feedback 键名"
         assert "rc:user_feedbacks" not in source, "feedback_service.py 不应包含 rc:user_feedbacks 键名"
+
+
+class TestFeedbackTimeoutAndAbnormalResponse:
+    """超时、非预期响应结构、缺字段等异常分支"""
+
+    def test_log_service_timeout_returns_503(self, client, auth_headers):
+        """[fail] log-service 超时 → 503"""
+        import httpx
+        patches, _ = _patch_issue_deps(issue_error=httpx.TimeoutException("timeout"))
+
+        for p in patches:
+            p.start()
+        try:
+            resp = client.post(
+                "/api/feedback",
+                json={"session_id": "test-session-fb", "category": "connection", "description": "超时测试"},
+                headers=auth_headers,
+            )
+            assert resp.status_code == 503
+        finally:
+            for p in patches:
+                p.stop()
+
+    def test_issue_response_missing_id_field(self, client, auth_headers):
+        """[abnormal] issue 响应缺少 id 字段 → feedback_id 为空字符串，不崩溃"""
+        patches, _ = _patch_issue_deps(issue_data={"created_at": "2026-04-12T12:00:00Z"})
+
+        for p in patches:
+            p.start()
+        try:
+            resp = client.post(
+                "/api/feedback",
+                json={"session_id": "test-session-fb", "category": "connection", "description": "缺字段"},
+                headers=auth_headers,
+            )
+            assert resp.status_code == 200
+            assert resp.json()["feedback_id"] == ""
+        finally:
+            for p in patches:
+                p.stop()
+
+    def test_log_response_missing_logs_key(self, client, auth_headers):
+        """[abnormal] 日志响应无 logs 字段 → 按 [] 处理，反馈仍成功"""
+        patches, _ = _patch_issue_deps(logs_data={"total": 0})
+
+        for p in patches:
+            p.start()
+        try:
+            resp = client.post(
+                "/api/feedback",
+                json={"session_id": "test-session-fb", "category": "crash", "description": "无 logs 键"},
+                headers=auth_headers,
+            )
+            assert resp.status_code == 200
+        finally:
+            for p in patches:
+                p.stop()
+
+    def test_empty_log_list(self, client, auth_headers):
+        """[boundary] 日志返回空列表 → description 不含 Related Logs"""
+        patches, mock_http = _patch_issue_deps(logs_data={"logs": [], "total": 0})
+
+        for p in patches:
+            p.start()
+        try:
+            resp = client.post(
+                "/api/feedback",
+                json={"session_id": "test-session-fb", "category": "terminal", "description": "空日志"},
+                headers=auth_headers,
+            )
+            assert resp.status_code == 200
+            call_args = mock_http.post.call_args
+            body = call_args.kwargs.get("json") or call_args[1].get("json")
+            assert "Related Logs" not in body["description"]
+        finally:
+            for p in patches:
+                p.stop()

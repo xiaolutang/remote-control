@@ -149,6 +149,7 @@
 | log-service-sdk 统一 Server/Agent 自身日志 | 一行代码接入，非阻塞批量上报，SDK 静默重试 | 自建日志上报 |
 | Client 日志经 Server httpx 转发 | 不创建 Dart SDK，复用现有 LoggerService + Server 异步代理转发 | Client 直连 log-service 或用 SDK 转发 |
 | Docker 三网模式 | gateway(对外) + infra-network(共享服务) + rc-network(项目私有) | 直接端口映射 |
+| deploy/ 集中管理 + 多阶段构建 | Dockerfile、compose、build.sh、deploy.sh 统一收归 deploy/ 目录；两阶段构建让 runtime 不含编译工具 | Dockerfile 散落各模块、单阶段构建 |
 
 ## 模块职责一句话
 

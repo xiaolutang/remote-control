@@ -1,0 +1,14 @@
+.git
+.venv
+__pycache__
+.pytest_cache
+tests
+.env
+.dev-flow
+.claude
+client/
+*.pyc
+*.db
+*.egg-info
+.idea
+.vscode
