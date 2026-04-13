@@ -181,13 +181,14 @@ class TestStaleTTLStateMachine:
         assert "session-1" in stale_agents
 
         # 模拟 agent 重连
-        async def cancelled_iter_json():
+        async def cancelled_iter_text():
             if False:
-                yield {}
+                yield ""
             raise asyncio.CancelledError
 
         mock_ws = AsyncMock()
-        mock_ws.iter_json = MagicMock(return_value=cancelled_iter_json())
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
+        mock_ws.iter_text = MagicMock(return_value=cancelled_iter_text())
 
         with patch("app.ws_agent.async_verify_token", return_value={"session_id": "session-1", "sub": "user1"}):
             with patch("app.ws_agent.get_session", return_value={"session_id": "session-1", "owner": "user1"}):
@@ -197,7 +198,7 @@ class TestStaleTTLStateMachine:
                             with patch("app.ws_agent.list_recoverable_session_terminals", new=AsyncMock(return_value=[])):
                                 from app.ws_agent import agent_websocket_handler
                                 try:
-                                    await agent_websocket_handler(mock_ws, "valid-token")
+                                    await agent_websocket_handler(mock_ws)
                                 except asyncio.CancelledError:
                                     pass
 
@@ -255,14 +256,15 @@ class TestAgentHandlerExceptionPaths:
 
         active_agents.clear()
 
-        async def disconnect_iter_json():
+        async def disconnect_iter_text():
             if False:
-                yield {}
+                yield ""
             from fastapi import WebSocketDisconnect
             raise WebSocketDisconnect(code=1000)
 
         mock_ws = AsyncMock()
-        mock_ws.iter_json = MagicMock(return_value=disconnect_iter_json())
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
+        mock_ws.iter_text = MagicMock(return_value=disconnect_iter_text())
 
         with patch("app.ws_agent.async_verify_token", return_value={"session_id": "session-1", "sub": "user1"}):
             with patch("app.ws_agent.get_session", return_value={"session_id": "session-1", "owner": "user1"}):
@@ -272,7 +274,7 @@ class TestAgentHandlerExceptionPaths:
                             with patch("app.ws_agent.list_recoverable_session_terminals", new=AsyncMock(return_value=[])):
                                 from app.ws_agent import agent_websocket_handler
                                 # 应不抛异常
-                                await agent_websocket_handler(mock_ws, "valid-token")
+                                await agent_websocket_handler(mock_ws)
 
         # 连接应被清理
         assert "session-1" not in active_agents
@@ -284,13 +286,14 @@ class TestAgentHandlerExceptionPaths:
 
         active_agents.clear()
 
-        async def error_iter_json():
+        async def error_iter_text():
             if False:
-                yield {}
+                yield ""
             raise RuntimeError("unexpected error")
 
         mock_ws = AsyncMock()
-        mock_ws.iter_json = MagicMock(return_value=error_iter_json())
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
+        mock_ws.iter_text = MagicMock(return_value=error_iter_text())
 
         with patch("app.ws_agent.async_verify_token", return_value={"session_id": "session-1", "sub": "user1"}):
             with patch("app.ws_agent.get_session", return_value={"session_id": "session-1", "owner": "user1"}):
@@ -300,7 +303,7 @@ class TestAgentHandlerExceptionPaths:
                             with patch("app.ws_agent.list_recoverable_session_terminals", new=AsyncMock(return_value=[])):
                                 with patch("app.ws_agent.logger") as mock_logger:
                                     from app.ws_agent import agent_websocket_handler
-                                    await agent_websocket_handler(mock_ws, "valid-token")
+                                    await agent_websocket_handler(mock_ws)
                                     # 应记录错误日志
                                     error_calls = [
                                         call for call in mock_logger.error.call_args_list
@@ -320,16 +323,17 @@ class TestAgentHandlerExceptionPaths:
         async def mock_send_json(msg):
             messages_sent.append(msg)
 
-        async def long_iter_json():
+        async def long_iter_text():
             """发送几条消息后再退出"""
-            yield {"type": "ping"}
+            yield json.dumps({"type": "ping"})
             await asyncio.sleep(0.05)
             from fastapi import WebSocketDisconnect
             raise WebSocketDisconnect(code=1000)
 
         mock_ws = AsyncMock()
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
         mock_ws.send_json = mock_send_json
-        mock_ws.iter_json = MagicMock(return_value=long_iter_json())
+        mock_ws.iter_text = MagicMock(return_value=long_iter_text())
 
         with patch("app.ws_agent.async_verify_token", return_value={"session_id": "session-1", "sub": "user1"}):
             with patch("app.ws_agent.get_session", return_value={"session_id": "session-1", "owner": "user1"}):
@@ -341,7 +345,7 @@ class TestAgentHandlerExceptionPaths:
                                 new=AsyncMock(side_effect=Exception("Redis error")),
                             ):
                                 from app.ws_agent import agent_websocket_handler
-                                await agent_websocket_handler(mock_ws, "valid-token")
+                                await agent_websocket_handler(mock_ws)
 
         # connected 消息应该已发送（恢复失败不应阻断初始连接）
         connected_msgs = [m for m in messages_sent if m.get("type") == "connected"]
@@ -539,10 +543,11 @@ class TestServerCloseCodes:
         active_agents["session-1"] = existing_conn
 
         mock_ws = AsyncMock()
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
 
         with patch("app.ws_agent.async_verify_token", return_value={"session_id": "session-1", "sub": "user1"}):
             from app.ws_agent import agent_websocket_handler
-            await agent_websocket_handler(mock_ws, "valid-token")
+            await agent_websocket_handler(mock_ws)
 
         mock_ws.close.assert_called_once_with(code=4009, reason="Session already has an active agent")
 
@@ -552,12 +557,13 @@ class TestServerCloseCodes:
         from fastapi import HTTPException
 
         mock_ws = AsyncMock()
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "invalid-token"}))
 
         with patch("app.ws_agent.async_verify_token") as mock_verify:
             mock_verify.side_effect = HTTPException(status_code=401, detail="Invalid token")
 
             from app.ws_agent import agent_websocket_handler
-            await agent_websocket_handler(mock_ws, "invalid-token")
+            await agent_websocket_handler(mock_ws)
 
         mock_ws.close.assert_called_once_with(code=4001, reason="Invalid token")
 
@@ -599,13 +605,14 @@ class TestClientAgentStateInteraction:
 
         active_clients.clear()
 
-        async def cancelled_iter_json():
+        async def cancelled_iter_text():
             if False:
-                yield {}
+                yield ""
             raise asyncio.CancelledError
 
         mock_ws = AsyncMock()
-        mock_ws.iter_json = MagicMock(return_value=cancelled_iter_json())
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
+        mock_ws.iter_text = MagicMock(return_value=cancelled_iter_text())
 
         with patch("app.ws_client.async_verify_token", return_value={"session_id": "session-1", "sub": "user1"}):
             with patch("app.ws_client.get_session_by_device_id", new=AsyncMock(return_value={
@@ -625,7 +632,7 @@ class TestClientAgentStateInteraction:
                                     from app.ws_client import client_websocket_handler
                                     try:
                                         await client_websocket_handler(
-                                            mock_ws, None, "valid-token",
+                                            mock_ws, None,
                                             view="desktop", device_id="dev-1", terminal_id="term-1",
                                         )
                                     except asyncio.CancelledError:
@@ -644,13 +651,14 @@ class TestClientAgentStateInteraction:
 
         active_clients.clear()
 
-        async def cancelled_iter_json():
+        async def cancelled_iter_text():
             if False:
-                yield {}
+                yield ""
             raise asyncio.CancelledError
 
         mock_ws = AsyncMock()
-        mock_ws.iter_json = MagicMock(return_value=cancelled_iter_json())
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
+        mock_ws.iter_text = MagicMock(return_value=cancelled_iter_text())
 
         with patch("app.ws_client.async_verify_token", return_value={"session_id": "session-1", "sub": "user1"}):
             with patch("app.ws_client.get_session", new=AsyncMock(return_value={
@@ -663,7 +671,7 @@ class TestClientAgentStateInteraction:
                             from app.ws_client import client_websocket_handler
                             try:
                                 await client_websocket_handler(
-                                    mock_ws, "session-1", "valid-token",
+                                    mock_ws, "session-1",
                                     view="desktop",
                                 )
                             except asyncio.CancelledError:
@@ -682,6 +690,7 @@ class TestClientAgentStateInteraction:
         active_clients.clear()
 
         mock_ws = AsyncMock()
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
 
         with patch("app.ws_client.async_verify_token", return_value={"session_id": "session-1", "sub": "user1"}):
             with patch("app.ws_client.get_session_by_device_id", new=AsyncMock(return_value={
@@ -696,7 +705,7 @@ class TestClientAgentStateInteraction:
                     with patch("app.ws_client.is_agent_connected", return_value=True):
                         from app.ws_client import client_websocket_handler
                         await client_websocket_handler(
-                            mock_ws, None, "valid-token",
+                            mock_ws, None,
                             view="desktop", device_id="dev-1", terminal_id="term-1",
                         )
 
@@ -726,7 +735,8 @@ class TestCloseOriginDetection:
         active_agents.clear()
 
         mock_ws = AsyncMock()
-        mock_ws.iter_json = MagicMock(
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
+        mock_ws.iter_text = MagicMock(
             return_value=make_async_iter(exc=WebSocketDisconnect(code=1000))
         )
 
@@ -737,7 +747,7 @@ class TestCloseOriginDetection:
                         with patch("app.ws_client.get_view_counts", return_value={"mobile": 0, "desktop": 0}):
                             with patch("app.ws_agent.list_recoverable_session_terminals", new=AsyncMock(return_value=[])):
                                 from app.ws_agent import agent_websocket_handler
-                                await agent_websocket_handler(mock_ws, "valid-token")
+                                await agent_websocket_handler(mock_ws)
 
         # agent 应已被清理
         assert "session-1" not in active_agents
@@ -759,7 +769,8 @@ class TestCloseOriginDetection:
         active_agents.clear()
 
         mock_ws = AsyncMock()
-        mock_ws.iter_json = MagicMock(
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
+        mock_ws.iter_text = MagicMock(
             return_value=make_async_iter(exc=WebSocketDisconnect(code=1008))
         )
 
@@ -770,7 +781,7 @@ class TestCloseOriginDetection:
                         with patch("app.ws_client.get_view_counts", return_value={"mobile": 0, "desktop": 0}):
                             with patch("app.ws_agent.list_recoverable_session_terminals", new=AsyncMock(return_value=[])):
                                 from app.ws_agent import agent_websocket_handler
-                                await agent_websocket_handler(mock_ws, "valid-token")
+                                await agent_websocket_handler(mock_ws)
 
         # 服务端心跳超时应使用 1008
         assert "session-1" not in active_agents
@@ -946,12 +957,13 @@ class TestPartialUpdateRisk:
 
         active_agents.clear()
 
-        async def cancelled_iter_json():
+        async def cancelled_iter_text():
             if False:
-                yield {}
+                yield ""
 
         mock_ws = AsyncMock()
-        mock_ws.iter_json = MagicMock(return_value=cancelled_iter_json())
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
+        mock_ws.iter_text = MagicMock(return_value=cancelled_iter_text())
 
         with patch("app.ws_agent.async_verify_token", return_value={"session_id": "session-redis-fail", "sub": "user1"}):
             with patch("app.ws_agent.get_session", return_value={"session_id": "session-redis-fail", "owner": "user1"}):
@@ -960,7 +972,7 @@ class TestPartialUpdateRisk:
                 )):
                     from app.ws_agent import agent_websocket_handler
                     with pytest.raises(HTTPException) as exc_info:
-                        await agent_websocket_handler(mock_ws, "valid-token")
+                        await agent_websocket_handler(mock_ws)
 
                     assert exc_info.value.status_code == 500
 

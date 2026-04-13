@@ -17,30 +17,23 @@ router = APIRouter()
 @router.websocket("/ws/agent")
 async def agent_ws_endpoint(
     websocket: WebSocket,
-    token: str = Query(...),
 ):
-    """Agent WebSocket 端点"""
-    await agent_websocket_handler(websocket, token)
+    """Agent WebSocket 端点（token 通过首条 auth 消息传递）"""
+    await agent_websocket_handler(websocket)
 
 
 @router.websocket("/ws/client")
 async def client_ws_endpoint(
     websocket: WebSocket,
     session_id: str | None = Query(None),
-    token: str = Query(...),
     view: str = Query("mobile"),
     device_id: str | None = Query(None),
     terminal_id: str | None = Query(None),
 ):
-    """Client WebSocket 端点"""
-    if (not session_id and not device_id) or not token:
-        await websocket.close(code=4001, reason="session_id/device_id and token required")
-        return
-
+    """Client WebSocket 端点（token 通过首条 auth 消息传递）"""
     await client_websocket_handler(
         websocket,
         session_id,
-        token,
         view,
         device_id=device_id,
         terminal_id=terminal_id,
