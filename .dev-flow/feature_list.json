@@ -2,28 +2,33 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-12T22:40:00Z",
-  "status": "completed",
+  "updated_at": "2026-04-13T12:30:00Z",
+  "status": "executing",
+  "active_requirement_cycle": {
+    "branch": "feat/security-hardening",
+    "phase": "security-hardening",
+    "started_at": "2026-04-13T15:30:00Z"
+  },
   "workflow": {
     "name": "remote-control",
     "mode": "B",
-    "runtime": "team_orchestrated",
-    "review_provider": "local",
-    "audit_provider": "local",
-    "risk_provider": "local"
+    "runtime": "skill_orchestrated",
+    "review_provider": "codex_plugin",
+    "audit_provider": "codex_plugin",
+    "risk_provider": "codex_plugin"
   },
   "summary": {
-    "total": 11,
-    "pending": 0,
+    "total": 10,
+    "pending": 10,
     "in_progress": 0,
-    "completed": 11,
+    "completed": 0,
     "blocked": 0,
     "cancelled": 0
   },
   "next_phase": {
-    "name": "user-persistence",
-    "description": "用户信息持久化存储，从 Redis 迁移到 SQLite",
-    "entry_task": "B060"
+    "name": "security-hardening",
+    "description": "上线前安全加固：15 个安全问题全量修复",
+    "entry_task": "B062"
   },
   "project_info": {
     "description": "远程控制终端（Server + Agent + Client）。含反馈系统、日志集成、用户信息、Docker 标准化部署。",
@@ -35,420 +40,431 @@
   },
   "features": [
     {
-      "id": "B057",
-      "phase": "feedback-to-issues",
+      "id": "B062",
+      "phase": "security-hardening",
       "module": "server",
-      "name": "修复转发 URL + raise_for_status + 日志补 uid",
-      "description": "三部分修复（代码前两部分已完成）：\n1) feedback_api.py 和 log_api.py 的 /api/ingest 改为 /api/logs/ingest，补 response.raise_for_status()（已完成）\n2) 修正 test_log_forward.py 的 mock 路径，补 URL 断言和 404 warning 测试（已完成）\n3) log_api.py upload_logs 端点接收客户端传来的 uid（请求 body 新增 uid 字段），直接传递给 _forward_to_log_service 写入 entry.uid。不需要服务端查 Redis session。\n\n数据流：Client 传 uid → Server 透传 uid → log-service entry.uid",
-      "verification": "L2",
-      "depends_on": ["F057"],
-      "status": "completed",
-      "priority": "P0",
-      "acceptance_criteria": [
-        "feedback_api.py 路径为 /api/logs/ingest + raise_for_status()",
-        "log_api.py 路径为 /api/logs/ingest + raise_for_status()",
-        "log_api.py upload_logs 接收请求 body 中的 uid 字段",
-        "log_api.py _forward_to_log_service 接收 uid 参数，写入 entry.uid",
-        "test_log_forward.py mock 路径使用 get_shared_http_client",
-        "新增测试：转发 URL 断言",
-        "新增测试：404 触发 warning",
-        "新增测试：转发 entry 包含 uid 字段且值与客户端传来的一致",
-        "所有测试通过"
-      ],
-      "risk_tags": ["network"],
-      "test_tasks": [
-        {
-          "type": "unit",
-          "description": "转发修复 + uid 字段验证",
-          "scenarios": [
-            "log 转发 URL 以 /api/logs/ingest 结尾",
-            "log 转发 entry 包含 uid=客户端传来的 uid",
-            "feedback 转发 URL 以 /api/logs/ingest 结尾",
-            "log-service 返回 404/500 → raise_for_status → warning",
-            "请求 body 无 uid → uid 为空字符串（不阻塞转发）"
-          ]
-        }
-      ],
-      "contract_refs": ["POST /api/logs"],
-      "fix_level": "L2",
-      "root_cause_analysis": "L1 路径笔误 + L2 无 raise_for_status + 日志缺少 uid 字段",
-      "similar_locations": [
-        "所有调用外部服务的 best-effort 转发函数"
-      ],
-      "files": [
-        "server/app/feedback_api.py",
-        "server/app/log_api.py",
-        "server/tests/test_feedback_api.py",
-        "server/tests/test_log_forward.py"
-      ],
-      "planning_notes": "URL/raise_for_status/mock/测试已完成。uid 字段等 F057 客户端改完后再补服务端接收逻辑。"
-    },
-    {
-      "id": "F057",
-      "phase": "feedback-to-issues",
-      "module": "client",
-      "name": "客户端日志上报携带 uid",
-      "description": "客户端本地已有 username（SharedPreferences rc_username，即 uid），在日志上报时补传：\nlogger_service.dart POST /api/logs body 新增 uid 字段，值从 rc_username 读取。\n\n数据流：SharedPreferences rc_username → 请求 body uid → Server 透传 → log-service entry.uid",
-      "verification": "F1",
-      "depends_on": [],
-      "status": "completed",
-      "priority": "P0",
-      "acceptance_criteria": [
-        "logger_service.dart POST /api/logs body 包含 uid 字段",
-        "uid 从 SharedPreferences rc_username 读取",
-        "未登录时 uid 为空字符串（不阻塞日志上报）",
-        "日志上报功能正常（新增字段不破坏现有功能）"
-      ],
-      "files": [
-        "client/lib/services/logger_service.dart"
-      ]
-    },
-    {
-      "id": "B058",
-      "phase": "feedback-to-issues",
-      "module": "server",
-      "name": "反馈提交迁移到 log-service Issues API",
-      "description": "将反馈提交从 Redis 存储改为调用 log-service POST /api/issues。映射：\n- category → severity（connection=high, terminal=medium, crash=critical, suggestion=low, other=low）\n- category 存入 component 字段（'feedback:connection'，确保反向映射准确）\n- user_id(=username) → reporter\n- session_id → request_id\n- platform+app_version → environment\n- description + related_logs → description\n\n核心改动：feedback_service.py 的 create_feedback 函数内部改为调用 POST /api/issues（替代 Redis pipeline）。\nfeedback_api.py 的 submit_feedback 路由保持调用 create_feedback，删除 _forward_feedback_to_log_service。\n\n相关日志获取：GET /api/logs?uid={user_id}&service_name=remote-control&component=client&page_size=50，本地按 extra.session_id 过滤。日志获取失败时 best-effort。\n\nFeedbackResponse.feedback_id = str(issue.id)。\n客户端 API 契约不变。",
-      "verification": "L2",
-      "depends_on": ["B057", "F057"],
-      "status": "completed",
-      "priority": "P1",
-      "acceptance_criteria": [
-        "submit_feedback 调用 POST {log_service_url}/api/issues",
-        "category → severity 映射正确（5 种分类）",
-        "component 字段为 'feedback:{category}'",
-        "reporter 为 user_id（username）",
-        "相关日志从 log-service GET /api/logs?uid={user_id} 获取",
-        "日志获取失败 → best-effort，反馈仍提交",
-        "删除 _forward_feedback_to_log_service 函数",
-        "log-service issues API 不可达 → 503",
-        "log-service 返回 500 → 502",
-        "response.raise_for_status()",
-        "FeedbackResponse.feedback_id = str(issue.id)",
-        "单元测试覆盖：正常提交、503、日志获取失败、参数映射"
-      ],
-      "risk_tags": ["network"],
-      "test_tasks": [
-        {
-          "type": "unit",
-          "description": "反馈提交迁移到 Issues API",
-          "scenarios": [
-            "正常提交 → POST /api/issues 参数正确（severity/reporter/component/environment）",
-            "component='feedback:connection', reporter=username",
-            "log-service 不可达 → 503",
-            "log-service 返回 500 → 502",
-            "log-service 超时 → 503",
-            "日志获取失败 → 反馈仍成功（不带日志）",
-            "FeedbackResponse.feedback_id = str(issue.id)",
-            "仅关联当前 session 日志，同用户不同 session 日志不混入",
-            "无匹配 session 日志 → 反馈仍成功，description 不含日志",
-            "issue 响应缺少 id 字段 → feedback_id 为空字符串",
-            "日志响应无 logs 字段 → 按 [] 处理",
-            "空日志列表 → description 不含 Related Logs"
-          ]
-        }
-      ],
-      "contract_refs": ["POST /api/feedback", "POST /api/issues", "GET /api/logs"],
-      "files": [
-        "server/app/feedback_api.py",
-        "server/app/feedback_service.py"
-      ]
-    },
-    {
-      "id": "B059",
-      "phase": "feedback-to-issues",
-      "module": "server",
-      "name": "反馈查询迁移 + Redis 反馈存储清理",
-      "description": "反馈查询改为调用 log-service GET /api/issues/{id}。反向映射：\n- issue.component（'feedback:connection'）→ category（'connection'）\n- issue.reporter → user_id\n- issue.environment → platform + app_version\n- issue.request_id → session_id\n\n归属校验：reporter ≠ 当前 user_id → 404。\n\n清理 feedback_service.py：删除 Redis 存储代码（create_feedback/get_feedback 的 pipeline/HGETALL、rc:feedback:*/rc:user_feedbacks:* 常量）。保留文件作为 log-service 调用封装。",
-      "verification": "L2",
-      "depends_on": ["B058"],
-      "status": "completed",
-      "priority": "P1",
-      "acceptance_criteria": [
-        "get_feedback_detail 调用 GET {log_service_url}/api/issues/{id}",
-        "从 issue.component 提取 category（'feedback:xxx' → 'xxx'）",
-        "reporter ≠ user_id → 404（归属校验）",
-        "log-service 不可达 → 503",
-        "issue 不存在 → 404",
-        "feedback_service.py 无 Redis import 和 rc:feedback 相关键名",
-        "单元测试覆盖：正常查询、503、404、归属校验、component 解析"
-      ],
-      "risk_tags": ["network"],
-      "test_tasks": [
-        {
-          "type": "unit",
-          "description": "反馈查询迁移 + Redis 清理",
-          "scenarios": [
-            "正常查询 → component='feedback:connection' → category='connection'",
-            "reporter ≠ user_id → 404",
-            "log-service 不可达 → 503",
-            "issue 不存在 → 404",
-            "feedback_service.py 不含 redis_conn / rc:feedback",
-            "environment='android / 1.0.0' → platform='android', app_version='1.0.0'",
-            "environment='android'（无版本号）→ platform='android', app_version=''",
-            "environment='' → platform='', app_version=''",
-            "request_id 正确映射为 session_id"
-          ]
-        }
-      ],
-      "contract_refs": ["GET /api/feedback/{id}", "GET /api/issues/{id}"],
-      "files": [
-        "server/app/feedback_api.py",
-        "server/app/feedback_service.py",
-        "server/tests/test_feedback_api.py"
-      ]
-    },
-    {
-      "id": "S033",
-      "phase": "feedback-to-issues",
-      "module": "shared",
-      "name": "反馈迁移集成测试 + 部署验证",
-      "description": "端到端验证：\n1. 提交反馈 → log-service POST /api/issues 被调用 → issues 表有记录\n2. 查询反馈 → 返回正确数据（category 从 component 解析）\n3. 日志转发包含 uid=user_id → log-service 可按用户查询\n4. 部署 smoke：Flutter 提交反馈 → http://localhost/logs/ 问题 Tab 可见",
-      "verification": "L4",
-      "depends_on": ["B059"],
-      "status": "completed",
-      "priority": "P1",
-      "acceptance_criteria": [
-        "集成测试：提交反馈 → POST /api/issues 被调用",
-        "集成测试：查询反馈 → category 正确（从 component 解析）",
-        "集成测试：日志转发 entry 包含 uid=user_id",
-        "部署 smoke：Flutter 提交反馈 → 问题 Tab 可见",
-        "部署 smoke：Redis 中无 rc:feedback:* 相关键"
-      ],
-      "smoke_required": true,
-      "files": [
-        "tests/e2e/test_feedback_to_issues.py"
-      ]
-    },
-    {
-      "id": "S034",
-      "phase": "deploy-standardization",
-      "module": "shared",
-      "name": "deploy/ 目录 + 多阶段 Dockerfile",
-      "description": "创建 deploy/ 目录，编写 server.Dockerfile 和 agent.Dockerfile，使用两阶段构建（builder 安装 gcc/git/依赖，runtime 仅含 venv + app 代码）。SDK 通过 git+https 从 GitHub 安装。Build context 为项目根目录。",
-      "verification": "L3",
-      "depends_on": [],
-      "status": "completed",
-      "priority": "P0",
-      "acceptance_criteria": [
-        "server.Dockerfile 两阶段构建：Stage 1 (builder) 安装 gcc/git + pip 依赖；Stage 2 (runtime) 仅 COPY .venv + app",
-        "agent.Dockerfile 同样两阶段构建",
-        "Runtime 镜像不含 gcc/git（docker run --entrypoint which gcc 返回非零）",
-        "SDK 通过 git+https://github.com/xiaolutang/log-service.git@v0.1.0#subdirectory=sdks/python 安装",
-        "Build context 为项目根目录，Dockerfile 内 COPY 路径为 server/app/ 或 agent/app/",
-        "docker build -f deploy/server.Dockerfile . 构建成功",
-        "docker build -f deploy/agent.Dockerfile . 构建成功"
-      ],
-      "risk_tags": ["config"],
-      "test_tasks": [
-        {
-          "type": "manual",
-          "description": "构建验证",
-          "scenarios": [
-            "docker build -f deploy/server.Dockerfile . 成功",
-            "docker build -f deploy/agent.Dockerfile . 成功",
-            "runtime 镜像内 which gcc 返回非零"
-          ]
-        }
-      ],
-      "files": [
-        "deploy/server.Dockerfile",
-        "deploy/agent.Dockerfile"
-      ]
-    },
-    {
-      "id": "S035",
-      "phase": "deploy-standardization",
-      "module": "shared",
-      "name": "build.sh + docker-compose 迁移",
-      "description": "创建 deploy/build.sh 标准化构建脚本，支持 server/agent/all 参数。将 docker-compose.prod.yml 迁入 deploy/ 并调整为标准 image 引用模式。",
-      "verification": "L3",
-      "depends_on": ["S034"],
-      "status": "completed",
-      "priority": "P0",
-      "acceptance_criteria": [
-        "build.sh 用法：./deploy/build.sh [server|agent|all] [--no-cache]，默认 all",
-        "build.sh 使用 -f deploy/server.Dockerfile 和 -f deploy/agent.Dockerfile，context 为项目根目录",
-        "镜像命名为 remote-control-server:latest 和 remote-control-agent:latest",
-        "docker-compose.yml 引用镜像名而非 build 指令（image: remote-control-server:latest）",
-        "docker-compose.yml 使用 image 引用模式，与 log-service 一致",
-        "./deploy/build.sh 构建两个镜像均成功"
-      ],
-      "risk_tags": ["config"],
-      "test_tasks": [
-        {
-          "type": "manual",
-          "description": "构建脚本验证",
-          "scenarios": [
-            "./deploy/build.sh 构建两个镜像成功",
-            "./deploy/build.sh server 只构建 server",
-            "./deploy/build.sh --no-cache 无缓存构建成功"
-          ]
-        }
-      ],
-      "files": [
-        "deploy/build.sh",
-        "deploy/docker-compose.yml"
-      ]
-    },
-    {
-      "id": "S036",
-      "phase": "deploy-standardization",
-      "module": "shared",
-      "name": "deploy.sh + .dockerignore + 清理 + CLAUDE.md",
-      "description": "将根目录 deploy.sh 移入 deploy/ 目录，增加 custom_build() 覆盖调用 build.sh。创建 .dockerignore。删除旧的散落 Dockerfile 和 compose 文件。更新 CLAUDE.md。",
-      "verification": "L3",
-      "depends_on": ["S035"],
-      "status": "completed",
-      "priority": "P0",
-      "acceptance_criteria": [
-        "deploy/deploy.sh 覆盖 custom_build() 调用 bash deploy/build.sh $BUILD_CACHE_FLAG",
-        "deploy/deploy.sh 的 COMPOSE_FILE 改为 deploy/docker-compose.yml",
-        "deploy/deploy.sh 的 HEALTH_PATH 保持 /rc/health",
-        ".dockerignore 位于项目根目录，排除：.git, .venv, __pycache__, .pytest_cache, tests, .env, .dev-flow, client/, *.pyc, *.db",
-        "旧文件已删除：server/Dockerfile, agent/Dockerfile, 根目录 docker-compose.prod.yml, 根目录 docker-compose.local.yml, 根目录 deploy.sh",
-        "CLAUDE.md 更新：构建命令改为 ./deploy/build.sh，部署命令改为 ./deploy/deploy.sh，目录结构更新",
-        "./deploy/deploy.sh --no-cache 可端到端执行（前置：基础设施层已启动）"
-      ],
-      "risk_tags": ["startup", "config"],
-      "test_tasks": [
-        {
-          "type": "manual",
-          "description": "部署脚本端到端验证",
-          "scenarios": [
-            "旧文件已删除",
-            "deploy/deploy.sh --help 或 --no-cache 可执行",
-            "deploy/.dockerignore 包含所有排除项"
-          ]
-        }
-      ],
-      "files": [
-        "deploy/deploy.sh",
-        ".dockerignore",
-        "CLAUDE.md"
-      ]
-    },
-    {
-      "id": "B060",
-      "phase": "user-persistence",
-      "module": "server",
-      "name": "SQLite 数据库层 + 用户表",
-      "description": "创建 server/app/database.py：aiosqlite 连接管理、初始化、get_db()。\n创建 users 表：id (INTEGER PRIMARY KEY AUTOINCREMENT), username (TEXT UNIQUE NOT NULL), password_hash (TEXT NOT NULL), created_at (TEXT NOT NULL)。\n创建 user_devices 表：id (INTEGER PK AUTOINCREMENT), username (TEXT NOT NULL REFERENCES users), device_name (TEXT), device_type (TEXT DEFAULT 'mobile'), bound_at (TEXT)。\n数据库文件路径: /data/users.db（Docker 内）/ 本地 ./data/users.db。\nDocker compose 挂载 volume。",
+      "name": "JWT Secret 加固 + 旧 token 拒绝",
+      "description": "修复 SEC-01 和 SEC-15：\n1. JWT_SECRET 环境变量为必填项，移除 secrets.token_hex(32) 随机回退逻辑。启动时缺失则抛异常。\n2. 拒绝无 token_version 字段的旧 token，移除向后兼容逻辑。\n3. 更新 architecture.md 不变量 #16。\n\n改动文件：auth.py（移除回退、移除兼容分支）、__init__.py（启动校验）。",
       "verification": "L2",
       "depends_on": [],
-      "status": "completed",
+      "status": "pending",
       "priority": "P0",
       "acceptance_criteria": [
-        "database.py 提供异步 get_db() 依赖注入函数",
-        "Server 启动时自动执行 CREATE TABLE IF NOT EXISTS",
-        "users 表结构正确（id, username UNIQUE, password_hash, created_at）",
-        "user_devices 表结构正确（id, username, device_name, device_type, bound_at）",
-        "本地开发使用 ./data/users.db",
-        "docker-compose.yml 添加 users.db volume 挂载"
+        "JWT_SECRET/JWT_SECRET_KEY 环境变量未设置 → 服务启动失败（raise）",
+        "无 token_version 的 JWT token → 401 TOKEN_INVALID",
+        "有 token_version 且匹配 Redis → 正常通过",
+        "有 token_version 但不匹配 Redis → 401 TOKEN_REPLACED",
+        "auth.py 无 secrets.token_hex 回退逻辑",
+        "auth.py 无 '向后兼容旧 token' 分支"
       ],
-      "risk_tags": ["config"],
+      "risk_tags": ["auth", "startup"],
       "test_tasks": [
         {
           "type": "unit",
-          "description": "数据库初始化测试",
+          "description": "JWT Secret 加固 + 旧 token 拒绝",
           "scenarios": [
-            "get_db() 返回可用连接",
-            "启动时自动创建表",
-            "users 表结构正确",
-            "user_devices 表结构正确"
+            "JWT_SECRET 未设置 → 启动抛异常",
+            "JWT_SECRET 设置 → 启动正常",
+            "token 无 token_version 字段 → 401 TOKEN_INVALID",
+            "token 有 token_version 匹配 Redis → 通过",
+            "token 有 token_version 不匹配 Redis → 401 TOKEN_REPLACED",
+            "伪造签名的 token → 401"
           ]
         }
       ],
-      "contract_refs": [],
       "files": [
+        "server/app/auth.py",
+        "server/app/__init__.py"
+      ]
+    },
+    {
+      "id": "B063",
+      "phase": "security-hardening",
+      "module": "server",
+      "name": "密码哈希迁移到 bcrypt",
+      "description": "修复 SEC-02：\n1. 新注册用户使用 bcrypt 哈希（替代 SHA-256）。\n2. 登录时检测旧 SHA-256 哈希（长度 64 hex），验证通过后自动 re-hash 为 bcrypt 并更新数据库。\n3. 添加 bcrypt 到 requirements.txt。\n\n改动文件：user_api.py（hash_password/verify_password 函数）、database.py（update_password_hash）、requirements.txt。",
+      "verification": "L2",
+      "depends_on": [],
+      "status": "pending",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "新注册用户密码使用 bcrypt 哈希",
+        "bcrypt 哈希的密码验证正常",
+        "旧 SHA-256 哈希登录成功后自动迁移为 bcrypt",
+        "迁移后数据库中 password_hash 为 bcrypt 格式（$2b$...）",
+        "错误的 bcrypt 密码返回 401",
+        "requirements.txt 包含 bcrypt"
+      ],
+      "risk_tags": ["auth"],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "bcrypt 密码哈希迁移",
+          "scenarios": [
+            "新注册 → password_hash 以 $2b$ 开头",
+            "bcrypt 密码登录 → 成功",
+            "旧 SHA-256 密码登录 → 成功 + 自动迁移为 bcrypt",
+            "迁移后再登录 → 使用 bcrypt 验证（不再走 SHA-256）",
+            "错误密码 → 401",
+            "空密码 → 400",
+            "并发登录同一旧密码用户 → 不报错，最终为 bcrypt"
+          ]
+        }
+      ],
+      "files": [
+        "server/app/user_api.py",
         "server/app/database.py",
-        "server/requirements.txt",
-        "deploy/docker-compose.yml"
+        "server/requirements.txt"
       ]
     },
     {
-      "id": "B061",
-      "phase": "user-persistence",
+      "id": "B064",
+      "phase": "security-hardening",
       "module": "server",
-      "name": "用户 API 迁移到 SQLite",
-      "description": "修改 user_api.py 的 get_user/save_user/get_user_devices/add_user_device。\n从 Redis GET/SET 改为 SQLite SELECT/INSERT。\n保持 API 接口不变（客户端无需改动）。\nRedis key `user:*` 和 `user_devices:*` 不再写入。\nRefresh token 和 session 继续用 Redis。",
+      "name": "CORS 收紧",
+      "description": "修复 SEC-03：\n1. 将 allow_origins=[\"*\"] 改为从环境变量 CORS_ORIGINS 读取（逗号分隔域名列表）。\n2. CORS_ORIGINS 未设置时默认为空列表（阻止所有跨域）。\n3. 开发环境可设置 CORS_ORIGINS=http://localhost:3000,http://localhost:5000。\n4. 生产环境设置为实际域名。\n\n改动文件：server/app/__init__.py（CORS 中间件配置）。",
       "verification": "L2",
-      "depends_on": ["B060"],
-      "status": "completed",
+      "depends_on": [],
+      "status": "pending",
       "priority": "P0",
       "acceptance_criteria": [
-        "get_user 从 SQLite users 表查询",
-        "save_user 向 SQLite users 表插入",
-        "get_user_devices 从 SQLite user_devices 表查询",
-        "add_user_device 向 SQLite user_devices 表插入",
-        "API 接口不变（/register, /login, /devices, /bind-device）",
-        "Redis user:* 和 user_devices:* 不再写入",
-        "refresh_token 相关函数继续使用 Redis"
+        "CORS_ORIGINS 未设置 → allow_origins=[]，跨域请求被拒绝",
+        "CORS_ORIGINS=http://localhost:3000 → 仅该域名允许",
+        "非配置域名的跨域请求 → CORS 头不存在",
+        "配置域名的跨域请求 → CORS 头正常",
+        "allow_credentials=True 保留（配合具体域名有效）"
       ],
-      "risk_tags": ["api-change"],
+      "risk_tags": ["config", "startup"],
       "test_tasks": [
         {
           "type": "unit",
-          "description": "用户 API SQLite 迁移测试",
+          "description": "CORS 收紧验证",
           "scenarios": [
-            "注册 → users 表有记录",
-            "登录 → 从 SQLite 验证用户",
-            "绑定设备 → user_devices 表有记录",
-            "查询设备 → 从 SQLite 返回",
-            "重复注册 → 409"
+            "CORS_ORIGINS 为空 → OPTIONS 请求无 CORS 头",
+            "CORS_ORIGINS=http://a.com → Origin: http://a.com 通过",
+            "CORS_ORIGINS=http://a.com → Origin: http://evil.com 被拒",
+            "CORS_ORIGINS=http://a.com,http://b.com → 两个域名都通过",
+            "带凭证的跨域请求 → Access-Control-Allow-Credentials: true"
           ]
         }
       ],
-      "contract_refs": ["POST /api/register", "POST /api/login", "GET /api/devices", "POST /api/bind-device"],
       "files": [
+        "server/app/__init__.py"
+      ]
+    },
+    {
+      "id": "B065",
+      "phase": "security-hardening",
+      "module": "server",
+      "name": "WebSocket 鉴权重构",
+      "description": "修复 SEC-05、SEC-11、SEC-12：\n1. WS 端点不再从 URL query 参数读取 token，改为连接后等待首条 auth 消息（{type: \"auth\", token: \"...\"}）。\n2. 收到 auth 消息后调用 async_verify_token 验证，5 秒内未收到有效 auth → 关闭连接。\n3. 添加 WebSocket 消息大小限制 MAX_WS_MESSAGE_SIZE = 1MB（可配置）。\n4. 不再支持 URL query 参数传 token（与 architecture.md 不变量 #17 一致）。\n\n改动文件：ws_agent.py、ws_client.py、routes.py（移除 token query 参数声明）。\n\n注意：此任务只改 Server 端，Agent/Client 的适配在 B068/F058。",
+      "verification": "L2",
+      "depends_on": ["B062"],
+      "status": "pending",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "WS 连接后发送 {type: \"auth\", token: \"valid_token\"} → 验证通过，连接保持",
+        "WS 连接后发送 {type: \"auth\", token: \"invalid_token\"} → 连接关闭 (4001)",
+        "WS 连接后 5 秒内不发送 auth 消息 → 连接关闭 (4002)",
+        "消息大小超过 1MB → 连接关闭 (4003)",
+        "routes.py 中 WS 端点不再声明 token query 参数",
+        "URL query 参数传 token → 不验证、不处理，视为无认证",
+        "Agent WS 和 Client WS 都适配新流程"
+      ],
+      "risk_tags": ["auth", "network"],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "WebSocket 鉴权重构",
+          "scenarios": [
+            "正常 auth 消息 → 连接成功",
+            "无效 token → 连接关闭 (4001)",
+            "超时未发送 auth → 连接关闭 (4002)",
+            "超大消息 → 连接关闭 (4003)",
+            "URL query 传 token → 不验证，仍需首条 auth 消息",
+            "正常消息大小（< 1MB）→ 不受影响",
+            "auth 前发送非 auth 消息 → 关闭连接",
+            "auth 消息格式错误（非 JSON / 缺少 token 字段）→ 关闭连接",
+            "Server 已切 auth-message 但旧 Client/Agent 仍走 query token → 连接失败"
+          ]
+        }
+      ],
+      "files": [
+        "server/app/ws_agent.py",
+        "server/app/ws_client.py",
+        "server/app/routes.py"
+      ]
+    },
+    {
+      "id": "B066",
+      "phase": "security-hardening",
+      "module": "server",
+      "name": "日志 API 归属校验 + 错误信息脱敏",
+      "description": "修复 SEC-07 和 SEC-13：\n1. 日志 API（log_api.py）将 get_current_payload 替换为 get_current_user_id，增加 session_id 归属校验（只能查询自己的日志）。\n2. auth.py 中所有 JWT 验证错误不再返回具体的解码错误详情，统一返回 \"Token 无效\" 或 \"Token 已过期\"。\n\n改动文件：log_api.py（鉴权依赖替换 + 归属校验）、auth.py（错误信息脱敏）。",
+      "verification": "L2",
+      "depends_on": ["B062"],
+      "status": "pending",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "日志 API 使用 get_current_user_id 鉴权",
+        "查询非自己的 session 日志 → 403",
+        "查询自己的 session 日志 → 正常返回",
+        "JWT 错误响应不含具体解码异常信息（如 ExpiredSignatureError 详情）",
+        "JWT 错误统一返回 \"Token 无效\" 或 \"Token 已过期\"",
+        "log_api.py 无 get_current_payload 调用"
+      ],
+      "risk_tags": ["auth"],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "日志归属校验 + 错误脱敏",
+          "scenarios": [
+            "用户 A 查询自己的 session 日志 → 成功",
+            "用户 A 查询用户 B 的 session 日志 → 403",
+            "过期 token → 返回 \"Token 已过期\"（无异常详情）",
+            "签名错误 token → 返回 \"Token 无效\"（无异常详情）",
+            "格式错误 token → 返回 \"Token 无效\""
+          ]
+        }
+      ],
+      "files": [
+        "server/app/log_api.py",
+        "server/app/auth.py"
+      ]
+    },
+    {
+      "id": "B067",
+      "phase": "security-hardening",
+      "module": "server",
+      "name": "登录/注册速率限制",
+      "description": "修复 SEC-09：\n1. 为 /api/login 和 /api/register 添加基于 IP 的速率限制。\n2. 默认限制：每 IP 每分钟 10 次请求。\n3. 通过环境变量 RATE_LIMIT_PER_MINUTE 配置。\n4. 超限返回 429 Too Many Requests。\n5. 基于 Redis 实现分布式计数。限流计数 Redis 操作失败时不额外拦截（fail-open for rate-limit counter only），但登录/注册主链路涉及认证/session 的 Redis 失败仍按 architecture.md 不变量 12 返回 503（fail-closed）。\n\n改动文件：新增 server/app/rate_limit.py（速率限制中间件）、user_api.py（应用中间件）。",
+      "verification": "L2",
+      "depends_on": [],
+      "status": "pending",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "/api/login 同一 IP 每分钟超过 10 次 → 429",
+        "/api/register 同一 IP 每分钟超过 10 次 → 429",
+        "不同 IP 独立计数",
+        "RATE_LIMIT_PER_MINUTE 环境变量可配置限制值",
+        "Redis 不可用时 → 限流计数 fail-open（不限速），但认证/session Redis 失败仍返回 503",
+        "429 响应包含 Retry-After 头",
+        "正常频率请求不受影响"
+      ],
+      "risk_tags": ["network", "config"],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "速率限制",
+          "scenarios": [
+            "10 次内 → 全部成功",
+            "第 11 次 → 429 + Retry-After 头",
+            "不同 IP → 独立计数",
+            "Redis 不可用 → 不限速",
+            "限流计数 Redis 失败但认证 Redis 正常 → 不限速，登录可继续",
+            "认证/session Redis 失败 → 503，不签发 token（与 fail-closed 一致）",
+            "1 分钟后 → 计数重置"
+          ]
+        }
+      ],
+      "files": [
+        "server/app/rate_limit.py",
         "server/app/user_api.py"
       ]
     },
     {
-      "id": "S037",
-      "phase": "user-persistence",
-      "module": "shared",
-      "name": "测试 + Docker 适配 + 文档更新",
-      "description": "单元测试：注册/登录/设备绑定/重复注册。\n集成测试：启动时自动建表 + 数据库文件持久化。\nDocker: deploy/docker-compose.yml 添加 users.db volume 挂载。\n文档: CLAUDE.md 更新数据库说明。",
-      "verification": "L4",
-      "depends_on": ["B061"],
-      "status": "completed",
-      "priority": "P1",
+      "id": "B068",
+      "phase": "security-hardening",
+      "module": "agent",
+      "name": "Agent 安全加固",
+      "description": "修复 SEC-04、SEC-06、SEC-05(Agent 侧)：\n1. **WS 认证适配**：连接 Server 后发送 {type: \"auth\", token: \"...\"}，不再在 URL query 参数传 token。\n2. **命令执行校验**：terminal 创建前验证 command（必须为字符串且非空）、cwd（必须为绝对路径或 None）、env（值必须为字符串）。校验逻辑在 main.py 的 terminal 创建入口处。\n3. **本地 HTTP 认证**：local_server.py 的所有端点添加 token 认证，token 在 Agent 启动时生成并写入配置文件，外部进程需读取配置文件获取 token。\n\n改动文件：websocket_client.py（auth 消息）、main.py（输入校验）、local_server.py（token 认证）、config.py（生成/存储 local_token）。",
+      "verification": "L2",
+      "depends_on": ["B065"],
+      "status": "pending",
+      "priority": "P0",
       "acceptance_criteria": [
-        "单元测试：注册/登录/设备绑定/重复注册覆盖",
-        "集成测试：启动时自动建表",
-        "集成测试：数据库文件持久化（重启后数据存在）",
-        "docker-compose.yml 有 users.db volume 挂载",
-        "CLAUDE.md 更新：数据库架构说明（SQLite 持久化用户，Redis 临时 session/token）",
-        "所有测试通过"
+        "Agent WS 连接后发送 auth 消息（token 不在 URL 中）",
+        "command 为非字符串 → 拒绝创建 terminal",
+        "command 为空字符串 → 拒绝",
+        "cwd 为相对路径 → 拒绝",
+        "env 值为非字符串 → 拒绝",
+        "本地 HTTP 无 token → 401",
+        "本地 HTTP 错误 token → 401",
+        "本地 HTTP 正确 token → 正常",
+        "local_token 在启动时生成并写入配置文件"
       ],
-      "risk_tags": ["startup"],
-"test_tasks": [
+      "risk_tags": ["auth", "first_use"],
+      "test_tasks": [
         {
           "type": "unit",
-          "description": "用户核心流程测试",
+          "description": "Agent 安全加固",
           "scenarios": [
-            "注册 → SQLite 有记录",
-            "登录 → SQLite 验证成功",
-            "设备绑定 → SQLite 有记录",
-            "重复注册 → 409 冲突"
+            "auth 消息格式正确 → 连接成功",
+            "command='rm -rf /' → 允许（字符串，用户决定信任）",
+            "command='' → 拒绝",
+            "command=123 → 拒绝（非字符串）",
+            "cwd='../etc' → 拒绝（相对路径）",
+            "cwd='/home/user' → 允许",
+            "env={'KEY': 123} → 拒绝（值非字符串）",
+            "env={'KEY': 'value'} → 允许",
+            "local_server 无 Authorization 头 → 401",
+            "local_server 正确 Bearer token → 200"
           ]
         },
         {
           "type": "integration",
-          "description": "数据库持久化测试",
+          "description": "Agent 安全加固集成",
           "scenarios": [
-            "启动 → 自动建表",
-            "重启 → 数据保留"
+            "local_token 配置文件首次生成",
+            "配置文件损坏/缺失 → 重新生成 token",
+            "local_server token 过期或错误 → 401 + 明确错误信息",
+            "旧 Agent 版本仍走 query token 连接 Server → 连接失败反馈",
+            "Agent 启动时 local_server 自动带认证 → 控制面可用"
           ]
         }
       ],
-      "contract_refs": [],
       "files": [
-        "server/tests/test_user_api.py",
-        "server/tests/test_database.py",
+        "agent/app/websocket_client.py",
+        "agent/app/main.py",
+        "agent/local_server.py",
+        "agent/app/config.py"
+      ]
+    },
+    {
+      "id": "F058",
+      "phase": "security-hardening",
+      "module": "client",
+      "name": "Client 安全加固",
+      "description": "修复 SEC-05(Client 侧) + SEC-08：\n1. **WS 认证适配**：连接 Server 后发送 {type: \"auth\", token: \"...\"}，不再在 URL query 参数传 token。修改 websocket_service.dart 的 WS 连接逻辑。\n2. **安全存储**：将密码从 SharedPreferences 迁移到 flutter_secure_storage。用户名和 login_time 可保留在 SharedPreferences（非敏感）。Access token 和 refresh token 也迁移到 flutter_secure_storage。\n\n改动文件：websocket_service.dart（WS auth 消息）、auth_service.dart（flutter_secure_storage）、pubspec.yaml（添加依赖）。",
+      "verification": "F1",
+      "depends_on": ["B065"],
+      "status": "pending",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "Client WS 连接后发送 auth 消息（token 不在 URL 中）",
+        "密码不再存储在 SharedPreferences",
+        "密码使用 flutter_secure_storage 存储",
+        "access_token 和 refresh_token 使用 flutter_secure_storage",
+        "登录/自动登录流程正常",
+        "WS 连接和终端功能正常"
+      ],
+      "risk_tags": ["auth", "first_use"],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "Client 安全加固",
+          "scenarios": [
+            "WS 连接发送 auth 消息 → 连接成功",
+            "密码不在 SharedPreferences 中（已迁移）",
+            "flutter_secure_storage 中可读取密码",
+            "登录流程 → token 存入 secure storage",
+            "自动登录 → 从 secure storage 读取 token"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "Client 安全存储迁移集成",
+          "scenarios": [
+            "旧版 SharedPreferences 有明文密码 → 首次启动自动迁移到 flutter_secure_storage + 清除旧值",
+            "flutter_secure_storage 读取失败（平台不支持）→ 降级处理，不崩溃",
+            "自动登录时 secure storage 为空 → 引导重新登录",
+            "迁移后卸载重装 → 无旧数据残留问题"
+          ]
+        }
+      ],
+      "files": [
+        "client/lib/services/websocket_service.dart",
+        "client/lib/services/auth_service.dart",
+        "client/pubspec.yaml"
+      ]
+    },
+    {
+      "id": "B070",
+      "phase": "security-hardening",
+      "module": "server",
+      "name": "Redis 密码保护 + Docker 非 root",
+      "description": "修复 SEC-10 和 SEC-14：\n1. **Redis 密码**：docker-compose.yml 添加 REDIS_PASSWORD 环境变量，Redis 启动命令添加 --requirepass，Server 连接时传入密码。注意：Agent 不直接连接 Redis，仅 Server 需要密码参数。\n2. **Docker 非 root**：server.Dockerfile 和 agent.Dockerfile 添加非 root 用户（appuser），RUN useradd + USER appuser。\n\n改动文件：deploy/docker-compose.yml、deploy/server.Dockerfile、deploy/agent.Dockerfile、server/app/session.py（Redis 密码参数）。",
+      "verification": "L3",
+      "depends_on": [],
+      "status": "pending",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "Redis 启动时设置 --requirepass ${REDIS_PASSWORD}",
+        "Server 连接 Redis 使用密码认证",
+        "Redis 无密码连接 → 拒绝",
+        "server.Dockerfile 运行容器为非 root 用户",
+        "agent.Dockerfile 运行容器为非 root 用户",
+        "docker compose up 全部服务正常启动",
+        "非 root 用户可写入 /data/ 目录（volume 权限）"
+      ],
+      "risk_tags": ["config", "startup"],
+      "test_tasks": [
+        {
+          "type": "manual",
+          "description": "Redis 密码 + Docker 非 root 验证",
+          "scenarios": [
+            "docker compose up → 全部服务正常",
+            "docker exec server whoami → appuser",
+            "docker exec agent whoami → appuser",
+            "Server 日志无 Redis 认证错误",
+            "Agent 可正常连接"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "Redis 密码 + Docker 非 root 异常场景",
+          "scenarios": [
+            "REDIS_PASSWORD 环境变量缺失 → Server 启动失败并明确报错",
+            "Redis 认证密码错误 → Server 连接失败 + 503",
+            "非 root 用户下 /data/ volume 权限不足 → 启动报错并提示",
+            "docker compose down && up → 数据持久化正常"
+          ]
+        }
+      ],
+      "files": [
         "deploy/docker-compose.yml",
-        "CLAUDE.md"
+        "deploy/server.Dockerfile",
+        "deploy/agent.Dockerfile",
+        "server/app/session.py"
+      ]
+    },
+    {
+      "id": "S038",
+      "phase": "security-hardening",
+      "module": "shared",
+      "name": "安全加固集成验证",
+      "description": "端到端验证所有安全加固措施协同工作：\n1. 注册新用户 → bcrypt 哈希\n2. 登录 → 速率限制生效\n3. WS 连接使用 auth 消息（非 URL token）\n4. 创建 terminal → 命令输入校验\n5. 错误 token → 脱敏错误信息\n6. 部署 smoke：Redis 有密码、容器非 root、CORS 正确\n7. 旧 token（无 version）→ 被拒绝",
+      "verification": "L4",
+      "depends_on": ["B062", "B063", "B064", "B065", "B066", "B067", "B068", "F058", "B070"],
+      "status": "pending",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "全链路注册→登录→WS→terminal→关闭正常",
+        "bcrypt 哈希验证（注册后数据库检查）",
+        "速率限制生效（10 次登录 → 第 11 次 429）",
+        "WS auth 消息验证（URL 无 token）",
+        "错误 token 返回脱敏信息",
+        "Redis 密码认证正常",
+        "容器非 root 运行",
+        "CORS 仅允许配置域名"
+      ],
+      "risk_tags": ["startup", "network"],
+      "smoke_required": true,
+      "test_tasks": [
+        {
+          "type": "integration",
+          "description": "安全加固全链路验证",
+          "scenarios": [
+            "注册 → password_hash 以 $2b$ 开头（bcrypt）",
+            "连续登录 10 次 → 第 11 次 429 Too Many Requests",
+            "WS 连接 URL 无 token 参数 → 发送 auth 消息 → 连接成功",
+            "伪造 token → 返回 'Token 无效'（无异常详情）",
+            "无 token_version 的旧 token → 401",
+            "Redis 密码认证 → Server 日志无 auth 错误",
+            "docker exec server whoami → 非 root",
+            "CORS 非配置域名 → 请求被拒"
+          ]
+        }
       ]
     }
   ],
@@ -554,6 +570,24 @@
       "task_ids": ["B056","F054","F055","F056","S032"],
       "archived_at": "2026-04-12T19:00:00Z",
       "summary": { "total": 5, "completed": 5, "cancelled": 0 }
+    },
+    {
+      "phase": "feedback-to-issues",
+      "task_ids": ["B057","F057","B058","B059","S033"],
+      "archived_at": "2026-04-12T23:17:00Z",
+      "summary": { "total": 5, "completed": 5, "cancelled": 0 }
+    },
+    {
+      "phase": "deploy-standardization",
+      "task_ids": ["S034","S035","S036"],
+      "archived_at": "2026-04-13T02:27:00Z",
+      "summary": { "total": 3, "completed": 3, "cancelled": 0 }
+    },
+    {
+      "phase": "user-persistence",
+      "task_ids": ["B060","B061","S037"],
+      "archived_at": "2026-04-13T02:27:00Z",
+      "summary": { "total": 3, "completed": 3, "cancelled": 0 }
     }
   ]
 }

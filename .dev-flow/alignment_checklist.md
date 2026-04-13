@@ -71,3 +71,13 @@
 | **部署标准化** | **多阶段 Dockerfile** | — | **completed** | **not_applicable** | **completed** | **S034: deploy/ 目录 + server/agent 两阶段构建** |
 | **部署标准化** | **build.sh + compose 迁移** | — | **completed** | **not_applicable** | **completed** | **S035: 构建脚本 + compose 文件统一到 deploy/** |
 | **部署标准化** | **deploy.sh + 清理 + CLAUDE.md** | — | **completed** | **not_applicable** | **completed** | **S036: 部署脚本迁移 + 旧文件删除 + 文档更新** |
+| **安全加固** | **JWT Secret 加固 + 旧 token 拒绝** | **CONTRACT-031, CONTRACT-032** | **pending** | **not_applicable** | **pending** | **B062: JWT_SECRET 必填 + 无 token_version 拒绝** |
+| **安全加固** | **密码哈希迁移到 bcrypt** | **CONTRACT-032** | **pending** | **not_applicable** | **pending** | **B063: bcrypt 新注册 + SHA-256 自动迁移** |
+| **安全加固** | **CORS 收紧** | **CONTRACT-033** | **pending** | **not_applicable** | **pending** | **B064: CORS_ORIGINS 环境变量，禁止通配符** |
+| **安全加固** | **WebSocket 鉴权重构** | **CONTRACT-031** | **pending** | **pending** | **pending** | **B065: 首条 auth 消息认证 + 消息大小限制** |
+| **安全加固** | **日志 API 归属校验 + 错误脱敏** | **CONTRACT-032** | **pending** | **not_applicable** | **pending** | **B066: get_current_user_id + JWT 错误脱敏** |
+| **安全加固** | **登录/注册速率限制** | **CONTRACT-033** | **pending** | **not_applicable** | **pending** | **B067: IP 速率限制 10/min + fail-open** |
+| **安全加固** | **Agent 安全加固** | **CONTRACT-031, CONTRACT-035** | **not_applicable** | **not_applicable** | **pending** | **B068: WS auth 适配 + 命令校验 + 本地 HTTP 认证** |
+| **安全加固** | **Client 安全加固** | **CONTRACT-031, CONTRACT-036** | **not_applicable** | **pending** | **pending** | **F058: WS auth 适配 + flutter_secure_storage** |
+| **安全加固** | **Redis 密码保护 + Docker 非 root** | **CONTRACT-034** | **pending** | **not_applicable** | **pending** | **B070: Redis --requirepass + 非 root 容器** |
+| **安全加固** | **安全加固集成验证** | **CONTRACT-031..036** | **pending** | **pending** | **pending** | **S038: 端到端全链路安全加固验证** |

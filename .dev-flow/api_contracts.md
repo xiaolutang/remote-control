@@ -32,9 +32,16 @@
 | CONTRACT-024 | 870 | Agent 本地 HTTP Supervisor | S021, B020, F029 |
 | CONTRACT-025 | 929 | Server Agent TTL 机制 | S021, B021 |
 | CONTRACT-026 | 963 | 桌面端与手机端行为差异 | S021, F030 |
-| CONTRACT-027 | 995 | 同端设备在线数限制（简化为直接踢出） | B036, B042, F050 |
+| CONTRACT-027 | 995 | Agent 生命周期管理 | S024, F032-F044 |
 | CONTRACT-028 | 1139 | 登录层 Token 版本与同端限制 | B038, B039, F048, F049, S025 |
 | CONTRACT-029 | 45 | 日志集成（SDK + Client 转发） | B043, B044, B045, B046, B047, S028, S029 |
+| CONTRACT-030 | 1098 | 同端设备在线数限制（简化为直接踢出） | B036, B042, F050 |
+| CONTRACT-031 | 1270 | 安全加固：WS 鉴权消息协议 | B062, B065, B068, F058 |
+| CONTRACT-032 | 1310 | 安全加固：认证与密码策略 | B062, B063, B066 |
+| CONTRACT-033 | 1350 | 安全加固：CORS + 速率限制 | B064, B067 |
+| CONTRACT-034 | 1390 | 安全加固：Redis 密码 + Docker 非 root | B070 |
+| CONTRACT-035 | 1420 | 安全加固：Agent 本地 HTTP 认证 | B068 |
+| CONTRACT-036 | 1450 | 安全加固：Client 安全存储 | F058 |
 
 ## 日志集成
 
@@ -129,9 +136,9 @@
 |------|----|
 | ID | CONTRACT-002 |
 | Method | GET |
-| Path | /ws/agent?token={jwt} |
-| Auth | Bearer Token |
-| Related Tasks | B001, B002, B003, B004 |
+| Path | /ws/agent |
+| Auth | 首条 auth 消息 |
+| Related Tasks | B001, B002, B003, B004, B065, B068 |
 
 #### Connected Message
 
@@ -197,9 +204,9 @@
 |------|----|
 | ID | CONTRACT-003 |
 | Method | GET |
-| Path | /ws/client?session_id={id}&token={jwt}&view={mobile\|desktop} |
-| Auth | Bearer Token |
-| Related Tasks | B001, B002, F002, F003, S002 |
+| Path | /ws/client?session_id={id}&view={mobile\|desktop} |
+| Auth | 首条 auth 消息 |
+| Related Tasks | B001, B002, F002, F003, S002, B065, F058 |
 
 #### Connected Message
 
@@ -418,9 +425,9 @@
 |------|----|
 | ID | CONTRACT-012 |
 | Method | GET |
-| Path | /ws/client?device_id={id}&terminal_id={id}&token={jwt}&view={mobile\|desktop} |
-| Auth | Bearer Token |
-| Related Tasks | S011, B009, F015, F016, S012 |
+| Path | /ws/client?device_id={id}&terminal_id={id}&view={mobile\|desktop} |
+| Auth | 首条 auth 消息 |
+| Related Tasks | S011, B009, F015, F016, S012, B065, F058 |
 
 #### Connected Message
 
@@ -1095,7 +1102,7 @@ Windows: %APPDATA%/remote-control/agent-ownership.json
 
 | 字段 | 值 |
 |------|----|
-| ID | CONTRACT-027 |
+| ID | CONTRACT-030 |
 | Scope | Server ↔ Client |
 | Related Tasks | B036, B042, F050 |
 | Status | **Simplified** — 冲突弹窗已移除，改为新设备直接替换旧设备 |
@@ -1253,13 +1260,154 @@ Redis `token_version:{session_id}:{view_type}` 记录当前版本号。登录时
 | 场景 | 行为 |
 |------|------|
 | Redis INCR 失败（登录/注册） | 返回 503 Service Unavailable，不签发 token |
-| Redis GET 失败（verify_token） | 携带 token_version 的 token → 503；无 token_version 的旧 token → 正常放行 |
+| Redis GET 失败（verify_token） | 返回 503，不区分有无 token_version（fail-closed） |
 | Redis GET 失败（refresh） | 返回 503，不签发新 token |
 
-#### 向后兼容
+#### Token 版本校验（B062 加固后）
 
 | 场景 | 行为 |
 |------|------|
-| 旧 access token（无 token_version/view_type） | verify_token 正常放行，不受版本校验 |
+| 无 token_version 的旧 access token | 返回 401 TOKEN_INVALID（不再兼容放行） |
+| token_version 与 Redis 匹配 | 正常通过 |
+| token_version 与 Redis 不匹配 | 返回 401 TOKEN_REPLACED |
 | 旧 refresh token（无 view_type） | 刷新时按 mobile 处理，新 token 使用 Redis 当前 mobile 版本 |
 | Server 重启（Redis 数据丢失） | token_version 从 0 开始，旧 token 的 token_version 字段不存在或为旧值 → 按 TOKEN_REPLACED 处理（安全侧） |
+
+---
+
+## 安全加固
+
+### WS 鉴权消息协议
+
+| 字段 | 值 |
+|------|----|
+| ID | CONTRACT-031 |
+| Scope | Server + Agent + Client |
+| Related Tasks | B062, B065, B068, F058 |
+
+#### WS Auth 消息格式
+
+连接建立后，客户端/Agent 必须在 5 秒内发送首条 auth 消息：
+
+```json
+{
+  "type": "auth",
+  "token": "jwt_access_token"
+}
+```
+
+#### WS Auth Close Codes
+
+| Code | 含义 |
+|------|------|
+| 4001 | token 无效（签名错误、格式错误） |
+| 4002 | 超时未发送 auth 消息（5 秒） |
+| 4003 | 消息大小超过限制 |
+
+#### Rules
+
+| Rule | Meaning |
+|------|---------|
+| First message auth | 连接后首条消息必须是 auth，否则关闭连接 |
+| No URL query token | token 不允许通过 URL query 参数传递（architecture.md 不变量 #17） |
+| 5s timeout | 5 秒内未收到有效 auth → close(4002) |
+| MAX_WS_MESSAGE_SIZE | 默认 1MB，可通过环境变量配置 |
+
+### 认证与密码策略
+
+| 字段 | 值 |
+|------|----|
+| ID | CONTRACT-032 |
+| Scope | Server |
+| Related Tasks | B062, B063, B066 |
+
+#### JWT Secret 约束
+
+| Rule | Meaning |
+|------|---------|
+| JWT_SECRET 必填 | 环境变量缺失 → 服务启动失败（raise），不允许随机回退 |
+| token_version 必填 | 无 token_version 的 JWT → 401 TOKEN_INVALID |
+| 错误脱敏 | JWT 验证错误统一返回 "Token 无效" 或 "Token 已过期"，不暴露解码异常详情 |
+
+#### 密码策略
+
+| Rule | Meaning |
+|------|---------|
+| bcrypt for new | 新注册用户使用 bcrypt 哈希 |
+| Auto-migrate | 旧 SHA-256 哈希登录成功后自动迁移为 bcrypt |
+| 日志归属 | log_api 使用 get_current_user_id，查询非自己 session → 403 |
+
+### CORS + 速率限制
+
+| 字段 | 值 |
+|------|----|
+| ID | CONTRACT-033 |
+| Scope | Server |
+| Related Tasks | B064, B067 |
+
+#### CORS 约束
+
+| Rule | Meaning |
+|------|---------|
+| CORS_ORIGINS 必填 | 未设置 → allow_origins=[]，阻止所有跨域 |
+| 禁止通配符 | 不允许 CORS_ORIGINS=* |
+| 逗号分隔 | 多域名通过逗号分隔配置 |
+
+#### 速率限制
+
+| Rule | Meaning |
+|------|---------|
+| IP based | 基于 IP 的每分钟请求计数 |
+| Default 10/min | 默认每 IP 每分钟 10 次登录/注册请求 |
+| 429 + Retry-After | 超限返回 429 + Retry-After 头 |
+| Fail-open | 限流计数 Redis 操作失败时不额外拦截（仅限流 fail-open）；认证/session Redis 失败仍返回 503 |
+
+### Redis 密码 + Docker 非 root
+
+| 字段 | 值 |
+|------|----|
+| ID | CONTRACT-034 |
+| Scope | Docker 部署 |
+| Related Tasks | B070 |
+
+#### Rules
+
+| Rule | Meaning |
+|------|---------|
+| REDIS_PASSWORD 必填 | Redis 启动使用 --requirepass |
+| Server 密码连接 | Server 连接 Redis 时传入密码 |
+| Docker 非 root | server/agent 容器以 appuser 非 root 运行 |
+| Volume 权限 | 非 root 用户可写入 /data/ 目录 |
+
+### Agent 本地 HTTP 认证
+
+| 字段 | 值 |
+|------|----|
+| ID | CONTRACT-035 |
+| Scope | Local Agent |
+| Related Tasks | B068 |
+
+#### Rules
+
+| Rule | Meaning |
+|------|---------|
+| Token auth | 所有本地 HTTP 端点需要 Bearer token |
+| Auto-generate | token 在 Agent 启动时自动生成 |
+| Config file | token 写入配置文件，外部进程需读取配置获取 |
+| Input validation | terminal 创建前校验 command（非空字符串）、cwd（绝对路径或 None）、env（值为字符串） |
+
+### Client 安全存储
+
+| 字段 | 值 |
+|------|----|
+| ID | CONTRACT-036 |
+| Scope | Client |
+| Related Tasks | F058 |
+
+#### Rules
+
+| Rule | Meaning |
+|------|---------|
+| flutter_secure_storage | 密码、access_token、refresh_token 使用 flutter_secure_storage |
+| SharedPreferences only | 用户名、login_time 可保留在 SharedPreferences |
+| Auto-migrate | 首次启动时从 SharedPreferences 迁移密码到 flutter_secure_storage + 清除旧值 |
