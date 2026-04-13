@@ -25,6 +25,29 @@ from app.config import Config
 logger = logging.getLogger(__name__)
 
 
+def _validate_terminal_input(command, cwd, env) -> Optional[str]:
+    """B068: 校验 terminal 创建参数。返回 None 表示通过，否则返回错误描述。"""
+    # command 必须为字符串且非空
+    if not isinstance(command, str):
+        return f"command must be string, got {type(command).__name__}"
+    if not command.strip():
+        return "command must not be empty"
+    # cwd 如果提供，必须为绝对路径
+    if cwd is not None:
+        if not isinstance(cwd, str):
+            return f"cwd must be string, got {type(cwd).__name__}"
+        import os.path
+        if not os.path.isabs(cwd):
+            return f"cwd must be absolute path, got '{cwd}'"
+    # env 值必须为字符串
+    if not isinstance(env, dict):
+        return f"env must be dict, got {type(env).__name__}"
+    for k, v in env.items():
+        if not isinstance(v, str):
+            return f"env['{k}'] must be string, got {type(v).__name__}"
+    return None
+
+
 def _log(message: str) -> None:
     """Agent 日志输出到 stderr + logging（SDK handler 自动上报到 log-service）"""
     if os.environ.get("FLUTTER_TEST"):
@@ -222,8 +245,8 @@ class WebSocketClient:
 
     async def _connect_and_run(self):
         """连接服务器并运行主循环"""
-        # 构建 WebSocket URL
-        ws_url = f"{self.server_url}/ws/agent?token={self.token}"
+        # B068: token 不再通过 URL query 参数传递
+        ws_url = f"{self.server_url}/ws/agent"
 
         _log(f"正在连接服务器: {self.server_url}")
 
@@ -242,6 +265,13 @@ class WebSocketClient:
                 _log("已连接到服务器")
 
                 try:
+                    # B068: 发送 auth 消息进行鉴权
+                    await ws.send(json.dumps({
+                        "type": "auth",
+                        "token": self.token,
+                    }))
+
+                    # 等待连接确认消息
                     # 等待连接确认消息
                     message = await asyncio.wait_for(ws.recv(), timeout=30)
                     data = json.loads(message)
@@ -399,13 +429,26 @@ class WebSocketClient:
                     terminal_id = data.get("terminal_id")
                     if not terminal_id:
                         continue
+                    # B068: 命令执行校验
+                    command = data.get("command", self.command)
+                    cwd = data.get("cwd")
+                    env = data.get("env", {}) or {}
+                    validation_error = _validate_terminal_input(command, cwd, env)
+                    if validation_error:
+                        _log(f"Terminal {terminal_id} 输入校验失败: {validation_error}")
+                        await self._send_ws_message(
+                            self.runtime_manager.build_terminal_closed_event(
+                                terminal_id, reason=f"validation_failed: {validation_error}"
+                            )
+                        )
+                        continue
                     try:
                         spec = TerminalSpec(
                             terminal_id=terminal_id,
                             title=data.get("title", terminal_id),
-                            cwd=data.get("cwd"),
-                            command=data.get("command", self.command),
-                            env=data.get("env", {}) or {},
+                            cwd=cwd,
+                            command=command,
+                            env=env,
                         )
                         runtime = self.runtime_manager.create_terminal(spec)
                         self._runtime_tasks[terminal_id] = asyncio.create_task(

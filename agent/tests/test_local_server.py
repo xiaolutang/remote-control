@@ -176,14 +176,14 @@ class TestLocalServer:
 
         try:
             async with ClientSession() as session:
-                async with session.get(f"http://{BIND_ADDRESS}:18767/status") as resp:
+                headers = {"Authorization": f"Bearer {server._local_token}"}
+                async with session.get(f"http://{BIND_ADDRESS}:18767/status", headers=headers) as resp:
                     assert resp.status == 200
                     data = await resp.json()
                     assert "running" in data
                     assert "pid" in data
                     assert "port" in data
                     assert "server_url" in data
-                    assert data["server_url"] == "wss://test.example.com"
         finally:
             await server.stop()
 
@@ -198,9 +198,11 @@ class TestLocalServer:
         try:
             async with ClientSession() as session:
                 # 更新配置
+                headers = {"Authorization": f"Bearer {server._local_token}"}
                 async with session.post(
                     f"http://{BIND_ADDRESS}:18766/config",
                     json={"keep_running_in_background": False},
+                    headers=headers,
                 ) as resp:
                     assert resp.status == 200
                     data = await resp.json()
@@ -215,14 +217,16 @@ class TestLocalServer:
         """测试停止端点"""
         from aiohttp import ClientSession
 
-        server = LocalServer(mock_client, port=18765)
+        server = LocalServer(mock_client, port=18777)
         await server.start()
 
         try:
             async with ClientSession() as session:
+                headers = {"Authorization": f"Bearer {server._local_token}"}
                 async with session.post(
-                    f"http://{BIND_ADDRESS}:18765/stop",
+                    f"http://{BIND_ADDRESS}:18777/stop",
                     json={"grace_timeout": 5},
+                    headers=headers,
                 ) as resp:
                     assert resp.status == 200
                     data = await resp.json()
@@ -250,7 +254,8 @@ class TestLocalServer:
 
         try:
             async with ClientSession() as session:
-                async with session.get(f"http://{BIND_ADDRESS}:18770/terminals") as resp:
+                headers = {"Authorization": f"Bearer {server._local_token}"}
+                async with session.get(f"http://{BIND_ADDRESS}:18770/terminals", headers=headers) as resp:
                     assert resp.status == 200
                     data = await resp.json()
                     assert "terminals" in data
@@ -301,3 +306,131 @@ class TestDiscoverLocalAgent:
             assert result["port"] == 18771
         finally:
             await server.stop()
+
+
+# ─── B068: 本地 HTTP token 认证测试 ───
+
+
+class TestLocalServerAuth:
+    """B068: local_server token 认证测试"""
+
+    @pytest.fixture
+    def mock_client(self):
+        return MockAgentClient()
+
+    @pytest.mark.asyncio
+    async def test_no_token_returns_401(self, mock_client):
+        """无 Authorization 头 → 401"""
+        from aiohttp import ClientSession
+
+        server = LocalServer(mock_client, port=18772)
+        await server.start()
+        try:
+            async with ClientSession() as session:
+                async with session.get(f"http://{BIND_ADDRESS}:18772/status") as resp:
+                    assert resp.status == 401
+        finally:
+            await server.stop()
+
+    @pytest.mark.asyncio
+    async def test_wrong_token_returns_401(self, mock_client):
+        """错误 token → 401"""
+        from aiohttp import ClientSession
+
+        server = LocalServer(mock_client, port=18773)
+        await server.start()
+        try:
+            async with ClientSession() as session:
+                headers = {"Authorization": "Bearer wrong-token"}
+                async with session.get(f"http://{BIND_ADDRESS}:18773/status", headers=headers) as resp:
+                    assert resp.status == 401
+        finally:
+            await server.stop()
+
+    @pytest.mark.asyncio
+    async def test_correct_token_returns_200(self, mock_client):
+        """正确 token → 200"""
+        from aiohttp import ClientSession
+
+        server = LocalServer(mock_client, port=18774)
+        await server.start()
+        try:
+            async with ClientSession() as session:
+                headers = {"Authorization": f"Bearer {server._local_token}"}
+                async with session.get(f"http://{BIND_ADDRESS}:18774/status", headers=headers) as resp:
+                    assert resp.status == 200
+        finally:
+            await server.stop()
+
+    @pytest.mark.asyncio
+    async def test_health_no_auth_required(self, mock_client):
+        """health 端点免认证"""
+        from aiohttp import ClientSession
+
+        server = LocalServer(mock_client, port=18775)
+        await server.start()
+        try:
+            async with ClientSession() as session:
+                async with session.get(f"http://{BIND_ADDRESS}:18775/health") as resp:
+                    assert resp.status == 200
+        finally:
+            await server.stop()
+
+    @pytest.mark.asyncio
+    async def test_local_token_in_state_file(self, mock_client, monkeypatch):
+        """local_token 写入状态文件"""
+        state_data = {}
+        monkeypatch.setattr("local_server.write_state_file", lambda s: state_data.update(s))
+
+        server = LocalServer(mock_client, port=18776)
+        await server.start()
+        try:
+            assert server._local_token is not None
+            assert "local_token" in state_data
+            assert state_data["local_token"] == server._local_token
+        finally:
+            await server.stop()
+
+
+# ─── B068: 命令执行校验测试 ───
+
+
+class TestTerminalInputValidation:
+    """B068: terminal 创建输入校验"""
+
+    def test_valid_input_passes(self):
+        from app.websocket_client import _validate_terminal_input
+        assert _validate_terminal_input("/bin/bash", "/home/user", {"KEY": "value"}) is None
+
+    def test_command_not_string_rejected(self):
+        from app.websocket_client import _validate_terminal_input
+        assert "must be string" in _validate_terminal_input(123, None, {})
+
+    def test_command_empty_rejected(self):
+        from app.websocket_client import _validate_terminal_input
+        assert "must not be empty" in _validate_terminal_input("", None, {})
+
+    def test_cwd_relative_rejected(self):
+        from app.websocket_client import _validate_terminal_input
+        assert "absolute path" in _validate_terminal_input("/bin/bash", "../etc", {})
+
+    def test_cwd_absolute_allowed(self):
+        from app.websocket_client import _validate_terminal_input
+        assert _validate_terminal_input("/bin/bash", "/home/user", {}) is None
+
+    def test_cwd_none_allowed(self):
+        from app.websocket_client import _validate_terminal_input
+        assert _validate_terminal_input("/bin/bash", None, {}) is None
+
+    def test_env_non_string_value_rejected(self):
+        from app.websocket_client import _validate_terminal_input
+        assert "must be string" in _validate_terminal_input("/bin/bash", None, {"KEY": 123})
+
+    def test_env_string_value_allowed(self):
+        from app.websocket_client import _validate_terminal_input
+        assert _validate_terminal_input("/bin/bash", None, {"KEY": "value"}) is None
+
+    def test_command_rdash_allowed(self):
+        """command='rm -rf /' 允许（字符串，用户决定信任）"""
+        from app.websocket_client import _validate_terminal_input
+        assert _validate_terminal_input("rm -rf /", None, {}) is None

@@ -7,6 +7,7 @@ Agent 本地 HTTP Server
 import asyncio
 import json
 import os
+import secrets
 import socket
 import sys
 from datetime import datetime, timezone
@@ -136,6 +137,8 @@ class LocalServer:
         self.site: Optional[web.TCPSite] = None
         self._running = False
         self._keep_running_in_background = True
+        # B068: 本地 HTTP token 认证
+        self._local_token: Optional[str] = None
 
     @property
     def keep_running_in_background(self) -> bool:
@@ -169,6 +172,26 @@ class LocalServer:
             web.post("/config", self._handle_config),
             web.get("/terminals", self._handle_terminals),
         ])
+        # B068: 添加 token 认证中间件（health 端点除外）
+        self.app.middlewares.append(self._auth_middleware)
+
+    @web.middleware
+    async def _auth_middleware(self, request: web.Request, handler):
+        """Token 认证中间件，/health 端点免认证"""
+        if request.path == "/health":
+            return await handler(request)
+        if not self._local_token:
+            return await handler(request)
+        # 检查 Authorization: Bearer <token>
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+            if token == self._local_token:
+                return await handler(request)
+        return web.json_response(
+            {"ok": False, "error": "Unauthorized"},
+            status=401,
+        )
 
     async def _handle_health(self, request: web.Request) -> web.Response:
         """健康检查端点"""
@@ -280,6 +303,9 @@ class LocalServer:
             await self.site.start()
             self._running = True
 
+            # B068: 生成 local_token 并写入状态文件
+            self._local_token = secrets.token_hex(32)
+
             # 写入状态文件
             write_state_file({
                 "pid": os.getpid(),
@@ -288,6 +314,7 @@ class LocalServer:
                 "session_id": self.agent_client.session_id,
                 "started_at": datetime.now(timezone.utc).isoformat(),
                 "keep_running": self._keep_running_in_background,
+                "local_token": self._local_token,
             })
 
             _log(f"本地 HTTP Server 已启动: http://{BIND_ADDRESS}:{self.port}")
