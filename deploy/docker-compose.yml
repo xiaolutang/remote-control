@@ -45,7 +45,9 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.rc.rule=PathPrefix(`/rc/`)"
-      - "traefik.http.routers.rc.entrypoints=web"
+      - "traefik.http.routers.rc.entrypoints=websecure"
+      - "traefik.http.routers.rc.tls=true"
+      - "traefik.http.routers.rc.tls.certresolver=le"
       - "traefik.http.routers.rc.middlewares=rc-strip"
       - "traefik.http.middlewares.rc-strip.stripprefix.prefixes=/rc"
       - "traefik.http.routers.rc.service=rc-server"
@@ -64,6 +66,8 @@ services:
     environment:
       - SERVER_URL=${SERVER_URL:-ws://server:8000}
       - AGENT_TOKEN=${AGENT_TOKEN:-}
+      - AGENT_USERNAME=${AGENT_USERNAME:-}
+      - AGENT_PASSWORD=${AGENT_PASSWORD:-}
       - LOG_SERVICE_URL=http://log-service:8001
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     depends_on:

@@ -17,6 +17,7 @@ class Config(BaseModel):
     access_token: Optional[str] = None
     refresh_token: Optional[str] = None
     username: Optional[str] = None
+    password: Optional[str] = None  # 仅内存中使用，不持久化
     # 旧字段（向后兼容）
     token: Optional[str] = None
     # PTY 配置
@@ -38,6 +39,10 @@ class Config(BaseModel):
     def has_valid_credentials(self) -> bool:
         """检查是否有有效的登录凭据"""
         return bool(self.get_access_token() and self.refresh_token)
+
+    def can_auto_login(self) -> bool:
+        """检查是否有自动登录所需的凭据"""
+        return bool(self.username and self.password)
 
 
 def get_config_path() -> Path:
@@ -74,23 +79,30 @@ def load_config(config_path: Optional[Path | str] = None) -> Config:
     # 无配置文件时，从环境变量回退
     server_url = os.environ.get("SERVER_URL")
     agent_token = os.environ.get("AGENT_TOKEN")
+    agent_username = os.environ.get("AGENT_USERNAME")
+    agent_password = os.environ.get("AGENT_PASSWORD")
     overrides = {}
     if server_url:
         overrides["server_url"] = server_url
     if agent_token:
         overrides["access_token"] = agent_token
         overrides["token"] = agent_token
+    if agent_username:
+        overrides["username"] = agent_username
+    if agent_password:
+        overrides["password"] = agent_password
 
     return Config(**overrides)
 
 
 def save_config(config: Config, config_path: Optional[Path | str] = None) -> None:
-    """保存配置"""
+    """保存配置（password 不会持久化到文件）"""
     config_path = normalize_config_path(config_path)
     config_path.parent.mkdir(parents=True, exist_ok=True)
 
+    data = config.model_dump(exclude_none=True, exclude={"password"})
     with open(config_path, "w") as f:
-        json.dump(config.model_dump(exclude_none=True), f, indent=2)
+        json.dump(data, f, indent=2)
 
     # 设置文件权限为 600 (仅所有者可读写)
     os.chmod(config_path, 0o600)
