@@ -84,38 +84,54 @@ async def ensure_valid_token(config: Config, config_path) -> tuple:
     """
     确保有效的 access token
 
+    策略：
+    1. 有 token → verify → refresh fallback
+    2. 无 token 但有 username + password → auto-login
+    3. 都没有 → 报错退出
+
     Returns:
         (success, access_token_or_error_message)
     """
     access_token = config.get_access_token()
     refresh_token = config.refresh_token
 
-    if not access_token:
-        return False, "未配置 Token，请先使用 'rc-agent login' 登录"
+    if access_token:
+        # 验证当前 token
+        auth = AuthService(config.server_url)
+        if await auth.verify_token(access_token):
+            return True, access_token
 
-    # 验证当前 token
-    auth = AuthService(config.server_url)
-    if await auth.verify_token(access_token):
-        return True, access_token
+        # Token 无效，尝试刷新
+        if refresh_token:
+            click.echo("Token 已过期，正在刷新...")
+            refresh_result = await auth.refresh_token(refresh_token)
+            if refresh_result.success:
+                config.access_token = refresh_result.access_token
+                config.refresh_token = refresh_result.refresh_token
+                config.token = refresh_result.access_token  # 向后兼容
+                save_config(config, config_path)
+                click.echo(click.style("✓ Token 刷新成功", fg="green"))
+                return True, refresh_result.access_token
+            else:
+                click.echo(f"Token 刷新失败: {refresh_result.message}")
 
-    # Token 无效，尝试刷新
-    if not refresh_token:
-        return False, "Token 已过期且无 Refresh Token，请重新登录"
+    # 无有效 token 或刷新失败 → 尝试自动登录
+    if config.can_auto_login():
+        click.echo(f"正在使用 {config.username} 自动登录...")
+        auth = AuthService(config.server_url)
+        login_result = await auth.login(config.username, config.password)
 
-    click.echo("Token 已过期，正在刷新...")
+        if login_result.success:
+            config.access_token = login_result.access_token
+            config.refresh_token = login_result.refresh_token
+            config.token = login_result.access_token  # 向后兼容
+            save_config(config, config_path)
+            click.echo(click.style("✓ 自动登录成功", fg="green"))
+            return True, login_result.access_token
+        else:
+            return False, f"自动登录失败: {login_result.message}"
 
-    refresh_result = await auth.refresh_token(refresh_token)
-    if refresh_result.success:
-        # 保存新 token
-        config.access_token = refresh_result.access_token
-        config.refresh_token = refresh_result.refresh_token
-        config.token = refresh_result.access_token  # 向后兼容
-        save_config(config, config_path)
-
-        click.echo(click.style("✓ Token 刷新成功", fg="green"))
-        return True, refresh_result.access_token
-    else:
-        return False, f"Token 刷新失败: {refresh_result.message}，请重新登录"
+    return False, "未配置 Token 且无登录凭据，请先使用 'rc-agent login' 登录"
 
 
 @cli.command()
