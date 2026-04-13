@@ -7,6 +7,94 @@ import 'package:rc_client/services/auth_service.dart';
 import 'package:rc_client/services/runtime_device_service.dart';
 import 'package:rc_client/services/websocket_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+// ---------------------------------------------------------------------------
+// 内存版 FlutterSecureStorage mock
+// ---------------------------------------------------------------------------
+class _InMemorySecureStorage implements FlutterSecureStorage {
+  final Map<String, String> _store = {};
+
+  @override
+  Future<void> write({
+    required String key,
+    String? value,
+    IOSOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WindowsOptions? wOptions,
+    WebOptions? webOptions,
+    MacOsOptions? mOptions,
+  }) async {
+    _store[key] = value ?? '';
+  }
+
+  @override
+  Future<String?> read({
+    required String key,
+    IOSOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WindowsOptions? wOptions,
+    WebOptions? webOptions,
+    MacOsOptions? mOptions,
+  }) async {
+    return _store[key];
+  }
+
+  @override
+  Future<void> delete({
+    required String key,
+    IOSOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WindowsOptions? wOptions,
+    WebOptions? webOptions,
+    MacOsOptions? mOptions,
+  }) async {
+    _store.remove(key);
+  }
+
+  @override
+  Future<bool> containsKey({
+    required String key,
+    IOSOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WindowsOptions? wOptions,
+    WebOptions? webOptions,
+    MacOsOptions? mOptions,
+  }) async {
+    return _store.containsKey(key);
+  }
+
+  @override
+  Future<Map<String, String>> readAll({
+    IOSOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WindowsOptions? wOptions,
+    WebOptions? webOptions,
+    MacOsOptions? mOptions,
+  }) async {
+    return Map.from(_store);
+  }
+
+  @override
+  Future<void> deleteAll({
+    IOSOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WindowsOptions? wOptions,
+    WebOptions? webOptions,
+    MacOsOptions? mOptions,
+  }) async {
+    _store.clear();
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
 
 // ---------------------------------------------------------------------------
 // 辅助：构造 401 响应
@@ -51,6 +139,7 @@ void main() {
       final service = AuthService(
         serverUrl: 'http://localhost:8888',
         client: client,
+        secureStorage: _InMemorySecureStorage(),
       );
 
       await service.login('user', 'pass');
@@ -73,6 +162,7 @@ void main() {
       final service = AuthService(
         serverUrl: 'http://localhost:8888',
         client: client,
+        secureStorage: _InMemorySecureStorage(),
       );
 
       await service.register('user', 'pass');
@@ -245,6 +335,7 @@ void main() {
 
       final service = AuthService(
         serverUrl: 'http://localhost:8888',
+        secureStorage: _InMemorySecureStorage(),
       );
 
       // 验证初始状态有值
@@ -257,23 +348,23 @@ void main() {
 
       // 验证所有键已被清除
       expect(prefs.getString('rc_username'), isNull);
-      expect(prefs.getString('rc_password'), isNull);
       expect(prefs.getString('rc_session_id'), isNull);
-      expect(prefs.getString('rc_token'), isNull);
-      expect(prefs.getString('rc_refresh_token'), isNull);
       expect(prefs.getString('rc_expires_at'), isNull);
     });
 
     test('logout 后 getSavedSession 返回 null', () async {
       SharedPreferences.setMockInitialValues({
         'rc_username': 'testuser',
-        'rc_password': 'testpass',
         'rc_session_id': 'sid-1',
-        'rc_token': 'tok-1',
       });
+
+      final secureStorage = _InMemorySecureStorage();
+      await secureStorage.write(key: 'rc_password', value: 'testpass');
+      await secureStorage.write(key: 'rc_token', value: 'tok-1');
 
       final service = AuthService(
         serverUrl: 'http://localhost:8888',
+        secureStorage: secureStorage,
       );
 
       // 登出前有值
@@ -291,13 +382,16 @@ void main() {
     test('logout 后 getSavedCredentials 返回 null', () async {
       SharedPreferences.setMockInitialValues({
         'rc_username': 'testuser',
-        'rc_password': 'testpass',
         'rc_session_id': 'sid-1',
-        'rc_token': 'tok-1',
       });
+
+      final secureStorage = _InMemorySecureStorage();
+      await secureStorage.write(key: 'rc_password', value: 'testpass');
+      await secureStorage.write(key: 'rc_token', value: 'tok-1');
 
       final service = AuthService(
         serverUrl: 'http://localhost:8888',
+        secureStorage: secureStorage,
       );
 
       final credsBefore = await service.getSavedCredentials();

@@ -126,9 +126,8 @@ class WebSocketService extends ChangeNotifier {
     });
 
     try {
-      // 符合 CONTRACT-003：添加 view 参数
+      // WS URL 不再携带 token，认证通过首条 auth 消息完成
       final queryParameters = <String, String>{
-        'token': token,
         'view': _viewTypeString,
       };
       if (sessionId.isNotEmpty) {
@@ -145,6 +144,12 @@ class WebSocketService extends ChangeNotifier {
       );
       final wsUrl = wsUri.toString();
       _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
+
+      // 连接后立即发送 auth 消息（不再通过 URL query 传 token）
+      _channel!.sink.add(jsonEncode({
+        'type': 'auth',
+        'token': token,
+      }));
 
       // 使用 Completer 等待第一条确认消息
       final completer = Completer<bool>();
