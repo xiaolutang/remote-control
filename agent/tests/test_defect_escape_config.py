@@ -128,6 +128,9 @@ class TestAgentErrorOnInvalidSession:
             async def __aexit__(self, *args):
                 pass
 
+            async def send(self, data):
+                pass
+
             async def recv(self):
                 raise ConnectionClosedError(
                     Close(code=4004, reason="会话 nonexistent 不存在"), None
@@ -171,6 +174,9 @@ class TestAgentErrorOnInvalidSession:
                 return self
 
             async def __aexit__(self, *args):
+                pass
+
+            async def send(self, data):
                 pass
 
             async def recv(self):
