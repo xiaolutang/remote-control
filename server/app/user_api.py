@@ -1,7 +1,7 @@
 """
 用户认证 REST API
 """
-from fastapi import APIRouter, HTTPException, status, Depends, Header
+from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel
 from typing import Optional
 import hashlib
@@ -21,9 +21,9 @@ from app.auth import (
     TokenVerificationError,
     JWT_EXPIRATION_HOURS,
     REFRESH_TOKEN_EXPIRATION_DAYS,
+    get_current_user_id,
 )
-from app.database import get_user as db_get_user, save_user as db_save_user
-from app.database import get_user_devices as db_get_user_devices, add_user_device as db_add_user_device
+from app.database import get_user, save_user, get_user_devices, add_user_device
 
 router = APIRouter()
 
@@ -87,26 +87,6 @@ class SessionStateResponse(BaseModel):
 def hash_password(password: str) -> str:
     """密码哈希"""
     return hashlib.sha256(password.encode()).hexdigest()
-
-
-async def get_user(username: str) -> Optional[dict]:
-    """获取用户信息（从 SQLite）"""
-    return await db_get_user(username)
-
-
-async def save_user(username: str, password_hash: str):
-    """保存用户（到 SQLite）"""
-    await db_save_user(username, password_hash)
-
-
-async def get_user_devices(username: str) -> list:
-    """获取用户绑定的设备列表（从 SQLite）"""
-    return await db_get_user_devices(username)
-
-
-async def add_user_device(username: str, device_info: dict):
-    """添加用户设备（到 SQLite）"""
-    await db_add_user_device(username, device_info)
 
 
 # Refresh Token Redis 管理函数
@@ -266,21 +246,24 @@ async def login(user: UserLogin):
 
 
 @router.get("/devices", response_model=DeviceListResponse)
-async def list_devices(username: str):
-    """列出用户绑定的设备"""
-    devices = await get_user_devices(username)
+async def list_devices(user_id: str = Depends(get_current_user_id)):
+    """列出用户绑定的设备（需要认证）"""
+    devices = await get_user_devices(user_id)
     return DeviceListResponse(devices=devices)
 
 
 @router.post("/bind-device")
-async def bind_device(username: str, device: DeviceInfo):
-    """绑定设备到用户"""
+async def bind_device(
+    device: DeviceInfo,
+    user_id: str = Depends(get_current_user_id),
+):
+    """绑定设备到用户（需要认证）"""
     device_info = {
         "device_name": device.device_name,
         "device_type": device.device_type,
         "bound_at": datetime.now(timezone.utc).isoformat(),
     }
-    await add_user_device(username, device_info)
+    await add_user_device(user_id, device_info)
     return {"success": True, "message": "设备绑定成功"}
 
 
@@ -357,34 +340,13 @@ async def refresh_token(request: RefreshRequest):
 @router.get("/sessions/{session_id}", response_model=SessionStateResponse)
 async def get_session_state(
     session_id: str,
-    authorization: str = Header(..., alias="Authorization"),
+    user_id: str = Depends(get_current_user_id),
 ):
     """
     获取 Session 状态 (CONTRACT-001)
 
     需要 Bearer Token 认证，只能查询自己拥有的 session
     """
-    # 验证 Authorization header
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="无效的 Authorization header 格式",
-        )
-
-    token = authorization[7:]  # 移除 "Bearer " 前缀
-
-    try:
-        payload = await async_verify_token(token)
-    except TokenVerificationError:
-        raise
-    except HTTPException:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token 无效或过期",
-        )
-
-    user_id = payload.get("sub", "")
-
     # 验证 session 归属
     try:
         session = await verify_session_ownership(session_id, user_id)

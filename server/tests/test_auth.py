@@ -261,6 +261,19 @@ class TestEnvironmentCompatibility:
             assert reloaded.JWT_EXPIRATION_HOURS == 12
 
         importlib.reload(auth_module)
+        # auth_module reload 后 TokenVerificationError 变成新类，
+        # 需要在现有 app 上重新注册 exception handler
+        from app import app
+        from app.auth import TokenVerificationError
+        from fastapi import Request
+        from fastapi.responses import JSONResponse
+
+        @app.exception_handler(TokenVerificationError)
+        async def _token_verification_error_handler(request: Request, exc: TokenVerificationError):
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"detail": exc.detail, "error_code": exc.error_code},
+            )
 
     def test_empty_refresh_token(self):
         """空 refresh token → 401"""

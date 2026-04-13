@@ -12,10 +12,12 @@ TEST_DB = "/tmp/test_rc_users.db"
 
 @pytest.fixture(autouse=True)
 def _clean_db():
-    """每个测试前删除旧数据库"""
+    """每个测试配置独立数据库并清理"""
+    from app.database import configure_database
+
     if os.path.exists(TEST_DB):
         os.remove(TEST_DB)
-    os.environ["DATABASE_PATH"] = TEST_DB
+    configure_database(TEST_DB)
     yield
     if os.path.exists(TEST_DB):
         os.remove(TEST_DB)
@@ -83,7 +85,6 @@ async def test_get_user_not_found(db_with_tables):
 async def test_save_duplicate_user_raises(db_with_tables):
     """重复 username 抛出 IntegrityError"""
     from app.database import save_user
-    import aiosqlite
 
     await save_user("bob", "hash1")
     with pytest.raises(aiosqlite.IntegrityError):
@@ -125,6 +126,19 @@ async def test_get_user_devices_empty(db_with_tables):
 
 
 @pytest.mark.asyncio
+async def test_fk_prevents_device_without_user(db_with_tables):
+    """外键约束：绑定设备到不存在的用户时抛出 IntegrityError"""
+    from app.database import add_user_device
+
+    with pytest.raises(aiosqlite.IntegrityError):
+        await add_user_device("nonexistent_user", {
+            "device_name": "Ghost Phone",
+            "device_type": "mobile",
+            "bound_at": "2026-04-13T00:00:00+00:00",
+        })
+
+
+@pytest.mark.asyncio
 async def test_init_db_idempotent():
     """init_db 多次调用不报错"""
     from app.database import init_db
@@ -136,14 +150,19 @@ async def test_init_db_idempotent():
 @pytest.mark.asyncio
 async def test_init_db_creates_directory(tmp_path):
     """init_db 自动创建数据目录"""
-    db_path = os.path.join(str(tmp_path), "subdir", "test.db")
+    from app.database import configure_database, init_db
 
-    # 直接调用 init_db 并传入自定义路径（通过 patch 模块变量）
-    import app.database
-    original = app.database.DATABASE_PATH
-    app.database.DATABASE_PATH = db_path
-    try:
-        await app.database.init_db()
-        assert os.path.exists(db_path)
-    finally:
-        app.database.DATABASE_PATH = original
+    db_path = os.path.join(str(tmp_path), "subdir", "test.db")
+    configure_database(db_path)
+    await init_db()
+    assert os.path.exists(db_path)
+
+
+@pytest.mark.asyncio
+async def test_configure_database_creates_instance():
+    """configure_database 返回 Database 实例"""
+    from app.database import configure_database, Database
+
+    db = configure_database("/tmp/test_configure.db")
+    assert isinstance(db, Database)
+    assert db.db_path == "/tmp/test_configure.db"

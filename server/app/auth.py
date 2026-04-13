@@ -113,12 +113,13 @@ def generate_token(
         raise ValueError("session_id 不能为空")
 
     expiration_hours = expires_in_hours or JWT_EXPIRATION_HOURS
-    expire = datetime.now(timezone.utc) + timedelta(hours=expiration_hours)
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(hours=expiration_hours)
 
     payload = {
         "sub": session_id,
         "exp": expire.timestamp(),
-        "iat": datetime.now(timezone.utc).timestamp(),
+        "iat": now.timestamp(),
     }
 
     if token_version is not None:
@@ -264,22 +265,6 @@ async def async_verify_token(token: str) -> dict:
     return payload
 
 
-async def get_current_session_async(
-    credentials: HTTPAuthorizationCredentials = Depends(security)
-) -> str:
-    """
-    获取当前会话 ID（异步 async_verify_token 版本，用于受保护路由）
-
-    通过 async_verify_token 进行完整校验，包含 Redis token_version 比对。
-
-    Returns:
-        session_id 字符串
-    """
-    token = credentials.credentials
-    payload = await async_verify_token(token)
-    return payload["session_id"]
-
-
 def create_token_response(session_id: Optional[str] = None) -> dict:
     """
     创建 token 响应
@@ -330,13 +315,14 @@ def generate_refresh_token(session_id: str, view_type: Optional[str] = None) -> 
     if not session_id:
         raise ValueError("session_id 不能为空")
 
-    expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRATION_DAYS)
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(days=REFRESH_TOKEN_EXPIRATION_DAYS)
 
     payload = {
         "sub": session_id,
         "type": "refresh",  # 标记为 refresh token
         "exp": expire.timestamp(),
-        "iat": datetime.now(timezone.utc).timestamp(),
+        "iat": now.timestamp(),
     }
 
     if view_type is not None:
@@ -420,3 +406,52 @@ def verify_refresh_token(token: str) -> dict:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=f"Refresh Token 无效: {e}",
             )
+
+
+# ============ FastAPI 共享鉴权依赖 ============
+
+async def get_current_payload(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> dict:
+    """获取当前认证的 JWT payload（FastAPI 依赖）"""
+    return await async_verify_token(credentials.credentials)
+
+
+async def get_current_user_id(
+    payload: dict = Depends(get_current_payload),
+) -> str:
+    """从 JWT payload 获取真实 user_id（fail-closed）。
+
+    通过 payload.session_id 查 Redis session 获取 user_id。
+    session 不存在或 user_id 为空时抛 401。
+    """
+    from app.session import get_session  # lazy import 避免循环依赖
+
+    session_id = payload.get("session_id", "")
+    if not session_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="无效的认证信息",
+        )
+    try:
+        session = await get_session(session_id)
+    except HTTPException as e:
+        if e.status_code < 500:
+            # 4xx（session 不存在、格式错误）→ 认证失败
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="会话不存在或已过期",
+            )
+        raise  # 5xx 直接透传（如 Redis 不可用）
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="认证服务暂不可用",
+        )
+    user_id = session.get("user_id", "")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="用户信息缺失",
+        )
+    return user_id

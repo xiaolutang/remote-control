@@ -6,59 +6,18 @@
 import logging
 from typing import Optional, List, Dict, Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 
-from app.auth import async_verify_token
+from app.auth import get_current_user_id
 from app.feedback_service import (
     create_feedback,
     get_feedback,
 )
-from app.session import get_session
 
 logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/feedback", tags=["feedback"])
-
-# HTTP Bearer 认证
-security = HTTPBearer()
-
-
-async def get_current_payload(
-    credentials: HTTPAuthorizationCredentials = Depends(security)
-) -> dict:
-    """获取当前认证的 payload"""
-    token = credentials.credentials
-    return await async_verify_token(token)
-
-
-async def _get_real_user_id(payload: dict) -> str:
-    """通过 JWT payload 的 sub（session_id）查 session 记录获取真实 user_id。
-
-    fail-closed：session 查不到或 user_id 为空时抛 401。
-    """
-    session_id = payload.get("session_id", "")
-    if not session_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="无效的认证信息",
-        )
-    try:
-        session = await get_session(session_id)
-    except Exception as e:
-        logger.warning("Session lookup failed for user resolution: session_id=%s error=%s", session_id, e)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="会话不存在或已过期",
-        )
-    user_id = session.get("user_id", "")
-    if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="用户信息缺失",
-        )
-    return user_id
 
 
 # ============ 请求/响应模型 ============
@@ -100,7 +59,7 @@ class FeedbackDetailResponse(BaseModel):
 @router.post("", response_model=FeedbackResponse)
 async def submit_feedback(
     request: FeedbackCreateRequest,
-    payload: dict = Depends(get_current_payload),
+    user_id: str = Depends(get_current_user_id),
 ):
     """
     提交反馈
@@ -111,8 +70,6 @@ async def submit_feedback(
     - **platform**: 平台信息（可选）
     - **app_version**: 应用版本（可选）
     """
-    user_id = await _get_real_user_id(payload)
-
     result = await create_feedback(
         user_id=user_id,
         session_id=request.session_id,
@@ -131,14 +88,13 @@ async def submit_feedback(
 @router.get("/{feedback_id}", response_model=FeedbackDetailResponse)
 async def get_feedback_detail(
     feedback_id: str,
-    payload: dict = Depends(get_current_payload),
+    user_id: str = Depends(get_current_user_id),
 ):
     """
     查询反馈详情
 
     - **feedback_id**: 反馈 ID
     """
-    user_id = await _get_real_user_id(payload)
 
     feedback = await get_feedback(feedback_id, user_id)
     if feedback is None:

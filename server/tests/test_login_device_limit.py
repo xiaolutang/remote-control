@@ -218,10 +218,10 @@ class TestLoginIntegration:
             "username": "testuser", "password_hash": "a"*64
         }):
             with patch("app.user_api.hash_password", return_value="a"*64):
-                with patch("app.session.get_session_by_name", return_value={
+                with patch("app.user_api.get_session_by_name", return_value={
                     "id": "sess-1", "name": "testuser_session"
                 }):
-                    with patch("app.auth.create_token_with_session", return_value={
+                    with patch("app.user_api.create_token_with_session", return_value={
                         "session_id": "sess-1", "token": "old-token",
                         "expires_at": "2026-04-16T00:00:00Z"
                     }):
@@ -263,10 +263,10 @@ class TestLoginIntegration:
             "username": "testuser", "password_hash": "a"*64
         }):
             with patch("app.user_api.hash_password", return_value="a"*64):
-                with patch("app.session.get_session_by_name", return_value={
+                with patch("app.user_api.get_session_by_name", return_value={
                     "id": "sess-1", "name": "testuser_session"
                 }):
-                    with patch("app.auth.create_token_with_session", return_value={
+                    with patch("app.user_api.create_token_with_session", return_value={
                         "session_id": "sess-1", "token": "old",
                         "expires_at": "2026-04-16T00:00:00Z"
                     }):
@@ -339,7 +339,7 @@ class TestLoginIntegration:
             "username": "testuser", "password_hash": "a"*64
         }):
             with patch("app.user_api.hash_password", return_value="a"*64):
-                with patch("app.session.get_session_by_name", return_value=None):
+                with patch("app.user_api.get_session_by_name", return_value=None):
                     with patch("app.user_api.create_session", new=AsyncMock()):
                         with patch("app.user_api.increment_token_version", new=AsyncMock(return_value=1)):
                             with patch("app.user_api.generate_refresh_token", return_value="rt"):
@@ -360,7 +360,7 @@ class TestLoginIntegration:
             "username": "testuser", "password_hash": "a"*64
         }):
             with patch("app.user_api.hash_password", return_value="a"*64):
-                with patch("app.session.get_session_by_name", return_value=None):
+                with patch("app.user_api.get_session_by_name", return_value=None):
                     with patch("app.user_api.create_session", new=AsyncMock()):
                         with patch("app.user_api.increment_token_version", side_effect=Exception("Redis down")):
                             with pytest.raises(HTTPException) as exc_info:
@@ -429,10 +429,10 @@ class TestLoginIntegration:
             "username": "testuser", "password_hash": "a"*64
         }):
             with patch("app.user_api.hash_password", return_value="a"*64):
-                with patch("app.session.get_session_by_name", return_value={
+                with patch("app.user_api.get_session_by_name", return_value={
                     "id": "sess-1", "name": "testuser_session"
                 }):
-                    with patch("app.auth.create_token_with_session", return_value={
+                    with patch("app.user_api.create_token_with_session", return_value={
                         "session_id": "sess-1", "token": "old",
                         "expires_at": "2026-04-16T00:00:00Z"
                     }):
@@ -477,10 +477,10 @@ class TestLoginIntegration:
             "username": "testuser", "password_hash": "a"*64
         }):
             with patch("app.user_api.hash_password", return_value="a"*64):
-                with patch("app.session.get_session_by_name", return_value={
+                with patch("app.user_api.get_session_by_name", return_value={
                     "id": "sess-1", "name": "testuser_session"
                 }):
-                    with patch("app.auth.create_token_with_session", return_value={
+                    with patch("app.user_api.create_token_with_session", return_value={
                         "session_id": "sess-1", "token": "old",
                         "expires_at": "2026-04-16T00:00:00Z"
                     }):
@@ -530,8 +530,7 @@ class TestE2ETokenVersionEnforcement:
 
         # 模拟 Redis 中版本已递增到 2
         with patch("app.auth.get_token_version", return_value=2):
-            with patch("app.runtime_api.get_session", new=AsyncMock(return_value={"owner": "user1"})):
-                response = self.client.get("/api/runtime/devices", headers=headers_v1)
+            response = self.client.get("/api/runtime/devices", headers=headers_v1)
 
         assert response.status_code == 401
         data = response.json()
@@ -545,7 +544,7 @@ class TestE2ETokenVersionEnforcement:
         headers_v2 = {"Authorization": f"Bearer {token_v2}"}
 
         with patch("app.auth.get_token_version", return_value=2):
-            with patch("app.runtime_api.get_session", new=AsyncMock(return_value={"owner": "user1"})):
+            with patch("app.session.get_session", new=AsyncMock(return_value={"user_id": "user1", "owner": "user1"})):
                 with patch("app.runtime_api.list_sessions_for_user", new=AsyncMock(return_value=[])):
                     response = self.client.get("/api/runtime/devices", headers=headers_v2)
 
@@ -593,35 +592,37 @@ class TestRouteLevelVerificationEnforcement:
     """
 
     def test_runtime_api_uses_async_verify(self):
-        """runtime_api 必须使用 async_verify_token"""
+        """runtime_api 通过 Depends(get_current_user_id) 使用 async_verify_token"""
         import app.runtime_api as mod
         import inspect
-        source = inspect.getsource(mod._get_user_from_authorization)
-        assert "async_verify_token" in source
-        assert "verify_token(" not in source.replace("async_verify_token", "")
+        source = inspect.getsource(mod.list_runtime_devices)
+        # list_runtime_devices 通过 Depends(get_current_user_id) 鉴权
+        assert "get_current_user_id" in source
 
     def test_log_api_uses_async_verify(self):
-        """log_api 必须使用 async_verify_token"""
+        """log_api 通过 Depends(get_current_payload) 使用 async_verify_token"""
         import app.log_api as mod
         import inspect
-        source = inspect.getsource(mod.get_current_payload)
-        assert "async_verify_token" in source
-        assert "verify_token(" not in source.replace("async_verify_token", "")
+        source = inspect.getsource(mod.upload_logs)
+        # upload_logs 通过 Depends(get_current_payload) 鉴权
+        assert "get_current_payload" in source
 
     def test_user_api_session_state_uses_async_verify(self):
-        """user_api.get_session_state 必须使用 async_verify_token"""
+        """user_api.get_session_state 通过 Depends(get_current_user_id) 使用 async_verify_token"""
         import app.user_api as mod
         import inspect
         source = inspect.getsource(mod.get_session_state)
-        assert "async_verify_token" in source
+        # get_session_state 通过 Depends(get_current_user_id) 鉴权
+        # get_current_user_id → get_current_payload → async_verify_token
+        assert "get_current_user_id" in source
 
     def test_user_api_does_not_swallow_token_verification_error(self):
-        """user_api.get_session_state 不应吞掉 TokenVerificationError"""
+        """user_api.get_session_state 鉴权委托给 get_current_user_id（统一错误处理）"""
         import app.user_api as mod
         import inspect
         source = inspect.getsource(mod.get_session_state)
-        # 应该有 except TokenVerificationError: raise
-        assert "TokenVerificationError" in source
+        # 鉴权完全由 Depends(get_current_user_id) 处理，路由函数无需手动捕获异常
+        assert "Depends" in source
 
     def test_ws_client_uses_async_verify(self):
         """ws_client 必须使用 async_verify_token"""
@@ -640,8 +641,10 @@ class TestRouteLevelVerificationEnforcement:
         assert "verify_token(" not in source.replace("async_verify_token", "")
 
     def test_history_api_uses_async_verify(self):
-        """history_api 必须使用 get_current_session_async"""
+        """history_api 通过 Depends(get_current_user_id) 使用 async_verify_token"""
         import app.history_api as mod
         import inspect
         source = inspect.getsource(mod.get_history_endpoint)
-        assert "get_current_session_async" in source
+        # get_history_endpoint 通过 Depends(get_current_user_id) 鉴权
+        # get_current_user_id → get_current_payload → async_verify_token
+        assert "get_current_user_id" in source

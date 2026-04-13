@@ -69,7 +69,7 @@ def _patch_issue_deps(*, issue_data=None, logs_data=None, logs_error=None, issue
     - logs_error: GET /api/logs 异常（best-effort）
     - issue_error: POST /api/issues 异常（ConnectError/HTTPStatusError）
     """
-    session_patch = patch("app.feedback_api.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION)
+    session_patch = patch("app.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION)
 
     mock_http = AsyncMock()
 
@@ -211,16 +211,17 @@ class TestFeedbackValidation:
 
     def test_invalid_category_returns_422(self, client, auth_headers):
         """[validation] 无效分类 → 422"""
-        resp = client.post(
-            "/api/feedback",
-            json={
-                "session_id": "test-session-fb",
-                "category": "invalid_category",
-                "description": "描述内容",
-            },
-            headers=auth_headers,
-        )
-        assert resp.status_code == 422
+        with patch("app.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION):
+            resp = client.post(
+                "/api/feedback",
+                json={
+                    "session_id": "test-session-fb",
+                    "category": "invalid_category",
+                    "description": "描述内容",
+                },
+                headers=auth_headers,
+            )
+            assert resp.status_code == 422
 
     def test_too_long_description_returns_422(self, client, auth_headers):
         """[validation] 超长描述（>10000字符）→ 422"""
@@ -453,7 +454,7 @@ class TestGetFeedbackDetailHappy:
             "logs": [{"level": "info", "message": "log entry 1", "timestamp": "2026-04-11T10:00:00Z"}],
         }
 
-        with patch("app.feedback_api.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION), \
+        with patch("app.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION), \
              patch("app.feedback_api.get_feedback", new_callable=AsyncMock, return_value=feedback_detail) as mock_get:
             resp = client.get("/api/feedback/fb-001", headers=auth_headers)
 
@@ -472,7 +473,7 @@ class TestGetFeedbackNotFound:
 
     def test_get_feedback_not_found(self, client, auth_headers):
         """[boundary] GET 查询不存在的反馈 → 404"""
-        with patch("app.feedback_api.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION), \
+        with patch("app.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION), \
              patch("app.feedback_api.get_feedback", new_callable=AsyncMock, return_value=None):
             resp = client.get("/api/feedback/nonexistent-id-12345", headers=auth_headers)
 
@@ -490,7 +491,7 @@ class TestGetFeedbackUnauthorized:
         other_headers = {"Authorization": f"Bearer {other_token}"}
         other_session = {"id": "other-user-session", "user_id": "otheruser", "owner": "otheruser"}
 
-        with patch("app.feedback_api.get_session", new_callable=AsyncMock, return_value=other_session), \
+        with patch("app.session.get_session", new_callable=AsyncMock, return_value=other_session), \
              patch("app.feedback_api.get_feedback", new_callable=AsyncMock, return_value=None) as mock_get:
             resp = client.get("/api/feedback/fb-002", headers=other_headers)
 
@@ -516,7 +517,7 @@ class TestUserIdFailClosed:
         from fastapi import HTTPException
         patches, _ = _patch_issue_deps()
         # 覆盖 get_session 抛出 404（session 不存在）
-        patches[0] = patch("app.feedback_api.get_session", new_callable=AsyncMock,
+        patches[0] = patch("app.session.get_session", new_callable=AsyncMock,
                            side_effect=HTTPException(status_code=404, detail="session not found"))
 
         for p in patches:
@@ -537,7 +538,7 @@ class TestUserIdFailClosed:
         session_no_user = {"id": "test-session-fb", "user_id": "", "owner": ""}
         patches, _ = _patch_issue_deps()
         # 覆盖 get_session 返回空 user_id 的 session
-        patches[0] = patch("app.feedback_api.get_session", new_callable=AsyncMock, return_value=session_no_user)
+        patches[0] = patch("app.session.get_session", new_callable=AsyncMock, return_value=session_no_user)
 
         for p in patches:
             p.start()

@@ -113,6 +113,8 @@ def test_lifespan_calls_adapter():
     with patch("app.__init__.init_logging") as mock_init, \
          patch("app.__init__.close_logging") as mock_close, \
          patch("app.__init__._stale_agent_ttl_checker"), \
+         patch("app.__init__.configure_database"), \
+         patch("app.__init__.init_db", new_callable=AsyncMock), \
          patch("app.http_client.close_shared_http_client", new_callable=lambda: AsyncMock()):
         from app.__init__ import lifespan, app
         from fastapi.testclient import TestClient
