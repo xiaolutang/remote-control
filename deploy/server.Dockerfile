@@ -19,16 +19,25 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# 创建非 root 用户
+RUN useradd -r -s /bin/false appuser && \
+    mkdir -p /data && chown appuser:appuser /data
+
 # 从 builder 复制虚拟环境（路径一致：/app/.venv）
 COPY --from=builder /app/.venv .venv
 
 # 复制应用代码
 COPY server/app ./app
 
+# 设置文件所有权
+RUN chown -R appuser:appuser /app
+
 # 环境变量
 ENV PATH="/app/.venv/bin:$PATH"
 ENV LOG_SERVICE_URL=http://log-service:8001
 ENV LOG_LEVEL=INFO
+
+USER appuser
 
 EXPOSE 8000
 
