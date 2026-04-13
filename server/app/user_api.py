@@ -1,7 +1,7 @@
 """
 用户认证 REST API
 """
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, status, Depends, Request as FastAPIRequest
 from pydantic import BaseModel
 from typing import Optional
 import hashlib
@@ -24,6 +24,7 @@ from app.auth import (
     get_current_user_id,
 )
 from app.database import get_user, save_user, get_user_devices, add_user_device, update_password_hash
+from app.rate_limit import check_rate_limit
 
 router = APIRouter()
 
@@ -108,6 +109,18 @@ def is_legacy_hash(password_hash: str) -> bool:
     return len(password_hash) == 64 and all(c in "0123456789abcdef" for c in password_hash)
 
 
+async def _rate_limit_dependency(request: FastAPIRequest):
+    """速率限制依赖：检查客户端 IP，超限返回 429。"""
+    client_ip = request.client.host if request.client else "unknown"
+    retry_after = await check_rate_limit(client_ip)
+    if retry_after is not None:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="请求过于频繁，请稍后重试",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+
 # Refresh Token Redis 管理函数
 async def store_refresh_token(session_id: str, refresh_token: str):
     """存储 refresh token 到 Redis"""
@@ -132,7 +145,7 @@ async def delete_refresh_token(session_id: str):
 
 
 @router.post("/register", response_model=LoginResponse)
-async def register(user: UserRegister):
+async def register(user: UserRegister, _rl=Depends(_rate_limit_dependency)):
     """注册新用户"""
     if len(user.username) < 3 or len(user.username) > 32:
         raise HTTPException(
@@ -196,7 +209,7 @@ async def register(user: UserRegister):
 
 
 @router.post("/login", response_model=LoginResponse)
-async def login(user: UserLogin):
+async def login(user: UserLogin, _rl=Depends(_rate_limit_dependency)):
     """用户登录"""
     # 验证用户
     stored_user = await get_user(user.username)
