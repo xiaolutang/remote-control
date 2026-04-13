@@ -1014,21 +1014,18 @@ void main() {
     test('all screen files use logoutAndNavigate for logout', () async {
       // 架构原则：所有退出登录必须通过共享 logoutAndNavigate 编排
       // 确保不会出现某些 screen 绕过 Agent 关闭的情况
+      // 注意：runtime_selection_screen 和 login_screen 没有 logout 功能，不需要检查
       final screenFiles = [
         'lib/screens/terminal_workspace_screen.dart',
         'lib/screens/terminal_screen.dart',
-        'lib/screens/runtime_selection_screen.dart',
-        'lib/screens/login_screen.dart',
+        'lib/screens/user_profile_screen.dart',
       ];
 
       for (final path in screenFiles) {
         final source = await File(path).readAsString();
-        final hasLogout = source.contains('logoutAndNavigate(') ||
-            source.contains('logout_helper');
-        // login_screen 没有 logout 功能是正常的
-        if (path.contains('login_screen')) continue;
+        final hasLogout = source.contains('logoutAndNavigate(');
         expect(hasLogout, isTrue,
-            reason: '$path 必须使用 logoutAndNavigate 或 logout_helper 进行退出登录');
+            reason: '$path 必须调用 logoutAndNavigate 进行退出登录');
       }
     });
 
