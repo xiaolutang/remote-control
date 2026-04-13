@@ -1,7 +1,10 @@
 """
 WebSocket Client 连接路由
 """
+import asyncio
+import json
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -35,11 +38,62 @@ def _http_to_ws_code(http_code: int) -> int:
     }
     return mapping.get(http_code, 4500)
 
+
+async def _wait_for_ws_auth(websocket) -> dict:
+    """
+    等待 WebSocket 首条 auth 消息并验证 token。
+    成功返回 token payload，失败时关闭连接并抛出异常。
+    """
+    try:
+        raw = await asyncio.wait_for(websocket.receive_text(), timeout=WS_AUTH_TIMEOUT)
+    except asyncio.TimeoutError:
+        await websocket.close(code=4002, reason="Auth timeout")
+        raise WebSocketDisconnect(code=4002)
+
+    if len(raw) > MAX_WS_MESSAGE_SIZE:
+        await websocket.close(code=4003, reason="Message too large")
+        raise WebSocketDisconnect(code=4003)
+
+    try:
+        msg = json.loads(raw)
+    except json.JSONDecodeError:
+        await websocket.close(code=4004, reason="Invalid JSON in auth message")
+        raise WebSocketDisconnect(code=4004)
+
+    if msg.get("type") != "auth" or not msg.get("token"):
+        await websocket.close(code=4004, reason="Expected auth message")
+        raise WebSocketDisconnect(code=4004)
+
+    token = msg["token"]
+
+    try:
+        payload = await async_verify_token(token)
+    except TokenVerificationError as e:
+        reason = e.error_code if e.error_code else e.detail
+        logger.warning(f"Token verification failed: {reason}")
+        await websocket.close(code=_http_to_ws_code(e.status_code), reason=reason)
+        raise WebSocketDisconnect(code=_http_to_ws_code(e.status_code))
+    except HTTPException as e:
+        logger.warning(f"Token verification failed: {e.detail}")
+        await websocket.close(code=_http_to_ws_code(e.status_code), reason=e.detail)
+        raise WebSocketDisconnect(code=_http_to_ws_code(e.status_code))
+    except Exception as e:
+        logger.warning(f"Token verification error: {type(e).__name__}: {e}")
+        await websocket.close(code=4500, reason=str(e))
+        raise WebSocketDisconnect(code=4500)
+
+    return payload
+
+
 # 活跃的 Client 连接
 active_clients: dict[str, list] = {}  # channel_key -> [ClientConnection,...]
 
 # 最大客户端数量
 MAX_CLIENTS_PER_SESSION = 100
+
+# WS 认证配置
+WS_AUTH_TIMEOUT = 5  # 秒
+MAX_WS_MESSAGE_SIZE = int(os.environ.get("MAX_WS_MESSAGE_SIZE", 1 * 1024 * 1024))  # 1MB
 
 
 def _channel_key(session_id: str, terminal_id: Optional[str] = None) -> str:
@@ -106,7 +160,6 @@ def _find_client_by_view_type(
 async def client_websocket_handler(
     websocket,
     session_id: Optional[str],
-    token: str,
     view: str = "mobile",
     device_id: Optional[str] = None,
     terminal_id: Optional[str] = None,
@@ -117,7 +170,6 @@ async def client_websocket_handler(
     Args:
         websocket: WebSocket 连接
         session_id: 会话 ID
-        token: JWT Token
         view: 视图类型 (mobile/desktop)
     """
     logger.debug(
@@ -136,22 +188,10 @@ async def client_websocket_handler(
     # 先 accept 连接
     await websocket.accept()
 
-    # 验证 Token
+    # 等待首条 auth 消息并验证 token
     try:
-        payload = await async_verify_token(token)
-    except TokenVerificationError as e:
-        # TokenVerificationError 携带 error_code，优先使用
-        reason = e.error_code if e.error_code else e.detail
-        logger.warning(f"Token verification failed: {reason}")
-        await websocket.close(code=_http_to_ws_code(e.status_code), reason=reason)
-        return
-    except HTTPException as e:
-        logger.warning(f"Token verification failed: {e.detail}")
-        await websocket.close(code=_http_to_ws_code(e.status_code), reason=e.detail)
-        return
-    except Exception as e:
-        logger.warning(f"Token verification error: {type(e).__name__}: {e}")
-        await websocket.close(code=4500, reason=str(e))
+        payload = await _wait_for_ws_auth(websocket)
+    except (WebSocketDisconnect, Exception):
         return
 
     # 注意：不再强制验证 URL 参数中的 session_id 与 token 中的一致性
@@ -278,7 +318,17 @@ async def client_websocket_handler(
         await _broadcast_presence(session_id, terminal_id)
 
         # 消息处理循环
-        async for message in websocket.iter_json():
+        async for raw_text in websocket.iter_text():
+            if not raw_text or not raw_text.strip():
+                continue
+            if len(raw_text) > MAX_WS_MESSAGE_SIZE:
+                await websocket.send_json({"type": "error", "message": "Message too large"})
+                continue
+            try:
+                message = json.loads(raw_text)
+            except json.JSONDecodeError:
+                await websocket.send_json({"type": "error", "message": "Invalid JSON"})
+                continue
             await _handle_client_message(
                 websocket,
                 session_id,

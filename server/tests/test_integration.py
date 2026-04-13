@@ -10,6 +10,7 @@
 """
 import pytest
 import asyncio
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime, timezone
 from fastapi.testclient import TestClient
@@ -24,9 +25,9 @@ async def _mock_user_id():
     return "user1"
 
 
-async def _cancelled_iter_json():
+async def _cancelled_iter_text():
     if False:
-        yield {}
+        yield ""
     raise asyncio.CancelledError
 
 
@@ -46,7 +47,8 @@ class TestIntegrationAgentConnection:
         test_token = generate_token(session_id="test-session-1", token_version=1, view_type="mobile")
 
         mock_ws = AsyncMock()
-        mock_ws.iter_json = MagicMock(return_value=_cancelled_iter_json())
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": test_token}))
+        mock_ws.iter_text = MagicMock(return_value=_cancelled_iter_text())
         mock_ws.accept = AsyncMock()
 
         with patch('app.ws_agent.get_session', return_value={"session_id": "test-session-1", "owner": "test-user"}):
@@ -55,7 +57,7 @@ class TestIntegrationAgentConnection:
                     with patch('app.auth.get_token_version', new_callable=AsyncMock, return_value=1):
                         try:
                             from app.ws_agent import agent_websocket_handler
-                            await agent_websocket_handler(mock_ws, test_token)
+                            await agent_websocket_handler(mock_ws)
                         except asyncio.CancelledError:
                             pass
 
@@ -84,7 +86,8 @@ class TestIntegrationClientConnection:
         test_token = generate_token(session_id="test-session-2", token_version=1, view_type="mobile")
 
         mock_ws = AsyncMock()
-        mock_ws.iter_json = MagicMock(return_value=_cancelled_iter_json())
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": test_token}))
+        mock_ws.iter_text = MagicMock(return_value=_cancelled_iter_text())
         mock_ws.accept = AsyncMock()
 
         with patch('app.ws_client.get_session', return_value={"session_id": "test-session-2", "owner": "test-user"}):
@@ -93,7 +96,7 @@ class TestIntegrationClientConnection:
                     with patch('app.auth.get_token_version', new_callable=AsyncMock, return_value=1):
                         try:
                             from app.ws_client import client_websocket_handler
-                            await client_websocket_handler(mock_ws, "test-session-2", test_token, view="mobile")
+                            await client_websocket_handler(mock_ws, "test-session-2", view="mobile")
                         except asyncio.CancelledError:
                             pass
 
@@ -118,7 +121,8 @@ class TestIntegrationClientConnection:
         test_token = generate_token(session_id="test-session-3", token_version=1, view_type="desktop")
 
         mock_ws = AsyncMock()
-        mock_ws.iter_json = MagicMock(return_value=_cancelled_iter_json())
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": test_token}))
+        mock_ws.iter_text = MagicMock(return_value=_cancelled_iter_text())
         mock_ws.accept = AsyncMock()
 
         with patch('app.ws_client.get_session', return_value={"session_id": "test-session-3", "owner": "test-user"}):
@@ -127,7 +131,7 @@ class TestIntegrationClientConnection:
                     with patch('app.auth.get_token_version', new_callable=AsyncMock, return_value=1):
                         try:
                             from app.ws_client import client_websocket_handler
-                            await client_websocket_handler(mock_ws, "test-session-3", test_token, view="desktop")
+                            await client_websocket_handler(mock_ws, "test-session-3", view="desktop")
                         except asyncio.CancelledError:
                             pass
 
@@ -756,7 +760,8 @@ class TestIntegrationContracts:
         test_token = generate_token(session_id="contract-test-1", token_version=1, view_type="mobile")
 
         mock_ws = AsyncMock()
-        mock_ws.iter_json = MagicMock(return_value=_cancelled_iter_json())
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": test_token}))
+        mock_ws.iter_text = MagicMock(return_value=_cancelled_iter_text())
         mock_ws.accept = AsyncMock()
 
         with patch('app.ws_agent.get_session', return_value={"session_id": "contract-test-1", "owner": "owner-1"}):
@@ -765,7 +770,7 @@ class TestIntegrationContracts:
                     with patch('app.auth.get_token_version', new_callable=AsyncMock, return_value=1):
                         try:
                             from app.ws_agent import agent_websocket_handler
-                            await agent_websocket_handler(mock_ws, test_token)
+                            await agent_websocket_handler(mock_ws)
                         except asyncio.CancelledError:
                             pass
 
@@ -787,7 +792,8 @@ class TestIntegrationContracts:
         test_token = generate_token(session_id="contract-test-2", token_version=1, view_type="mobile")
 
         mock_ws = AsyncMock()
-        mock_ws.iter_json = MagicMock(return_value=_cancelled_iter_json())
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": test_token}))
+        mock_ws.iter_text = MagicMock(return_value=_cancelled_iter_text())
         mock_ws.accept = AsyncMock()
 
         with patch('app.ws_client.get_session', return_value={"session_id": "contract-test-2", "owner": "owner-2"}):
@@ -796,7 +802,7 @@ class TestIntegrationContracts:
                     with patch('app.auth.get_token_version', new_callable=AsyncMock, return_value=1):
                         try:
                             from app.ws_client import client_websocket_handler
-                            await client_websocket_handler(mock_ws, "contract-test-2", test_token, view="mobile")
+                            await client_websocket_handler(mock_ws, "contract-test-2", view="mobile")
                         except asyncio.CancelledError:
                             pass
 

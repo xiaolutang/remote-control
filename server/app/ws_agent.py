@@ -4,6 +4,7 @@ WebSocket Agent 连接路由
 import asyncio
 import json
 import base64
+import os
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 from fastapi import WebSocketDisconnect, HTTPException, status
@@ -39,6 +40,10 @@ HEARTBEAT_TIMEOUT = 60  # 秒
 
 # Stale TTL 配置
 STALE_TTL_SECONDS = 90  # Agent 断开后等待 90 秒才真正 offline
+
+# WS 认证配置
+WS_AUTH_TIMEOUT = 5  # 秒
+MAX_WS_MESSAGE_SIZE = int(os.environ.get("MAX_WS_MESSAGE_SIZE", 1 * 1024 * 1024))  # 1MB
 
 
 class AgentConnection:
@@ -80,36 +85,68 @@ def _http_to_ws_code(http_code: int) -> int:
     return mapping.get(http_code, 4500)
 
 
+async def _wait_for_ws_auth(websocket) -> dict:
+    """
+    等待 WebSocket 首条 auth 消息并验证 token。
+    成功返回 token payload，失败时关闭连接并抛出异常。
+    """
+    try:
+        raw = await asyncio.wait_for(websocket.receive_text(), timeout=WS_AUTH_TIMEOUT)
+    except asyncio.TimeoutError:
+        await websocket.close(code=4002, reason="Auth timeout")
+        raise WebSocketDisconnect(code=4002)
+
+    if len(raw) > MAX_WS_MESSAGE_SIZE:
+        await websocket.close(code=4003, reason="Message too large")
+        raise WebSocketDisconnect(code=4003)
+
+    try:
+        msg = json.loads(raw)
+    except json.JSONDecodeError:
+        await websocket.close(code=4004, reason="Invalid JSON in auth message")
+        raise WebSocketDisconnect(code=4004)
+
+    if msg.get("type") != "auth" or not msg.get("token"):
+        await websocket.close(code=4004, reason="Expected auth message")
+        raise WebSocketDisconnect(code=4004)
+
+    token = msg["token"]
+
+    try:
+        payload = await async_verify_token(token)
+    except TokenVerificationError as e:
+        reason = e.error_code if e.error_code else e.detail
+        logger.warning(f"Token verification failed: {reason}")
+        await websocket.close(code=_http_to_ws_code(e.status_code), reason=reason)
+        raise WebSocketDisconnect(code=_http_to_ws_code(e.status_code))
+    except HTTPException as e:
+        logger.warning(f"Token verification failed: {e.detail}")
+        await websocket.close(code=_http_to_ws_code(e.status_code), reason=e.detail)
+        raise WebSocketDisconnect(code=_http_to_ws_code(e.status_code))
+    except Exception as e:
+        logger.warning(f"Token verification error: {type(e).__name__}: {e}")
+        await websocket.close(code=4500, reason=str(e))
+        raise WebSocketDisconnect(code=4500)
+
+    return payload
+
+
 async def agent_websocket_handler(
     websocket,
-    token: str,
 ):
     """
     Agent WebSocket 连接处理器
 
     Args:
         websocket: WebSocket 连接
-        token: JWT Token
     """
     # 先 accept 连接
     await websocket.accept()
 
-    # 验证 Token
+    # 等待首条 auth 消息并验证 token
     try:
-        payload = await async_verify_token(token)
-    except TokenVerificationError as e:
-        # TokenVerificationError 携带 error_code，优先使用
-        reason = e.error_code if e.error_code else e.detail
-        logger.warning(f"Token verification failed: {reason}")
-        await websocket.close(code=_http_to_ws_code(e.status_code), reason=reason)
-        return
-    except HTTPException as e:
-        logger.warning(f"Token verification failed: {e.detail}")
-        await websocket.close(code=_http_to_ws_code(e.status_code), reason=e.detail)
-        return
-    except Exception as e:
-        logger.warning(f"Token verification error: {type(e).__name__}: {e}")
-        await websocket.close(code=4500, reason=str(e))
+        payload = await _wait_for_ws_auth(websocket)
+    except (WebSocketDisconnect, Exception):
         return
 
     session_id = payload["session_id"]
@@ -176,6 +213,9 @@ async def agent_websocket_handler(
         async for raw_text in websocket.iter_text():
             if not raw_text or not raw_text.strip():
                 logger.debug("Agent sent empty message: session_id=%s", session_id)
+                continue
+            if len(raw_text) > MAX_WS_MESSAGE_SIZE:
+                logger.warning("Agent message too large: session_id=%s len=%d", session_id, len(raw_text))
                 continue
             try:
                 message = json.loads(raw_text)
