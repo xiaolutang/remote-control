@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, Query, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.auth import get_current_payload
+from app.auth import get_current_payload, get_current_user_id
 from app.http_client import get_shared_http_client
 from app.log_service import (
     append_logs_batch,
@@ -115,7 +115,7 @@ async def list_logs(
     until: Optional[str] = Query(None, description="结束时间（ISO8601）"),
     offset: int = Query(0, ge=0, description="偏移量"),
     limit: int = Query(100, ge=1, le=500, description="限制数量"),
-    payload: dict = Depends(get_current_payload),
+    user_id: str = Depends(get_current_user_id),
 ):
     """
     查询客户端日志
@@ -127,6 +127,8 @@ async def list_logs(
     - **offset**: 分页偏移量
     - **limit**: 每页数量（最大 500）
     """
+    # 验证 session 归属
+    await _verify_session_ownership(session_id, user_id)
     result = await get_logs(
         session_id=session_id,
         level=level,
@@ -143,7 +145,7 @@ async def list_logs(
 async def stream_logs(
     session_id: str = Query(..., description="会话 ID"),
     level: Optional[LogLevel] = Query(None, description="过滤级别（最小级别）"),
-    payload: dict = Depends(get_current_payload),
+    user_id: str = Depends(get_current_user_id),
 ):
     """
     实时日志流 (Server-Sent Events)
@@ -153,6 +155,8 @@ async def stream_logs(
     - **session_id**: 会话 ID（必填）
     - **level**: 过滤级别，如 warn 表示只推送 warn/error/fatal
     """
+    # 验证 session 归属
+    await _verify_session_ownership(session_id, user_id)
     from app.log_service import LEVEL_WEIGHTS
 
     min_level_weight = LEVEL_WEIGHTS.get(level, 0) if level else 0
@@ -212,13 +216,16 @@ async def stream_logs(
 @router.get("/count")
 async def count_logs(
     session_id: str = Query(..., description="会话 ID"),
-    payload: dict = Depends(get_current_payload),
+    user_id: str = Depends(get_current_user_id),
 ):
     """
     获取日志数量
 
     - **session_id**: 会话 ID（必填）
     """
+    # 验证 session 归属
+    await _verify_session_ownership(session_id, user_id)
+
     count = await get_log_count(session_id)
 
     return {
@@ -268,5 +275,22 @@ async def _forward_to_log_service(session_id: str, logs_data: list[dict], *, uid
         logger.warning(
             "Failed to forward logs to log-service (best-effort): session_id=%s error=%s",
             session_id, e,
+        )
+
+
+async def _verify_session_ownership(session_id: str, user_id: str) -> None:
+    """验证 session 归属于当前用户，不属于则返回 403。"""
+    from app.session import get_session
+
+    session = await get_session(session_id)
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session {session_id} 不存在",
+        )
+    if session.get("owner") != user_id and session.get("user_id") != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="无权访问此 Session 的日志",
         )
 
