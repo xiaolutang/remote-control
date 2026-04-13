@@ -1,8 +1,8 @@
 # 测试覆盖清单
 
 > 项目：remote-control
-> 更新时间：2026-04-12
-> 状态：deploy-standardization + feedback-to-issues 阶段已完成
+> 更新时间：2026-04-13
+> 状态：security-hardening 阶段规划完成，待执行
 
 ## 测试统计
 
@@ -28,6 +28,7 @@
 | **Agent 生命周期管理 (Phase 15)** | unit, integration, manual | 待开始 | 🔶 |
 | **用户信息 (user-info)** | unit, e2e | 已完成 | ✅ |
 | **部署标准化 (deploy-standardization)** | manual, L3 | 已完成 | ✅ |
+| **安全加固 (security-hardening)** | unit, integration, manual | 待开始 | 🔶 |
 
 ## 模块覆盖详情
 
@@ -294,3 +295,18 @@
   - [x] SIGTERM 被忽略时 SIGKILL 能强制终止
   - [x] 网络断开触发的终端关闭流程
   - [x] Agent 断开后的终端清理
+
+### 安全加固（security-hardening phase）
+
+| Module | Task IDs | Test Type | Required Scenarios | Status |
+|--------|----------|-----------|--------------------|--------|
+| JWT Secret 加固 | B062 | unit | JWT_SECRET 未设置→启动抛异常；无 token_version→401；匹配 Redis→通过；不匹配→401 TOKEN_REPLACED | ⬜ |
+| 密码哈希迁移 | B063 | unit | 新注册→bcrypt；旧 SHA-256 登录→自动迁移；并发迁移不报错 | ⬜ |
+| CORS 收紧 | B064 | unit | CORS_ORIGINS 空→拒绝；配置域名→通过；非配置域名→拒绝 | ⬜ |
+| WebSocket 鉴权重构 | B065 | unit,integration | auth 消息→成功；无效 token→关闭；超时→关闭；超大消息→关闭；auth 格式错误→关闭；URL query token→不验证 | ⬜ |
+| 日志归属校验 + 错误脱敏 | B066 | unit | 查自己日志→成功；查他人→403；JWT 错误→脱敏信息 | ⬜ |
+| 速率限制 | B067 | unit | 10次内→成功；第11次→429；限流 Redis 失败→不限速；认证 Redis 失败→503 | ⬜ |
+| Agent 安全加固 | B068 | unit,integration | WS auth 适配；命令/cwd/env 校验；本地 HTTP 认证；配置文件生成/损坏恢复 | ⬜ |
+| Client 安全加固 | F058 | unit,integration | WS auth 适配；密码迁移到 flutter_secure_storage；旧 SharedPreferences 清理；自动登录失败回退 | ⬜ |
+| Redis 密码 + Docker 非 root | B070 | integration,manual | Redis 密码认证；非 root 运行；REDIS_PASSWORD 缺失→报错；volume 权限 | ⬜ |
+| 安全加固集成验证 | S038 | integration,manual | 全链路注册→登录→WS→terminal→关闭；bcrypt 验证；速率限制；WS auth；脱敏；Redis 密码；非 root；CORS | ⬜ |
