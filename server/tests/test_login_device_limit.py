@@ -136,11 +136,13 @@ class TestVerifyToken:
 
 class TestAsyncVerifyToken:
     @pytest.mark.asyncio
-    async def test_old_token_without_version_passes(self):
-        """旧 token（无 token_version）→ 正常放行"""
+    async def test_old_token_without_version_rejected(self):
+        """旧 token（无 token_version）→ 401 TOKEN_INVALID"""
         token = auth_module.generate_token("sess-1")
-        result = await auth_module.async_verify_token(token)
-        assert result["session_id"] == "sess-1"
+        with pytest.raises(auth_module.TokenVerificationError) as exc_info:
+            await auth_module.async_verify_token(token)
+        assert exc_info.value.error_code == "TOKEN_INVALID"
+        assert exc_info.value.status_code == 401
 
     @pytest.mark.asyncio
     async def test_version_match_passes(self):
@@ -179,12 +181,15 @@ class TestAsyncVerifyToken:
         assert exc_info.value.status_code == 503
 
     @pytest.mark.asyncio
-    async def test_old_token_passes_when_redis_down(self):
-        """旧 token（无版本）→ Redis 挂了也正常放行"""
+    async def test_old_token_without_version_rejected_even_redis_down(self):
+        """旧 token（无 token_version）即使 Redis 不可用也返回 401 TOKEN_INVALID"""
         token = auth_module.generate_token("sess-1")
-        # 不需要 mock，因为不会调用 get_token_version
-        result = await auth_module.async_verify_token(token)
-        assert result["session_id"] == "sess-1"
+        # Redis 不可用时也不影响对无版本 token 的拒绝
+        with patch("app.auth.get_token_version", side_effect=Exception("Redis down")):
+            with pytest.raises(auth_module.TokenVerificationError) as exc_info:
+                await auth_module.async_verify_token(token)
+        assert exc_info.value.error_code == "TOKEN_INVALID"
+        assert exc_info.value.status_code == 401
 
 
 # ─── 6. TokenVerificationError 异常 ───

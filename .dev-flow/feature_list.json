@@ -2,7 +2,7 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-13T12:30:00Z",
+  "updated_at": "2026-04-13",
   "status": "executing",
   "active_requirement_cycle": {
     "branch": "feat/security-hardening",
@@ -47,7 +47,7 @@
       "description": "修复 SEC-01 和 SEC-15：\n1. JWT_SECRET 环境变量为必填项，移除 secrets.token_hex(32) 随机回退逻辑。启动时缺失则抛异常。\n2. 拒绝无 token_version 字段的旧 token，移除向后兼容逻辑。\n3. 更新 architecture.md 不变量 #16。\n\n改动文件：auth.py（移除回退、移除兼容分支）、__init__.py（启动校验）。",
       "verification": "L2",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": "P0",
       "acceptance_criteria": [
         "JWT_SECRET/JWT_SECRET_KEY 环境变量未设置 → 服务启动失败（raise）",
@@ -57,7 +57,10 @@
         "auth.py 无 secrets.token_hex 回退逻辑",
         "auth.py 无 '向后兼容旧 token' 分支"
       ],
-      "risk_tags": ["auth", "startup"],
+      "risk_tags": [
+        "auth",
+        "startup"
+      ],
       "test_tasks": [
         {
           "type": "unit",
@@ -75,7 +78,11 @@
       "files": [
         "server/app/auth.py",
         "server/app/__init__.py"
-      ]
+      ],
+      "started_at": "2026-04-13",
+      "completed_at": "2026-04-13",
+      "evidence_file": "evidence/B062.md",
+      "execution_notes": "JWT Secret 必填 + 旧 token 拒绝 + 错误脱敏；329 测试全通过；code-review + simplify + audit 通过"
     },
     {
       "id": "B063",
@@ -95,7 +102,9 @@
         "错误的 bcrypt 密码返回 401",
         "requirements.txt 包含 bcrypt"
       ],
-      "risk_tags": ["auth"],
+      "risk_tags": [
+        "auth"
+      ],
       "test_tasks": [
         {
           "type": "unit",
@@ -134,7 +143,10 @@
         "配置域名的跨域请求 → CORS 头正常",
         "allow_credentials=True 保留（配合具体域名有效）"
       ],
-      "risk_tags": ["config", "startup"],
+      "risk_tags": [
+        "config",
+        "startup"
+      ],
       "test_tasks": [
         {
           "type": "unit",
@@ -159,7 +171,9 @@
       "name": "WebSocket 鉴权重构",
       "description": "修复 SEC-05、SEC-11、SEC-12：\n1. WS 端点不再从 URL query 参数读取 token，改为连接后等待首条 auth 消息（{type: \"auth\", token: \"...\"}）。\n2. 收到 auth 消息后调用 async_verify_token 验证，5 秒内未收到有效 auth → 关闭连接。\n3. 添加 WebSocket 消息大小限制 MAX_WS_MESSAGE_SIZE = 1MB（可配置）。\n4. 不再支持 URL query 参数传 token（与 architecture.md 不变量 #17 一致）。\n\n改动文件：ws_agent.py、ws_client.py、routes.py（移除 token query 参数声明）。\n\n注意：此任务只改 Server 端，Agent/Client 的适配在 B068/F058。",
       "verification": "L2",
-      "depends_on": ["B062"],
+      "depends_on": [
+        "B062"
+      ],
       "status": "pending",
       "priority": "P0",
       "acceptance_criteria": [
@@ -171,7 +185,10 @@
         "URL query 参数传 token → 不验证、不处理，视为无认证",
         "Agent WS 和 Client WS 都适配新流程"
       ],
-      "risk_tags": ["auth", "network"],
+      "risk_tags": [
+        "auth",
+        "network"
+      ],
       "test_tasks": [
         {
           "type": "unit",
@@ -202,7 +219,9 @@
       "name": "日志 API 归属校验 + 错误信息脱敏",
       "description": "修复 SEC-07 和 SEC-13：\n1. 日志 API（log_api.py）将 get_current_payload 替换为 get_current_user_id，增加 session_id 归属校验（只能查询自己的日志）。\n2. auth.py 中所有 JWT 验证错误不再返回具体的解码错误详情，统一返回 \"Token 无效\" 或 \"Token 已过期\"。\n\n改动文件：log_api.py（鉴权依赖替换 + 归属校验）、auth.py（错误信息脱敏）。",
       "verification": "L2",
-      "depends_on": ["B062"],
+      "depends_on": [
+        "B062"
+      ],
       "status": "pending",
       "priority": "P1",
       "acceptance_criteria": [
@@ -213,7 +232,9 @@
         "JWT 错误统一返回 \"Token 无效\" 或 \"Token 已过期\"",
         "log_api.py 无 get_current_payload 调用"
       ],
-      "risk_tags": ["auth"],
+      "risk_tags": [
+        "auth"
+      ],
       "test_tasks": [
         {
           "type": "unit",
@@ -251,7 +272,10 @@
         "429 响应包含 Retry-After 头",
         "正常频率请求不受影响"
       ],
-      "risk_tags": ["network", "config"],
+      "risk_tags": [
+        "network",
+        "config"
+      ],
       "test_tasks": [
         {
           "type": "unit",
@@ -279,7 +303,9 @@
       "name": "Agent 安全加固",
       "description": "修复 SEC-04、SEC-06、SEC-05(Agent 侧)：\n1. **WS 认证适配**：连接 Server 后发送 {type: \"auth\", token: \"...\"}，不再在 URL query 参数传 token。\n2. **命令执行校验**：terminal 创建前验证 command（必须为字符串且非空）、cwd（必须为绝对路径或 None）、env（值必须为字符串）。校验逻辑在 main.py 的 terminal 创建入口处。\n3. **本地 HTTP 认证**：local_server.py 的所有端点添加 token 认证，token 在 Agent 启动时生成并写入配置文件，外部进程需读取配置文件获取 token。\n\n改动文件：websocket_client.py（auth 消息）、main.py（输入校验）、local_server.py（token 认证）、config.py（生成/存储 local_token）。",
       "verification": "L2",
-      "depends_on": ["B065"],
+      "depends_on": [
+        "B065"
+      ],
       "status": "pending",
       "priority": "P0",
       "acceptance_criteria": [
@@ -293,7 +319,10 @@
         "本地 HTTP 正确 token → 正常",
         "local_token 在启动时生成并写入配置文件"
       ],
-      "risk_tags": ["auth", "first_use"],
+      "risk_tags": [
+        "auth",
+        "first_use"
+      ],
       "test_tasks": [
         {
           "type": "unit",
@@ -337,7 +366,9 @@
       "name": "Client 安全加固",
       "description": "修复 SEC-05(Client 侧) + SEC-08：\n1. **WS 认证适配**：连接 Server 后发送 {type: \"auth\", token: \"...\"}，不再在 URL query 参数传 token。修改 websocket_service.dart 的 WS 连接逻辑。\n2. **安全存储**：将密码从 SharedPreferences 迁移到 flutter_secure_storage。用户名和 login_time 可保留在 SharedPreferences（非敏感）。Access token 和 refresh token 也迁移到 flutter_secure_storage。\n\n改动文件：websocket_service.dart（WS auth 消息）、auth_service.dart（flutter_secure_storage）、pubspec.yaml（添加依赖）。",
       "verification": "F1",
-      "depends_on": ["B065"],
+      "depends_on": [
+        "B065"
+      ],
       "status": "pending",
       "priority": "P0",
       "acceptance_criteria": [
@@ -348,7 +379,10 @@
         "登录/自动登录流程正常",
         "WS 连接和终端功能正常"
       ],
-      "risk_tags": ["auth", "first_use"],
+      "risk_tags": [
+        "auth",
+        "first_use"
+      ],
       "test_tasks": [
         {
           "type": "unit",
@@ -397,7 +431,10 @@
         "docker compose up 全部服务正常启动",
         "非 root 用户可写入 /data/ 目录（volume 权限）"
       ],
-      "risk_tags": ["config", "startup"],
+      "risk_tags": [
+        "config",
+        "startup"
+      ],
       "test_tasks": [
         {
           "type": "manual",
@@ -435,7 +472,17 @@
       "name": "安全加固集成验证",
       "description": "端到端验证所有安全加固措施协同工作：\n1. 注册新用户 → bcrypt 哈希\n2. 登录 → 速率限制生效\n3. WS 连接使用 auth 消息（非 URL token）\n4. 创建 terminal → 命令输入校验\n5. 错误 token → 脱敏错误信息\n6. 部署 smoke：Redis 有密码、容器非 root、CORS 正确\n7. 旧 token（无 version）→ 被拒绝",
       "verification": "L4",
-      "depends_on": ["B062", "B063", "B064", "B065", "B066", "B067", "B068", "F058", "B070"],
+      "depends_on": [
+        "B062",
+        "B063",
+        "B064",
+        "B065",
+        "B066",
+        "B067",
+        "B068",
+        "F058",
+        "B070"
+      ],
       "status": "pending",
       "priority": "P0",
       "acceptance_criteria": [
@@ -448,7 +495,10 @@
         "容器非 root 运行",
         "CORS 仅允许配置域名"
       ],
-      "risk_tags": ["startup", "network"],
+      "risk_tags": [
+        "startup",
+        "network"
+      ],
       "smoke_required": true,
       "test_tasks": [
         {
@@ -473,7 +523,9 @@
       "phase": "agent",
       "status": "completed",
       "task_count": 1,
-      "task_ids": ["B013"],
+      "task_ids": [
+        "B013"
+      ],
       "conclusion": "agent 阶段完成，1 个任务",
       "archived_at": "2026-03-30T17:00:00Z",
       "archive_file": "_archive/phases/phase_agent.json"
@@ -482,7 +534,31 @@
       "phase": "backend",
       "status": "completed",
       "task_count": 23,
-      "task_ids": ["B001","B002","B003","B004","B005","B006","B007","B008","B009","B010","B011","B012","B014","B015","B016","B017","B018","B019","B022","B032","B033","B034","B035"],
+      "task_ids": [
+        "B001",
+        "B002",
+        "B003",
+        "B004",
+        "B005",
+        "B006",
+        "B007",
+        "B008",
+        "B009",
+        "B010",
+        "B011",
+        "B012",
+        "B014",
+        "B015",
+        "B016",
+        "B017",
+        "B018",
+        "B019",
+        "B022",
+        "B032",
+        "B033",
+        "B034",
+        "B035"
+      ],
       "conclusion": "backend 阶段完成，23 个任务",
       "archived_at": "2026-03-30T17:00:00Z",
       "archive_file": "_archive/phases/phase_backend.json"
@@ -491,7 +567,39 @@
       "phase": "frontend",
       "status": "completed",
       "task_count": 31,
-      "task_ids": ["F001","F002","F003","F004","F005","F006","F007","F008","F009","F010","F011","F012","F013","F014","F015","F016","F017","F018","F019","F020","F021","F022","F023","F024","F025","F026","F027","F028","F029","F030","F031"],
+      "task_ids": [
+        "F001",
+        "F002",
+        "F003",
+        "F004",
+        "F005",
+        "F006",
+        "F007",
+        "F008",
+        "F009",
+        "F010",
+        "F011",
+        "F012",
+        "F013",
+        "F014",
+        "F015",
+        "F016",
+        "F017",
+        "F018",
+        "F019",
+        "F020",
+        "F021",
+        "F022",
+        "F023",
+        "F024",
+        "F025",
+        "F026",
+        "F027",
+        "F028",
+        "F029",
+        "F030",
+        "F031"
+      ],
       "conclusion": "frontend 阶段完成，31 个任务",
       "archived_at": "2026-03-30T17:00:00Z",
       "archive_file": "_archive/phases/phase_frontend.json"
@@ -500,94 +608,241 @@
       "phase": "shared",
       "status": "completed",
       "task_count": 14,
-      "task_ids": ["S001","S002","S003","S011","S012","S013","S014","S015","S016","S017","S018","S019","S022","S023"],
+      "task_ids": [
+        "S001",
+        "S002",
+        "S003",
+        "S011",
+        "S012",
+        "S013",
+        "S014",
+        "S015",
+        "S016",
+        "S017",
+        "S018",
+        "S019",
+        "S022",
+        "S023"
+      ],
       "conclusion": "shared 阶段完成，14 个任务",
       "archived_at": "2026-03-30T17:00:00Z",
       "archive_file": "_archive/phases/phase_shared.json"
     },
     {
       "phase": "agent-lifecycle",
-      "task_ids": ["S024","F032","F033","F034","F035","F036","F037","F038"],
+      "task_ids": [
+        "S024",
+        "F032",
+        "F033",
+        "F034",
+        "F035",
+        "F036",
+        "F037",
+        "F038"
+      ],
       "archived_at": "2026-04-10T14:03:03Z",
-      "summary": { "total": 8, "completed": 7, "cancelled": 1 }
+      "summary": {
+        "total": 8,
+        "completed": 7,
+        "cancelled": 1
+      }
     },
     {
       "phase": "ws-lifecycle",
-      "task_ids": ["F039","F040"],
+      "task_ids": [
+        "F039",
+        "F040"
+      ],
       "archived_at": "2026-04-10T14:03:03Z",
-      "summary": { "total": 2, "completed": 2, "cancelled": 0 }
+      "summary": {
+        "total": 2,
+        "completed": 2,
+        "cancelled": 0
+      }
     },
     {
       "phase": "agent-hardening",
-      "task_ids": ["F041","F042","F043","F044"],
+      "task_ids": [
+        "F041",
+        "F042",
+        "F043",
+        "F044"
+      ],
       "archived_at": "2026-04-10T14:03:03Z",
-      "summary": { "total": 4, "completed": 4, "cancelled": 0 }
+      "summary": {
+        "total": 4,
+        "completed": 4,
+        "cancelled": 0
+      }
     },
     {
       "phase": "device-online-limit",
-      "task_ids": ["B036","B037","F045","F046","F047"],
+      "task_ids": [
+        "B036",
+        "B037",
+        "F045",
+        "F046",
+        "F047"
+      ],
       "archived_at": "2026-04-10T14:03:03Z",
-      "summary": { "total": 5, "completed": 5, "cancelled": 0 }
+      "summary": {
+        "total": 5,
+        "completed": 5,
+        "cancelled": 0
+      }
     },
     {
       "phase": "login-device-limit",
-      "task_ids": ["B038","B039","F048","F049","S025"],
+      "task_ids": [
+        "B038",
+        "B039",
+        "F048",
+        "F049",
+        "S025"
+      ],
       "archived_at": "2026-04-10T14:03:03Z",
-      "summary": { "total": 5, "completed": 5, "cancelled": 0 }
+      "summary": {
+        "total": 5,
+        "completed": 5,
+        "cancelled": 0
+      }
     },
     {
       "phase": "token-unification",
-      "task_ids": ["B040","B041","S026"],
+      "task_ids": [
+        "B040",
+        "B041",
+        "S026"
+      ],
       "archived_at": "2026-04-10T14:03:03Z",
-      "summary": { "total": 3, "completed": 3, "cancelled": 0 }
+      "summary": {
+        "total": 3,
+        "completed": 3,
+        "cancelled": 0
+      }
     },
     {
       "phase": "remove-conflict-dialog",
-      "task_ids": ["B042","F050","S027"],
+      "task_ids": [
+        "B042",
+        "F050",
+        "S027"
+      ],
       "archived_at": "2026-04-10T14:03:03Z",
-      "summary": { "total": 3, "completed": 3, "cancelled": 0 }
+      "summary": {
+        "total": 3,
+        "completed": 3,
+        "cancelled": 0
+      }
     },
     {
       "phase": "feedback-feature",
-      "task_ids": ["B048","B049","F051","F052","F053","S030"],
+      "task_ids": [
+        "B048",
+        "B049",
+        "F051",
+        "F052",
+        "F053",
+        "S030"
+      ],
       "archived_at": "2026-04-12T14:00:00Z",
-      "summary": { "total": 6, "completed": 6, "cancelled": 0 }
+      "summary": {
+        "total": 6,
+        "completed": 6,
+        "cancelled": 0
+      }
     },
     {
       "phase": "log-decoupling",
-      "task_ids": ["B054","B055","S031"],
+      "task_ids": [
+        "B054",
+        "B055",
+        "S031"
+      ],
       "archived_at": "2026-04-12T14:00:00Z",
-      "summary": { "total": 3, "completed": 3, "cancelled": 0 }
+      "summary": {
+        "total": 3,
+        "completed": 3,
+        "cancelled": 0
+      }
     },
     {
       "phase": "logging-integration",
-      "task_ids": ["B043","B044","B045","B046","B047","S028","S029"],
+      "task_ids": [
+        "B043",
+        "B044",
+        "B045",
+        "B046",
+        "B047",
+        "S028",
+        "S029"
+      ],
       "archived_at": "2026-04-10T14:03:03Z",
-      "summary": { "total": 7, "completed": 7, "cancelled": 0 }
+      "summary": {
+        "total": 7,
+        "completed": 7,
+        "cancelled": 0
+      }
     },
     {
       "phase": "user-info",
-      "task_ids": ["B056","F054","F055","F056","S032"],
+      "task_ids": [
+        "B056",
+        "F054",
+        "F055",
+        "F056",
+        "S032"
+      ],
       "archived_at": "2026-04-12T19:00:00Z",
-      "summary": { "total": 5, "completed": 5, "cancelled": 0 }
+      "summary": {
+        "total": 5,
+        "completed": 5,
+        "cancelled": 0
+      }
     },
     {
       "phase": "feedback-to-issues",
-      "task_ids": ["B057","F057","B058","B059","S033"],
+      "task_ids": [
+        "B057",
+        "F057",
+        "B058",
+        "B059",
+        "S033"
+      ],
       "archived_at": "2026-04-12T23:17:00Z",
-      "summary": { "total": 5, "completed": 5, "cancelled": 0 }
+      "summary": {
+        "total": 5,
+        "completed": 5,
+        "cancelled": 0
+      }
     },
     {
       "phase": "deploy-standardization",
-      "task_ids": ["S034","S035","S036"],
+      "task_ids": [
+        "S034",
+        "S035",
+        "S036"
+      ],
       "archived_at": "2026-04-13T02:27:00Z",
-      "summary": { "total": 3, "completed": 3, "cancelled": 0 }
+      "summary": {
+        "total": 3,
+        "completed": 3,
+        "cancelled": 0
+      }
     },
     {
       "phase": "user-persistence",
-      "task_ids": ["B060","B061","S037"],
+      "task_ids": [
+        "B060",
+        "B061",
+        "S037"
+      ],
       "archived_at": "2026-04-13T02:27:00Z",
-      "summary": { "total": 3, "completed": 3, "cancelled": 0 }
+      "summary": {
+        "total": 3,
+        "completed": 3,
+        "cancelled": 0
+      }
     }
   ]
 }
