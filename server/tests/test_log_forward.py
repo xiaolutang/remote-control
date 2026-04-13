@@ -100,6 +100,10 @@ class TestLogForwarding:
     def test_get_logs_unaffected(self, client, auth_headers):
         """[happy] GET /api/logs Redis 查询正常返回"""
         with _with_auth_mock(), \
+             patch("app.session.get_session", new_callable=AsyncMock, return_value={
+                 "id": "test-session-fwd", "user_id": "test-session-fwd", "owner": "test-session-fwd",
+             }), \
+             patch("app.log_api._verify_session_ownership", new_callable=AsyncMock), \
              patch("app.log_api.get_logs", new_callable=AsyncMock, return_value={
             "session_id": "test-session-fwd",
             "total": 0,
