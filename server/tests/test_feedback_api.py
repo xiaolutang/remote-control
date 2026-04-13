@@ -43,8 +43,8 @@ def client():
 
 @pytest.fixture
 def auth_headers():
-    """生成有效 JWT token 的 Authorization headers"""
-    token = generate_token("test-session-fb")
+    """生成有效 JWT token 的 Authorization headers（含 token_version）"""
+    token = generate_token("test-session-fb", token_version=1, view_type="mobile")
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -63,13 +63,14 @@ DEFAULT_LOGS = {"logs": [], "total": 0}
 
 def _patch_issue_deps(*, issue_data=None, logs_data=None, logs_error=None, issue_error=None):
     """
-    Mock 依赖：feedback_api.get_session + feedback_service.get_shared_http_client
+    Mock 依赖：feedback_api.get_session + feedback_service.get_shared_http_client + auth.get_token_version
     - issue_data: POST /api/issues 返回的 issue（默认 DEFAULT_ISSUE）
     - logs_data: GET /api/logs 返回的日志（默认 DEFAULT_LOGS）
     - logs_error: GET /api/logs 异常（best-effort）
     - issue_error: POST /api/issues 异常（ConnectError/HTTPStatusError）
     """
     session_patch = patch("app.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION)
+    token_version_patch = patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=1)
 
     mock_http = AsyncMock()
 
@@ -93,7 +94,7 @@ def _patch_issue_deps(*, issue_data=None, logs_data=None, logs_error=None, issue
 
     client_patch = patch("app.feedback_service.get_shared_http_client", return_value=mock_http)
 
-    return [session_patch, client_patch], mock_http
+    return [session_patch, token_version_patch, client_patch], mock_http
 
 
 # ---------------------------------------------------------------------------
@@ -211,7 +212,8 @@ class TestFeedbackValidation:
 
     def test_invalid_category_returns_422(self, client, auth_headers):
         """[validation] 无效分类 → 422"""
-        with patch("app.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION):
+        with patch("app.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION), \
+             patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=1):
             resp = client.post(
                 "/api/feedback",
                 json={
@@ -455,6 +457,7 @@ class TestGetFeedbackDetailHappy:
         }
 
         with patch("app.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION), \
+             patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=1), \
              patch("app.feedback_api.get_feedback", new_callable=AsyncMock, return_value=feedback_detail) as mock_get:
             resp = client.get("/api/feedback/fb-001", headers=auth_headers)
 
@@ -474,6 +477,7 @@ class TestGetFeedbackNotFound:
     def test_get_feedback_not_found(self, client, auth_headers):
         """[boundary] GET 查询不存在的反馈 → 404"""
         with patch("app.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION), \
+             patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=1), \
              patch("app.feedback_api.get_feedback", new_callable=AsyncMock, return_value=None):
             resp = client.get("/api/feedback/nonexistent-id-12345", headers=auth_headers)
 
@@ -487,11 +491,12 @@ class TestGetFeedbackUnauthorized:
 
     def test_get_feedback_other_user_returns_404(self, client, auth_headers):
         """[auth] GET 查询其他用户创建的反馈 → 404"""
-        other_token = generate_token("other-user-session")
+        other_token = generate_token("other-user-session", token_version=1, view_type="mobile")
         other_headers = {"Authorization": f"Bearer {other_token}"}
         other_session = {"id": "other-user-session", "user_id": "otheruser", "owner": "otheruser"}
 
         with patch("app.session.get_session", new_callable=AsyncMock, return_value=other_session), \
+             patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=1), \
              patch("app.feedback_api.get_feedback", new_callable=AsyncMock, return_value=None) as mock_get:
             resp = client.get("/api/feedback/fb-002", headers=other_headers)
 
