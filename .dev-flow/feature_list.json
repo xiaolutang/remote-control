@@ -82,7 +82,8 @@
       "started_at": "2026-04-13",
       "completed_at": "2026-04-13",
       "evidence_file": "evidence/B062.md",
-      "execution_notes": "JWT Secret 必填 + 旧 token 拒绝 + 错误脱敏；329 测试全通过；code-review + simplify + audit 通过"
+      "execution_notes": "JWT Secret 必填 + 旧 token 拒绝 + 错误脱敏；329 测试全通过；code-review + simplify + audit 通过",
+      "commit": "1763303"
     },
     {
       "id": "B063",
@@ -92,7 +93,7 @@
       "description": "修复 SEC-02：\n1. 新注册用户使用 bcrypt 哈希（替代 SHA-256）。\n2. 登录时检测旧 SHA-256 哈希（长度 64 hex），验证通过后自动 re-hash 为 bcrypt 并更新数据库。\n3. 添加 bcrypt 到 requirements.txt。\n\n改动文件：user_api.py（hash_password/verify_password 函数）、database.py（update_password_hash）、requirements.txt。",
       "verification": "L2",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": "P0",
       "acceptance_criteria": [
         "新注册用户密码使用 bcrypt 哈希",
@@ -124,7 +125,8 @@
         "server/app/user_api.py",
         "server/app/database.py",
         "server/requirements.txt"
-      ]
+      ],
+      "commit": "635902a"
     },
     {
       "id": "B064",
@@ -134,7 +136,7 @@
       "description": "修复 SEC-03：\n1. 将 allow_origins=[\"*\"] 改为从环境变量 CORS_ORIGINS 读取（逗号分隔域名列表）。\n2. CORS_ORIGINS 未设置时默认为空列表（阻止所有跨域）。\n3. 开发环境可设置 CORS_ORIGINS=http://localhost:3000,http://localhost:5000。\n4. 生产环境设置为实际域名。\n\n改动文件：server/app/__init__.py（CORS 中间件配置）。",
       "verification": "L2",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": "P0",
       "acceptance_criteria": [
         "CORS_ORIGINS 未设置 → allow_origins=[]，跨域请求被拒绝",
@@ -162,7 +164,8 @@
       ],
       "files": [
         "server/app/__init__.py"
-      ]
+      ],
+      "commit": "3bf1c6d"
     },
     {
       "id": "B065",
@@ -174,7 +177,7 @@
       "depends_on": [
         "B062"
       ],
-      "status": "pending",
+      "status": "completed",
       "priority": "P0",
       "acceptance_criteria": [
         "WS 连接后发送 {type: \"auth\", token: \"valid_token\"} → 验证通过，连接保持",
@@ -210,7 +213,8 @@
         "server/app/ws_agent.py",
         "server/app/ws_client.py",
         "server/app/routes.py"
-      ]
+      ],
+      "commit": "9a43748"
     },
     {
       "id": "B066",
@@ -222,7 +226,7 @@
       "depends_on": [
         "B062"
       ],
-      "status": "pending",
+      "status": "completed",
       "priority": "P1",
       "acceptance_criteria": [
         "日志 API 使用 get_current_user_id 鉴权",
@@ -251,7 +255,8 @@
       "files": [
         "server/app/log_api.py",
         "server/app/auth.py"
-      ]
+      ],
+      "commit": "6f43366"
     },
     {
       "id": "B067",
@@ -261,7 +266,7 @@
       "description": "修复 SEC-09：\n1. 为 /api/login 和 /api/register 添加基于 IP 的速率限制。\n2. 默认限制：每 IP 每分钟 10 次请求。\n3. 通过环境变量 RATE_LIMIT_PER_MINUTE 配置。\n4. 超限返回 429 Too Many Requests。\n5. 基于 Redis 实现分布式计数。限流计数 Redis 操作失败时不额外拦截（fail-open for rate-limit counter only），但登录/注册主链路涉及认证/session 的 Redis 失败仍按 architecture.md 不变量 12 返回 503（fail-closed）。\n\n改动文件：新增 server/app/rate_limit.py（速率限制中间件）、user_api.py（应用中间件）。",
       "verification": "L2",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": "P1",
       "acceptance_criteria": [
         "/api/login 同一 IP 每分钟超过 10 次 → 429",
@@ -294,7 +299,11 @@
       "files": [
         "server/app/rate_limit.py",
         "server/app/user_api.py"
-      ]
+      ],
+      "started_at": "2026-04-13",
+      "completed_at": "2026-04-13",
+      "execution_notes": "Redis IP 速率限制 + fail-open + 429 Retry-After；8 个测试通过；commit 25afe8c",
+      "commit": "25afe8c"
     },
     {
       "id": "B068",
@@ -306,7 +315,7 @@
       "depends_on": [
         "B065"
       ],
-      "status": "pending",
+      "status": "completed",
       "priority": "P0",
       "acceptance_criteria": [
         "Agent WS 连接后发送 auth 消息（token 不在 URL 中）",
@@ -357,7 +366,11 @@
         "agent/app/main.py",
         "agent/local_server.py",
         "agent/app/config.py"
-      ]
+      ],
+      "started_at": "2026-04-13",
+      "completed_at": "2026-04-13",
+      "execution_notes": "Agent WS auth 消息 + terminal 输入校验 + local_server token 认证；14 个测试通过；commit 721eb23",
+      "commit": "721eb23"
     },
     {
       "id": "F058",
@@ -369,7 +382,7 @@
       "depends_on": [
         "B065"
       ],
-      "status": "pending",
+      "status": "completed",
       "priority": "P0",
       "acceptance_criteria": [
         "Client WS 连接后发送 auth 消息（token 不在 URL 中）",
@@ -420,7 +433,7 @@
       "description": "修复 SEC-10 和 SEC-14：\n1. **Redis 密码**：docker-compose.yml 添加 REDIS_PASSWORD 环境变量，Redis 启动命令添加 --requirepass，Server 连接时传入密码。注意：Agent 不直接连接 Redis，仅 Server 需要密码参数。\n2. **Docker 非 root**：server.Dockerfile 和 agent.Dockerfile 添加非 root 用户（appuser），RUN useradd + USER appuser。\n\n改动文件：deploy/docker-compose.yml、deploy/server.Dockerfile、deploy/agent.Dockerfile、server/app/session.py（Redis 密码参数）。",
       "verification": "L3",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": "P1",
       "acceptance_criteria": [
         "Redis 启动时设置 --requirepass ${REDIS_PASSWORD}",
@@ -463,7 +476,11 @@
         "deploy/server.Dockerfile",
         "deploy/agent.Dockerfile",
         "server/app/session.py"
-      ]
+      ],
+      "started_at": "2026-04-13",
+      "completed_at": "2026-04-13",
+      "execution_notes": "Redis 密码 + Docker 非 root + 8 个测试；commit b4c68e7",
+      "commit": "b4c68e7"
     },
     {
       "id": "S038",
