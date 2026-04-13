@@ -312,23 +312,23 @@ class TestWSAgentOldTokenAccepted:
         assert first_msg["session_id"] == "session-1"
 
 
-# ---------- history_api get_current_session_async ----------
+# ---------- history_api get_current_user_id ----------
 
 
 class TestHistoryApiAsyncVerify:
-    """history_api 使用 get_current_session_async（内部调用 async_verify_token）"""
+    """history_api 使用 get_current_user_id（内部调用 async_verify_token）"""
 
     def test_imports_async_version(self):
         import app.history_api as mod
         import inspect
         source = inspect.getsource(mod.get_history_endpoint)
-        assert "get_current_session_async" in source
-        assert "get_current_session," not in source
+        assert "get_current_user_id" in source
+        assert "get_session," not in source
 
-    def test_auth_provides_async_version(self):
-        """auth.py 导出 get_current_session_async"""
-        from app.auth import get_current_session_async
-        assert callable(get_current_session_async)
+    def test_auth_provides_get_current_user_id(self):
+        """auth.py 导出 get_current_user_id"""
+        from app.auth import get_current_user_id
+        assert callable(get_current_user_id)
 
 
 # ---------- DF-20260409-04 回归集成测试 ----------

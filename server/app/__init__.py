@@ -18,7 +18,7 @@ from app.middleware import (
     RequestLoggingMiddleware,
     ErrorHandlerMiddleware,
 )
-from app.database import init_db
+from app.database import configure_database, init_db, DEFAULT_DB_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,9 @@ async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     global _ttl_checker_task
 
-    # 初始化数据库（用户持久化存储）
+    # 配置并初始化数据库（用户持久化存储）
+    db_path = os.environ.get("DATABASE_PATH", DEFAULT_DB_PATH)
+    configure_database(db_path)
     await init_db()
     logger.info("Database initialized")
 

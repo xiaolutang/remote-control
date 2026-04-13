@@ -10,11 +10,10 @@ import os
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any, Literal
 from fastapi import APIRouter, Depends, Query, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.auth import async_verify_token
+from app.auth import get_current_payload
 from app.http_client import get_shared_http_client
 from app.log_service import (
     append_logs_batch,
@@ -28,17 +27,6 @@ from app.log_service import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/logs", tags=["logs"])
-
-# HTTP Bearer 认证
-security = HTTPBearer()
-
-
-async def get_current_payload(
-    credentials: HTTPAuthorizationCredentials = Depends(security)
-) -> dict:
-    """获取当前认证的 payload"""
-    token = credentials.credentials
-    return await async_verify_token(token)
 
 
 # ============ 请求/响应模型 ============

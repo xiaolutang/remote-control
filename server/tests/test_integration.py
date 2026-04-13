@@ -16,7 +16,12 @@ from fastapi.testclient import TestClient
 from fastapi import HTTPException
 
 from app import app
-from app.auth import generate_token
+from app.auth import generate_token, get_current_user_id
+
+
+async def _mock_user_id():
+    """测试用 mock：直接返回 user1"""
+    return "user1"
 
 
 async def _cancelled_iter_json():
@@ -237,6 +242,11 @@ class TestRuntimeDeviceApi:
         self.client = TestClient(app)
         self.token = generate_token("runtime-session-1")
         self.headers = {"Authorization": f"Bearer {self.token}"}
+        # 覆盖鉴权依赖，跳过 JWT + Redis 验证
+        app.dependency_overrides[get_current_user_id] = _mock_user_id
+
+    def teardown_method(self):
+        app.dependency_overrides.pop(get_current_user_id, None)
 
     def test_list_runtime_devices_returns_owned_devices(self):
         """查询在线 device 列表"""
@@ -258,11 +268,9 @@ class TestRuntimeDeviceApi:
             }
         ]
 
-        with patch("app.runtime_api.async_verify_token", new=AsyncMock(return_value={"sub": "user1"})):
-
-            with patch("app.runtime_api.is_agent_connected", return_value=True):
-                with patch("app.runtime_api.list_sessions_for_user", new=AsyncMock(return_value=sessions)):
-                    response = self.client.get("/api/runtime/devices", headers=self.headers)
+        with patch("app.runtime_api.is_agent_connected", return_value=True):
+            with patch("app.runtime_api.list_sessions_for_user", new=AsyncMock(return_value=sessions)):
+                response = self.client.get("/api/runtime/devices", headers=self.headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -287,11 +295,9 @@ class TestRuntimeDeviceApi:
             }
         ]
 
-        with patch("app.runtime_api.async_verify_token", new=AsyncMock(return_value={"sub": "user1"})):
-
-            with patch("app.runtime_api.is_agent_connected", return_value=True):
-                with patch("app.runtime_api.list_sessions_for_user", new=AsyncMock(return_value=sessions)):
-                    response = self.client.get("/api/runtime/devices", headers=self.headers)
+        with patch("app.runtime_api.is_agent_connected", return_value=True):
+            with patch("app.runtime_api.list_sessions_for_user", new=AsyncMock(return_value=sessions)):
+                response = self.client.get("/api/runtime/devices", headers=self.headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -316,13 +322,11 @@ class TestRuntimeDeviceApi:
             "views": {"mobile": 0, "desktop": 0},
         }]
 
-        with patch("app.runtime_api.async_verify_token", new=AsyncMock(return_value={"sub": "user1"})):
-
-            with patch("app.runtime_api.is_agent_connected", return_value=True):
-                with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-                    with patch("app.runtime_api.list_session_terminals", new=AsyncMock(return_value=terminals)):
-                        with patch("app.runtime_api.get_view_counts", return_value={"mobile": 1, "desktop": 0}):
-                            response = self.client.get("/api/runtime/devices/mbp-01/terminals", headers=self.headers)
+        with patch("app.runtime_api.is_agent_connected", return_value=True):
+            with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
+                with patch("app.runtime_api.list_session_terminals", new=AsyncMock(return_value=terminals)):
+                    with patch("app.runtime_api.get_view_counts", return_value={"mobile": 1, "desktop": 0}):
+                        response = self.client.get("/api/runtime/devices/mbp-01/terminals", headers=self.headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -347,10 +351,8 @@ class TestRuntimeDeviceApi:
             }
         ]
 
-        with patch("app.runtime_api.async_verify_token", new=AsyncMock(return_value={"session_id": "runtime-session-1"})):
-            with patch("app.runtime_api.get_session", new=AsyncMock(return_value={"session_id": "runtime-session-1", "owner": "", "user_id": "user1"})):
-                with patch("app.runtime_api.list_sessions_for_user", new=AsyncMock(return_value=sessions)):
-                    response = self.client.get("/api/runtime/devices", headers=self.headers)
+        with patch("app.runtime_api.list_sessions_for_user", new=AsyncMock(return_value=sessions)):
+            response = self.client.get("/api/runtime/devices", headers=self.headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -379,15 +381,14 @@ class TestRuntimeDeviceApi:
         }
 
         update_mock = AsyncMock(return_value=updated)
-        with patch("app.runtime_api.async_verify_token", new=AsyncMock(return_value={"sub": "user1"})):
 
-            with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-                with patch("app.runtime_api.update_session_device_metadata", new=update_mock):
-                    response = self.client.patch(
-                        "/api/runtime/devices/mbp-01",
-                        headers=self.headers,
-                        json={"name": "New Name", "max_terminals": 5},
-                    )
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
+            with patch("app.runtime_api.update_session_device_metadata", new=update_mock):
+                response = self.client.patch(
+                    "/api/runtime/devices/mbp-01",
+                    headers=self.headers,
+                    json={"name": "New Name", "max_terminals": 5},
+                )
 
         assert response.status_code == 200
         data = response.json()
@@ -413,14 +414,12 @@ class TestRuntimeDeviceApi:
             "terminals": [],
         }
 
-        with patch("app.runtime_api.async_verify_token", new=AsyncMock(return_value={"sub": "user1"})):
-
-            with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-                response = self.client.patch(
-                    "/api/runtime/devices/mbp-01",
-                    headers=self.headers,
-                    json={},
-                )
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
+            response = self.client.patch(
+                "/api/runtime/devices/mbp-01",
+                headers=self.headers,
+                json={},
+            )
 
         assert response.status_code == 400
         assert "至少需要提供一个可更新字段" in response.json()["detail"]
@@ -433,21 +432,19 @@ class TestRuntimeDeviceApi:
             "device": {"device_id": "mbp-01"},
         }
 
-        with patch("app.runtime_api.async_verify_token", new=AsyncMock(return_value={"sub": "user1"})):
-
-            with patch("app.runtime_api.is_agent_connected", return_value=False):
-                with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-                    response = self.client.post(
-                        "/api/runtime/devices/mbp-01/terminals",
-                        headers=self.headers,
-                        json={
-                            "terminal_id": "term-1",
-                            "title": "Claude / ai_rules",
-                            "cwd": "./",
-                            "command": "claude code",
-                            "env": {},
-                        },
-                    )
+        with patch("app.runtime_api.is_agent_connected", return_value=False):
+            with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
+                response = self.client.post(
+                    "/api/runtime/devices/mbp-01/terminals",
+                    headers=self.headers,
+                    json={
+                        "terminal_id": "term-1",
+                        "title": "Claude / ai_rules",
+                        "cwd": "./",
+                        "command": "claude code",
+                        "env": {},
+                    },
+                )
 
         assert response.status_code == 409
         assert "offline" in response.json()["detail"]
@@ -469,26 +466,24 @@ class TestRuntimeDeviceApi:
             "views": {"mobile": 0, "desktop": 0},
         }
 
-        with patch("app.runtime_api.async_verify_token", new=AsyncMock(return_value={"sub": "user1"})):
-
-            with patch("app.runtime_api.is_agent_connected", return_value=True):
-                with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-                    with patch("app.runtime_api.create_session_terminal", new=AsyncMock(return_value=terminal)):
-                        with patch(
-                            "app.runtime_api.request_agent_create_terminal",
-                            new=AsyncMock(return_value={**terminal, "status": "detached"}),
-                        ):
-                            response = self.client.post(
-                                "/api/runtime/devices/mbp-01/terminals",
-                                headers=self.headers,
-                                json={
-                                    "terminal_id": "term-1",
-                                    "title": "Claude / ai_rules",
-                                    "cwd": "./",
-                                    "command": "claude code",
-                                    "env": {},
-                                },
-                            )
+        with patch("app.runtime_api.is_agent_connected", return_value=True):
+            with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
+                with patch("app.runtime_api.create_session_terminal", new=AsyncMock(return_value=terminal)):
+                    with patch(
+                        "app.runtime_api.request_agent_create_terminal",
+                        new=AsyncMock(return_value={**terminal, "status": "detached"}),
+                    ):
+                        response = self.client.post(
+                            "/api/runtime/devices/mbp-01/terminals",
+                            headers=self.headers,
+                            json={
+                                "terminal_id": "term-1",
+                                "title": "Claude / ai_rules",
+                                "cwd": "./",
+                                "command": "claude code",
+                                "env": {},
+                            },
+                        )
 
         assert response.status_code == 200
 
@@ -500,27 +495,25 @@ class TestRuntimeDeviceApi:
             "device": {"device_id": "mbp-01"},
         }
 
-        with patch("app.runtime_api.async_verify_token", new=AsyncMock(return_value={"sub": "user1"})):
-
-            with patch("app.runtime_api.is_agent_connected", return_value=True):
-                with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-                    with patch("app.runtime_api.create_session_terminal", new=AsyncMock(return_value={"terminal_id": "term-1"})):
-                        with patch(
-                            "app.runtime_api.request_agent_create_terminal",
-                            new=AsyncMock(side_effect=HTTPException(status_code=409, detail="device offline")),
-                        ):
-                            with patch("app.runtime_api.update_session_terminal_status", new=AsyncMock()) as mock_update:
-                                response = self.client.post(
-                                    "/api/runtime/devices/mbp-01/terminals",
-                                    headers=self.headers,
-                                    json={
-                                        "terminal_id": "term-1",
-                                        "title": "Claude / ai_rules",
-                                        "cwd": "./",
-                                        "command": "claude code",
-                                        "env": {},
-                                    },
-                                )
+        with patch("app.runtime_api.is_agent_connected", return_value=True):
+            with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
+                with patch("app.runtime_api.create_session_terminal", new=AsyncMock(return_value={"terminal_id": "term-1"})):
+                    with patch(
+                        "app.runtime_api.request_agent_create_terminal",
+                        new=AsyncMock(side_effect=HTTPException(status_code=409, detail="device offline")),
+                    ):
+                        with patch("app.runtime_api.update_session_terminal_status", new=AsyncMock()) as mock_update:
+                            response = self.client.post(
+                                "/api/runtime/devices/mbp-01/terminals",
+                                headers=self.headers,
+                                json={
+                                    "terminal_id": "term-1",
+                                    "title": "Claude / ai_rules",
+                                    "cwd": "./",
+                                    "command": "claude code",
+                                    "env": {},
+                                },
+                            )
 
         assert response.status_code == 409
         mock_update.assert_awaited_once()
@@ -543,26 +536,24 @@ class TestRuntimeDeviceApi:
             "views": {"mobile": 0, "desktop": 0},
         }
 
-        with patch("app.runtime_api.async_verify_token", new=AsyncMock(return_value={"sub": "user1"})):
-
-            with patch("app.runtime_api.is_agent_connected", return_value=True):
-                with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-                    with patch("app.runtime_api.create_session_terminal", new=AsyncMock(return_value=terminal)):
-                        with patch(
-                            "app.runtime_api.request_agent_create_terminal",
-                            new=AsyncMock(return_value={**terminal, "status": "detached"}),
-                        ):
-                            response = self.client.post(
-                                "/api/runtime/devices/mbp-01/terminals",
-                                headers=self.headers,
-                                json={
-                                    "terminal_id": "term-1",
-                                    "title": "Claude / ai_rules",
-                                    "cwd": "./",
-                                    "command": "claude code",
-                                    "env": {"TERM": "xterm-256color"},
-                                },
-                            )
+        with patch("app.runtime_api.is_agent_connected", return_value=True):
+            with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
+                with patch("app.runtime_api.create_session_terminal", new=AsyncMock(return_value=terminal)):
+                    with patch(
+                        "app.runtime_api.request_agent_create_terminal",
+                        new=AsyncMock(return_value={**terminal, "status": "detached"}),
+                    ):
+                        response = self.client.post(
+                            "/api/runtime/devices/mbp-01/terminals",
+                            headers=self.headers,
+                            json={
+                                "terminal_id": "term-1",
+                                "title": "Claude / ai_rules",
+                                "cwd": "./",
+                                "command": "claude code",
+                                "env": {"TERM": "xterm-256color"},
+                            },
+                        )
 
         assert response.status_code == 200
         data = response.json()
@@ -595,26 +586,24 @@ class TestRuntimeDeviceApi:
             "views": {"mobile": 0, "desktop": 0},
         }
 
-        with patch("app.runtime_api.async_verify_token", new=AsyncMock(return_value={"sub": "user1"})):
-
-            with patch("app.runtime_api.is_agent_connected", return_value=True):
-                with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-                    with patch("app.runtime_api.create_session_terminal", new=AsyncMock(return_value=terminal)):
-                        with patch(
-                            "app.runtime_api.request_agent_create_terminal",
-                            new=AsyncMock(return_value={**terminal, "status": "detached"}),
-                        ):
-                            response = self.client.post(
-                                "/api/runtime/devices/mbp-01/terminals",
-                                headers=self.headers,
-                                json={
-                                    "terminal_id": "term-1",
-                                    "title": "Claude / ai_rules",
-                                    "cwd": "./",
-                                    "command": "claude code",
-                                    "env": {},
-                                },
-                            )
+        with patch("app.runtime_api.is_agent_connected", return_value=True):
+            with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
+                with patch("app.runtime_api.create_session_terminal", new=AsyncMock(return_value=terminal)):
+                    with patch(
+                        "app.runtime_api.request_agent_create_terminal",
+                        new=AsyncMock(return_value={**terminal, "status": "detached"}),
+                    ):
+                        response = self.client.post(
+                            "/api/runtime/devices/mbp-01/terminals",
+                            headers=self.headers,
+                            json={
+                                "terminal_id": "term-1",
+                                "title": "Claude / ai_rules",
+                                "cwd": "./",
+                                "command": "claude code",
+                                "env": {},
+                            },
+                        )
 
         assert response.status_code == 200
         assert response.json()["terminal_id"] == "term-1"
@@ -637,19 +626,17 @@ class TestRuntimeDeviceApi:
             "views": {"mobile": 0, "desktop": 0},
         }
 
-        with patch("app.runtime_api.async_verify_token", new=AsyncMock(return_value={"sub": "user1"})):
-
-            with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-                with patch("app.runtime_api.get_session_terminal", new=AsyncMock(return_value=terminal)):
-                    with patch("app.runtime_api.request_agent_close_terminal_with_ack", new=AsyncMock()):
-                        with patch(
-                            "app.runtime_api.update_session_terminal_status",
-                            new=AsyncMock(return_value={**terminal, "status": "closed", "disconnect_reason": "server_forced_close"}),
-                        ):
-                            response = self.client.delete(
-                                "/api/runtime/devices/mbp-01/terminals/term-1",
-                                headers=self.headers,
-                            )
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
+            with patch("app.runtime_api.get_session_terminal", new=AsyncMock(return_value=terminal)):
+                with patch("app.runtime_api.request_agent_close_terminal_with_ack", new=AsyncMock()):
+                    with patch(
+                        "app.runtime_api.update_session_terminal_status",
+                        new=AsyncMock(return_value={**terminal, "status": "closed", "disconnect_reason": "server_forced_close"}),
+                    ):
+                        response = self.client.delete(
+                            "/api/runtime/devices/mbp-01/terminals/term-1",
+                            headers=self.headers,
+                        )
 
         assert response.status_code == 200
         data = response.json()
@@ -674,15 +661,13 @@ class TestRuntimeDeviceApi:
             "views": {"mobile": 0, "desktop": 0},
         }
 
-        with patch("app.runtime_api.async_verify_token", new=AsyncMock(return_value={"sub": "user1"})):
-
-            with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-                with patch("app.runtime_api.update_session_terminal_metadata", new=AsyncMock(return_value=terminal)):
-                    response = self.client.patch(
-                        "/api/runtime/devices/mbp-01/terminals/term-1",
-                        headers=self.headers,
-                        json={"title": "New Title"},
-                    )
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
+            with patch("app.runtime_api.update_session_terminal_metadata", new=AsyncMock(return_value=terminal)):
+                response = self.client.patch(
+                    "/api/runtime/devices/mbp-01/terminals/term-1",
+                    headers=self.headers,
+                    json={"title": "New Title"},
+                )
 
         assert response.status_code == 200
         data = response.json()
@@ -704,19 +689,17 @@ class TestRuntimeDeviceApi:
             "views": {"mobile": 1, "desktop": 0},
         }
 
-        with patch("app.runtime_api.async_verify_token", new=AsyncMock(return_value={"sub": "user1"})):
-
-            with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-                with patch("app.runtime_api.get_session_terminal", new=AsyncMock(return_value=terminal)):
-                    with patch("app.runtime_api.request_agent_close_terminal_with_ack", new=AsyncMock()) as request_close:
-                        with patch(
-                            "app.runtime_api.update_session_terminal_status",
-                            new=AsyncMock(return_value={**terminal, "status": "closed", "disconnect_reason": "server_forced_close"}),
-                        ):
-                            response = self.client.delete(
-                                "/api/runtime/devices/mbp-01/terminals/term-1",
-                                headers=self.headers,
-                            )
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
+            with patch("app.runtime_api.get_session_terminal", new=AsyncMock(return_value=terminal)):
+                with patch("app.runtime_api.request_agent_close_terminal_with_ack", new=AsyncMock()) as request_close:
+                    with patch(
+                        "app.runtime_api.update_session_terminal_status",
+                        new=AsyncMock(return_value={**terminal, "status": "closed", "disconnect_reason": "server_forced_close"}),
+                    ):
+                        response = self.client.delete(
+                            "/api/runtime/devices/mbp-01/terminals/term-1",
+                            headers=self.headers,
+                        )
 
         assert response.status_code == 200
         request_close.assert_awaited_once()
@@ -740,20 +723,18 @@ class TestRuntimeDeviceApi:
             "disconnect_reason": None,
         }
 
-        with patch("app.runtime_api.async_verify_token", new=AsyncMock(return_value={"sub": "user1"})):
-
-            with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-                with patch("app.runtime_api.get_session_terminal", new=AsyncMock(return_value=terminal)):
-                    with patch("app.runtime_api.get_view_counts", return_value={"mobile": 0, "desktop": 0}):
-                        with patch("app.runtime_api.request_agent_close_terminal_with_ack", new=AsyncMock()):
-                            with patch(
-                                "app.runtime_api.update_session_terminal_status",
-                                new=AsyncMock(return_value={**terminal, "status": "closed", "disconnect_reason": "server_forced_close"}),
-                            ):
-                                response = self.client.delete(
-                                    "/api/runtime/devices/mbp-01/terminals/term-1",
-                                    headers=self.headers,
-                                )
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
+            with patch("app.runtime_api.get_session_terminal", new=AsyncMock(return_value=terminal)):
+                with patch("app.runtime_api.get_view_counts", return_value={"mobile": 0, "desktop": 0}):
+                    with patch("app.runtime_api.request_agent_close_terminal_with_ack", new=AsyncMock()):
+                        with patch(
+                            "app.runtime_api.update_session_terminal_status",
+                            new=AsyncMock(return_value={**terminal, "status": "closed", "disconnect_reason": "server_forced_close"}),
+                        ):
+                            response = self.client.delete(
+                                "/api/runtime/devices/mbp-01/terminals/term-1",
+                                headers=self.headers,
+                            )
 
         assert response.status_code == 200
         assert response.json()["status"] == "closed"

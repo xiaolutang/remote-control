@@ -306,6 +306,11 @@ async def create_session(
 
     await redis.set(key, json.dumps(session_data))
 
+    # 写入 session name 反向索引（O(1) 查找）
+    if name:
+        name_key = f"rc:session_name_idx:{name}"
+        await redis.set(name_key, session_id)
+
     logger.info("Session created: session_id=%s owner=%s", session_id, owner or user_id)
 
     return {
@@ -674,6 +679,8 @@ async def get_session_by_name(name: str) -> Optional[dict]:
     """
     通过名称查找会话
 
+    优先使用反向索引 O(1) 查找，向后兼容 SCAN 回退。
+
     Args:
         name: 会话名称
 
@@ -685,7 +692,24 @@ async def get_session_by_name(name: str) -> Optional[dict]:
 
     redis = await redis_conn.get_redis()
 
-    # 扫描所有 session 键
+    # 优先使用反向索引（O(1)）
+    name_key = f"rc:session_name_idx:{name}"
+    session_id_raw = await redis.get(name_key)
+    if session_id_raw:
+        sid = session_id_raw if isinstance(session_id_raw, str) else session_id_raw.decode()
+        try:
+            async with _session_locks.get_lock(sid):
+                session_data = await _get_session_raw(sid)
+            # _get_session_raw 已 normalize，无需重复
+            return {
+                "id": sid,
+                **session_data,
+            }
+        except HTTPException:
+            # 索引过期（session 已删除），清理过期索引并回退到 SCAN
+            await redis.delete(name_key)
+
+    # 回退：SCAN 遍历（兼容旧 session）
     pattern = f"{KEY_PREFIX}:*"
     cursor = 0
 
@@ -850,8 +874,7 @@ async def list_session_terminals(session_id: str) -> list[dict]:
         changed = _reconcile_terminals(terminals)
         if changed:
             session_data["updated_at"] = datetime.now(timezone.utc).isoformat()
-            await (await redis_conn.get_redis()).set(
-                _session_key(session_id), json.dumps(session_data))
+            await _save_session(session_id, session_data)
         return terminals
 
 
@@ -950,8 +973,7 @@ async def update_session_terminal_status(
                 terminal["updated_at"] = datetime.now(timezone.utc).isoformat()
                 _trim_terminal_records(terminals)
                 session_data["updated_at"] = datetime.now(timezone.utc).isoformat()
-                await (await redis_conn.get_redis()).set(
-                    _session_key(session_id), json.dumps(session_data))
+                await _save_session(session_id, session_data)
                 return terminal
 
         raise HTTPException(
@@ -985,8 +1007,7 @@ async def update_session_terminal_metadata(
                     terminal["command"] = command
                 terminal["updated_at"] = datetime.now(timezone.utc).isoformat()
                 session_data["updated_at"] = datetime.now(timezone.utc).isoformat()
-                await (await redis_conn.get_redis()).set(
-                    _session_key(session_id), json.dumps(session_data))
+                await _save_session(session_id, session_data)
                 return terminal
 
         raise HTTPException(

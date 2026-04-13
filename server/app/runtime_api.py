@@ -3,13 +3,12 @@
 """
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel, Field
 
-from app.auth import async_verify_token, TokenVerificationError
+from app.auth import get_current_user_id
 from app.session import (
     create_session_terminal,
-    get_session,
     get_session_by_device_id,
     get_session_terminal,
     list_session_terminals,
@@ -98,33 +97,11 @@ class UpdateTerminalRequest(BaseModel):
     title: str
 
 
-async def _get_user_from_authorization(authorization: str) -> str:
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="无效的 Authorization header 格式",
-        )
-
-    payload = await async_verify_token(authorization[7:])
-    if payload.get("session_id"):
-        session = await get_session(payload["session_id"])
-        user_id = session.get("owner") or session.get("user_id") or ""
-    else:
-        user_id = payload.get("sub", "")
-    if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token 缺少用户身份",
-        )
-    return user_id
-
-
 @router.get("/runtime/devices", response_model=RuntimeDeviceListResponse)
 async def list_runtime_devices(
-    authorization: str = Header(..., alias="Authorization"),
+    user_id: str = Depends(get_current_user_id),
 ):
     """列出当前用户的 runtime devices。"""
-    user_id = await _get_user_from_authorization(authorization)
     sessions = await list_sessions_for_user(user_id)
 
     devices = []
@@ -151,10 +128,9 @@ async def list_runtime_devices(
 async def update_runtime_device(
     device_id: str,
     request: UpdateDeviceRequest,
-    authorization: str = Header(..., alias="Authorization"),
+    user_id: str = Depends(get_current_user_id),
 ):
     """更新 device 元数据。"""
-    user_id = await _get_user_from_authorization(authorization)
     session = await get_session_by_device_id(device_id, user_id)
     if not session:
         raise HTTPException(
@@ -190,10 +166,9 @@ async def update_runtime_device(
 @router.get("/runtime/devices/{device_id}/terminals", response_model=RuntimeTerminalListResponse)
 async def list_runtime_terminals(
     device_id: str,
-    authorization: str = Header(..., alias="Authorization"),
+    user_id: str = Depends(get_current_user_id),
 ):
     """列出 device 下的 terminal。"""
-    user_id = await _get_user_from_authorization(authorization)
     session = await get_session_by_device_id(device_id, user_id)
     if not session:
         raise HTTPException(
@@ -213,10 +188,9 @@ async def list_runtime_terminals(
 async def create_runtime_terminal(
     device_id: str,
     request: CreateTerminalRequest,
-    authorization: str = Header(..., alias="Authorization"),
+    user_id: str = Depends(get_current_user_id),
 ):
     """为在线 device 创建 terminal。"""
-    user_id = await _get_user_from_authorization(authorization)
     session = await get_session_by_device_id(device_id, user_id)
     if not session:
         raise HTTPException(
@@ -277,10 +251,9 @@ async def create_runtime_terminal(
 async def close_runtime_terminal(
     device_id: str,
     terminal_id: str,
-    authorization: str = Header(..., alias="Authorization"),
+    user_id: str = Depends(get_current_user_id),
 ):
     """关闭 terminal，等待 agent 确认后再广播。"""
-    user_id = await _get_user_from_authorization(authorization)
     session = await get_session_by_device_id(device_id, user_id)
     if not session:
         raise HTTPException(
@@ -329,10 +302,9 @@ async def update_runtime_terminal(
     device_id: str,
     terminal_id: str,
     request: UpdateTerminalRequest,
-    authorization: str = Header(..., alias="Authorization"),
+    user_id: str = Depends(get_current_user_id),
 ):
     """更新 terminal 元数据。当前仅支持标题。"""
-    user_id = await _get_user_from_authorization(authorization)
     session = await get_session_by_device_id(device_id, user_id)
     if not session:
         raise HTTPException(
