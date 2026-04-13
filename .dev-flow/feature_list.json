@@ -19,9 +19,9 @@
   },
   "summary": {
     "total": 10,
-    "pending": 10,
+    "pending": 0,
     "in_progress": 0,
-    "completed": 0,
+    "completed": 10,
     "blocked": 0,
     "cancelled": 0
   },
@@ -500,7 +500,7 @@
         "F058",
         "B070"
       ],
-      "status": "pending",
+      "status": "completed",
       "priority": "P0",
       "acceptance_criteria": [
         "全链路注册→登录→WS→terminal→关闭正常",
@@ -532,7 +532,11 @@
             "CORS 非配置域名 → 请求被拒"
           ]
         }
-      ]
+      ],
+      "started_at": "2026-04-14",
+      "completed_at": "2026-04-14",
+      "execution_notes": "10 个集成测试覆盖全部安全加固措施；361 server 测试通过；commit 91b9b8a",
+      "commit": "91b9b8a"
     }
   ],
   "archived_phases": [
