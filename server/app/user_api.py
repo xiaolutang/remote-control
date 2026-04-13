@@ -23,7 +23,7 @@ from app.auth import (
     REFRESH_TOKEN_EXPIRATION_DAYS,
     get_current_user_id,
 )
-from app.database import get_user, save_user, get_user_devices, add_user_device
+from app.database import get_user, save_user, get_user_devices, add_user_device, update_password_hash
 
 router = APIRouter()
 
@@ -85,8 +85,27 @@ class SessionStateResponse(BaseModel):
 
 
 def hash_password(password: str) -> str:
-    """密码哈希"""
-    return hashlib.sha256(password.encode()).hexdigest()
+    """密码哈希（bcrypt）"""
+    import bcrypt
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    """验证密码（支持 bcrypt 和旧 SHA-256）"""
+    import bcrypt
+
+    # bcrypt 哈希以 $2b$ 开头
+    if password_hash.startswith("$2b$"):
+        return bcrypt.checkpw(password.encode(), password_hash.encode())
+
+    # 旧 SHA-256 格式（64 hex 字符）
+    legacy_hash = hashlib.sha256(password.encode()).hexdigest()
+    return legacy_hash == password_hash
+
+
+def is_legacy_hash(password_hash: str) -> bool:
+    """判断是否为旧 SHA-256 哈希"""
+    return len(password_hash) == 64 and all(c in "0123456789abcdef" for c in password_hash)
 
 
 # Refresh Token Redis 管理函数
@@ -188,11 +207,18 @@ async def login(user: UserLogin):
         )
 
     password_hash = hash_password(user.password)
-    if stored_user["password_hash"] != password_hash:
+    stored_hash = stored_user["password_hash"]
+
+    if not verify_password(user.password, stored_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户名或密码错误",
         )
+
+    # 旧 SHA-256 哈希自动迁移为 bcrypt
+    if is_legacy_hash(stored_hash):
+        new_hash = hash_password(user.password)
+        await update_password_hash(user.username, new_hash)
 
     # 检查是否已有该用户的 session（实现同用户多设备共享 session）
     existing_session = await get_session_by_name(f"{user.username}_session")
