@@ -1,0 +1,86 @@
+{
+  "phase": "security-hardening",
+  "branch": "feat/security-hardening",
+  "status": "completed",
+  "archived_at": "2026-04-14",
+  "started_at": "2026-04-13T15:30:00Z",
+  "completed_at": "2026-04-14",
+  "commit_range": "6733090..67f5fb9",
+  "summary": {
+    "total": 10,
+    "completed": 10,
+    "cancelled": 0
+  },
+  "tasks": [
+    {
+      "id": "B062",
+      "name": "JWT Secret 加固 + 旧 token 拒绝",
+      "status": "completed",
+      "commit": "1763303",
+      "module": "server"
+    },
+    {
+      "id": "B063",
+      "name": "密码哈希迁移到 bcrypt",
+      "status": "completed",
+      "commit": "635902a",
+      "module": "server"
+    },
+    {
+      "id": "B064",
+      "name": "CORS 收紧",
+      "status": "completed",
+      "commit": "3bf1c6d",
+      "module": "server"
+    },
+    {
+      "id": "B065",
+      "name": "WebSocket 鉴权重构",
+      "status": "completed",
+      "commit": "9a43748",
+      "module": "server"
+    },
+    {
+      "id": "B066",
+      "name": "日志 API 归属校验 + 错误信息脱敏",
+      "status": "completed",
+      "commit": "6f43366",
+      "module": "server"
+    },
+    {
+      "id": "B067",
+      "name": "登录/注册速率限制",
+      "status": "completed",
+      "commit": "25afe8c",
+      "module": "server"
+    },
+    {
+      "id": "B068",
+      "name": "Agent 安全加固",
+      "status": "completed",
+      "commit": "721eb23",
+      "module": "agent"
+    },
+    {
+      "id": "F058",
+      "name": "Client 安全加固",
+      "status": "completed",
+      "commit": "",
+      "module": "client"
+    },
+    {
+      "id": "B070",
+      "name": "Redis 密码保护 + Docker 非 root",
+      "status": "completed",
+      "commit": "b4c68e7",
+      "module": "server"
+    },
+    {
+      "id": "S038",
+      "name": "安全加固集成验证",
+      "status": "completed",
+      "commit": "91b9b8a",
+      "module": "shared"
+    }
+  ]
+}
