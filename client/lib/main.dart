@@ -141,8 +141,21 @@ class _SplashPageState extends State<SplashPage> {
     final config = await configService.loadConfig();
 
     // 检查是否有保存的凭证
+    Map<String, String>? credentials;
     final authService = AuthService(serverUrl: config.serverUrl);
-    final credentials = await authService.getSavedCredentials();
+    try {
+      credentials = await authService.getSavedCredentials();
+    } catch (e) {
+      // secure storage 读取失败（如 macOS keychain 问题），直接跳登录页
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => LoginScreen(serverUrl: config.serverUrl),
+        ),
+      );
+      return;
+    }
 
     if (credentials != null) {
       // 尝试自动登录

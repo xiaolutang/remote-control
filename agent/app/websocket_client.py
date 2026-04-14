@@ -20,7 +20,7 @@ from websockets import ClientConnection
 from app.pty_wrapper import PTYWrapper, PTYConfig
 
 
-from app.config import Config
+from app.config import Config, ssl_context_for_websockets
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +32,13 @@ def _validate_terminal_input(command, cwd, env) -> Optional[str]:
         return f"command must be string, got {type(command).__name__}"
     if not command.strip():
         return "command must not be empty"
-    # cwd 如果提供，必须为绝对路径
+    # cwd 如果提供，展开 ~ 后必须为绝对路径
     if cwd is not None:
         if not isinstance(cwd, str):
             return f"cwd must be string, got {type(cwd).__name__}"
         import os.path
-        if not os.path.isabs(cwd):
+        expanded = os.path.expanduser(cwd)
+        if not os.path.isabs(expanded):
             return f"cwd must be absolute path, got '{cwd}'"
     # env 值必须为字符串
     if not isinstance(env, dict):
@@ -259,6 +260,7 @@ class WebSocketClient:
             async with websockets.connect(
                 ws_url,
                 ping_interval=None,  # 禁用协议级 ping，使用应用级心跳（30s）
+                ssl=ssl_context_for_websockets() if ws_url.startswith("wss://") else None,
             ) as ws:
                 self.ws = ws
                 self._connected = True

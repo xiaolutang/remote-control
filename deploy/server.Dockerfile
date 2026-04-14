@@ -17,9 +17,12 @@ RUN python -m venv .venv && \
 # ===== Stage 2: Runtime =====
 FROM python:3.11-slim
 
+# 本地构建传 RUN_USER=root（绕过 volume 权限），远端默认 appuser
+ARG RUN_USER=appuser
+
 WORKDIR /app
 
-# 创建非 root 用户
+# 始终创建非 root 用户和 /data 目录
 RUN useradd -r -s /bin/false appuser && \
     mkdir -p /data && chown appuser:appuser /data
 
@@ -29,15 +32,15 @@ COPY --from=builder /app/.venv .venv
 # 复制应用代码
 COPY server/app ./app
 
-# 设置文件所有权
-RUN chown -R appuser:appuser /app
+# 设置文件所有权（非 root 时）
+RUN if [ "$RUN_USER" != "root" ]; then chown -R appuser:appuser /app; fi
 
 # 环境变量
 ENV PATH="/app/.venv/bin:$PATH"
 ENV LOG_SERVICE_URL=http://log-service:8001
 ENV LOG_LEVEL=INFO
 
-USER appuser
+USER ${RUN_USER}
 
 EXPOSE 8000
 

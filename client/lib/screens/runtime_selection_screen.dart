@@ -383,7 +383,7 @@ class _TerminalPanel extends StatelessWidget {
     final titleController = TextEditingController(
       text: 'Claude / ${device.name.isEmpty ? device.deviceId : device.name}',
     );
-    final cwdController = TextEditingController(text: '~/project');
+    final cwdController = TextEditingController(text: '~');
     final commandController = TextEditingController(text: '/bin/bash');
 
     final terminal = await showDialog<RuntimeTerminal>(

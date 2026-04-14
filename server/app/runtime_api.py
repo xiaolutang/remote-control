@@ -121,6 +121,9 @@ async def list_runtime_devices(
             active_terminals=active_terminals,
         ))
 
+    # 排序：online 优先，然后按最近活跃时间降序
+    devices.sort(key=lambda d: (not d.agent_online, d.last_heartbeat_at or ""), reverse=False)
+
     return RuntimeDeviceListResponse(devices=devices)
 
 

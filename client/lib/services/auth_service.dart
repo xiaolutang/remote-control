@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'http_client_factory.dart';
 import 'logger_service.dart';
 import 'user_info_service.dart';
 
@@ -48,8 +50,13 @@ class AuthService {
     http.Client? client,
     FlutterSecureStorage? secureStorage,
   })  : _logger = logger,
-        _client = client ?? http.Client(),
-        _secureStorage = secureStorage ?? const FlutterSecureStorage();
+        _client = client ?? HttpClientFactory.create(),
+        _secureStorage = secureStorage ??
+            FlutterSecureStorage(
+              aOptions: const AndroidOptions(encryptedSharedPreferences: true),
+              iOptions: const IOSOptions(accessibility: KeychainAccessibility.first_unlock),
+              mOptions: MacOsOptions(useDataProtectionKeyChain: !kDebugMode),
+            );
 
   /// 将 WebSocket URL 转换为 HTTP URL
   String _getHttpUrl() {

@@ -48,32 +48,35 @@ class TestDockerfileNonRoot:
     """Docker 非 root 用户验证（静态检查）"""
 
     def test_server_dockerfile_has_appuser(self):
-        """server.Dockerfile 包含 USER appuser"""
+        """server.Dockerfile 支持 RUN_USER build arg 并创建 appuser"""
         dockerfile_path = os.path.join(
             os.path.dirname(__file__), "..", "..", "deploy", "server.Dockerfile"
         )
         with open(dockerfile_path) as f:
             content = f.read()
+        assert "ARG RUN_USER=appuser" in content
         assert "useradd -r -s /bin/false appuser" in content
-        assert "USER appuser" in content
+        assert "USER ${RUN_USER}" in content
 
     def test_agent_dockerfile_has_appuser(self):
-        """agent.Dockerfile 包含 USER appuser"""
+        """agent.Dockerfile 支持 RUN_USER build arg 并创建 appuser"""
         dockerfile_path = os.path.join(
             os.path.dirname(__file__), "..", "..", "deploy", "agent.Dockerfile"
         )
         with open(dockerfile_path) as f:
             content = f.read()
+        assert "ARG RUN_USER=appuser" in content
         assert "useradd -r -s /bin/false appuser" in content
-        assert "USER appuser" in content
+        assert "USER ${RUN_USER}" in content
 
     def test_server_dockerfile_data_dir_owned(self):
-        """server.Dockerfile /data 目录归属 appuser"""
+        """server.Dockerfile 创建 /data 目录并归属 appuser"""
         dockerfile_path = os.path.join(
             os.path.dirname(__file__), "..", "..", "deploy", "server.Dockerfile"
         )
         with open(dockerfile_path) as f:
             content = f.read()
+        assert "mkdir -p /data" in content
         assert "chown appuser:appuser /data" in content
 
 

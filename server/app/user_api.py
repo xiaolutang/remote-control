@@ -7,7 +7,7 @@ from typing import Optional
 import hashlib
 from datetime import datetime, timezone, timedelta
 
-from app.session import get_redis, create_session, get_session, verify_session_ownership, get_session_by_name
+from app.session import get_redis, create_session, get_session, verify_session_ownership, get_session_by_name, cleanup_user_sessions
 from app.auth import (
     create_token_response,
     generate_refresh_token,
@@ -237,9 +237,14 @@ async def login(user: UserLogin, _rl=Depends(_rate_limit_dependency)):
     existing_session = await get_session_by_name(f"{user.username}_session")
 
     if existing_session:
+        # 清理该用户的其他旧 session，只保留当前找到的
+        await cleanup_user_sessions(user.username, keep_session_id=existing_session["id"])
         # 使用现有 session，生成新 token
         token_response = create_token_with_session(existing_session["id"])
     else:
+        # 清理该用户的旧 session，防止 stale session 残留
+        await cleanup_user_sessions(user.username)
+
         # 生成新 token 和 session
         token_response = create_token_response()
         # 创建 session 记录（WebSocket 连接需要），绑定用户

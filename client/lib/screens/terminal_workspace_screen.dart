@@ -400,7 +400,7 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
     final titleController = TextEditingController(
       text: 'Claude / ${device.name.isEmpty ? device.deviceId : device.name}',
     );
-    final cwdController = TextEditingController(text: '~/project');
+    final cwdController = TextEditingController(text: '~');
     final commandController = TextEditingController(text: '/bin/bash');
 
     final terminal = await showDialog<RuntimeTerminal>(
@@ -470,7 +470,7 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
   ) async {
     final terminal = await _workspaceController.createTerminal(
       title: 'Claude / ${device.name.isEmpty ? device.deviceId : device.name}',
-      cwd: '~/project',
+      cwd: '~',
       command: '/bin/bash',
     );
     if (terminal == null || !mounted) {

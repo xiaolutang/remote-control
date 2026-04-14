@@ -24,6 +24,7 @@ build_component() {
     docker buildx build \
         -f "$SCRIPT_DIR/${name}.Dockerfile" \
         -t "remote-control-${name}:latest" \
+        --build-arg RUN_USER=root \
         $CACHE_FLAG \
         --load \
         "$PROJECT_ROOT"

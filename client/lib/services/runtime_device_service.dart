@@ -5,12 +5,13 @@ import 'package:http/http.dart' as http;
 import '../models/runtime_device.dart';
 import '../models/runtime_terminal.dart';
 import 'auth_service.dart';
+import 'http_client_factory.dart';
 
 class RuntimeDeviceService {
   RuntimeDeviceService({
     required this.serverUrl,
     http.Client? client,
-  }) : _client = client ?? http.Client();
+  }) : _client = client ?? HttpClientFactory.create();
 
   final String serverUrl;
   final http.Client _client;

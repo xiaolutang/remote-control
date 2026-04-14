@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/feedback_model.dart';
+import 'http_client_factory.dart';
 
 /// 反馈提交服务
 class FeedbackService {
@@ -19,7 +20,7 @@ class FeedbackService {
     required this.token,
     required this.sessionId,
     http.Client? client,
-  }) : _client = client ?? http.Client();
+  }) : _client = client ?? HttpClientFactory.create();
 
   /// 将 WebSocket URL 转换为 HTTP URL
   String _getHttpUrl() {

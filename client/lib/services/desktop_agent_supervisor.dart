@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -203,11 +204,11 @@ class DesktopAgentSupervisor {
           'run',
         ],
         workingDirectory: workdir.path,
-        environment: agentConfigPath == null || agentConfigPath.isEmpty
-            ? null
-            : <String, String>{
-                'RC_AGENT_CONFIG_DIR': File(agentConfigPath).parent.path,
-              },
+        environment: <String, String>{
+          if (agentConfigPath != null && agentConfigPath.isNotEmpty)
+            'RC_AGENT_CONFIG_DIR': File(agentConfigPath).parent.path,
+          if (kDebugMode) 'RC_SSL_INSECURE': '1',
+        },
         mode: ProcessStartMode.detachedWithStdio,
       );
       await _saveManagedAgentPid(process.pid);
@@ -393,7 +394,13 @@ class DesktopAgentSupervisor {
 
     try {
       final prefs = await SharedPreferences.getInstance();
-      final refreshToken = prefs.getString('rc_refresh_token');
+      // refresh_token 从 SecureStorage 读取（与 AuthService 使用一致配置）
+      const secureStorage = FlutterSecureStorage(
+        aOptions: AndroidOptions(encryptedSharedPreferences: true),
+        iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
+        mOptions: MacOsOptions(useDataProtectionKeyChain: !kDebugMode),
+      );
+      final refreshToken = await secureStorage.read(key: 'rc_refresh_token');
       final username = prefs.getString('rc_username');
 
       final managedConfigFile = File(

@@ -13,8 +13,9 @@ class ConfigService {
   // 开发服务器地址
   // 桌面端使用 localhost，手机端需要使用电脑的局域网 IP
   static const String _debugServerUrlDesktop = AppConfig.defaultServerUrl;
-  // 真机开发时需设置为电脑的局域网 IP（如 ws://192.168.x.x:8888）
-  static const String _debugServerUrlMobile = AppConfig.defaultServerUrl;
+  // 真机开发时优先从 RC_SERVER_URL 环境变量读取，fallback 到桌面默认值
+  static final String _debugServerUrlMobile =
+      Platform.environment['RC_SERVER_URL'] ?? AppConfig.defaultServerUrl;
   final bool _useDebugDefaults;
 
   Future<AppConfig> loadConfig() async {
