@@ -7,6 +7,8 @@ import aiohttp
 from typing import Optional
 from dataclasses import dataclass
 
+from app.config import ssl_context_for_aiohttp
+
 logger = logging.getLogger(__name__)
 
 
@@ -67,6 +69,7 @@ class AuthService:
                 async with session.post(
                     url,
                     json={"username": username, "password": password},
+                    ssl=ssl_context_for_aiohttp(),
                     timeout=aiohttp.ClientTimeout(total=30),
                 ) as response:
                     data = await response.json()
@@ -117,6 +120,7 @@ class AuthService:
                 async with session.post(
                     url,
                     json={"refresh_token": refresh_token},
+                    ssl=ssl_context_for_aiohttp(),
                     timeout=aiohttp.ClientTimeout(total=30),
                 ) as response:
                     data = await response.json()
@@ -165,6 +169,7 @@ class AuthService:
                 async with session.get(
                     url,
                     headers={"Authorization": f"Bearer {access_token}"},
+                    ssl=ssl_context_for_aiohttp(),
                     timeout=aiohttp.ClientTimeout(total=10),
                 ) as response:
                     result = response.status == 200

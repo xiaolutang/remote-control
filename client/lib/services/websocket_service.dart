@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show HttpClient;
 import 'package:flutter/foundation.dart';
+import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'http_client_factory.dart';
 import 'logger_service.dart';
 
 /// 连接状态
@@ -22,6 +25,7 @@ enum ViewType {
 /// WebSocket 服务
 class WebSocketService extends ChangeNotifier {
   WebSocketChannel? _channel;
+  HttpClient? _wsHttpClient;
   Timer? _heartbeatTimer;
   Timer? _reconnectTimer;
   StreamSubscription? _streamSubscription;
@@ -112,6 +116,8 @@ class WebSocketService extends ChangeNotifier {
     _streamSubscription = null;
     await _channel?.sink.close();
     _channel = null;
+    _wsHttpClient?.close();
+    _wsHttpClient = null;
 
     _status = ConnectionStatus.connecting;
     _allowReconnect = true;
@@ -143,7 +149,11 @@ class WebSocketService extends ChangeNotifier {
         queryParameters: queryParameters,
       );
       final wsUrl = wsUri.toString();
-      _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
+      _wsHttpClient = HttpClientFactory.createRaw();
+      _channel = IOWebSocketChannel.connect(
+        wsUrl,
+        customClient: _wsHttpClient,
+      );
 
       // 连接后立即发送 auth 消息（不再通过 URL query 传 token）
       _channel!.sink.add(jsonEncode({
@@ -435,6 +445,8 @@ class WebSocketService extends ChangeNotifier {
       await _channel!.sink.close();
       _channel = null;
     }
+    _wsHttpClient?.close();
+    _wsHttpClient = null;
 
     _status = ConnectionStatus.disconnected;
     if (notify) {

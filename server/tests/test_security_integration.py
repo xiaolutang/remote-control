@@ -193,22 +193,25 @@ class TestDeploySecurity:
         assert "--requirepass" in content
 
     def test_containers_run_as_non_root(self):
-        """容器以非 root 用户运行"""
+        """容器支持 RUN_USER build arg（远端默认 appuser）"""
         for dockerfile in ["server.Dockerfile", "agent.Dockerfile"]:
             path = os.path.join(
                 os.path.dirname(__file__), "..", "..", "deploy", dockerfile
             )
             with open(path) as f:
                 content = f.read()
-            assert "USER appuser" in content, f"{dockerfile} 缺少 USER appuser"
+            assert "ARG RUN_USER=appuser" in content, f"{dockerfile} 缺少 ARG RUN_USER=appuser"
+            assert "useradd -r -s /bin/false appuser" in content, f"{dockerfile} 缺少 appuser 创建"
+            assert "USER ${RUN_USER}" in content, f"{dockerfile} 缺少 USER ${{RUN_USER}}"
 
     def test_server_data_dir_writable_by_appuser(self):
-        """Server Dockerfile /data 目录归属 appuser"""
+        """Server Dockerfile 创建 /data 目录并归属 appuser"""
         path = os.path.join(
             os.path.dirname(__file__), "..", "..", "deploy", "server.Dockerfile"
         )
         with open(path) as f:
             content = f.read()
+        assert "mkdir -p /data" in content
         assert "chown appuser:appuser /data" in content
 
 

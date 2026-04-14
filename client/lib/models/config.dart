@@ -9,7 +9,7 @@ enum AppThemeMode {
 
 /// 配置模型
 class AppConfig {
-  static const String defaultServerUrl = 'ws://localhost/rc';
+  static const String defaultServerUrl = 'wss://localhost/rc';
   final String serverUrl;
   final String? token;
   final String sessionId;

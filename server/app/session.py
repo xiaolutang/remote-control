@@ -18,6 +18,7 @@ REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
 HISTORY_TTL_DAYS = int(os.getenv("HISTORY_TTL_DAYS", "7"))  # 历史记录保留天数
 DEFAULT_MAX_TERMINALS = int(os.getenv("DEFAULT_MAX_TERMINALS", "3"))
 MAX_TERMINAL_RECORDS = int(os.getenv("MAX_TERMINAL_RECORDS", "5"))
+SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", str(24 * 60 * 60)))  # session 默认 24h 过期
 
 # 键名前缀
 KEY_PREFIX = "rc:session"
@@ -304,12 +305,12 @@ async def create_session(
         "device": _default_device_state(session_id),
     }
 
-    await redis.set(key, json.dumps(session_data))
+    await redis.set(key, json.dumps(session_data), ex=SESSION_TTL_SECONDS)
 
     # 写入 session name 反向索引（O(1) 查找）
     if name:
         name_key = f"rc:session_name_idx:{name}"
-        await redis.set(name_key, session_id)
+        await redis.set(name_key, session_id, ex=SESSION_TTL_SECONDS)
 
     logger.info("Session created: session_id=%s owner=%s", session_id, owner or user_id)
 
@@ -320,6 +321,37 @@ async def create_session(
         "user_id": user_id,
         "owner": session_data["owner"],
     }
+
+
+async def cleanup_user_sessions(user_id: str, keep_session_id: Optional[str] = None) -> int:
+    """清理用户的所有旧 session（保留 keep_session_id 指定的）。返回删除数量。
+
+    用于登录时确保同一用户名下只有一个活跃 session，防止 stale session
+    在设备列表中显示为离线设备。
+    """
+    if not user_id:
+        return 0
+
+    redis = await redis_conn.get_redis()
+    sessions = await list_sessions_for_user(user_id)
+    deleted = 0
+
+    for session in sessions:
+        sid = session.get("session_id") or session.get("id")
+        if sid == keep_session_id:
+            continue
+        # 删除 name 反向索引
+        name = session.get("name", "")
+        if name:
+            await redis.delete(f"rc:session_name_idx:{name}")
+        # 删除 session 数据
+        await redis.delete(_session_key(sid))
+        deleted += 1
+
+    if deleted > 0:
+        logger.info("Cleaned up %d stale session(s) for user %s", deleted, user_id)
+
+    return deleted
 
 
 async def _get_session_raw(session_id: str) -> dict:
@@ -350,9 +382,9 @@ def _reconcile_terminals(terminals: list[dict]) -> int:
 
 
 async def _save_session(session_id: str, session_data: dict) -> None:
-    """内层：直接写入 Redis（调用方需已持有锁）。"""
+    """内层：直接写入 Redis（调用方需已持有锁）。每次写入自动续期 TTL。"""
     redis = await redis_conn.get_redis()
-    await redis.set(_session_key(session_id), json.dumps(session_data))
+    await redis.set(_session_key(session_id), json.dumps(session_data), ex=SESSION_TTL_SECONDS)
 
 
 async def get_session(session_id: str) -> dict:
@@ -862,6 +894,13 @@ async def update_session_device_heartbeat(
         session_data["updated_at"] = datetime.now(timezone.utc).isoformat()
 
         await _save_session(session_id, session_data)
+
+        # 续期 name 反向索引 TTL（与 session 同步）
+        name = session_data.get("name", "")
+        if name:
+            redis = await redis_conn.get_redis()
+            await redis.expire(f"rc:session_name_idx:{name}", SESSION_TTL_SECONDS)
+
         return session_data
 
 
