@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import 'screens/login_screen.dart';
 import 'screens/terminal_workspace_screen.dart';
 import 'services/auth_service.dart';
-import 'services/config_service.dart';
 import 'services/desktop_agent_manager.dart';
 import 'services/environment_service.dart';
 import 'services/terminal_session_manager.dart';
@@ -139,12 +138,11 @@ class _SplashPageState extends State<SplashPage> {
   }
 
   Future<void> _checkAutoLogin() async {
-    final configService = ConfigService();
-    final config = await configService.loadConfig();
+    final serverUrl = EnvironmentService.instance.currentServerUrl;
 
     // 检查是否有保存的凭证
     Map<String, String>? credentials;
-    final authService = AuthService(serverUrl: config.serverUrl);
+    final authService = AuthService(serverUrl: serverUrl);
     try {
       credentials = await authService.getSavedCredentials();
     } catch (e) {
@@ -153,7 +151,7 @@ class _SplashPageState extends State<SplashPage> {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (context) => LoginScreen(serverUrl: config.serverUrl),
+          builder: (context) => const LoginScreen(),
         ),
       );
       return;
@@ -179,7 +177,7 @@ class _SplashPageState extends State<SplashPage> {
           try {
             final agentManager = context.read<DesktopAgentManager>();
             await agentManager.onAppStart(
-              serverUrl: config.serverUrl,
+              serverUrl: serverUrl,
               token: token,
               username: username,
               deviceId: sessionId,
@@ -201,7 +199,7 @@ class _SplashPageState extends State<SplashPage> {
           context,
           MaterialPageRoute(
             builder: (context) => TerminalWorkspaceScreen(
-              serverUrl: config.serverUrl,
+              serverUrl: serverUrl,
               token: token,
             ),
           ),
@@ -218,7 +216,7 @@ class _SplashPageState extends State<SplashPage> {
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        builder: (context) => LoginScreen(serverUrl: config.serverUrl),
+        builder: (context) => const LoginScreen(),
       ),
     );
   }

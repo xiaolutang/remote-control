@@ -245,8 +245,6 @@ class _TerminalScreenState extends State<TerminalScreen> {
           TextButton(
             onPressed: () async {
               _authDialogShowing = false;
-              final configService = ConfigService();
-              final config = await configService.loadConfig();
               // 清理终端会话缓存，防止旧 token 残留导致重连时 "登录已过期"
               final sessionManager = context.read<TerminalSessionManager>();
               await sessionManager.disconnectAll();
@@ -254,7 +252,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
               // 不强制清除 token（桌面端合盖重开场景）
               Navigator.of(context).pushAndRemoveUntil(
                 MaterialPageRoute(
-                  builder: (_) => LoginScreen(serverUrl: config.serverUrl),
+                  builder: (_) => const LoginScreen(),
                 ),
                 (_) => false,
               );
@@ -288,13 +286,9 @@ class _TerminalScreenState extends State<TerminalScreen> {
           TextButton(
             onPressed: () async {
               _authDialogShowing = false;
-              final configService = ConfigService();
-              final config = await configService.loadConfig();
               await logoutAndNavigate(
                 context: context,
-                serverUrl: config.serverUrl,
-                destinationBuilder: (_) =>
-                    LoginScreen(serverUrl: config.serverUrl),
+                destinationBuilder: (_) => const LoginScreen(),
               );
             },
             child: const Text('重新登录'),

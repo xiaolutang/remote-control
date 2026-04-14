@@ -3,6 +3,7 @@ import 'package:rc_client/models/config.dart';
 import 'package:rc_client/models/runtime_device.dart';
 import 'package:rc_client/models/runtime_terminal.dart';
 import 'package:rc_client/services/config_service.dart';
+import 'package:rc_client/services/environment_service.dart';
 import 'package:rc_client/services/runtime_device_service.dart';
 import 'package:rc_client/services/runtime_selection_controller.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -102,8 +103,11 @@ void main() {
 
     setUp(() {
       SharedPreferences.setMockInitialValues({});
+      EnvironmentService.setInstance(
+        EnvironmentService(debugModeProvider: () => true),
+      );
       runtimeService = _FakeRuntimeDeviceService();
-      configService = ConfigService(useDebugDefaults: false);
+      configService = ConfigService();
     });
 
     test('initializes with preferred device and loads terminals', () async {

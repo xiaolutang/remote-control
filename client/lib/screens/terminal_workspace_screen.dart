@@ -857,8 +857,7 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
     if (!mounted) return;
     await logoutAndNavigate(
       context: context,
-      serverUrl: widget.serverUrl,
-      destinationBuilder: (_) => LoginScreen(serverUrl: widget.serverUrl),
+      destinationBuilder: (_) => const LoginScreen(),
     );
   }
 }
