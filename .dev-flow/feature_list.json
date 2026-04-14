@@ -2,13 +2,9 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-13",
-  "status": "executing",
-  "active_requirement_cycle": {
-    "branch": "feat/security-hardening",
-    "phase": "security-hardening",
-    "started_at": "2026-04-13T15:30:00Z"
-  },
+  "updated_at": "2026-04-14",
+  "status": "archived",
+  "active_requirement_cycle": null,
   "workflow": {
     "name": "remote-control",
     "mode": "B",
@@ -25,11 +21,7 @@
     "blocked": 0,
     "cancelled": 0
   },
-  "next_phase": {
-    "name": "security-hardening",
-    "description": "上线前安全加固：15 个安全问题全量修复",
-    "entry_task": "B062"
-  },
+  "next_phase": null,
   "project_info": {
     "description": "远程控制终端（Server + Agent + Client）。含反馈系统、日志集成、用户信息、Docker 标准化部署。",
     "tech_stack": {
