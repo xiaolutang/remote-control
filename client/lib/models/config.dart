@@ -9,7 +9,7 @@ enum AppThemeMode {
 
 /// 配置模型
 class AppConfig {
-  static const String defaultServerUrl = 'wss://localhost/rc';
+  /// serverUrl 由 EnvironmentService 动态提供，不参与持久化
   final String serverUrl;
   final String? token;
   final String sessionId;
@@ -26,7 +26,7 @@ class AppConfig {
   final Map<String, List<ShortcutItem>> projectShortcutItems;
 
   const AppConfig({
-    this.serverUrl = defaultServerUrl,
+    this.serverUrl = '',
     this.token,
     this.sessionId = '',
     this.autoReconnect = true,
@@ -80,7 +80,6 @@ class AppConfig {
 
   Map<String, dynamic> toJson() {
     return {
-      'serverUrl': serverUrl,
       'token': token,
       'sessionId': sessionId,
       'autoReconnect': autoReconnect,
@@ -102,9 +101,9 @@ class AppConfig {
     };
   }
 
-  factory AppConfig.fromJson(Map<String, dynamic> json) {
+  factory AppConfig.fromJson(Map<String, dynamic> json, {String serverUrl = ''}) {
     return AppConfig(
-      serverUrl: json['serverUrl'] as String? ?? defaultServerUrl,
+      serverUrl: serverUrl,
       token: json['token'] as String?,
       sessionId: json['sessionId'] as String? ?? '',
       autoReconnect: json['autoReconnect'] as bool? ?? true,

@@ -56,6 +56,8 @@
 22. Redis 必须密码认证；Docker 容器必须非 root
 23. Agent 本地 HTTP 端点必须认证
 24. Client 敏感数据（密码/token）用 flutter_secure_storage
+25. serverUrl 的单一真相源是 EnvironmentService，AppConfig 不持久化 serverUrl
+26. 环境切换编排由 UI/协调层触发（DAM.onLogout → 断终端 → AuthService.logout → 更新环境），EnvironmentService 不做任何副作用
 
 ## 禁止模式
 
@@ -73,6 +75,8 @@
 - ✗ Client SharedPreferences 明文存密码/token
 - ✗ JWT 错误返回具体异常详情
 - ✗ 日志 API 用 get_current_payload 而非 get_current_user_id
+- ✗ EnvironmentService 直接调用 AuthService.logout / DesktopAgentManager（纯状态服务不得有副作用）
+- ✗ LoginScreen/TerminalWorkspaceScreen 通过构造参数传 serverUrl（改为从 EnvironmentService 读取）
 
 ## 数据流拓扑
 
@@ -83,6 +87,13 @@
 ```
 
 ## 关键决策
+
+| 决策 | 为什么 | 否决方案 |
+|------|--------|---------|
+| 环境选择在登录页 | 用户必须先选定环境再登录，切换 = 登出 | 全局设置页 |
+| 线上 URL 编译时固定 | 只有部署方知道线上地址，用户无需关心 | 运行时远程获取 |
+| 本地 host+port 可编辑 | 开发时 IP 变化频繁，端口因部署不同 | 完整 URL 编辑 |
+| EnvironmentService 独立服务 | 单一职责，可被 ConfigService / AuthService / AgentSupervisor 复用 | 直接在 ConfigService 加逻辑 |
 
 | 决策 | 为什么 | 否决方案 |
 |------|--------|---------|
