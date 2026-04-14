@@ -19,9 +19,9 @@
   },
   "summary": {
     "total": 2,
-    "pending": 1,
+    "pending": 0,
     "in_progress": 0,
-    "completed": 1,
+    "completed": 2,
     "blocked": 0,
     "cancelled": 0
   },
@@ -102,7 +102,7 @@
       "depends_on": [
         "F059"
       ],
-      "status": "pending",
+      "status": "completed",
       "priority": "P0",
       "acceptance_criteria": [
         "LoginScreen 无 serverUrl 构造参数，从 EnvironmentService 读取",
@@ -188,7 +188,12 @@
         "client/lib/screens/runtime_selection_screen.dart",
         "client/lib/services/logout_helper.dart",
         "client/lib/services/desktop_agent_supervisor.dart"
-      ]
+      ],
+      "started_at": "2026-04-14",
+      "completed_at": "2026-04-14",
+      "actual_minutes": 45,
+      "execution_notes": "295 tests passed. LoginScreen 无参构造 + 环境选择 UI + 协调层编排。logout_helper 重构。Code review fail→修复协调层编排+UI校验。",
+      "evidence_file": "evidence/F060.md"
     }
   ],
   "archived_phases": [

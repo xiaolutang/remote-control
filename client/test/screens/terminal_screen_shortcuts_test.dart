@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:rc_client/screens/terminal_screen.dart';
+import 'package:rc_client/services/environment_service.dart';
 import 'package:rc_client/services/websocket_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -13,6 +14,9 @@ void main() {
 
     setUp(() {
       SharedPreferences.setMockInitialValues({});
+      EnvironmentService.setInstance(
+        EnvironmentService(debugModeProvider: () => true),
+      );
       mockService = _PreconnectedWebSocketService()..simulateConnect();
     });
 
@@ -365,6 +369,10 @@ void main() {
     late _PreconnectedWebSocketService mockService;
 
     setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      EnvironmentService.setInstance(
+        EnvironmentService(debugModeProvider: () => true),
+      );
       mockService = _PreconnectedWebSocketService()..simulateConnect();
     });
 

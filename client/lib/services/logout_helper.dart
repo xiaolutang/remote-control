@@ -1,11 +1,11 @@
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import 'desktop_agent_manager.dart';
 import 'auth_service.dart';
+import 'desktop_agent_manager.dart';
+import 'environment_service.dart';
 import 'terminal_session_manager.dart';
 
 /// 统一退出登录流程
@@ -16,10 +16,10 @@ import 'terminal_session_manager.dart';
 /// 调用方负责后续的 UI 跳转。
 Future<void> performLogout({
   required BuildContext context,
-  required String serverUrl,
 }) async {
   final agentManager = context.read<DesktopAgentManager>();
   final sessionManager = context.read<TerminalSessionManager>();
+  final serverUrl = EnvironmentService.instance.currentServerUrl;
 
   await Future.wait([
     // 关闭 Agent（桌面端，token 失效前）
@@ -56,10 +56,9 @@ Future<void> performLogout({
 /// [destinationBuilder] 返回退出后要跳转到的目标页面。
 Future<void> logoutAndNavigate({
   required BuildContext context,
-  required String serverUrl,
   required WidgetBuilder destinationBuilder,
 }) async {
-  await performLogout(context: context, serverUrl: serverUrl);
+  await performLogout(context: context);
   if (!context.mounted) return;
   Navigator.of(context).pushAndRemoveUntil(
     MaterialPageRoute(builder: destinationBuilder),

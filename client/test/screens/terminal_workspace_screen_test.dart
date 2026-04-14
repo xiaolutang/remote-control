@@ -10,6 +10,7 @@ import 'package:rc_client/screens/terminal_workspace_screen.dart';
 import 'package:rc_client/services/desktop_agent_bootstrap_service.dart';
 import 'package:rc_client/services/desktop_agent_manager.dart';
 import 'package:rc_client/services/desktop_agent_supervisor.dart';
+import 'package:rc_client/services/environment_service.dart';
 import 'package:rc_client/services/runtime_device_service.dart';
 import 'package:rc_client/services/runtime_selection_controller.dart';
 import 'package:rc_client/services/terminal_session_manager.dart';
@@ -244,6 +245,9 @@ class _FakeDesktopAgentBootstrapService extends DesktopAgentBootstrapService {
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+    EnvironmentService.setInstance(
+      EnvironmentService(debugModeProvider: () => true),
+    );
   });
 
   Widget wrapWithApp(

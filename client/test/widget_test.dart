@@ -1,8 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rc_client/main.dart';
+import 'package:rc_client/services/environment_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    EnvironmentService.setInstance(
+      EnvironmentService(debugModeProvider: () => true),
+    );
+  });
+
   testWidgets('App starts with splash screen', (WidgetTester tester) async {
     await tester.pumpWidget(const RemoteControlApp());
 

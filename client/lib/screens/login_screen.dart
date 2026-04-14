@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
-import '../services/desktop_agent_manager.dart';
+import '../models/app_environment.dart';
 import '../services/auth_service.dart';
-import '../services/theme_controller.dart'; // Provider 注册用
+import '../services/desktop_agent_manager.dart';
+import '../services/environment_service.dart';
+import '../services/terminal_session_manager.dart';
 import '../services/ui_helpers.dart';
 import 'terminal_workspace_screen.dart';
 import 'package:provider/provider.dart';
 
 /// 登录/注册屏幕
 class LoginScreen extends StatefulWidget {
-  final String serverUrl;
-
-  const LoginScreen({super.key, required this.serverUrl});
+  const LoginScreen({super.key});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -21,6 +21,8 @@ class _LoginScreenState extends State<LoginScreen> {
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  final _hostController = TextEditingController();
+  final _portController = TextEditingController();
 
   bool _isLoginMode = true;
   bool _isLoading = false;
@@ -28,12 +30,14 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscureConfirmPassword = true;
   String? _errorMessage;
 
-  late AuthService _authService;
+  late AppEnvironment _selectedEnvironment;
 
   @override
   void initState() {
     super.initState();
-    _authService = AuthService(serverUrl: widget.serverUrl);
+    _selectedEnvironment = EnvironmentService.instance.currentEnvironment;
+    _hostController.text = EnvironmentService.instance.localHost;
+    _portController.text = EnvironmentService.instance.localPort;
   }
 
   @override
@@ -41,6 +45,8 @@ class _LoginScreenState extends State<LoginScreen> {
     _usernameController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
+    _hostController.dispose();
+    _portController.dispose();
     super.dispose();
   }
 
@@ -94,15 +100,17 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
+      final serverUrl = EnvironmentService.instance.currentServerUrl;
+      final authService = AuthService(serverUrl: serverUrl);
       Map<String, dynamic> result;
 
       if (_isLoginMode) {
-        result = await _authService.login(
+        result = await authService.login(
           _usernameController.text.trim(),
           _passwordController.text,
         );
       } else {
-        result = await _authService.register(
+        result = await authService.register(
           _usernameController.text.trim(),
           _passwordController.text,
         );
@@ -120,7 +128,7 @@ class _LoginScreenState extends State<LoginScreen> {
         try {
           final agentManager = context.read<DesktopAgentManager>();
           await agentManager.onLogin(
-            serverUrl: widget.serverUrl,
+            serverUrl: serverUrl,
             token: token,
             username: username,
             deviceId: sessionId,
@@ -139,7 +147,7 @@ class _LoginScreenState extends State<LoginScreen> {
         context,
         MaterialPageRoute(
           builder: (context) => TerminalWorkspaceScreen(
-            serverUrl: widget.serverUrl,
+            serverUrl: serverUrl,
             token: token,
           ),
         ),
@@ -154,6 +162,71 @@ class _LoginScreenState extends State<LoginScreen> {
           _isLoading = false;
         });
       }
+    }
+  }
+
+  /// 切换环境（含协调层编排）
+  Future<void> _switchEnvironment(AppEnvironment newEnv) async {
+    if (newEnv == _selectedEnvironment) return;
+
+    setState(() => _isLoading = true);
+    try {
+      // 协调层编排：停 Agent → 断终端 → 清凭证 → 更新环境
+      final agentManager = context.read<DesktopAgentManager>();
+      final sessionManager = context.read<TerminalSessionManager>();
+      final serverUrl = EnvironmentService.instance.currentServerUrl;
+
+      await Future.wait([
+        // 停止 Agent（桌面端）
+        () async {
+          try {
+            await agentManager.onLogout();
+          } catch (_) {}
+        }(),
+        // 断开终端
+        () async {
+          try {
+            await sessionManager.disconnectAll();
+          } catch (_) {}
+        }(),
+        // 清除凭证
+        () async {
+          try {
+            await AuthService(serverUrl: serverUrl).logout();
+          } catch (_) {}
+        }(),
+      ]);
+
+      // 更新环境状态
+      await EnvironmentService.instance.switchEnvironment(newEnv);
+
+      if (!mounted) return;
+      setState(() {
+        _selectedEnvironment = newEnv;
+        _errorMessage = null;
+      });
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  /// 保存 host/port 到 EnvironmentService
+  Future<void> _saveHostPort() async {
+    final env = EnvironmentService.instance;
+    final oldHost = env.localHost;
+    final oldPort = env.localPort;
+    if (_hostController.text != oldHost) {
+      await env.updateLocalHost(_hostController.text);
+    }
+    if (_portController.text != oldPort) {
+      await env.updateLocalPort(_portController.text);
+    }
+    // 同步 UI：如果值被 sanitize 回退了，更新输入框显示
+    if (env.localHost != _hostController.text) {
+      _hostController.text = env.localHost;
+    }
+    if (env.localPort != _portController.text) {
+      _portController.text = env.localPort;
     }
   }
 
@@ -193,6 +266,70 @@ class _LoginScreenState extends State<LoginScreen> {
                         icon: const Icon(Icons.palette_outlined),
                       ),
                     ),
+                    // 环境选择
+                    SegmentedButton<AppEnvironment>(
+                      segments: const [
+                        ButtonSegment(
+                          value: AppEnvironment.local,
+                          label: Text('本地'),
+                          icon: Icon(Icons.lan),
+                        ),
+                        ButtonSegment(
+                          value: AppEnvironment.production,
+                          label: Text('线上'),
+                          icon: Icon(Icons.cloud),
+                        ),
+                      ],
+                      selected: {_selectedEnvironment},
+                      onSelectionChanged: (selected) {
+                        _switchEnvironment(selected.first);
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    // 本地环境 host/port 编辑区
+                    if (_selectedEnvironment == AppEnvironment.local) ...[
+                      Row(
+                        children: [
+                          Expanded(
+                            flex: 3,
+                            child: TextFormField(
+                              controller: _hostController,
+                              decoration: const InputDecoration(
+                                labelText: 'Host',
+                                hintText: 'localhost',
+                                prefixIcon: Icon(Icons.dns),
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                                helperText: '字母、数字、点、短横线',
+                                helperMaxLines: 1,
+                              ),
+                              enabled: !_isLoading,
+                              onChanged: (_) => _saveHostPort(),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            flex: 1,
+                            child: TextFormField(
+                              controller: _portController,
+                              decoration: const InputDecoration(
+                                labelText: '端口',
+                                hintText: '留空',
+                                prefixIcon: Icon(Icons.numbers),
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                                helperText: '1-65535',
+                                helperMaxLines: 1,
+                              ),
+                              keyboardType: TextInputType.number,
+                              enabled: !_isLoading,
+                              onChanged: (_) => _saveHostPort(),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                    ],
                     // 标题
                     Icon(
                       Icons.terminal,
