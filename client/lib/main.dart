@@ -6,12 +6,14 @@ import 'screens/terminal_workspace_screen.dart';
 import 'services/auth_service.dart';
 import 'services/config_service.dart';
 import 'services/desktop_agent_manager.dart';
+import 'services/environment_service.dart';
 import 'services/terminal_session_manager.dart';
 import 'services/theme_controller.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  await EnvironmentService.initialize();
   runApp(const RemoteControlApp());
 }
 

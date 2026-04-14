@@ -81,3 +81,4 @@
 | **安全加固** | **Client 安全加固** | **CONTRACT-031, CONTRACT-036** | **not_applicable** | **pending** | **pending** | **F058: WS auth 适配 + flutter_secure_storage** |
 | **安全加固** | **Redis 密码保护 + Docker 非 root** | **CONTRACT-034** | **pending** | **not_applicable** | **pending** | **B070: Redis --requirepass + 非 root 容器** |
 | **安全加固** | **安全加固集成验证** | **CONTRACT-031..036** | **pending** | **pending** | **pending** | **S038: 端到端全链路安全加固验证** |
+| **环境选择** | **环境模型与选择服务** | — | **not_applicable** | **completed** | **completed** | **F059: AppEnvironment 枚举 + EnvironmentService 纯状态服务 + ConfigService 委托** |

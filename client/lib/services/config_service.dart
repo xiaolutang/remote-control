@@ -1,80 +1,33 @@
 import 'dart:convert';
-import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/config.dart';
+import 'environment_service.dart';
 
 /// 配置服务
 class ConfigService {
-  ConfigService({bool? useDebugDefaults})
-      : _useDebugDefaults = useDebugDefaults ?? kDebugMode;
+  ConfigService({EnvironmentService? environmentService})
+      : _environmentService = environmentService ?? EnvironmentService.instance;
 
   static const String _keyPrefix = 'rc_client_';
-  // 开发服务器地址
-  // 桌面端使用 localhost，手机端需要使用电脑的局域网 IP
-  static const String _debugServerUrlDesktop = AppConfig.defaultServerUrl;
-  // 真机开发时优先从 RC_SERVER_URL 环境变量读取，fallback 到桌面默认值
-  static final String _debugServerUrlMobile =
-      Platform.environment['RC_SERVER_URL'] ?? AppConfig.defaultServerUrl;
-  final bool _useDebugDefaults;
+
+  final EnvironmentService _environmentService;
 
   Future<AppConfig> loadConfig() async {
     final prefs = await SharedPreferences.getInstance();
     final jsonStr = prefs.getString('${_keyPrefix}config');
 
+    final serverUrl = _environmentService.currentServerUrl;
+
     if (jsonStr == null) {
-      return _defaultConfig();
+      return AppConfig(serverUrl: serverUrl);
     }
 
     try {
       final json = jsonDecode(jsonStr) as Map<String, dynamic>;
-      final config = AppConfig.fromJson(json);
-      // Debug 模式下强制使用当前服务器地址
-      if (_useDebugDefaults) {
-        return config.copyWith(serverUrl: _debugServerUrl);
-      }
-      return config;
+      return AppConfig.fromJson(json, serverUrl: serverUrl);
     } catch (e) {
-      return _defaultConfig();
+      return AppConfig(serverUrl: serverUrl);
     }
-  }
-
-  String get _debugServerUrl {
-    // 手机端：模拟器使用 localhost，真机使用局域网 IP
-    if (Platform.isAndroid || Platform.isIOS) {
-      // 检测是否为模拟器/模拟器环境
-      // iOS 模拟器和 Android 模拟器与主机在同一网络命名空间，可以使用 localhost
-      final isSimulator = _isSimulator();
-      if (isSimulator) {
-        return _debugServerUrlDesktop; // 模拟器使用 localhost
-      }
-      return _debugServerUrlMobile; // 真机使用局域网 IP
-    }
-    return _debugServerUrlDesktop;
-  }
-
-  /// 检测是否运行在模拟器/模拟器环境中
-  bool _isSimulator() {
-    if (Platform.isIOS) {
-      // iOS 模拟器可通过 SIMULATOR_DEVICE_NAME 环境变量判断
-      // Debug 模式且无该变量时假设为模拟器（开发阶段多数用模拟器）
-      return kDebugMode;
-    }
-    if (Platform.isAndroid) {
-      // Android 真机在 Debug 模式下也需要局域网 IP
-      // 仅当检测到模拟器特征时才使用 localhost
-      final model = Platform.environment['RO_PRODUCT_MODEL'] ?? '';
-      final isEmulator = model.contains('sdk') || model.contains('Emulator');
-      return isEmulator;
-    }
-    return false;
-  }
-
-  AppConfig _defaultConfig() {
-    if (_useDebugDefaults) {
-      return AppConfig(serverUrl: _debugServerUrl);
-    }
-    return const AppConfig();
   }
 
   Future<void> saveConfig(AppConfig config) async {

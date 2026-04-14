@@ -3,8 +3,12 @@
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
   "updated_at": "2026-04-14",
-  "status": "archived",
-  "active_requirement_cycle": null,
+  "status": "executing",
+  "active_requirement_cycle": {
+    "name": "env-selector",
+    "branch": "feat/env-selector",
+    "started_at": "2026-04-14"
+  },
   "workflow": {
     "name": "remote-control",
     "mode": "B",
@@ -14,14 +18,14 @@
     "risk_provider": "codex_plugin"
   },
   "summary": {
-    "total": 10,
-    "pending": 0,
+    "total": 2,
+    "pending": 1,
     "in_progress": 0,
-    "completed": 10,
+    "completed": 1,
     "blocked": 0,
     "cancelled": 0
   },
-  "next_phase": null,
+  "next_phase": "env-selector",
   "project_info": {
     "description": "远程控制终端（Server + Agent + Client）。含反馈系统、日志集成、用户信息、Docker 标准化部署。",
     "tech_stack": {
@@ -32,456 +36,167 @@
   },
   "features": [
     {
-      "id": "B062",
-      "phase": "security-hardening",
-      "module": "server",
-      "name": "JWT Secret 加固 + 旧 token 拒绝",
-      "description": "修复 SEC-01 和 SEC-15：\n1. JWT_SECRET 环境变量为必填项，移除 secrets.token_hex(32) 随机回退逻辑。启动时缺失则抛异常。\n2. 拒绝无 token_version 字段的旧 token，移除向后兼容逻辑。\n3. 更新 architecture.md 不变量 #16。\n\n改动文件：auth.py（移除回退、移除兼容分支）、__init__.py（启动校验）。",
-      "verification": "L2",
-      "depends_on": [],
-      "status": "completed",
-      "priority": "P0",
-      "acceptance_criteria": [
-        "JWT_SECRET/JWT_SECRET_KEY 环境变量未设置 → 服务启动失败（raise）",
-        "无 token_version 的 JWT token → 401 TOKEN_INVALID",
-        "有 token_version 且匹配 Redis → 正常通过",
-        "有 token_version 但不匹配 Redis → 401 TOKEN_REPLACED",
-        "auth.py 无 secrets.token_hex 回退逻辑",
-        "auth.py 无 '向后兼容旧 token' 分支"
-      ],
-      "risk_tags": [
-        "auth",
-        "startup"
-      ],
-      "test_tasks": [
-        {
-          "type": "unit",
-          "description": "JWT Secret 加固 + 旧 token 拒绝",
-          "scenarios": [
-            "JWT_SECRET 未设置 → 启动抛异常",
-            "JWT_SECRET 设置 → 启动正常",
-            "token 无 token_version 字段 → 401 TOKEN_INVALID",
-            "token 有 token_version 匹配 Redis → 通过",
-            "token 有 token_version 不匹配 Redis → 401 TOKEN_REPLACED",
-            "伪造签名的 token → 401"
-          ]
-        }
-      ],
-      "files": [
-        "server/app/auth.py",
-        "server/app/__init__.py"
-      ],
-      "started_at": "2026-04-13",
-      "completed_at": "2026-04-13",
-      "evidence_file": "evidence/B062.md",
-      "execution_notes": "JWT Secret 必填 + 旧 token 拒绝 + 错误脱敏；329 测试全通过；code-review + simplify + audit 通过",
-      "commit": "1763303"
-    },
-    {
-      "id": "B063",
-      "phase": "security-hardening",
-      "module": "server",
-      "name": "密码哈希迁移到 bcrypt",
-      "description": "修复 SEC-02：\n1. 新注册用户使用 bcrypt 哈希（替代 SHA-256）。\n2. 登录时检测旧 SHA-256 哈希（长度 64 hex），验证通过后自动 re-hash 为 bcrypt 并更新数据库。\n3. 添加 bcrypt 到 requirements.txt。\n\n改动文件：user_api.py（hash_password/verify_password 函数）、database.py（update_password_hash）、requirements.txt。",
-      "verification": "L2",
-      "depends_on": [],
-      "status": "completed",
-      "priority": "P0",
-      "acceptance_criteria": [
-        "新注册用户密码使用 bcrypt 哈希",
-        "bcrypt 哈希的密码验证正常",
-        "旧 SHA-256 哈希登录成功后自动迁移为 bcrypt",
-        "迁移后数据库中 password_hash 为 bcrypt 格式（$2b$...）",
-        "错误的 bcrypt 密码返回 401",
-        "requirements.txt 包含 bcrypt"
-      ],
-      "risk_tags": [
-        "auth"
-      ],
-      "test_tasks": [
-        {
-          "type": "unit",
-          "description": "bcrypt 密码哈希迁移",
-          "scenarios": [
-            "新注册 → password_hash 以 $2b$ 开头",
-            "bcrypt 密码登录 → 成功",
-            "旧 SHA-256 密码登录 → 成功 + 自动迁移为 bcrypt",
-            "迁移后再登录 → 使用 bcrypt 验证（不再走 SHA-256）",
-            "错误密码 → 401",
-            "空密码 → 400",
-            "并发登录同一旧密码用户 → 不报错，最终为 bcrypt"
-          ]
-        }
-      ],
-      "files": [
-        "server/app/user_api.py",
-        "server/app/database.py",
-        "server/requirements.txt"
-      ],
-      "commit": "635902a"
-    },
-    {
-      "id": "B064",
-      "phase": "security-hardening",
-      "module": "server",
-      "name": "CORS 收紧",
-      "description": "修复 SEC-03：\n1. 将 allow_origins=[\"*\"] 改为从环境变量 CORS_ORIGINS 读取（逗号分隔域名列表）。\n2. CORS_ORIGINS 未设置时默认为空列表（阻止所有跨域）。\n3. 开发环境可设置 CORS_ORIGINS=http://localhost:3000,http://localhost:5000。\n4. 生产环境设置为实际域名。\n\n改动文件：server/app/__init__.py（CORS 中间件配置）。",
-      "verification": "L2",
-      "depends_on": [],
-      "status": "completed",
-      "priority": "P0",
-      "acceptance_criteria": [
-        "CORS_ORIGINS 未设置 → allow_origins=[]，跨域请求被拒绝",
-        "CORS_ORIGINS=http://localhost:3000 → 仅该域名允许",
-        "非配置域名的跨域请求 → CORS 头不存在",
-        "配置域名的跨域请求 → CORS 头正常",
-        "allow_credentials=True 保留（配合具体域名有效）"
-      ],
-      "risk_tags": [
-        "config",
-        "startup"
-      ],
-      "test_tasks": [
-        {
-          "type": "unit",
-          "description": "CORS 收紧验证",
-          "scenarios": [
-            "CORS_ORIGINS 为空 → OPTIONS 请求无 CORS 头",
-            "CORS_ORIGINS=http://a.com → Origin: http://a.com 通过",
-            "CORS_ORIGINS=http://a.com → Origin: http://evil.com 被拒",
-            "CORS_ORIGINS=http://a.com,http://b.com → 两个域名都通过",
-            "带凭证的跨域请求 → Access-Control-Allow-Credentials: true"
-          ]
-        }
-      ],
-      "files": [
-        "server/app/__init__.py"
-      ],
-      "commit": "3bf1c6d"
-    },
-    {
-      "id": "B065",
-      "phase": "security-hardening",
-      "module": "server",
-      "name": "WebSocket 鉴权重构",
-      "description": "修复 SEC-05、SEC-11、SEC-12：\n1. WS 端点不再从 URL query 参数读取 token，改为连接后等待首条 auth 消息（{type: \"auth\", token: \"...\"}）。\n2. 收到 auth 消息后调用 async_verify_token 验证，5 秒内未收到有效 auth → 关闭连接。\n3. 添加 WebSocket 消息大小限制 MAX_WS_MESSAGE_SIZE = 1MB（可配置）。\n4. 不再支持 URL query 参数传 token（与 architecture.md 不变量 #17 一致）。\n\n改动文件：ws_agent.py、ws_client.py、routes.py（移除 token query 参数声明）。\n\n注意：此任务只改 Server 端，Agent/Client 的适配在 B068/F058。",
-      "verification": "L2",
-      "depends_on": [
-        "B062"
-      ],
-      "status": "completed",
-      "priority": "P0",
-      "acceptance_criteria": [
-        "WS 连接后发送 {type: \"auth\", token: \"valid_token\"} → 验证通过，连接保持",
-        "WS 连接后发送 {type: \"auth\", token: \"invalid_token\"} → 连接关闭 (4001)",
-        "WS 连接后 5 秒内不发送 auth 消息 → 连接关闭 (4002)",
-        "消息大小超过 1MB → 连接关闭 (4003)",
-        "routes.py 中 WS 端点不再声明 token query 参数",
-        "URL query 参数传 token → 不验证、不处理，视为无认证",
-        "Agent WS 和 Client WS 都适配新流程"
-      ],
-      "risk_tags": [
-        "auth",
-        "network"
-      ],
-      "test_tasks": [
-        {
-          "type": "unit",
-          "description": "WebSocket 鉴权重构",
-          "scenarios": [
-            "正常 auth 消息 → 连接成功",
-            "无效 token → 连接关闭 (4001)",
-            "超时未发送 auth → 连接关闭 (4002)",
-            "超大消息 → 连接关闭 (4003)",
-            "URL query 传 token → 不验证，仍需首条 auth 消息",
-            "正常消息大小（< 1MB）→ 不受影响",
-            "auth 前发送非 auth 消息 → 关闭连接",
-            "auth 消息格式错误（非 JSON / 缺少 token 字段）→ 关闭连接",
-            "Server 已切 auth-message 但旧 Client/Agent 仍走 query token → 连接失败"
-          ]
-        }
-      ],
-      "files": [
-        "server/app/ws_agent.py",
-        "server/app/ws_client.py",
-        "server/app/routes.py"
-      ],
-      "commit": "9a43748"
-    },
-    {
-      "id": "B066",
-      "phase": "security-hardening",
-      "module": "server",
-      "name": "日志 API 归属校验 + 错误信息脱敏",
-      "description": "修复 SEC-07 和 SEC-13：\n1. 日志 API（log_api.py）将 get_current_payload 替换为 get_current_user_id，增加 session_id 归属校验（只能查询自己的日志）。\n2. auth.py 中所有 JWT 验证错误不再返回具体的解码错误详情，统一返回 \"Token 无效\" 或 \"Token 已过期\"。\n\n改动文件：log_api.py（鉴权依赖替换 + 归属校验）、auth.py（错误信息脱敏）。",
-      "verification": "L2",
-      "depends_on": [
-        "B062"
-      ],
-      "status": "completed",
-      "priority": "P1",
-      "acceptance_criteria": [
-        "日志 API 使用 get_current_user_id 鉴权",
-        "查询非自己的 session 日志 → 403",
-        "查询自己的 session 日志 → 正常返回",
-        "JWT 错误响应不含具体解码异常信息（如 ExpiredSignatureError 详情）",
-        "JWT 错误统一返回 \"Token 无效\" 或 \"Token 已过期\"",
-        "log_api.py 无 get_current_payload 调用"
-      ],
-      "risk_tags": [
-        "auth"
-      ],
-      "test_tasks": [
-        {
-          "type": "unit",
-          "description": "日志归属校验 + 错误脱敏",
-          "scenarios": [
-            "用户 A 查询自己的 session 日志 → 成功",
-            "用户 A 查询用户 B 的 session 日志 → 403",
-            "过期 token → 返回 \"Token 已过期\"（无异常详情）",
-            "签名错误 token → 返回 \"Token 无效\"（无异常详情）",
-            "格式错误 token → 返回 \"Token 无效\""
-          ]
-        }
-      ],
-      "files": [
-        "server/app/log_api.py",
-        "server/app/auth.py"
-      ],
-      "commit": "6f43366"
-    },
-    {
-      "id": "B067",
-      "phase": "security-hardening",
-      "module": "server",
-      "name": "登录/注册速率限制",
-      "description": "修复 SEC-09：\n1. 为 /api/login 和 /api/register 添加基于 IP 的速率限制。\n2. 默认限制：每 IP 每分钟 10 次请求。\n3. 通过环境变量 RATE_LIMIT_PER_MINUTE 配置。\n4. 超限返回 429 Too Many Requests。\n5. 基于 Redis 实现分布式计数。限流计数 Redis 操作失败时不额外拦截（fail-open for rate-limit counter only），但登录/注册主链路涉及认证/session 的 Redis 失败仍按 architecture.md 不变量 12 返回 503（fail-closed）。\n\n改动文件：新增 server/app/rate_limit.py（速率限制中间件）、user_api.py（应用中间件）。",
-      "verification": "L2",
-      "depends_on": [],
-      "status": "completed",
-      "priority": "P1",
-      "acceptance_criteria": [
-        "/api/login 同一 IP 每分钟超过 10 次 → 429",
-        "/api/register 同一 IP 每分钟超过 10 次 → 429",
-        "不同 IP 独立计数",
-        "RATE_LIMIT_PER_MINUTE 环境变量可配置限制值",
-        "Redis 不可用时 → 限流计数 fail-open（不限速），但认证/session Redis 失败仍返回 503",
-        "429 响应包含 Retry-After 头",
-        "正常频率请求不受影响"
-      ],
-      "risk_tags": [
-        "network",
-        "config"
-      ],
-      "test_tasks": [
-        {
-          "type": "unit",
-          "description": "速率限制",
-          "scenarios": [
-            "10 次内 → 全部成功",
-            "第 11 次 → 429 + Retry-After 头",
-            "不同 IP → 独立计数",
-            "Redis 不可用 → 不限速",
-            "限流计数 Redis 失败但认证 Redis 正常 → 不限速，登录可继续",
-            "认证/session Redis 失败 → 503，不签发 token（与 fail-closed 一致）",
-            "1 分钟后 → 计数重置"
-          ]
-        }
-      ],
-      "files": [
-        "server/app/rate_limit.py",
-        "server/app/user_api.py"
-      ],
-      "started_at": "2026-04-13",
-      "completed_at": "2026-04-13",
-      "execution_notes": "Redis IP 速率限制 + fail-open + 429 Retry-After；8 个测试通过；commit 25afe8c",
-      "commit": "25afe8c"
-    },
-    {
-      "id": "B068",
-      "phase": "security-hardening",
-      "module": "agent",
-      "name": "Agent 安全加固",
-      "description": "修复 SEC-04、SEC-06、SEC-05(Agent 侧)：\n1. **WS 认证适配**：连接 Server 后发送 {type: \"auth\", token: \"...\"}，不再在 URL query 参数传 token。\n2. **命令执行校验**：terminal 创建前验证 command（必须为字符串且非空）、cwd（必须为绝对路径或 None）、env（值必须为字符串）。校验逻辑在 main.py 的 terminal 创建入口处。\n3. **本地 HTTP 认证**：local_server.py 的所有端点添加 token 认证，token 在 Agent 启动时生成并写入配置文件，外部进程需读取配置文件获取 token。\n\n改动文件：websocket_client.py（auth 消息）、main.py（输入校验）、local_server.py（token 认证）、config.py（生成/存储 local_token）。",
-      "verification": "L2",
-      "depends_on": [
-        "B065"
-      ],
-      "status": "completed",
-      "priority": "P0",
-      "acceptance_criteria": [
-        "Agent WS 连接后发送 auth 消息（token 不在 URL 中）",
-        "command 为非字符串 → 拒绝创建 terminal",
-        "command 为空字符串 → 拒绝",
-        "cwd 为相对路径 → 拒绝",
-        "env 值为非字符串 → 拒绝",
-        "本地 HTTP 无 token → 401",
-        "本地 HTTP 错误 token → 401",
-        "本地 HTTP 正确 token → 正常",
-        "local_token 在启动时生成并写入配置文件"
-      ],
-      "risk_tags": [
-        "auth",
-        "first_use"
-      ],
-      "test_tasks": [
-        {
-          "type": "unit",
-          "description": "Agent 安全加固",
-          "scenarios": [
-            "auth 消息格式正确 → 连接成功",
-            "command='rm -rf /' → 允许（字符串，用户决定信任）",
-            "command='' → 拒绝",
-            "command=123 → 拒绝（非字符串）",
-            "cwd='../etc' → 拒绝（相对路径）",
-            "cwd='/home/user' → 允许",
-            "env={'KEY': 123} → 拒绝（值非字符串）",
-            "env={'KEY': 'value'} → 允许",
-            "local_server 无 Authorization 头 → 401",
-            "local_server 正确 Bearer token → 200"
-          ]
-        },
-        {
-          "type": "integration",
-          "description": "Agent 安全加固集成",
-          "scenarios": [
-            "local_token 配置文件首次生成",
-            "配置文件损坏/缺失 → 重新生成 token",
-            "local_server token 过期或错误 → 401 + 明确错误信息",
-            "旧 Agent 版本仍走 query token 连接 Server → 连接失败反馈",
-            "Agent 启动时 local_server 自动带认证 → 控制面可用"
-          ]
-        }
-      ],
-      "files": [
-        "agent/app/websocket_client.py",
-        "agent/app/main.py",
-        "agent/local_server.py",
-        "agent/app/config.py"
-      ],
-      "started_at": "2026-04-13",
-      "completed_at": "2026-04-13",
-      "execution_notes": "Agent WS auth 消息 + terminal 输入校验 + local_server token 认证；14 个测试通过；commit 721eb23",
-      "commit": "721eb23"
-    },
-    {
-      "id": "F058",
-      "phase": "security-hardening",
+      "id": "F059",
+      "phase": "env-selector",
       "module": "client",
-      "name": "Client 安全加固",
-      "description": "修复 SEC-05(Client 侧) + SEC-08：\n1. **WS 认证适配**：连接 Server 后发送 {type: \"auth\", token: \"...\"}，不再在 URL query 参数传 token。修改 websocket_service.dart 的 WS 连接逻辑。\n2. **安全存储**：将密码从 SharedPreferences 迁移到 flutter_secure_storage。用户名和 login_time 可保留在 SharedPreferences（非敏感）。Access token 和 refresh token 也迁移到 flutter_secure_storage。\n\n改动文件：websocket_service.dart（WS auth 消息）、auth_service.dart（flutter_secure_storage）、pubspec.yaml（添加依赖）。",
+      "name": "环境模型与选择服务",
+      "description": "新建 AppEnvironment 枚举和 EnvironmentService，并改造 AppConfig/ConfigService 的 serverUrl 来源。\n\n1. AppEnvironment 枚举：\n   - local：ws://{host}:{port}/rc（host/port 可编辑，默认 localhost 无端口）\n   - production：wss://xiaolutang.top/rc（固定）\n\n2. EnvironmentService（纯状态服务，不触发任何副作用）：\n   - 持久化当前环境选择到 SharedPreferences（key: rc_environment）\n   - 持久化本地 host/port（key: rc_local_host / rc_local_port）\n   - 根据 AppEnvironment 生成完整 serverUrl\n   - 提供 currentServerUrl getter（同步，从内存缓存读取）\n   - 提供 switchEnvironment(newEnv) → 仅更新环境状态，返回新 serverUrl\n   - 默认环境通过可注入的 debugModeProvider 判定（默认 () => kDebugMode）\n   - Debug → local，Release → production\n   - 不调用 AuthService.logout()，不操作 Agent，不做任何副作用\n\n3. 改造 AppConfig：\n   - serverUrl 字段改为 @non-persistent（不参与 toJson/fromJson）\n   - 由外部在构造时注入 EnvironmentService.currentServerUrl\n   - 保留其他持久化字段不变\n\n4. 改造 ConfigService：\n   - loadConfig() 不再自行决定 serverUrl\n   - 改为先从 EnvironmentService 获取当前环境，构造 AppConfig 时注入 serverUrl\n   - 移除 _debugServerUrl / _debugServerUrlMobile / _isSimulator / RC_SERVER_URL 相关逻辑\n\n改动文件：\n- client/lib/models/app_environment.dart（新建）\n- client/lib/services/environment_service.dart（新建）\n- client/lib/models/config.dart（serverUrl 改为非持久化）\n- client/lib/services/config_service.dart（简化，委托 EnvironmentService）",
       "verification": "F1",
-      "depends_on": [
-        "B065"
-      ],
+      "depends_on": [],
       "status": "completed",
       "priority": "P0",
       "acceptance_criteria": [
-        "Client WS 连接后发送 auth 消息（token 不在 URL 中）",
-        "密码不再存储在 SharedPreferences",
-        "密码使用 flutter_secure_storage 存储",
-        "access_token 和 refresh_token 使用 flutter_secure_storage",
-        "登录/自动登录流程正常",
-        "WS 连接和终端功能正常"
+        "AppEnvironment 枚举包含 local 和 production",
+        "EnvironmentService 只管理环境状态，无任何副作用调用",
+        "选择 local 时生成 ws://{host}:{port}/rc",
+        "选择 production 时生成 wss://xiaolutang.top/rc",
+        "Debug 模式默认 local，Release 默认 production（通过可注入 provider）",
+        "本地 host/port 修改后持久化到 SharedPreferences",
+        "AppConfig.toJson() 不包含 serverUrl 字段",
+        "AppConfig.fromJson() 使用传入的 serverUrl 而非 json 中存储的值",
+        "ConfigService.loadConfig() 使用 EnvironmentService 的 serverUrl",
+        "EnvironmentService 不依赖 AuthService、DesktopAgentManager 或任何 UI 组件"
       ],
       "risk_tags": [
-        "auth",
+        "config",
         "first_use"
       ],
       "test_tasks": [
         {
           "type": "unit",
-          "description": "Client 安全加固",
+          "description": "环境模型与选择服务",
           "scenarios": [
-            "WS 连接发送 auth 消息 → 连接成功",
-            "密码不在 SharedPreferences 中（已迁移）",
-            "flutter_secure_storage 中可读取密码",
-            "登录流程 → token 存入 secure storage",
-            "自动登录 → 从 secure storage 读取 token"
-          ]
-        },
-        {
-          "type": "integration",
-          "description": "Client 安全存储迁移集成",
-          "scenarios": [
-            "旧版 SharedPreferences 有明文密码 → 首次启动自动迁移到 flutter_secure_storage + 清除旧值",
-            "flutter_secure_storage 读取失败（平台不支持）→ 降级处理，不崩溃",
-            "自动登录时 secure storage 为空 → 引导重新登录",
-            "迁移后卸载重装 → 无旧数据残留问题"
+            "默认环境：debugModeProvider=true → local，false → production",
+            "保存环境选择 → 重启后读取一致",
+            "local 默认 host=localhost, port=''",
+            "local host=192.168.1.100, port=8080 → ws://192.168.1.100:8080/rc",
+            "local host=localhost, port='' → ws://localhost/rc",
+            "production → wss://xiaolutang.top/rc",
+            "首次安装无持久化 → 返回默认环境",
+            "持久化数据损坏 → 回退到默认环境",
+            "host 含特殊字符或空格 → 校验拒绝",
+            "port 含非数字字符 → 校验拒绝",
+            "EnvironmentService 无 AuthService/AgentManager 依赖（纯导入检查）"
           ]
         }
       ],
       "files": [
-        "client/lib/services/websocket_service.dart",
-        "client/lib/services/auth_service.dart",
-        "client/pubspec.yaml"
-      ]
+        "client/lib/models/app_environment.dart",
+        "client/lib/services/environment_service.dart",
+        "client/lib/models/config.dart",
+        "client/lib/services/config_service.dart"
+      ],
+      "started_at": "2026-04-14",
+      "completed_at": "2026-04-14",
+      "actual_minutes": 30,
+      "execution_notes": "24 tests passed, 0 analyze errors. EnvironmentService 纯状态服务，无副作用依赖。Code review conditional_pass→pass（移除 AuthService.logout 调用）。",
+      "evidence_file": "evidence/F059.md"
     },
     {
-      "id": "B070",
-      "phase": "security-hardening",
-      "module": "server",
-      "name": "Redis 密码保护 + Docker 非 root",
-      "description": "修复 SEC-10 和 SEC-14：\n1. **Redis 密码**：docker-compose.yml 添加 REDIS_PASSWORD 环境变量，Redis 启动命令添加 --requirepass，Server 连接时传入密码。注意：Agent 不直接连接 Redis，仅 Server 需要密码参数。\n2. **Docker 非 root**：server.Dockerfile 和 agent.Dockerfile 添加非 root 用户（appuser），RUN useradd + USER appuser。\n\n改动文件：deploy/docker-compose.yml、deploy/server.Dockerfile、deploy/agent.Dockerfile、server/app/session.py（Redis 密码参数）。",
-      "verification": "L3",
-      "depends_on": [],
-      "status": "completed",
-      "priority": "P1",
+      "id": "F060",
+      "phase": "env-selector",
+      "module": "client",
+      "name": "登录页环境选择 UI + 全链路集成",
+      "description": "在登录页增加环境选择 UI，改造 serverUrl 参数链路，完成全链路集成。\n\n1. 环境切换编排（由 LoginScreen 触发，非 EnvironmentService）：\n   用户切换环境时按顺序执行：\n   a. DesktopAgentManager.onLogout()（停止 Agent）\n   b. TerminalSessionManager.disconnectAll()\n   c. AuthService.logout()（清除凭证）\n   d. EnvironmentService.switchEnvironment(newEnv)（更新环境状态）\n   e. 用新 serverUrl 刷新 UI\n\n2. LoginScreen 改造：\n   - 移除 serverUrl 构造参数，改为从 EnvironmentService 读取\n   - 顶部添加环境选择控件（SegmentedButton）\n   - 选择「本地」时显示 host + port 编辑区域\n   - 切换环境时按上述编排执行\n   - 登录/注册使用 EnvironmentService.currentServerUrl\n\n3. SplashPage 改造（main.dart）：\n   - 两处 LoginScreen 构造（自动登录失败行 154、无凭证行 219）统一改为无参\n   - 自动登录使用 EnvironmentService.currentServerUrl\n\n4. 登出/返回登录页全链路改造：\n   - logout_helper.dart：移除 serverUrl 参数，改从 EnvironmentService 读取\n   - terminal_screen.dart：两处 token 失效回登录页（行 257、293）统一无参\n   - TerminalWorkspaceScreen 的登出入口：使用 EnvironmentService.currentServerUrl\n   - UserProfileScreen 的登出入口：同上\n   - 所有 Navigator 到 LoginScreen 的地方统一无参构造\n\n5. DesktopAgentSupervisor 适配：\n   - syncManagedAgentConfig 使用 EnvironmentService.currentServerUrl\n\n原则：普通登出、token 失效登出、被顶下线登出统一走 logout_helper 协调层，该协调层内部按 DAM.onLogout → 断终端 → AuthService.logout → 跳转无参 LoginScreen 的顺序执行。",
+      "verification": "F2",
+      "depends_on": [
+        "F059"
+      ],
+      "status": "pending",
+      "priority": "P0",
       "acceptance_criteria": [
-        "Redis 启动时设置 --requirepass ${REDIS_PASSWORD}",
-        "Server 连接 Redis 使用密码认证",
-        "Redis 无密码连接 → 拒绝",
-        "server.Dockerfile 运行容器为非 root 用户",
-        "agent.Dockerfile 运行容器为非 root 用户",
-        "docker compose up 全部服务正常启动",
-        "非 root 用户可写入 /data/ 目录（volume 权限）"
+        "LoginScreen 无 serverUrl 构造参数，从 EnvironmentService 读取",
+        "登录页顶部有环境选择控件（本地/线上）",
+        "选择本地时显示 host + port 编辑输入框",
+        "选择线上时不显示编辑框",
+        "切换环境时：停 Agent → 断终端 → 清凭证 → 更新环境 → 刷新 UI",
+        "登录/注册使用 EnvironmentService.currentServerUrl",
+        "环境选择持久化，下次打开保持",
+        "SplashPage 使用 EnvironmentService.currentServerUrl 做自动登录",
+        "SplashPage 两处 LoginScreen 构造均为无参",
+        "logout_helper 不再接受 serverUrl 参数，改从 EnvironmentService 读取",
+        "terminal_screen.dart 两处 token 失效回登录页均为无参 LoginScreen",
+        "TerminalWorkspaceScreen/UserProfileScreen 登出后跳转无参 LoginScreen",
+        "桌面端 Agent 配置使用正确环境的 serverUrl",
+        "EnvironmentService 不调用任何 AuthService/AgentManager 方法",
+        "Debug 模式默认选中本地环境",
+        "Release 模式默认选中线上环境"
       ],
       "risk_tags": [
         "config",
-        "startup"
+        "first_use"
       ],
       "test_tasks": [
         {
-          "type": "manual",
-          "description": "Redis 密码 + Docker 非 root 验证",
+          "type": "unit",
+          "description": "登录页环境选择 UI",
           "scenarios": [
-            "docker compose up → 全部服务正常",
-            "docker exec server whoami → appuser",
-            "docker exec agent whoami → appuser",
-            "Server 日志无 Redis 认证错误",
-            "Agent 可正常连接"
+            "默认显示正确的环境选择",
+            "切换到本地 → 显示 host/port 编辑框",
+            "切换到线上 → 隐藏 host/port 编辑框",
+            "编辑 host → 保存到 EnvironmentService",
+            "登录使用 EnvironmentService.currentServerUrl",
+            "LoginScreen 无 serverUrl 构造参数"
           ]
         },
         {
           "type": "integration",
-          "description": "Redis 密码 + Docker 非 root 异常场景",
+          "description": "环境选择全链路",
           "scenarios": [
-            "REDIS_PASSWORD 环境变量缺失 → Server 启动失败并明确报错",
-            "Redis 认证密码错误 → Server 连接失败 + 503",
-            "非 root 用户下 /data/ volume 权限不足 → 启动报错并提示",
-            "docker compose down && up → 数据持久化正常"
+            "选择本地 + 输入 IP → 登录 → 连接本地 Docker",
+            "选择线上 → 登录 → 连接远端服务",
+            "切换环境 → 桌面端 Agent 停止 + 终端断开 + 凭证清除 + 环境更新",
+            "关闭 App 重开 → 保持上次环境选择",
+            "桌面端 Agent 配置使用正确环境的 URL",
+            "自动登录使用当前环境的 URL",
+            "登出后跳转登录页 → 登录页显示当前环境"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "所有登出入口统一验证",
+          "scenarios": [
+            "手动登出 → 无参 LoginScreen → 显示当前环境",
+            "token 失效 → 无参 LoginScreen → 显示当前环境",
+            "被其他设备顶下线 → 无参 LoginScreen → 显示当前环境",
+            "SplashPage 自动登录失败 → 无参 LoginScreen → 显示当前环境",
+            "所有可达的 LoginScreen 构造点均无 serverUrl 参数（静态代码检查）"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "首用与异常场景",
+          "scenarios": [
+            "首次安装 → 默认环境正确（Debug=本地，Release=线上）",
+            "首次进入 → host/port 显示默认值 localhost",
+            "本地环境 host 填写非法值 → 校验提示",
+            "本地环境服务不可达 → 登录失败提示（非崩溃）",
+            "线上环境服务不可达 → 登录失败提示",
+            "EnvironmentService 初始化时 SharedPreferences 读取失败 → 回退默认",
+            "切换环境时 Agent 停止超时 → 仍完成环境切换",
+            "disconnectAll 失败 → 环境切换仍完成，UI 不卡死",
+            "AuthService.logout 失败 → 环境切换仍完成，用户可手动重试登录"
           ]
         }
       ],
       "files": [
-        "deploy/docker-compose.yml",
-        "deploy/server.Dockerfile",
-        "deploy/agent.Dockerfile",
-        "server/app/session.py"
-      ],
-      "started_at": "2026-04-13",
-      "completed_at": "2026-04-13",
-      "execution_notes": "Redis 密码 + Docker 非 root + 8 个测试；commit b4c68e7",
-      "commit": "b4c68e7"
-    },
+        "client/lib/screens/login_screen.dart",
+        "client/lib/main.dart",
+        "client/lib/screens/terminal_screen.dart",
+        "client/lib/screens/terminal_workspace_screen.dart",
+        "client/lib/screens/user_profile_screen.dart",
+        "client/lib/screens/runtime_selection_screen.dart",
+        "client/lib/services/logout_helper.dart",
+        "client/lib/services/desktop_agent_supervisor.dart"
+      ]
+    }
+  ],
+  "archived_phases": [
     {
-      "id": "S038",
       "phase": "security-hardening",
-      "module": "shared",
-      "name": "安全加固集成验证",
-      "description": "端到端验证所有安全加固措施协同工作：\n1. 注册新用户 → bcrypt 哈希\n2. 登录 → 速率限制生效\n3. WS 连接使用 auth 消息（非 URL token）\n4. 创建 terminal → 命令输入校验\n5. 错误 token → 脱敏错误信息\n6. 部署 smoke：Redis 有密码、容器非 root、CORS 正确\n7. 旧 token（无 version）→ 被拒绝",
-      "verification": "L4",
-      "depends_on": [
+      "status": "completed",
+      "task_count": 10,
+      "task_ids": [
         "B062",
         "B063",
         "B064",
@@ -490,48 +205,13 @@
         "B067",
         "B068",
         "F058",
-        "B070"
+        "B070",
+        "S038"
       ],
-      "status": "completed",
-      "priority": "P0",
-      "acceptance_criteria": [
-        "全链路注册→登录→WS→terminal→关闭正常",
-        "bcrypt 哈希验证（注册后数据库检查）",
-        "速率限制生效（10 次登录 → 第 11 次 429）",
-        "WS auth 消息验证（URL 无 token）",
-        "错误 token 返回脱敏信息",
-        "Redis 密码认证正常",
-        "容器非 root 运行",
-        "CORS 仅允许配置域名"
-      ],
-      "risk_tags": [
-        "startup",
-        "network"
-      ],
-      "smoke_required": true,
-      "test_tasks": [
-        {
-          "type": "integration",
-          "description": "安全加固全链路验证",
-          "scenarios": [
-            "注册 → password_hash 以 $2b$ 开头（bcrypt）",
-            "连续登录 10 次 → 第 11 次 429 Too Many Requests",
-            "WS 连接 URL 无 token 参数 → 发送 auth 消息 → 连接成功",
-            "伪造 token → 返回 'Token 无效'（无异常详情）",
-            "无 token_version 的旧 token → 401",
-            "Redis 密码认证 → Server 日志无 auth 错误",
-            "docker exec server whoami → 非 root",
-            "CORS 非配置域名 → 请求被拒"
-          ]
-        }
-      ],
-      "started_at": "2026-04-14",
-      "completed_at": "2026-04-14",
-      "execution_notes": "10 个集成测试覆盖全部安全加固措施；361 server 测试通过；commit 91b9b8a",
-      "commit": "91b9b8a"
-    }
-  ],
-  "archived_phases": [
+      "conclusion": "安全加固阶段完成，10/10 任务",
+      "archived_at": "2026-04-14",
+      "archive_file": "_archive/phases/phase_security-hardening.json"
+    },
     {
       "phase": "agent",
       "status": "completed",

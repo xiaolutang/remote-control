@@ -29,6 +29,7 @@
 | **用户信息 (user-info)** | unit, e2e | 已完成 | ✅ |
 | **部署标准化 (deploy-standardization)** | manual, L3 | 已完成 | ✅ |
 | **安全加固 (security-hardening)** | unit, integration, manual | 待开始 | 🔶 |
+| **环境选择 (env-selector)** | unit | 24 passed | ✅ |
 
 ## 模块覆盖详情
 
@@ -310,3 +311,9 @@
 | Client 安全加固 | F058 | unit,integration | WS auth 适配；密码迁移到 flutter_secure_storage；旧 SharedPreferences 清理；自动登录失败回退 | ⬜ |
 | Redis 密码 + Docker 非 root | B070 | integration,manual | Redis 密码认证；非 root 运行；REDIS_PASSWORD 缺失→报错；volume 权限 | ⬜ |
 | 安全加固集成验证 | S038 | integration,manual | 全链路注册→登录→WS→terminal→关闭；bcrypt 验证；速率限制；WS auth；脱敏；Redis 密码；非 root；CORS | ⬜ |
+
+### 环境选择（env-selector phase）
+
+| Module | Task IDs | Test Type | Required Scenarios | Status |
+|--------|----------|-----------|--------------------|--------|
+| 环境模型与选择服务 | F059 | unit | 默认环境、serverUrl 生成、持久化、首次安装/损坏数据、输入校验(host/port)、无副作用依赖 | ✅ |
