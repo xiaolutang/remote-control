@@ -30,7 +30,7 @@ class NetworkDiagnosticService {
 
   static const String _productionHost = 'xiaolutang.top';
   static const String _productionSubdomain = 'rc.xiaolutang.top';
-  static const String _productionIp = '111.229.125.161';
+  static const String _productionIp = '';
 
   Future<NetworkDiagnosticReport> run({
     required String serverUrl,
