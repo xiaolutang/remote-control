@@ -311,3 +311,49 @@
     - xlfoundry-risk: 审查并行任务协调时，必须检查任务间是否有退出信号传播
 - owner: xlfoundry-execute
 - status: closed
+
+---
+
+## DF-20260416-02
+
+- issue_id: DF-20260416-02
+- source: real_use
+- related_task: mobile-terminal, xterm-fork, multi-view-terminal
+- symptom: >-
+    1. 在 remote-control 里运行 Codex 时，终端界面经常退化成近似单行重绘；
+       Claude Code 相对可用，但也存在终端兼容性疑点。
+    2. 手机上弹出软键盘后，桌面端正在查看的同一 terminal 布局也会跟着变化。
+- escape_path: >-
+    1. Client 端使用本地 override 的 xterm.dart fork，终端协议实现已脱离上游；
+       但当前缺少针对 CPR/alt-screen/resize/TUI 的兼容性回归测试。
+    2. xterm fork 中 CPR（CSI 6n）响应直接返回内部 0-based cursorX/cursorY，
+       可能产生非法的 ESC[0;0R，现代 TUI 探测时会发生退化。
+    3. 移动端 TerminalView 尺寸变化会直接触发 onResize → WebSocket resize →
+       Server 转发 → Agent PTY resize；系统没有区分"本地 viewport 变化"和"共享 PTY 全局尺寸变化"。
+- fix_level: L2
+- root_cause_summary: >-
+    这是两个层次混在一起的问题：
+    - L1 协议兼容风险：xterm fork 已承接终端协议实现责任，但缺少最小协议回归保护；
+      Codex 比 Claude Code 更依赖完整 TUI/终端能力探测，因此更容易把 CPR 等协议瑕疵打出来。
+    - L2 语义建模缺陷：当前 terminal 是共享裸 PTY，resize 没有 owner 概念，
+      谁最后发送 resize，谁就改掉所有视图共享的 PTY 尺寸。
+- root_cause_analysis:
+    1. 根因：终端协议层和多端共享语义层没有清晰分层
+    2. 同类问题：任何继续直接共享裸 PTY 的方案，都会反复遇到"谁拥有尺寸"、"谁的 viewport 生效"、"移动端键盘是否应影响全局布局"等问题
+    3. 统一模式：
+       - xterm fork 只负责输入法/平台接入和终端协议兼容
+       - remote-control 协议层负责 terminal size ownership，不得把本地键盘/viewport 变化直接升级成全局 PTY resize
+    4. 待验证假设：
+       - CPR 0-based 响应是 Codex 单行退化的高概率根因之一
+       - 即便修复 CPR，当前共享裸 PTY + 无 owner resize 设计仍会持续给移动端带来布局干扰
+- upstream_actions:
+    - 记录为后续优化项，不在本轮直接修复
+    - 后续补最小回归测试：CPR、alt-screen、resize owner、Codex/Claude Code smoke
+    - 后续评估两类方案：
+      A. 继续共享单 PTY，但引入 resize owner / 主控端语义
+      B. 引入 tmux/screen 作为会话层，降低多视图共享终端的尺寸冲突
+- rules_to_update:
+    - xlfoundry-plan: 终端/PTY 相关需求必须区分"协议兼容"与"多端共享语义"两类任务
+    - xlfoundry-risk: 评审移动端终端功能时，必须检查软键盘/viewport 变化是否会影响共享 PTY 全局状态
+- owner: xlfoundry-plan
+- status: open

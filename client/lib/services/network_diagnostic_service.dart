@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 
@@ -39,18 +40,26 @@ class NetworkDiagnosticService {
   }) async {
     final httpUrl = _getHttpUrl(serverUrl);
     final uri = Uri.parse(httpUrl);
-    final checks = <NetworkDiagnosticCheck>[];
 
-    checks.add(await _dnsLookup(uri.host));
-    checks.add(await _domainHealth(uri));
-    checks.add(await _domainHealthDirect(uri));
+    // 基础检查：并行执行（DNS + 域名 health x2）
+    final baseResults = await Future.wait([
+      _dnsLookup(uri.host),
+      _domainHealth(uri),
+      _domainHealthDirect(uri),
+    ]);
 
+    final checks = <NetworkDiagnosticCheck>[...baseResults];
+
+    // 生产环境额外检查：并行执行（IP health + 域名 login + IP login）
     if (_isProductionHost(uri.host)) {
-      checks.add(await _ipHealthWithHost(uri));
+      final prodFutures = <Future<NetworkDiagnosticCheck>>[
+        _ipHealthWithHost(uri),
+      ];
       if ((username ?? '').isNotEmpty && (password ?? '').isNotEmpty) {
-        checks.add(await _domainLogin(uri, username!, password!));
-        checks.add(await _ipLoginWithHost(uri, username, password));
+        prodFutures.add(_domainLogin(uri, username!, password!));
+        prodFutures.add(_ipLoginWithHost(uri, username, password));
       }
+      checks.addAll(await Future.wait(prodFutures));
     }
 
     final report = NetworkDiagnosticReport(
@@ -167,17 +176,7 @@ class NetworkDiagnosticService {
     required bool trustAllCertificates,
     String? hostHeader,
   }) async {
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 10);
-    if (!useSystemProxy) {
-      client.findProxy = (_) => 'DIRECT';
-    } else {
-      client.findProxy = HttpClient.findProxyFromEnvironment;
-    }
-    if (trustAllCertificates) {
-      client.badCertificateCallback = (_, __, ___) => true;
-    }
-
+    final client = _createClient(useSystemProxy, trustAllCertificates);
     try {
       final request = await client.getUrl(uri);
       if (hostHeader != null) {
@@ -185,20 +184,9 @@ class NetworkDiagnosticService {
       }
       final response = await request.close();
       final body = await response.transform(SystemEncoding().decoder).join();
-      final success = response.statusCode >= 200 && response.statusCode < 300;
-      final compactBody =
-          body.length > 120 ? '${body.substring(0, 120)}...' : body;
-      return NetworkDiagnosticCheck(
-        title: title,
-        success: success,
-        detail: 'HTTP ${response.statusCode} $compactBody',
-      );
+      return _buildCheck(title, response.statusCode, body);
     } catch (e) {
-      return NetworkDiagnosticCheck(
-        title: title,
-        success: false,
-        detail: e.toString(),
-      );
+      return NetworkDiagnosticCheck(title: title, success: false, detail: e.toString());
     } finally {
       client.close(force: true);
     }
@@ -212,17 +200,7 @@ class NetworkDiagnosticService {
     required Map<String, dynamic> body,
     String? hostHeader,
   }) async {
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 10);
-    if (!useSystemProxy) {
-      client.findProxy = (_) => 'DIRECT';
-    } else {
-      client.findProxy = HttpClient.findProxyFromEnvironment;
-    }
-    if (trustAllCertificates) {
-      client.badCertificateCallback = (_, __, ___) => true;
-    }
-
+    final client = _createClient(useSystemProxy, trustAllCertificates);
     try {
       final request = await client.postUrl(uri);
       request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
@@ -232,42 +210,41 @@ class NetworkDiagnosticService {
       request.write(_encodeJson(body));
       final response = await request.close();
       final text = await response.transform(SystemEncoding().decoder).join();
-      final success = response.statusCode >= 200 && response.statusCode < 300;
-      final compactBody =
-          text.length > 120 ? '${text.substring(0, 120)}...' : text;
-      return NetworkDiagnosticCheck(
-        title: title,
-        success: success,
-        detail: 'HTTP ${response.statusCode} $compactBody',
-      );
+      return _buildCheck(title, response.statusCode, text);
     } catch (e) {
-      return NetworkDiagnosticCheck(
-        title: title,
-        success: false,
-        detail: e.toString(),
-      );
+      return NetworkDiagnosticCheck(title: title, success: false, detail: e.toString());
     } finally {
       client.close(force: true);
     }
   }
 
   String _encodeJson(Map<String, dynamic> body) {
-    final entries = body.entries
-        .map((e) => '"${e.key}":"${_escapeJson(e.value.toString())}"')
-        .join(',');
-    return '{$entries}';
-  }
-
-  String _escapeJson(String input) {
-    return input
-        .replaceAll('\\', '\\\\')
-        .replaceAll('"', '\\"')
-        .replaceAll('\n', '\\n')
-        .replaceAll('\r', '\\r');
+    return jsonEncode(body);
   }
 
   bool _isProductionHost(String host) {
     return host == _productionHost || host == _productionSubdomain;
+  }
+
+  HttpClient _createClient(bool useSystemProxy, bool trustAllCertificates) {
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 10);
+    client.findProxy =
+        useSystemProxy ? HttpClient.findProxyFromEnvironment : (_) => 'DIRECT';
+    if (trustAllCertificates) {
+      client.badCertificateCallback = (_, __, ___) => true;
+    }
+    return client;
+  }
+
+  NetworkDiagnosticCheck _buildCheck(String title, int statusCode, String body) {
+    final success = statusCode >= 200 && statusCode < 300;
+    final compactBody = body.length > 120 ? '${body.substring(0, 120)}...' : body;
+    return NetworkDiagnosticCheck(
+      title: title,
+      success: success,
+      detail: 'HTTP $statusCode $compactBody',
+    );
   }
 
   void _logReport(NetworkDiagnosticReport report) {
