@@ -20,7 +20,8 @@
   "summary": {
     "total": 3,
     "pending": 1,
-    "in_progress": 1,
+    "in_progress": 0,
+    "completed": 2,
     "completed": 1,
     "blocked": 0,
     "cancelled": 0
@@ -182,8 +183,10 @@
       "description": "L2 修复：服务器部署后桌面 Agent 永久离线。\n\n根因：Agent 重连耗尽后进程不退出（local_server 保持监听），Flutter 用 PID 存活判断 Agent 在线（不检查实际连接），两层都缺少失败后清理和自愈逻辑。\n\n修复内容：\n1. Agent 侧：retry 耗尽 / 不可恢复错误后，走统一退出路径（cleanup + sys.exit），不留僵尸进程\n2. Flutter 侧：ensureAgentOnline 检测到旧 managed 进程无法恢复时，杀掉旧进程 + 清除 PID + 用新 token 重新启动\n3. 配置统一：agent/app/config.py、agent/app/cli.py、desktop_agent_supervisor.dart 的 max_retries 默认值全部改为 60",
       "verification": "F2",
       "depends_on": ["S063"],
-      "status": "in_progress",
+      "status": "completed",
       "started_at": "2026-04-15",
+      "completed_at": "2026-04-15",
+      "commit": "7904e35",
       "evidence_file": ".dev-flow/evidence/S065.md",
       "priority": "P0",
       "acceptance_criteria": [
