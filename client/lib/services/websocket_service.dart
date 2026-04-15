@@ -79,7 +79,7 @@ class WebSocketService extends ChangeNotifier {
     this.terminalId,
     this.viewType = ViewType.mobile,
     this.autoReconnect = true,
-    this.maxRetries = 5,
+    this.maxRetries = 60,
     this.reconnectDelay = const Duration(seconds: 1),
     LoggerService? logger,
   }) : _logger = logger;
@@ -471,7 +471,7 @@ class WebSocketService extends ChangeNotifier {
     _status = ConnectionStatus.reconnecting;
     notifyListeners();
 
-    final delay = reconnectDelay * (1 << _retryCount);
+    final delay = reconnectDelay * (1 << _retryCount).clamp(0, 6); // 上限 64 秒
     _retryCount++;
 
     _reconnectTimer?.cancel();

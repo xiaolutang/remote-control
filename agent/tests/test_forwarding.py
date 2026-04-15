@@ -68,7 +68,7 @@ class TestForwarding:
         assert client.token == "test-token"
         assert client.command == "/bin/bash"
         assert client.auto_reconnect == True
-        assert client.max_retries == 5
+        assert client.max_retries == 60
         assert client.runtime_manager is not None
 
 

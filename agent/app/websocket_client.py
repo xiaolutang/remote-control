@@ -150,7 +150,7 @@ class WebSocketClient:
         command: str = "/bin/bash",
         shell_mode: bool = False,
         auto_reconnect: bool = True,
-        max_retries: int = 5,
+        max_retries: int = 60,
         retry_delay: float = 1.0,
         local_display: bool = False,
     ):
@@ -207,6 +207,7 @@ class WebSocketClient:
     async def run(self):
         """主运行循环"""
         self._running = True
+        _should_exit = False
 
         # 启动本地 HTTP Server（用于 Flutter UI 控制）
         await self._start_local_server()
@@ -219,15 +220,19 @@ class WebSocketClient:
                 close_code = e.rcvd.code if e.rcvd else None
                 if close_code in self._NON_RECOVERABLE_CODES:
                     _log(f"不可恢复错误 (code={close_code})，停止重连: {e}")
+                    await self._cleanup()
                     self._running = False
+                    _should_exit = True
                     break
                 _log(f"连接关闭: code={close_code}")
                 if not self.auto_reconnect or not self._running:
                     break
                 if self._retry_count >= self.max_retries:
                     _log(f"超过最大重试次数 ({self.max_retries})，停止重连")
+                    await self._cleanup()
+                    _should_exit = True
                     break
-                delay = self.retry_delay * (2 ** self._retry_count)
+                delay = min(self.retry_delay * (2 ** self._retry_count), 60.0)
                 _log(f"将在 {delay} 秒后重连 (第 {self._retry_count + 1} 次)")
                 await asyncio.sleep(delay)
                 self._retry_count += 1
@@ -238,12 +243,19 @@ class WebSocketClient:
 
                 if self._retry_count >= self.max_retries:
                     _log(f"超过最大重试次数 ({self.max_retries})，停止重连")
+                    await self._cleanup()
+                    _should_exit = True
                     break
-                # 指数退避
-                delay = self.retry_delay * (2 ** self._retry_count)
+                # 指数退避，上限 60 秒
+                delay = min(self.retry_delay * (2 ** self._retry_count), 60.0)
                 _log(f"将在 {delay} 秒后重连 (第 {self._retry_count + 1} 次)")
                 await asyncio.sleep(delay)
                 self._retry_count += 1
+
+        # while 循环退出后：如果因 retry 耗尽或不可恢复错误退出，则强制进程退出
+        if _should_exit:
+            _log("Agent 进程即将退出 (sys.exit)")
+            sys.exit(1)
 
     async def _connect_and_run(self):
         """连接服务器并运行主循环"""

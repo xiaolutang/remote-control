@@ -283,7 +283,7 @@ class DesktopAgentManager extends ChangeNotifier {
   // 原有方法（向后兼容 BootstrapService & workspace）
   // ============================================================
 
-  Future<DesktopAgentState> loadState() async {
+  Future<DesktopAgentState> loadState({bool autoHeal = true}) async {
     if (!isPlatformSupported) {
       return const DesktopAgentState(kind: DesktopAgentStateKind.unsupported);
     }
@@ -302,12 +302,33 @@ class DesktopAgentManager extends ChangeNotifier {
     );
 
     if (status.online) {
-      return DesktopAgentState(
+      _updateState(DesktopAgentState(
         kind: status.managedByDesktop
             ? DesktopAgentStateKind.managedOnline
             : DesktopAgentStateKind.externalOnline,
         workdir: workdir,
-      );
+      ));
+      return _state;
+    }
+
+    // Agent 离线且有有效凭证 → 触发自愈（syncAndEnsureOnline 会 kill 僵尸 + 重启）
+    if (autoHeal && _serverUrl.isNotEmpty && _token.isNotEmpty && _deviceId.isNotEmpty) {
+      _logDesktopAgentManager('loadState: agent offline, triggering self-heal');
+      try {
+        final healed = await _supervisor.syncAndEnsureOnline(
+          serverUrl: _serverUrl,
+          accessToken: _token,
+          deviceId: _deviceId,
+          agentWorkdir: workdir,
+        );
+        if (healed) {
+          _updateState(const DesktopAgentState(
+              kind: DesktopAgentStateKind.managedOnline));
+          return _state;
+        }
+      } catch (e) {
+        _logDesktopAgentManager('loadState: self-heal failed - $e');
+      }
     }
 
     if (workdir == null) {
@@ -354,7 +375,7 @@ class DesktopAgentManager extends ChangeNotifier {
         message: '本机 Agent 启动失败',
       );
     }
-    return loadState();
+    return loadState(autoHeal: false);
   }
 
   Future<bool> stopManagedAgent({

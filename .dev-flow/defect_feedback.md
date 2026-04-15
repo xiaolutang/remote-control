@@ -247,3 +247,35 @@
     - xlfoundry-plan: test-scenario-catalog.md 补"外部服务路径验证"模式
 - owner: xlfoundry-execute
 - status: closed
+
+---
+
+## DF-20260415-01
+
+- issue_id: DF-20260415-01
+- source: real_use
+- related_task: S063
+- symptom: 服务器重新部署后，桌面 Agent 永久离线，刷新无法恢复
+- escape_path: >-
+    1. Agent run() retry 耗尽后 break 退出循环，但 asyncio event loop 继续运行，
+       local_server HTTP 仍在监听 → 进程不退出 → 僵尸
+    2. Flutter getStatus() 用 PID 存活判断 managedByDesktop，不检查 Server agent_online
+    3. ensureAgentOnline() 发现 managed PID 存在 → 等待超时 → 不杀旧进程不重启
+    4. max_retries 配置源不一致：Python 默认 60、CLI 默认 5、Flutter config 写 5
+- fix_level: L2
+- root_cause_summary: >-
+    Agent 重连耗尽后进程不退出（local_server 保持监听），Flutter 看到进程存活就认为 Agent 还在工作。
+    两层都缺少失败后的清理和自愈逻辑。
+- root_cause_analysis:
+    1. 根因：进程所有权/退出回收/离线重启链路没有形成可验证的不变量
+    2. 同类问题：任何"检测到异常但只等不处理"的模式都有相同风险
+    3. 统一模式：Agent 必须保证退出干净，Client 必须保证检测到异常后能自愈
+    4. architecture.md 补充：不变量 #32（进程退出）和 #33（客户端自愈）
+- upstream_actions:
+    - 新增 S065: Agent 重连韧性 L2 修复
+    - 更新 architecture.md 不变量 #32/#33 + 禁止模式
+- rules_to_update:
+    - xlfoundry-plan: 高风险 startup/network 任务必须测试进程退出路径
+    - xlfoundry-risk: 审查"检测→等待→放弃"链路时，必须追问"放弃后有没有清理和自愈"
+- owner: xlfoundry-plan
+- status: open

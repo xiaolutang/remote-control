@@ -198,6 +198,7 @@
 |------|---------|
 | 4001 | token 无效 |
 | 4003 | 无权访问该会话 |
+| 4004 | auth 消息格式错误 / terminal 不存在 |
 | 4009 | 当前 session 已有活动 agent |
 
 ### Client / View WebSocket 连接
@@ -1305,6 +1306,7 @@ Redis `token_version:{session_id}:{view_type}` 记录当前版本号。登录时
 | 4001 | token 无效（签名错误、格式错误） |
 | 4002 | 超时未发送 auth 消息（5 秒） |
 | 4003 | 消息大小超过限制 |
+| 4004 | auth 消息格式错误 / 期望 auth 消息 |
 
 #### Rules
 

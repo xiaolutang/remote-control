@@ -416,8 +416,8 @@ class DesktopAgentSupervisor {
         'command': '/bin/bash',
         'shell_mode': false,
         'auto_reconnect': true,
-        'max_retries': 5,
-        'reconnect_max_attempts': 10,
+        'max_retries': 60,
+        'reconnect_max_attempts': 60,
         'reconnect_base_delay': 1.0,
         'heartbeat_interval': 30.0,
       };
