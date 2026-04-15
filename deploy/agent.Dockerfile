@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /
 COPY agent/requirements.txt .
 RUN python -m venv .venv && \
     . .venv/bin/activate && \
-    pip install --no-cache-dir git+https://github.com/xiaolutang/log-service.git@v0.1.0#subdirectory=sdks/python && \
+    pip install --no-cache-dir --no-deps git+https://github.com/xiaolutang/log-service.git@v0.1.0#subdirectory=sdks/python ; \
     pip install --no-cache-dir -r requirements.txt
 
 # ===== Stage 2: Runtime =====
@@ -22,8 +22,8 @@ ARG RUN_USER=appuser
 
 WORKDIR /app
 
-# 始终创建非 root 用户
-RUN useradd -r -s /bin/false appuser
+# 始终创建非 root 用户（创建 home 目录用于配置持久化）
+RUN useradd -r -m -s /bin/false appuser
 
 # 从 builder 复制虚拟环境（路径一致：/app/.venv）
 COPY --from=builder /app/.venv .venv

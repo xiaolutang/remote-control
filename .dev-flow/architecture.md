@@ -1,22 +1,42 @@
 # Architecture Context
 
 > 项目：remote-control
-> 最后更新：2026-04-13
+> 最后更新：2026-04-15
 > 本文件是项目的架构宪法，任何新代码不得违反以下约束。
 
 ## 系统拓扑
 
 ```
-[Agent] ←PTY→ [Terminal Runtime × N]
-    ↕ WebSocket
-[Server: 设备管理 + Terminal Relay + 认证 + TTL]
-    ↕ WebSocket
-[Client Flutter]
-  ├── mobile：远程终端查看器 + 输入增强
-  └── desktop：本机 Agent 控制台 + 终端工作台
+用户桌面电脑                              云端服务器（Docker）
+├── Desktop Client ─── 互联网 ───→ Server (Traefik/TLS 或直连端口)
+├── Local Agent ───── 互联网 ───→ Server    ├── Server: 认证 + Terminal Relay + TTL
+└── Client ←HTTP localhost─→ Agent         ├── Redis: session/token/aes_key
+                                            └── SQLite: 用户持久化
 
-数据流方向：Agent PTY → Server → Clients（非直连）
-控制面：Desktop ←HTTP→ Agent 本地 Supervisor（端口 18765-18769）
+用户手机
+└── Mobile Client ─── 互联网 ───→ Server
+
+数据流方向：Agent PTY → Server → Clients（非直连，Server 中转）
+控制面：Desktop ←HTTP localhost→ Agent 本地 Supervisor（端口 18765-18769）
+Agent 主要模式：跑在用户本地电脑上，通过互联网 WebSocket 连接 Server
+Docker Agent（辅助）：与 Server 同一 docker-compose，走 Docker 内网（仅测试/自托管场景）
+```
+
+## 网络安全边界
+
+```
+                互联网（需加密）
+    ┌─────────────────────────────────────┐
+    │  Mobile Client ──→ Server           │
+    │  Desktop Client ──→ Server          │
+    │  Local Agent ──→ Server             │  ← 都走互联网！
+    └─────────────────────────────────────┘
+
+    本地（无需加密）
+    Desktop Client ←→ Local Agent (localhost:18765)
+
+    Docker 内网（无需加密）
+    Server ←→ Docker Agent (rc-network，仅辅助场景)
 ```
 
 ## 权威边界
@@ -58,6 +78,11 @@
 24. Client 敏感数据（密码/token）用 flutter_secure_storage
 25. serverUrl 的单一真相源是 EnvironmentService，AppConfig 不持久化 serverUrl
 26. 环境切换编排由 UI/协调层触发（DAM.onLogout → 断终端 → AuthService.logout → 更新环境），EnvironmentService 不做任何副作用
+27. ws:// 直连路径必须使用应用层加密（RSA+AES），不得明文传输密码和终端数据（Client 和 Agent 均适用）。唯一例外：WS 首条 auth 消息（携带 JWT token）在 AES 密钥交换完成前无法加密，由 JWT 短时效 + RSA-OAEP 加密的 AES 密钥共同保障安全
+28. AES 密钥绑定 session_id，登录生成、会话复用、登出销毁
+29. TLS 路径（wss://）不加应用层加密，由传输层保护
+30. 本地环境 URL 格式为 `ws://{host}:{port}`（无 /rc 前缀，直连 Server）
+31. Agent 主要运行在用户本地电脑上，通过互联网连接 Server（非 Docker 内网）
 
 ## 禁止模式
 
@@ -77,6 +102,7 @@
 - ✗ 日志 API 用 get_current_payload 而非 get_current_user_id
 - ✗ EnvironmentService 直接调用 AuthService.logout / DesktopAgentManager（纯状态服务不得有副作用）
 - ✗ LoginScreen/TerminalWorkspaceScreen 通过构造参数传 serverUrl（改为从 EnvironmentService 读取）
+- ✗ ws:// 连接明文传输密码或终端数据（Client 和 Agent 均适用，必须经过 RSA+AES 加密）
 
 ## 数据流拓扑
 
@@ -84,6 +110,9 @@
 日志：Server/Agent → log-service-sdk → log-service | Client → POST /api/logs → Server → log-service
 反馈：Client → POST /api/feedback → Server → POST /api/issues → log-service Issues 表
 用户：Client → POST /api/login → Server user_api.py → SQLite + Redis session
+加密(ws://)：Client/Agent → GET /api/public-key → RSA 公钥 → 本地生成 AES → 加密登录 → Redis 存储 AES → WS 加解密
+Agent 注册：Local Agent → ws://server/ws/agent → Server（互联网，ws:// 时需加密）
+数据流：Agent PTY → Server 中转 → Clients（Agent 和 Client 都通过互联网连接 Server）
 ```
 
 ## 关键决策
@@ -94,6 +123,10 @@
 | 线上 URL 编译时固定 | 只有部署方知道线上地址，用户无需关心 | 运行时远程获取 |
 | 本地 host+port 可编辑 | 开发时 IP 变化频繁，端口因部署不同 | 完整 URL 编辑 |
 | EnvironmentService 独立服务 | 单一职责，可被 ConfigService / AuthService / AgentSupervisor 复用 | 直接在 ConfigService 加逻辑 |
+| RSA+AES 混合加密 | RSA 解决密钥分发，AES 解决对称加密性能，接近自建 TLS | 预共享密钥 |
+| 直连暴露 Server 端口 | 不修改共享 Traefik，零影响其他项目 | 修改 Traefik 添加非 TLS 入口 |
+| 本地 URL 无 /rc 前缀 | 直连 Server 不走 Traefik striprefix | Server 加 /rc 路由前缀 |
+| 加密按连接协议判断 | ws:// 必须加密，wss:// 不加密（TLS 已保护） | 全部加密 |
 
 | 决策 | 为什么 | 否决方案 |
 |------|--------|---------|
@@ -109,6 +142,6 @@
 ## 模块职责
 
 - **Agent**：PTY 管理，terminal 多实例隔离，进程组清理，本地 HTTP 控制面
-- **Server**：设备注册、terminal 中转、认证、在线态权威、TTL 状态管理
+- **Server**：设备注册、terminal 中转、认证、在线态权威、TTL 状态管理、RSA 密钥管理与 AES 会话密钥存储
 - **Client mobile**：远程 terminal 查看器 + 软键盘快捷键 + 命令面板
 - **Client desktop**：本机 Agent 控制台 + terminal 工作台 + 后台运行开关

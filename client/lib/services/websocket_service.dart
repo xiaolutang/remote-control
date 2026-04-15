@@ -6,6 +6,7 @@ import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'http_client_factory.dart';
 import 'logger_service.dart';
+import 'crypto_service.dart';
 
 /// 连接状态
 enum ConnectionStatus {
@@ -42,6 +43,10 @@ class WebSocketService extends ChangeNotifier {
 
   // 日志服务（可选）
   final LoggerService? _logger;
+
+  // 加密服务
+  final CryptoService _crypto = CryptoService.instance;
+  bool _encryptionEnabled = false;
 
   ConnectionStatus _status = ConnectionStatus.disconnected;
   String? _errorMessage;
@@ -155,11 +160,33 @@ class WebSocketService extends ChangeNotifier {
         customClient: _wsHttpClient,
       );
 
-      // 连接后立即发送 auth 消息（不再通过 URL query 传 token）
-      _channel!.sink.add(jsonEncode({
+      // 连接后立即发送 auth 消息（携带加密的 AES 会话密钥）
+      final authMessage = <String, dynamic>{
         'type': 'auth',
         'token': token,
-      }));
+      };
+      bool aesKeyExchanged = false;
+      if (_crypto.hasPublicKey) {
+        try {
+          _crypto.generateAesKey();
+          authMessage['encrypted_aes_key'] =
+              _crypto.getEncryptedAesKeyBase64();
+          aesKeyExchanged = true;
+        } catch (e) {
+          debugPrint('[WebSocketService] AES key exchange failed: $e');
+          _crypto.clearAesKey();
+        }
+      }
+      // ws:// 连接必须成功完成 AES 密钥交换（不变量 #27）
+      // 在发送 auth 前检查：若无 AES 密钥则直接拒绝，不发送明文 auth
+      if (serverUrl.startsWith('ws://') && !aesKeyExchanged) {
+        _status = ConnectionStatus.error;
+        _errorMessage = '安全连接建立失败';
+        notifyListeners();
+        await _channel?.sink.close();
+        return false;
+      }
+      _channel!.sink.add(jsonEncode(authMessage));
 
       // 使用 Completer 等待第一条确认消息
       final completer = Completer<bool>();
@@ -175,6 +202,7 @@ class WebSocketService extends ChangeNotifier {
               if (data['type'] == 'connected') {
                 _status = ConnectionStatus.connected;
                 _retryCount = 0;
+                _encryptionEnabled = aesKeyExchanged;
                 // 解析 connected 消息（CONTRACT-003）
                 _agentOnline = data['agent_online'] ?? false;
                 _deviceOnline = data['device_online'] ?? _agentOnline;
@@ -257,7 +285,18 @@ class WebSocketService extends ChangeNotifier {
   /// 处理消息
   void _handleMessage(String message) {
     try {
-      final data = jsonDecode(message) as Map<String, dynamic>;
+      var data = jsonDecode(message) as Map<String, dynamic>;
+
+      // 解密 AES 加密消息
+      if (data['encrypted'] == true && _encryptionEnabled) {
+        try {
+          data = _crypto.decryptMessage(data);
+        } catch (e) {
+          debugPrint('[WebSocketService] Decrypt failed: $e');
+          return;
+        }
+      }
+
       final type = data['type'] as String?;
 
       switch (type) {
@@ -355,11 +394,15 @@ class WebSocketService extends ChangeNotifier {
       return;
     }
 
-    final message = jsonEncode({
+    final raw = {
       'type': 'data',
       'payload': base64Encode(utf8.encode(data)),
       'timestamp': DateTime.now().toUtc().toIso8601String(),
-    });
+    };
+
+    final message = _encryptionEnabled && _crypto.shouldEncrypt('data')
+        ? jsonEncode(_crypto.encryptMessage(raw))
+        : jsonEncode(raw);
 
     _channel!.sink.add(message);
   }
@@ -394,11 +437,15 @@ class WebSocketService extends ChangeNotifier {
       return;
     }
 
-    final message = jsonEncode({
+    final raw = {
       'type': 'resize',
       'rows': rows,
       'cols': cols,
-    });
+    };
+
+    final message = _encryptionEnabled && _crypto.shouldEncrypt('resize')
+        ? jsonEncode(_crypto.encryptMessage(raw))
+        : jsonEncode(raw);
 
     _channel!.sink.add(message);
   }
@@ -436,6 +483,8 @@ class WebSocketService extends ChangeNotifier {
   /// 断开连接
   Future<void> disconnect({bool notify = true}) async {
     _allowReconnect = false;
+    _encryptionEnabled = false;
+    _crypto.clearAesKey();
     _stopHeartbeat();
     _reconnectTimer?.cancel();
     await _streamSubscription?.cancel();

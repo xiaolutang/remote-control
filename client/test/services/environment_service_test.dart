@@ -27,28 +27,42 @@ void main() {
     });
 
     group('serverUrl generation', () {
-      test('local default host=localhost, port="" -> ws://localhost/rc', () async {
+      test('local default host=localhost, port="" -> ws://localhost', () async {
         await service.loadSavedState();
-        expect(service.currentServerUrl, 'ws://localhost/rc');
+        expect(service.currentServerUrl, 'ws://localhost');
       });
 
-      test('local host=192.168.1.100, port=8080 -> ws://192.168.1.100:8080/rc', () async {
+      test('local host=192.168.1.100, port=8080 -> ws://192.168.1.100:8080', () async {
         await service.updateLocalHost('192.168.1.100');
         await service.updateLocalPort('8080');
-        expect(service.currentServerUrl, 'ws://192.168.1.100:8080/rc');
+        expect(service.currentServerUrl, 'ws://192.168.1.100:8080');
       });
 
-      test('local host=localhost, port empty -> ws://localhost/rc', () async {
+      test('local host=localhost, port empty -> ws://localhost', () async {
         await service.updateLocalHost('localhost');
         await service.updateLocalPort('');
-        expect(service.currentServerUrl, 'ws://localhost/rc');
+        expect(service.currentServerUrl, 'ws://localhost');
       });
 
-      test('production -> wss://xiaolutang.top/rc', () async {
+      test('production -> wss://rc.xiaolutang.top/rc', () async {
         service = EnvironmentService(debugModeProvider: () => false);
         EnvironmentService.setInstance(service);
         await service.loadSavedState();
-        expect(service.currentServerUrl, 'wss://xiaolutang.top/rc');
+        expect(service.currentServerUrl, 'wss://rc.xiaolutang.top/rc');
+      });
+
+      test('direct default -> ws://43.136.23.47:8880', () async {
+        await service.loadSavedState();
+        await service.switchEnvironment(AppEnvironment.direct);
+        expect(service.currentServerUrl, 'ws://43.136.23.47:8880');
+      });
+
+      test('direct custom host/port -> ws://1.2.3.4:9090', () async {
+        await service.loadSavedState();
+        await service.switchEnvironment(AppEnvironment.direct);
+        await service.updateDirectHost('1.2.3.4');
+        await service.updateDirectPort('9090');
+        expect(service.currentServerUrl, 'ws://1.2.3.4:9090');
       });
     });
 
@@ -72,6 +86,17 @@ void main() {
         await restored.loadSavedState();
         expect(restored.localHost, '10.0.2.2');
         expect(restored.localPort, '9090');
+      });
+
+      test('save direct host/port -> persists across re-initialization', () async {
+        await service.loadSavedState();
+        await service.updateDirectHost('8.8.8.8');
+        await service.updateDirectPort('9999');
+
+        final restored = EnvironmentService(debugModeProvider: () => true);
+        await restored.loadSavedState();
+        expect(restored.directHost, '8.8.8.8');
+        expect(restored.directPort, '9999');
       });
     });
 

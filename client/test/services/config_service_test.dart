@@ -23,7 +23,7 @@ void main() {
 
       final config = await service.loadConfig();
 
-      expect(config.serverUrl, 'ws://localhost/rc');
+      expect(config.serverUrl, 'ws://localhost');
       expect(config.shortcutItems, isEmpty);
     });
 
@@ -52,7 +52,7 @@ void main() {
       final restored = await service.loadConfig();
 
       // serverUrl 由 EnvironmentService 提供，不读取持久化值
-      expect(restored.serverUrl, 'ws://localhost/rc');
+      expect(restored.serverUrl, 'ws://localhost');
       expect(restored.themeMode, AppThemeMode.dark);
       expect(restored.keepAgentRunningInBackground, isFalse);
       expect(restored.shortcutItems.single.id, 'claude_help');
@@ -76,7 +76,7 @@ void main() {
       await envService.switchEnvironment(AppEnvironment.production);
       final service = ConfigService();
       final config = await service.loadConfig();
-      expect(config.serverUrl, 'wss://xiaolutang.top/rc');
+      expect(config.serverUrl, 'wss://rc.xiaolutang.top/rc');
     });
   });
 }

@@ -317,3 +317,25 @@
 | Module | Task IDs | Test Type | Required Scenarios | Status |
 |--------|----------|-----------|--------------------|--------|
 | 环境模型与选择服务 | F059 | unit | 默认环境、serverUrl 生成、持久化、首次安装/损坏数据、输入校验(host/port)、无副作用依赖 | ✅ |
+
+### IP 直连绕过 TLS（ip-direct phase）
+
+| Module | Task IDs | Test Type | Required Scenarios | Status |
+|--------|----------|-----------|--------------------|--------|
+| 本地 URL 修复 + 直连端口 | S063 | unit, integration | URL 格式修正(ws://)；端口映射配置；RSA+AES 加密链路；HTTP URL 转换 | 🔄 |
+| 直连端口部署验证 | S064 | integration, manual | 线上端口可达；真机直连登录；Agent 注册；TLS 环境不受影响 | ⬜ |
+
+#### IP 直连关键测试场景
+
+##### S063 失败分支
+- [ ] RC_DIRECT_PORT 未注入时使用默认 8880
+- [ ] RC_DIRECT_PORT 指定已被占用端口时 Server 启动失败
+- [ ] ws:// 连接超时（防火墙未开放）客户端提示明确
+- [ ] ws:// → http:// URL 转换异常处理
+- [ ] 环境切换（local→direct→production）时旧 WS 连接正确断开
+
+##### S064 线上 smoke
+- [ ] 真机直连 IP:8880 → 登录成功 → 终端收发
+- [ ] 桌面端直连 IP:8880 → 登录成功 → 终端收发
+- [ ] Agent 注册正常 → 设备在线
+- [ ] TLS 线上环境同时可用

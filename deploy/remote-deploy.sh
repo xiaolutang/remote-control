@@ -18,8 +18,8 @@ DISPLAY_NAME="remote-control"
 REMOTE_DEPLOY_DIR="/home/ubuntu/project/remote-control"
 IMAGES=("remote-control-server:latest" "remote-control-agent:latest")
 ACCESS_URLS=(
-  "前端|http://${REMOTE_HOST}/rc/"
-  "健康|http://${REMOTE_HOST}/rc/health"
+  "前端|https://rc.xiaolutang.top/rc/"
+  "健康|https://rc.xiaolutang.top/rc/health"
 )
 
 # 自定义构建：两个镜像分别构建
