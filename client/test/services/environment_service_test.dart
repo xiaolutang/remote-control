@@ -51,10 +51,10 @@ void main() {
         expect(service.currentServerUrl, 'wss://rc.xiaolutang.top/rc');
       });
 
-      test('direct default -> ws://${RC_TEST_SERVER_IP}:8880', () async {
+      test('direct default -> ws://:8880 (no host preset)', () async {
         await service.loadSavedState();
         await service.switchEnvironment(AppEnvironment.direct);
-        expect(service.currentServerUrl, 'ws://${RC_TEST_SERVER_IP}:8880');
+        expect(service.currentServerUrl, 'ws://:8880');
       });
 
       test('direct custom host/port -> ws://1.2.3.4:9090', () async {
