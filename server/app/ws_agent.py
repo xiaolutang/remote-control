@@ -4,12 +4,12 @@ WebSocket Agent 连接路由
 import asyncio
 import json
 import base64
-import os
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 from fastapi import WebSocketDisconnect, HTTPException, status
 
-from app.auth import async_verify_token, TokenVerificationError
+from app.crypto import get_crypto_manager, encrypt_message, decrypt_message, should_encrypt
+from app.ws_auth import wait_for_ws_auth, http_to_ws_code, MAX_WS_MESSAGE_SIZE
 import logging
 
 logger = logging.getLogger(__name__)
@@ -41,10 +41,6 @@ HEARTBEAT_TIMEOUT = 60  # 秒
 # Stale TTL 配置
 STALE_TTL_SECONDS = 90  # Agent 断开后等待 90 秒才真正 offline
 
-# WS 认证配置
-WS_AUTH_TIMEOUT = 5  # 秒
-MAX_WS_MESSAGE_SIZE = int(os.environ.get("MAX_WS_MESSAGE_SIZE", 1 * 1024 * 1024))  # 1MB
-
 
 class AgentConnection:
     """Agent 连接状态"""
@@ -55,9 +51,13 @@ class AgentConnection:
         self.owner = owner
         self.last_heartbeat = datetime.now(timezone.utc)
         self.connected_at = datetime.now(timezone.utc)
+        self.aes_key: bytes | None = None  # 该连接的 AES 会话密钥
 
     async def send(self, message: dict):
-        """发送消息到 Agent"""
+        """发送消息到 Agent（自动加密）"""
+        msg_type = message.get("type", "")
+        if self.aes_key and should_encrypt(msg_type):
+            message = encrypt_message(self.aes_key, message)
         await self.websocket.send_json(message)
 
     def update_heartbeat(self):
@@ -68,67 +68,6 @@ class AgentConnection:
         """检查连接是否存活"""
         elapsed = (datetime.now(timezone.utc) - self.last_heartbeat).total_seconds()
         return elapsed < HEARTBEAT_TIMEOUT
-
-
-def _http_to_ws_code(http_code: int) -> int:
-    """将 HTTP 状态码映射为有效的 WebSocket 关闭码"""
-    # WebSocket 关闭码必须在 1000-4999 范围内
-    # 使用 4000+ 作为自定义错误码
-    mapping = {
-        401: 4001,  # Unauthorized
-        403: 4003,  # Forbidden
-        404: 4004,  # Not Found
-        409: 4009,  # Conflict
-        500: 4500,  # Internal Server Error
-        503: 4503,  # Service Unavailable
-    }
-    return mapping.get(http_code, 4500)
-
-
-async def _wait_for_ws_auth(websocket) -> dict:
-    """
-    等待 WebSocket 首条 auth 消息并验证 token。
-    成功返回 token payload，失败时关闭连接并抛出异常。
-    """
-    try:
-        raw = await asyncio.wait_for(websocket.receive_text(), timeout=WS_AUTH_TIMEOUT)
-    except asyncio.TimeoutError:
-        await websocket.close(code=4002, reason="Auth timeout")
-        raise WebSocketDisconnect(code=4002)
-
-    if len(raw) > MAX_WS_MESSAGE_SIZE:
-        await websocket.close(code=4003, reason="Message too large")
-        raise WebSocketDisconnect(code=4003)
-
-    try:
-        msg = json.loads(raw)
-    except json.JSONDecodeError:
-        await websocket.close(code=4004, reason="Invalid JSON in auth message")
-        raise WebSocketDisconnect(code=4004)
-
-    if msg.get("type") != "auth" or not msg.get("token"):
-        await websocket.close(code=4004, reason="Expected auth message")
-        raise WebSocketDisconnect(code=4004)
-
-    token = msg["token"]
-
-    try:
-        payload = await async_verify_token(token)
-    except TokenVerificationError as e:
-        reason = e.error_code if e.error_code else e.detail
-        logger.warning(f"Token verification failed: {reason}")
-        await websocket.close(code=_http_to_ws_code(e.status_code), reason=reason)
-        raise WebSocketDisconnect(code=_http_to_ws_code(e.status_code))
-    except HTTPException as e:
-        logger.warning(f"Token verification failed: {e.detail}")
-        await websocket.close(code=_http_to_ws_code(e.status_code), reason=e.detail)
-        raise WebSocketDisconnect(code=_http_to_ws_code(e.status_code))
-    except Exception as e:
-        logger.warning(f"Token verification error: {type(e).__name__}: {e}")
-        await websocket.close(code=4500, reason=str(e))
-        raise WebSocketDisconnect(code=4500)
-
-    return payload
 
 
 async def agent_websocket_handler(
@@ -145,7 +84,7 @@ async def agent_websocket_handler(
 
     # 等待首条 auth 消息并验证 token
     try:
-        payload = await _wait_for_ws_auth(websocket)
+        payload, auth_msg = await wait_for_ws_auth(websocket)
     except (WebSocketDisconnect, Exception):
         return
 
@@ -165,7 +104,7 @@ async def agent_websocket_handler(
     try:
         session = await get_session(session_id)
     except HTTPException as e:
-        await websocket.close(code=_http_to_ws_code(e.status_code), reason=e.detail)
+        await websocket.close(code=http_to_ws_code(e.status_code), reason=e.detail)
         return
 
     owner = session.get("owner", payload.get("sub", ""))
@@ -173,6 +112,16 @@ async def agent_websocket_handler(
 
     # 创建连接对象
     agent_conn = AgentConnection(session_id, websocket, owner)
+
+    # 解密 AES 会话密钥（从 auth 原始消息中提取，不在 JWT payload 里）
+    encrypted_aes_key = auth_msg.pop("encrypted_aes_key", None)
+    if encrypted_aes_key:
+        try:
+            agent_conn.aes_key = get_crypto_manager().rsa_decrypt(encrypted_aes_key)
+            logger.info("Agent AES key established: session_id=%s", session_id)
+        except Exception as e:
+            logger.info("Failed to decrypt Agent AES key: session_id=%s error=%s", session_id, e)
+
     active_agents[session_id] = agent_conn
     logger.info(
         "Agent connected: session_id=%s owner=%s",
@@ -225,6 +174,22 @@ async def agent_websocket_handler(
                     session_id, je, len(raw_text),
                 )
                 continue
+
+            # 解密 AES 加密消息
+            if message.get("encrypted") and agent_conn.aes_key:
+                try:
+                    message = decrypt_message(agent_conn.aes_key, message)
+                except Exception as e:
+                    logger.info(
+                        "Agent decrypt FAIL: session_id=%s key=%s iv=%s data_len=%s error=%s",
+                        session_id,
+                        agent_conn.aes_key.hex()[:16],
+                        message.get("iv", "")[:16],
+                        len(message.get("data", "")),
+                        e,
+                    )
+                    continue
+
             await _handle_agent_message(websocket, session_id, message)
 
     except WebSocketDisconnect:

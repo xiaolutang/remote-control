@@ -13,8 +13,8 @@ DISPLAY_NAME="Remote Control"
 COMPOSE_FILE="deploy/docker-compose.yml"
 HEALTH_PATH="/rc/health"
 ACCESS_URLS=(
-  "服务地址|http://localhost/rc/"
-  "健康检查|http://localhost/rc/health"
+  "服务地址|https://rc.xiaolutang.top/rc/"
+  "健康检查|https://rc.xiaolutang.top/rc/health"
 )
 
 # ===== 自定义构建 =====

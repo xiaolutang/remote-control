@@ -31,9 +31,13 @@ class EnvironmentService {
   static const String _keyEnvironment = 'rc_environment';
   static const String _keyLocalHost = 'rc_local_host';
   static const String _keyLocalPort = 'rc_local_port';
+  static const String _keyDirectHost = 'rc_direct_host';
+  static const String _keyDirectPort = 'rc_direct_port';
 
-  static const String _productionHost = 'wss://xiaolutang.top/rc';
+  static const String _productionHost = 'wss://rc.xiaolutang.top/rc';
   static const String _defaultLocalHost = 'localhost';
+  static const String _defaultDirectHost = 'SERVER_IP_REMOVED';
+  static const String _defaultDirectPort = '8880';
 
   final SharedPreferences? _prefs;
   final bool Function() _debugModeProvider;
@@ -41,6 +45,8 @@ class EnvironmentService {
   AppEnvironment? _cachedEnvironment;
   String _cachedLocalHost = _defaultLocalHost;
   String _cachedLocalPort = '';
+  String _cachedDirectHost = _defaultDirectHost;
+  String _cachedDirectPort = _defaultDirectPort;
 
   /// 当前环境（同步，从内存缓存读取）
   AppEnvironment get currentEnvironment =>
@@ -60,6 +66,8 @@ class EnvironmentService {
         return _productionHost;
       case AppEnvironment.local:
         return _buildLocalUrl(_cachedLocalHost, _cachedLocalPort);
+      case AppEnvironment.direct:
+        return _buildLocalUrl(_cachedDirectHost, _cachedDirectPort);
     }
   }
 
@@ -74,9 +82,10 @@ class EnvironmentService {
         // 无效的环境名，使用默认值
       }
     }
-    _cachedLocalHost =
-        prefs.getString(_keyLocalHost) ?? _defaultLocalHost;
+    _cachedLocalHost = prefs.getString(_keyLocalHost) ?? _defaultLocalHost;
     _cachedLocalPort = prefs.getString(_keyLocalPort) ?? '';
+    _cachedDirectHost = prefs.getString(_keyDirectHost) ?? _defaultDirectHost;
+    _cachedDirectPort = prefs.getString(_keyDirectPort) ?? _defaultDirectPort;
   }
 
   /// 切换环境（仅更新状态，无副作用）
@@ -111,11 +120,33 @@ class EnvironmentService {
   /// 当前本地 port
   String get localPort => _cachedLocalPort;
 
+  /// 当前直连 host
+  String get directHost => _cachedDirectHost;
+
+  /// 当前直连 port
+  String get directPort => _cachedDirectPort;
+
+  /// 更新直连环境的 host
+  Future<void> updateDirectHost(String host) async {
+    final sanitized = _sanitizeHost(host);
+    _cachedDirectHost = sanitized;
+    final prefs = _prefs ?? await SharedPreferences.getInstance();
+    await prefs.setString(_keyDirectHost, sanitized);
+  }
+
+  /// 更新直连环境的 port
+  Future<void> updateDirectPort(String port) async {
+    final sanitized = _sanitizePort(port);
+    _cachedDirectPort = sanitized;
+    final prefs = _prefs ?? await SharedPreferences.getInstance();
+    await prefs.setString(_keyDirectPort, sanitized);
+  }
+
   String _buildLocalUrl(String host, String port) {
     if (port.isEmpty) {
-      return 'ws://$host/rc';
+      return 'ws://$host';
     }
-    return 'ws://$host:$port/rc';
+    return 'ws://$host:$port';
   }
 
   String _sanitizeHost(String host) {

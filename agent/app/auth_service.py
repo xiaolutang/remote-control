@@ -8,6 +8,7 @@ from typing import Optional
 from dataclasses import dataclass
 
 from app.config import ssl_context_for_aiohttp
+from app.crypto import agent_crypto
 
 logger = logging.getLogger(__name__)
 
@@ -54,21 +55,26 @@ class AuthService:
     async def login(self, username: str, password: str) -> LoginResult:
         """
         用户登录
-
-        Args:
-            username: 用户名
-            password: 密码
-
-        Returns:
-            LoginResult 登录结果
         """
         url = f"{self.base_url}/api/login"
+
+        # 密码加密：ws:// (→ http://) 必须加密（不变量 #27），wss:// (→ https://) 由 TLS 保护
+        body = {"username": username}
+        is_tls = self.base_url.startswith("https://")
+        try:
+            await agent_crypto.fetch_public_key(self.base_url)
+            body["password_encrypted"] = agent_crypto.rsa_encrypt_b64(password.encode())
+        except Exception:
+            if not is_tls:
+                raise  # ws:// 必须加密，异常直接传播给调用方
+            logger.warning("Public key fetch failed, TLS protects transport")
+            body["password"] = password
 
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     url,
-                    json={"username": username, "password": password},
+                    json=body,
                     ssl=ssl_context_for_aiohttp(),
                     timeout=aiohttp.ClientTimeout(total=30),
                 ) as response:

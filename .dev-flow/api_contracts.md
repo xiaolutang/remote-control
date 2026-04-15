@@ -42,6 +42,8 @@
 | CONTRACT-034 | 1390 | 安全加固：Redis 密码 + Docker 非 root | B070 |
 | CONTRACT-035 | 1420 | 安全加固：Agent 本地 HTTP 认证 | B068 |
 | CONTRACT-036 | 1450 | 安全加固：Client 安全存储 | F058 |
+| CONTRACT-037 | 1421 | RSA+AES 加密登录/注册 | S063, S064 |
+| CONTRACT-038 | 1456 | WebSocket AES 加解密 | S063, S064 |
 
 ## 日志集成
 
@@ -1411,3 +1413,72 @@ Redis `token_version:{session_id}:{view_type}` 记录当前版本号。登录时
 | flutter_secure_storage | 密码、access_token、refresh_token 使用 flutter_secure_storage |
 | SharedPreferences only | 用户名、login_time 可保留在 SharedPreferences |
 | Auto-migrate | 首次启动时从 SharedPreferences 迁移密码到 flutter_secure_storage + 清除旧值 |
+
+### RSA+AES 加密登录/注册
+
+| 字段 | 值 |
+|------|----|
+| ID | CONTRACT-037 |
+| Scope | Client, Agent, Server |
+| Related Tasks | S063, S064 |
+
+#### Protocol
+
+```
+Client/Agent                         Server
+    |                                    |
+    |  GET /api/public-key               |
+    |  ← {public_key_pem, fingerprint}   |
+    |                                    |
+    |  本地生成 AES-256 密钥 (32 bytes)   |
+    |  RSA-OAEP 加密 AES 密钥             |
+    |                                    |
+    |  POST /api/login (或 /api/register) |
+    |  {username, password_encrypted,     |
+    |   encryption_meta: {fingerprint}}   |
+    |  ← {token, session_id, ...}         |
+```
+
+#### Rules
+
+| Rule | Meaning |
+|------|---------|
+| 公钥端点 | GET /api/public-key 返回 PEM、模数、指数、SHA256 指纹 |
+| TOFU | Agent/Client 首次存储指纹，后续比对，变更则拒绝连接 |
+| 密码加密 | password_encrypted = RSA-OAEP(public_key, password_utf8) → base64 |
+| AES 密钥交换 | WebSocket auth 消息携带 encrypted_aes_key = RSA-OAEP(public_key, aes_key) → base64 |
+| 加密判断 | ws:// 必须加密，wss:// 不加密（TLS 已保护） |
+
+### WebSocket AES 加解密
+
+| 字段 | 值 |
+|------|----|
+| ID | CONTRACT-038 |
+| Scope | Client, Agent, Server |
+| Related Tasks | S063, S064 |
+
+#### Protocol
+
+```
+Agent/Client                         Server
+    |                                    |
+    |  WS auth: {type:"auth", token,     |
+    |   encrypted_aes_key: "base64..."}  |
+    |  ← {type:"connected", ...}         |
+    |                                    |
+    |  后续消息:                          |
+    |  {encrypted:true, iv:"base64",     |
+    |   data:"base64"}                   |
+    |  ← 解密 → 处理 → 加密 → 返回        |
+```
+
+#### Rules
+
+| Rule | Meaning |
+|------|---------|
+| 加密算法 | AES-256-GCM（12 字节 IV，每次随机） |
+| 明文消息 | auth（含 JWT token，AES 密钥交换前无法加密）、connected、ping、pong 不加密。auth 中的 encrypted_aes_key 由 RSA-OAEP 保护 |
+| 加密消息 | data, resize, create_terminal 等业务消息必须加密 |
+| 密钥绑定 | AES 密钥绑定 session，WS 断开时销毁（clear_aes_key） |
+| 加密失败 | 加密失败时断开连接（Agent/Client 侧），解密失败静默丢弃并记录日志（Server 侧）。不得降级为明文发送（禁止模式 #105） |
+| 双向加密 | Server→Agent/Client 和 Agent/Client→Server 均使用同一 AES 密钥 |

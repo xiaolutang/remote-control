@@ -5,6 +5,7 @@ import '../services/desktop_agent_manager.dart';
 import '../services/environment_service.dart';
 import '../services/terminal_session_manager.dart';
 import '../services/ui_helpers.dart';
+import 'network_diagnostic_screen.dart';
 import 'terminal_workspace_screen.dart';
 import 'package:provider/provider.dart';
 
@@ -36,8 +37,19 @@ class _LoginScreenState extends State<LoginScreen> {
   void initState() {
     super.initState();
     _selectedEnvironment = EnvironmentService.instance.currentEnvironment;
-    _hostController.text = EnvironmentService.instance.localHost;
-    _portController.text = EnvironmentService.instance.localPort;
+    _syncHostPortControllers();
+  }
+
+  /// 根据当前环境同步 host/port 输入框
+  void _syncHostPortControllers() {
+    final env = EnvironmentService.instance;
+    if (_selectedEnvironment == AppEnvironment.direct) {
+      _hostController.text = env.directHost;
+      _portController.text = env.directPort;
+    } else {
+      _hostController.text = env.localHost;
+      _portController.text = env.localPort;
+    }
   }
 
   @override
@@ -127,15 +139,17 @@ class _LoginScreenState extends State<LoginScreen> {
       if (sessionId != null && sessionId.isNotEmpty) {
         try {
           final agentManager = context.read<DesktopAgentManager>();
-          await agentManager.onLogin(
-            serverUrl: serverUrl,
-            token: token,
-            username: username,
-            deviceId: sessionId,
-          ).timeout(
-            const Duration(seconds: 15),
-            onTimeout: () {},
-          );
+          await agentManager
+              .onLogin(
+                serverUrl: serverUrl,
+                token: token,
+                username: username,
+                deviceId: sessionId,
+              )
+              .timeout(
+                const Duration(seconds: 15),
+                onTimeout: () {},
+              );
         } catch (_) {
           // Agent 启动失败，继续进入首页
         }
@@ -153,6 +167,7 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       );
     } catch (e) {
+      debugPrint('[LoginScreen] submit failed: $e');
       setState(() {
         _errorMessage = e.toString().replaceAll('Exception: ', '');
       });
@@ -204,6 +219,7 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() {
         _selectedEnvironment = newEnv;
         _errorMessage = null;
+        _syncHostPortControllers();
       });
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -213,20 +229,32 @@ class _LoginScreenState extends State<LoginScreen> {
   /// 保存 host/port 到 EnvironmentService
   Future<void> _saveHostPort() async {
     final env = EnvironmentService.instance;
-    final oldHost = env.localHost;
-    final oldPort = env.localPort;
-    if (_hostController.text != oldHost) {
-      await env.updateLocalHost(_hostController.text);
-    }
-    if (_portController.text != oldPort) {
-      await env.updateLocalPort(_portController.text);
-    }
-    // 同步 UI：如果值被 sanitize 回退了，更新输入框显示
-    if (env.localHost != _hostController.text) {
-      _hostController.text = env.localHost;
-    }
-    if (env.localPort != _portController.text) {
-      _portController.text = env.localPort;
+    if (_selectedEnvironment == AppEnvironment.direct) {
+      if (_hostController.text != env.directHost) {
+        await env.updateDirectHost(_hostController.text);
+      }
+      if (_portController.text != env.directPort) {
+        await env.updateDirectPort(_portController.text);
+      }
+      if (env.directHost != _hostController.text) {
+        _hostController.text = env.directHost;
+      }
+      if (env.directPort != _portController.text) {
+        _portController.text = env.directPort;
+      }
+    } else {
+      if (_hostController.text != env.localHost) {
+        await env.updateLocalHost(_hostController.text);
+      }
+      if (_portController.text != env.localPort) {
+        await env.updateLocalPort(_portController.text);
+      }
+      if (env.localHost != _hostController.text) {
+        _hostController.text = env.localHost;
+      }
+      if (env.localPort != _portController.text) {
+        _portController.text = env.localPort;
+      }
     }
   }
 
@@ -241,6 +269,19 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _showThemePicker() async {
     await showThemePickerSheet(context);
+  }
+
+  void _openNetworkDiagnostic() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => NetworkDiagnosticScreen(
+          serverUrl: EnvironmentService.instance.currentServerUrl,
+          username: _usernameController.text.trim(),
+          password: _passwordController.text,
+        ),
+      ),
+    );
   }
 
   @override
@@ -275,6 +316,11 @@ class _LoginScreenState extends State<LoginScreen> {
                           icon: Icon(Icons.lan),
                         ),
                         ButtonSegment(
+                          value: AppEnvironment.direct,
+                          label: Text('直连'),
+                          icon: Icon(Icons.link),
+                        ),
+                        ButtonSegment(
                           value: AppEnvironment.production,
                           label: Text('线上'),
                           icon: Icon(Icons.cloud),
@@ -286,19 +332,23 @@ class _LoginScreenState extends State<LoginScreen> {
                       },
                     ),
                     const SizedBox(height: 12),
-                    // 本地环境 host/port 编辑区
-                    if (_selectedEnvironment == AppEnvironment.local) ...[
+                    // host/port 编辑区（本地和直连环境显示）
+                    if (_selectedEnvironment == AppEnvironment.local ||
+                        _selectedEnvironment == AppEnvironment.direct) ...[
                       Row(
                         children: [
                           Expanded(
                             flex: 3,
                             child: TextFormField(
                               controller: _hostController,
-                              decoration: const InputDecoration(
+                              decoration: InputDecoration(
                                 labelText: 'Host',
-                                hintText: 'localhost',
-                                prefixIcon: Icon(Icons.dns),
-                                border: OutlineInputBorder(),
+                                hintText: _selectedEnvironment ==
+                                        AppEnvironment.direct
+                                    ? '服务器 IP'
+                                    : 'localhost',
+                                prefixIcon: const Icon(Icons.dns),
+                                border: const OutlineInputBorder(),
                                 isDense: true,
                                 helperText: '字母、数字、点、短横线',
                                 helperMaxLines: 1,
@@ -312,11 +362,14 @@ class _LoginScreenState extends State<LoginScreen> {
                             flex: 1,
                             child: TextFormField(
                               controller: _portController,
-                              decoration: const InputDecoration(
+                              decoration: InputDecoration(
                                 labelText: '端口',
-                                hintText: '留空',
-                                prefixIcon: Icon(Icons.numbers),
-                                border: OutlineInputBorder(),
+                                hintText: _selectedEnvironment ==
+                                        AppEnvironment.direct
+                                    ? '8080'
+                                    : '留空',
+                                prefixIcon: const Icon(Icons.numbers),
+                                border: const OutlineInputBorder(),
                                 isDense: true,
                                 helperText: '1-65535',
                                 helperMaxLines: 1,
@@ -339,17 +392,19 @@ class _LoginScreenState extends State<LoginScreen> {
                     const SizedBox(height: 16),
                     Text(
                       'Remote Control',
-                      style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style:
+                          Theme.of(context).textTheme.headlineMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 8),
                     Text(
                       _isLoginMode ? '登录您的账号' : '创建新账号',
                       style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 32),
@@ -379,8 +434,8 @@ class _LoginScreenState extends State<LoginScreen> {
                         suffixIcon: IconButton(
                           icon: Icon(
                             _obscurePassword
-                              ? Icons.visibility
-                              : Icons.visibility_off,
+                                ? Icons.visibility
+                                : Icons.visibility_off,
                           ),
                           onPressed: () {
                             setState(() {
@@ -392,8 +447,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       obscureText: _obscurePassword,
                       textInputAction: _isLoginMode
-                        ? TextInputAction.done
-                        : TextInputAction.next,
+                          ? TextInputAction.done
+                          : TextInputAction.next,
                       validator: _validatePassword,
                       enabled: !_isLoading,
                       onFieldSubmitted: _isLoginMode ? (_) => _submit() : null,
@@ -411,12 +466,13 @@ class _LoginScreenState extends State<LoginScreen> {
                           suffixIcon: IconButton(
                             icon: Icon(
                               _obscureConfirmPassword
-                                ? Icons.visibility
-                                : Icons.visibility_off,
+                                  ? Icons.visibility
+                                  : Icons.visibility_off,
                             ),
                             onPressed: () {
                               setState(() {
-                                _obscureConfirmPassword = !_obscureConfirmPassword;
+                                _obscureConfirmPassword =
+                                    !_obscureConfirmPassword;
                               });
                             },
                           ),
@@ -450,7 +506,9 @@ class _LoginScreenState extends State<LoginScreen> {
                               child: Text(
                                 _errorMessage!,
                                 style: TextStyle(
-                                  color: Theme.of(context).colorScheme.onErrorContainer,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onErrorContainer,
                                 ),
                               ),
                             ),
@@ -467,12 +525,18 @@ class _LoginScreenState extends State<LoginScreen> {
                         padding: const EdgeInsets.symmetric(vertical: 16),
                       ),
                       child: _isLoading
-                        ? const SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                        : Text(_isLoginMode ? '登录' : '注册'),
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Text(_isLoginMode ? '登录' : '注册'),
+                    ),
+                    const SizedBox(height: 16),
+                    OutlinedButton.icon(
+                      onPressed: _isLoading ? null : _openNetworkDiagnostic,
+                      icon: const Icon(Icons.network_check),
+                      label: const Text('网络诊断'),
                     ),
                     const SizedBox(height: 16),
 

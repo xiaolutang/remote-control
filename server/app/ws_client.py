@@ -10,7 +10,7 @@ from typing import Optional
 
 from fastapi import WebSocketDisconnect, HTTPException
 
-from app.auth import async_verify_token, TokenVerificationError
+from app.crypto import get_crypto_manager, encrypt_message, decrypt_message, should_encrypt
 from app.session import (
     get_session,
     get_session_by_device_id,
@@ -22,67 +22,9 @@ from app.ws_agent import (
     get_agent_connection,
     is_agent_connected,
 )
+from app.ws_auth import wait_for_ws_auth, http_to_ws_code, MAX_WS_MESSAGE_SIZE
 
 logger = logging.getLogger(__name__)
-
-
-def _http_to_ws_code(http_code: int) -> int:
-    """将 HTTP 状态码映射为有效的 WebSocket 关闭码"""
-    mapping = {
-        401: 4001,
-        403: 4003,
-        404: 4004,
-        409: 4009,
-        500: 4500,
-        503: 4504,
-    }
-    return mapping.get(http_code, 4500)
-
-
-async def _wait_for_ws_auth(websocket) -> dict:
-    """
-    等待 WebSocket 首条 auth 消息并验证 token。
-    成功返回 token payload，失败时关闭连接并抛出异常。
-    """
-    try:
-        raw = await asyncio.wait_for(websocket.receive_text(), timeout=WS_AUTH_TIMEOUT)
-    except asyncio.TimeoutError:
-        await websocket.close(code=4002, reason="Auth timeout")
-        raise WebSocketDisconnect(code=4002)
-
-    if len(raw) > MAX_WS_MESSAGE_SIZE:
-        await websocket.close(code=4003, reason="Message too large")
-        raise WebSocketDisconnect(code=4003)
-
-    try:
-        msg = json.loads(raw)
-    except json.JSONDecodeError:
-        await websocket.close(code=4004, reason="Invalid JSON in auth message")
-        raise WebSocketDisconnect(code=4004)
-
-    if msg.get("type") != "auth" or not msg.get("token"):
-        await websocket.close(code=4004, reason="Expected auth message")
-        raise WebSocketDisconnect(code=4004)
-
-    token = msg["token"]
-
-    try:
-        payload = await async_verify_token(token)
-    except TokenVerificationError as e:
-        reason = e.error_code if e.error_code else e.detail
-        logger.warning(f"Token verification failed: {reason}")
-        await websocket.close(code=_http_to_ws_code(e.status_code), reason=reason)
-        raise WebSocketDisconnect(code=_http_to_ws_code(e.status_code))
-    except HTTPException as e:
-        logger.warning(f"Token verification failed: {e.detail}")
-        await websocket.close(code=_http_to_ws_code(e.status_code), reason=e.detail)
-        raise WebSocketDisconnect(code=_http_to_ws_code(e.status_code))
-    except Exception as e:
-        logger.warning(f"Token verification error: {type(e).__name__}: {e}")
-        await websocket.close(code=4500, reason=str(e))
-        raise WebSocketDisconnect(code=4500)
-
-    return payload
 
 
 # 活跃的 Client 连接
@@ -90,10 +32,6 @@ active_clients: dict[str, list] = {}  # channel_key -> [ClientConnection,...]
 
 # 最大客户端数量
 MAX_CLIENTS_PER_SESSION = 100
-
-# WS 认证配置
-WS_AUTH_TIMEOUT = 5  # 秒
-MAX_WS_MESSAGE_SIZE = int(os.environ.get("MAX_WS_MESSAGE_SIZE", 1 * 1024 * 1024))  # 1MB
 
 
 def _channel_key(session_id: str, terminal_id: Optional[str] = None) -> str:
@@ -117,10 +55,14 @@ class ClientConnection:
         self.websocket = websocket
         self.view_type = view_type  # mobile 或 desktop
         self.connected_at = datetime.now(timezone.utc)
+        self.aes_key: Optional[bytes] = None  # 该连接的 AES 会话密钥
 
     async def send(self, message: dict):
-        """发送消息到 Client"""
+        """发送消息到 Client（自动加密）"""
         try:
+            msg_type = message.get("type", "")
+            if self.aes_key and should_encrypt(msg_type):
+                message = encrypt_message(self.aes_key, message)
             await self.websocket.send_json(message)
         except Exception:
             pass
@@ -190,7 +132,7 @@ async def client_websocket_handler(
 
     # 等待首条 auth 消息并验证 token
     try:
-        payload = await _wait_for_ws_auth(websocket)
+        payload, auth_msg = await wait_for_ws_auth(websocket)
     except (WebSocketDisconnect, Exception):
         return
 
@@ -213,7 +155,7 @@ async def client_websocket_handler(
             session = await get_session(session_id)
     except HTTPException as e:
         logger.warning(f"Get session failed: {e.detail}")
-        await websocket.close(code=_http_to_ws_code(e.status_code), reason=e.detail)
+        await websocket.close(code=http_to_ws_code(e.status_code), reason=e.detail)
         return
     except Exception as e:
         logger.error(f"Get session error: {type(e).__name__}: {e}")
@@ -255,6 +197,16 @@ async def client_websocket_handler(
         terminal_id=terminal_id,
         device_id=resolved_device_id,
     )
+
+    # 解密 AES 会话密钥（从 auth 原始消息中提取，不在 JWT payload 里）
+    encrypted_aes_key = auth_msg.pop("encrypted_aes_key", None)
+    if encrypted_aes_key:
+        try:
+            client_conn.aes_key = get_crypto_manager().rsa_decrypt(encrypted_aes_key)
+            logger.info("Client AES key established: session_id=%s view=%s", session_id, view)
+        except Exception as e:
+            logger.warning("Failed to decrypt Client AES key: session_id=%s error=%s", session_id, e)
+
     active_clients[channel_key].append(client_conn)
     logger.info(
         "Client connected: session_id=%s view=%s device_id=%s terminal_id=%s",
@@ -329,6 +281,18 @@ async def client_websocket_handler(
             except json.JSONDecodeError:
                 await websocket.send_json({"type": "error", "message": "Invalid JSON"})
                 continue
+
+            # 解密 AES 加密消息
+            if message.get("encrypted") and client_conn.aes_key:
+                try:
+                    message = decrypt_message(client_conn.aes_key, message)
+                except Exception as e:
+                    logger.warning(
+                        "Client message decrypt failed: session_id=%s error=%s",
+                        session_id, e,
+                    )
+                    continue
+
             await _handle_client_message(
                 websocket,
                 session_id,
@@ -448,19 +412,19 @@ async def broadcast_to_clients(session_id: str, message: dict, terminal_id: Opti
         message: 消息内容
         terminal_id: 终端 ID，如果为 None 则广播到该 session 下的所有客户端
     """
-    logger.info(f"[broadcast_to_clients] session={session_id} terminal_id={terminal_id} msg_type={message.get('type')} active_channels={list(active_clients.keys())}")
+    logger.debug(f"[broadcast_to_clients] session={session_id} terminal_id={terminal_id} msg_type={message.get('type')} active_channels={list(active_clients.keys())}")
     if terminal_id is None:
         # 广播到该 session 下的所有频道（包括 session 级别和所有终端级别）
         sent_clients = set()
         for channel_key, clients in active_clients.items():
             if _matches_session(channel_key, session_id):
-                logger.info(f"[broadcast_to_clients] matched channel={channel_key} clients={len(clients)}")
+                logger.debug(f"[broadcast_to_clients] matched channel={channel_key} clients={len(clients)}")
                 for client in clients:
                     # 避免重复发送（同一个客户端可能在多个频道）
                     if client not in sent_clients:
                         await client.send(message)
                         sent_clients.add(client)
-        logger.info(f"[broadcast_to_clients] sent to {len(sent_clients)} unique clients")
+        logger.debug(f"[broadcast_to_clients] sent to {len(sent_clients)} unique clients")
     else:
         # 只广播到特定终端频道
         clients = active_clients.get(_channel_key(session_id, terminal_id), [])

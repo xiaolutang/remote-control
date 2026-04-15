@@ -31,14 +31,16 @@ router = APIRouter()
 
 class UserRegister(BaseModel):
     username: str
-    password: str
+    password: Optional[str] = None
+    password_encrypted: Optional[str] = None
     device_name: Optional[str] = None
     view: Optional[str] = None
 
 
 class UserLogin(BaseModel):
     username: str
-    password: str
+    password: Optional[str] = None  # 明文密码（兼容旧客户端）
+    password_encrypted: Optional[str] = None  # RSA 加密后的密码（base64）
     view: Optional[str] = None
 
 
@@ -144,16 +146,38 @@ async def delete_refresh_token(session_id: str):
     await redis.delete(key)
 
 
+def _resolve_password(password: Optional[str], password_encrypted: Optional[str]) -> str:
+    """从明文或 RSA 加密字段解析出真实密码"""
+    if password_encrypted:
+        from app.crypto import get_crypto_manager
+        return get_crypto_manager().rsa_decrypt(password_encrypted).decode("utf-8")
+    if password:
+        return password
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="password 或 password_encrypted 必须提供一项",
+    )
+
+
+@router.get("/public-key")
+async def get_public_key():
+    """获取服务器 RSA 公钥（供客户端加密密码和 AES 密钥交换）"""
+    from app.crypto import get_crypto_manager
+    return get_crypto_manager().get_public_key_info()
+
+
 @router.post("/register", response_model=LoginResponse)
 async def register(user: UserRegister, _rl=Depends(_rate_limit_dependency)):
     """注册新用户"""
+    raw_password = _resolve_password(user.password, user.password_encrypted)
+
     if len(user.username) < 3 or len(user.username) > 32:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="用户名长度需要 3-32 个字符",
         )
 
-    if len(user.password) < 6:
+    if len(raw_password) < 6:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="密码长度至少 6 个字符",
@@ -168,7 +192,7 @@ async def register(user: UserRegister, _rl=Depends(_rate_limit_dependency)):
         )
 
     # 创建用户
-    password_hash = hash_password(user.password)
+    password_hash = hash_password(raw_password)
     await save_user(user.username, password_hash)
 
     # 自动登录，生成 token
@@ -211,6 +235,8 @@ async def register(user: UserRegister, _rl=Depends(_rate_limit_dependency)):
 @router.post("/login", response_model=LoginResponse)
 async def login(user: UserLogin, _rl=Depends(_rate_limit_dependency)):
     """用户登录"""
+    raw_password = _resolve_password(user.password, user.password_encrypted)
+
     # 验证用户
     stored_user = await get_user(user.username)
     if not stored_user:
@@ -219,10 +245,9 @@ async def login(user: UserLogin, _rl=Depends(_rate_limit_dependency)):
             detail="用户名或密码错误",
         )
 
-    password_hash = hash_password(user.password)
     stored_hash = stored_user["password_hash"]
 
-    if not verify_password(user.password, stored_hash):
+    if not verify_password(raw_password, stored_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户名或密码错误",
@@ -230,7 +255,7 @@ async def login(user: UserLogin, _rl=Depends(_rate_limit_dependency)):
 
     # 旧 SHA-256 哈希自动迁移为 bcrypt
     if is_legacy_hash(stored_hash):
-        new_hash = hash_password(user.password)
+        new_hash = hash_password(raw_password)
         await update_password_hash(user.username, new_hash)
 
     # 检查是否已有该用户的 session（实现同用户多设备共享 session）

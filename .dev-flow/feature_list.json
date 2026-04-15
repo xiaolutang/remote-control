@@ -2,30 +2,30 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-14",
-  "status": "executing",
+  "updated_at": "2026-04-15",
+  "status": "planning",
   "active_requirement_cycle": {
-    "name": "env-selector",
-    "branch": "feat/env-selector",
-    "started_at": "2026-04-14"
+    "name": "ip-direct",
+    "branch": "feat/ip-direct-encrypt",
+    "started_at": "2026-04-15"
   },
   "workflow": {
     "name": "remote-control",
-    "mode": "B",
+    "mode": "A",
     "runtime": "skill_orchestrated",
-    "review_provider": "codex_plugin",
-    "audit_provider": "codex_plugin",
-    "risk_provider": "codex_plugin"
+    "review_provider": "local",
+    "audit_provider": "local",
+    "risk_provider": "local"
   },
   "summary": {
     "total": 2,
-    "pending": 0,
-    "in_progress": 0,
-    "completed": 2,
+    "pending": 1,
+    "in_progress": 1,
+    "completed": 0,
     "blocked": 0,
     "cancelled": 0
   },
-  "next_phase": "env-selector",
+  "next_phase": "ip-direct",
   "project_info": {
     "description": "远程控制终端（Server + Agent + Client）。含反馈系统、日志集成、用户信息、Docker 标准化部署。",
     "tech_stack": {
@@ -36,183 +36,147 @@
   },
   "features": [
     {
-      "id": "F059",
-      "phase": "env-selector",
+      "id": "S063",
+      "phase": "ip-direct",
       "module": "client",
-      "name": "环境模型与选择服务",
-      "description": "新建 AppEnvironment 枚举和 EnvironmentService，并改造 AppConfig/ConfigService 的 serverUrl 来源。\n\n1. AppEnvironment 枚举：\n   - local：ws://{host}:{port}/rc（host/port 可编辑，默认 localhost 无端口）\n   - production：wss://xiaolutang.top/rc（固定）\n\n2. EnvironmentService（纯状态服务，不触发任何副作用）：\n   - 持久化当前环境选择到 SharedPreferences（key: rc_environment）\n   - 持久化本地 host/port（key: rc_local_host / rc_local_port）\n   - 根据 AppEnvironment 生成完整 serverUrl\n   - 提供 currentServerUrl getter（同步，从内存缓存读取）\n   - 提供 switchEnvironment(newEnv) → 仅更新环境状态，返回新 serverUrl\n   - 默认环境通过可注入的 debugModeProvider 判定（默认 () => kDebugMode）\n   - Debug → local，Release → production\n   - 不调用 AuthService.logout()，不操作 Agent，不做任何副作用\n\n3. 改造 AppConfig：\n   - serverUrl 字段改为 @non-persistent（不参与 toJson/fromJson）\n   - 由外部在构造时注入 EnvironmentService.currentServerUrl\n   - 保留其他持久化字段不变\n\n4. 改造 ConfigService：\n   - loadConfig() 不再自行决定 serverUrl\n   - 改为先从 EnvironmentService 获取当前环境，构造 AppConfig 时注入 serverUrl\n   - 移除 _debugServerUrl / _debugServerUrlMobile / _isSimulator / RC_SERVER_URL 相关逻辑\n\n改动文件：\n- client/lib/models/app_environment.dart（新建）\n- client/lib/services/environment_service.dart（新建）\n- client/lib/models/config.dart（serverUrl 改为非持久化）\n- client/lib/services/config_service.dart（简化，委托 EnvironmentService）",
+      "name": "本地环境 URL 修复 + 直连端口暴露",
+      "description": "修复本地环境 URL 格式，支持 IP 直连 Server 绕过 TLS。\n\n直连路径已实现 RSA+AES 应用层加密（符合 architecture.md 不变量 #27）：Client/Agent 获取 Server RSA 公钥 → 本地生成 AES-256 密钥 → RSA 加密 AES 密钥随 auth 消息发送 → Server 解密建立会话密钥 → WS 消息 AES-GCM 加解密。\n\n1. 客户端 URL 修复（client/lib/services/environment_service.dart）：\n   - _buildLocalUrl: wss:// → ws://\n   - 去掉 /rc 后缀（直连 Server 不走 Traefik striprefix）\n   - 修复后格式：ws://{host}:{port} 或 ws://{host}\n\n2. 注释更新（client/lib/models/app_environment.dart）：\n   - local 枚举注释：ws://{host}:{port}/rc → ws://{host}:{port}\n\n3. _serverUrlFor 生产环境 URL 不变（wss://rc.xiaolutang.top/rc）\n\n4. 部署配置（deploy/docker-compose.yml）：\n   - server 服务增加端口映射：ports: - \"${RC_DIRECT_PORT:-8880}:8000\"\n   - 直连端口通过环境变量 RC_DIRECT_PORT 控制，默认 8880\n   - 保留现有 expose: \"8000\"（Traefik 网络路由需要）\n\n5. 测试适配：\n   - 更新 environment_service_test.dart 中 URL 生成断言（wss://.../rc → ws://...）\n   - 更新 config_service_test.dart 中相关 URL 断言\n   - 修复 production URL 测试断言不一致（xiaolutang.top → rc.xiaolutang.top）\n\n用户操作：选择「本地」→ 输入服务器 IP + 8880 → ws://{ip}:8880 直连 → RSA+AES 加密链路建立 → 登录成功",
       "verification": "F1",
       "depends_on": [],
-      "status": "completed",
+      "status": "in_progress",
       "priority": "P0",
       "acceptance_criteria": [
-        "AppEnvironment 枚举包含 local 和 production",
-        "EnvironmentService 只管理环境状态，无任何副作用调用",
-        "选择 local 时生成 ws://{host}:{port}/rc",
-        "选择 production 时生成 wss://xiaolutang.top/rc",
-        "Debug 模式默认 local，Release 默认 production（通过可注入 provider）",
-        "本地 host/port 修改后持久化到 SharedPreferences",
-        "AppConfig.toJson() 不包含 serverUrl 字段",
-        "AppConfig.fromJson() 使用传入的 serverUrl 而非 json 中存储的值",
-        "ConfigService.loadConfig() 使用 EnvironmentService 的 serverUrl",
-        "EnvironmentService 不依赖 AuthService、DesktopAgentManager 或任何 UI 组件"
+        "_buildLocalUrl('localhost', '') 返回 ws://localhost",
+        "_buildLocalUrl('10.0.0.1', '9090') 返回 ws://10.0.0.1:9090",
+        "production URL 不变：wss://rc.xiaolutang.top/rc",
+        "docker-compose server 有端口映射到宿主机",
+        "AuthService._getHttpUrl() 正确转换 ws:// → http://",
+        "本地直连端到端：选择本地 → 输入 IP:8880 → 登录 → 终端收发正常",
+        "线上 TLS 端到端不受影响：选择线上 → wss:// 登录 → 终端收发正常"
       ],
-      "risk_tags": [
-        "config",
-        "first_use"
-      ],
+      "risk_tags": ["config", "network", "startup"],
       "test_tasks": [
         {
           "type": "unit",
-          "description": "环境模型与选择服务",
+          "description": "本地 URL 生成",
           "scenarios": [
-            "默认环境：debugModeProvider=true → local，false → production",
-            "保存环境选择 → 重启后读取一致",
-            "local 默认 host=localhost, port=''",
-            "local host=192.168.1.100, port=8080 → ws://192.168.1.100:8080/rc",
-            "local host=localhost, port='' → ws://localhost/rc",
-            "production → wss://xiaolutang.top/rc",
-            "首次安装无持久化 → 返回默认环境",
-            "持久化数据损坏 → 回退到默认环境",
-            "host 含特殊字符或空格 → 校验拒绝",
-            "port 含非数字字符 → 校验拒绝",
-            "EnvironmentService 无 AuthService/AgentManager 依赖（纯导入检查）"
+            "local host=192.168.1.100, port=8880 → ws://192.168.1.100:8880",
+            "local host=localhost, port='' → ws://localhost",
+            "local host=10.0.0.1, port=9090 → ws://10.0.0.1:9090",
+            "production → wss://rc.xiaolutang.top/rc（不变）"
+          ]
+        },
+        {
+          "type": "unit",
+          "description": "测试断言更新",
+          "scenarios": [
+            "environment_service_test.dart URL 断言更新为 ws:// 格式",
+            "config_service_test.dart 本地 URL 断言更新为 ws:// 格式",
+            "config_service_test.dart production URL 断言修复为 rc.xiaolutang.top"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "直连端到端",
+          "scenarios": [
+            "本地 Docker：ws://localhost:8880 → 登录成功 → 终端收发",
+            "线上 TLS：wss://rc.xiaolutang.top/rc → 登录成功 → 终端收发",
+            "切换本地→线上：环境切换 + 连接切换正常"
+          ]
+        },
+        {
+          "type": "unit",
+          "description": "失败分支：端口与配置",
+          "scenarios": [
+            "RC_DIRECT_PORT 未注入时使用默认 8880",
+            "RC_DIRECT_PORT 指定已被占用端口时 Server 启动失败",
+            "ws://→http:// URL 转换：host 包含特殊字符时处理",
+            "环境切换（local→direct→production）时旧 WS 连接正确断开"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "失败分支：网络异常",
+          "scenarios": [
+            "ws:// 连接超时（防火墙未开放）客户端提示明确",
+            "Server 端口未监听时客户端超时不崩溃",
+            "ws:// 连接 RSA 公钥获取失败时拒绝登录（安全连接不可用）",
+            "wss:// 连接由 TLS 保护，公钥获取失败时可回退（不变量 #29）"
           ]
         }
       ],
       "files": [
-        "client/lib/models/app_environment.dart",
         "client/lib/services/environment_service.dart",
-        "client/lib/models/config.dart",
-        "client/lib/services/config_service.dart"
-      ],
-      "started_at": "2026-04-14",
-      "completed_at": "2026-04-14",
-      "actual_minutes": 30,
-      "execution_notes": "24 tests passed, 0 analyze errors. EnvironmentService 纯状态服务，无副作用依赖。Code review conditional_pass→pass（移除 AuthService.logout 调用）。",
-      "evidence_file": "evidence/F059.md"
+        "client/lib/models/app_environment.dart",
+        "deploy/docker-compose.yml",
+        "client/test/services/environment_service_test.dart",
+        "client/test/services/config_service_test.dart"
+      ]
     },
     {
-      "id": "F060",
-      "phase": "env-selector",
+      "id": "S064",
+      "phase": "ip-direct",
       "module": "client",
-      "name": "登录页环境选择 UI + 全链路集成",
-      "description": "在登录页增加环境选择 UI，改造 serverUrl 参数链路，完成全链路集成。\n\n1. 环境切换编排（由 LoginScreen 触发，非 EnvironmentService）：\n   用户切换环境时按顺序执行：\n   a. DesktopAgentManager.onLogout()（停止 Agent）\n   b. TerminalSessionManager.disconnectAll()\n   c. AuthService.logout()（清除凭证）\n   d. EnvironmentService.switchEnvironment(newEnv)（更新环境状态）\n   e. 用新 serverUrl 刷新 UI\n\n2. LoginScreen 改造：\n   - 移除 serverUrl 构造参数，改为从 EnvironmentService 读取\n   - 顶部添加环境选择控件（SegmentedButton）\n   - 选择「本地」时显示 host + port 编辑区域\n   - 切换环境时按上述编排执行\n   - 登录/注册使用 EnvironmentService.currentServerUrl\n\n3. SplashPage 改造（main.dart）：\n   - 两处 LoginScreen 构造（自动登录失败行 154、无凭证行 219）统一改为无参\n   - 自动登录使用 EnvironmentService.currentServerUrl\n\n4. 登出/返回登录页全链路改造：\n   - logout_helper.dart：移除 serverUrl 参数，改从 EnvironmentService 读取\n   - terminal_screen.dart：两处 token 失效回登录页（行 257、293）统一无参\n   - TerminalWorkspaceScreen 的登出入口：使用 EnvironmentService.currentServerUrl\n   - UserProfileScreen 的登出入口：同上\n   - 所有 Navigator 到 LoginScreen 的地方统一无参构造\n\n5. DesktopAgentSupervisor 适配：\n   - syncManagedAgentConfig 使用 EnvironmentService.currentServerUrl\n\n原则：普通登出、token 失效登出、被顶下线登出统一走 logout_helper 协调层，该协调层内部按 DAM.onLogout → 断终端 → AuthService.logout → 跳转无参 LoginScreen 的顺序执行。",
-      "verification": "F2",
-      "depends_on": [
-        "F059"
-      ],
-      "status": "completed",
+      "name": "直连端口部署验证 + 线上适配",
+      "description": "验证直连端口在线上服务器的部署，确保客户端能通过 IP 直连正常使用。\n\n1. deploy/deploy.sh 或 deploy/remote-deploy.sh 适配：\n   - 确保直连端口映射在部署时生效\n   - RC_DIRECT_PORT 环境变量传入\n\n2. 防火墙/安全组确认：\n   - 确认 8880（或自定义）端口在服务器防火墙/安全组中开放\n   - 文档记录端口配置\n\n3. 客户端实测验证：\n   - 真机/桌面端通过 IP:8880 直连线上服务器\n   - 登录、终端收发、Agent 注册全链路验证（含 RSA+AES 加密）\n   - 切换回 TLS 线上环境验证不受影响",
+      "verification": "L4",
+      "depends_on": ["S063"],
+      "status": "pending",
       "priority": "P0",
       "acceptance_criteria": [
-        "LoginScreen 无 serverUrl 构造参数，从 EnvironmentService 读取",
-        "登录页顶部有环境选择控件（本地/线上）",
-        "选择本地时显示 host + port 编辑输入框",
-        "选择线上时不显示编辑框",
-        "切换环境时：停 Agent → 断终端 → 清凭证 → 更新环境 → 刷新 UI",
-        "登录/注册使用 EnvironmentService.currentServerUrl",
-        "环境选择持久化，下次打开保持",
-        "SplashPage 使用 EnvironmentService.currentServerUrl 做自动登录",
-        "SplashPage 两处 LoginScreen 构造均为无参",
-        "logout_helper 不再接受 serverUrl 参数，改从 EnvironmentService 读取",
-        "terminal_screen.dart 两处 token 失效回登录页均为无参 LoginScreen",
-        "TerminalWorkspaceScreen/UserProfileScreen 登出后跳转无参 LoginScreen",
-        "桌面端 Agent 配置使用正确环境的 serverUrl",
-        "EnvironmentService 不调用任何 AuthService/AgentManager 方法",
-        "Debug 模式默认选中本地环境",
-        "Release 模式默认选中线上环境"
+        "线上服务器 8880 端口可通过外部 IP 访问",
+        "客户端通过 IP:8880 直连 → 登录成功",
+        "直连模式下终端数据收发正常",
+        "直连模式下 Agent 注册和在线状态正常",
+        "TLS 线上环境不受影响",
+        "部署脚本正确处理 RC_DIRECT_PORT 环境变量"
       ],
-      "risk_tags": [
-        "config",
-        "first_use"
-      ],
+      "risk_tags": ["network", "startup"],
       "test_tasks": [
         {
-          "type": "unit",
-          "description": "登录页环境选择 UI",
+          "type": "integration",
+          "description": "线上直连 smoke",
           "scenarios": [
-            "默认显示正确的环境选择",
-            "切换到本地 → 显示 host/port 编辑框",
-            "切换到线上 → 隐藏 host/port 编辑框",
-            "编辑 host → 保存到 EnvironmentService",
-            "登录使用 EnvironmentService.currentServerUrl",
-            "LoginScreen 无 serverUrl 构造参数"
+            "真机直连 IP:8880 → 登录成功 → 进入终端",
+            "桌面端直连 IP:8880 → 登录成功 → 进入终端",
+            "Agent 注册正常 → 设备在线",
+            "TLS 线上环境同时可用"
           ]
         },
         {
           "type": "integration",
-          "description": "环境选择全链路",
+          "description": "失败分支：线上部署",
           "scenarios": [
-            "选择本地 + 输入 IP → 登录 → 连接本地 Docker",
-            "选择线上 → 登录 → 连接远端服务",
-            "切换环境 → 桌面端 Agent 停止 + 终端断开 + 凭证清除 + 环境更新",
-            "关闭 App 重开 → 保持上次环境选择",
-            "桌面端 Agent 配置使用正确环境的 URL",
-            "自动登录使用当前环境的 URL",
-            "登出后跳转登录页 → 登录页显示当前环境"
-          ]
-        },
-        {
-          "type": "integration",
-          "description": "所有登出入口统一验证",
-          "scenarios": [
-            "手动登出 → 无参 LoginScreen → 显示当前环境",
-            "token 失效 → 无参 LoginScreen → 显示当前环境",
-            "被其他设备顶下线 → 无参 LoginScreen → 显示当前环境",
-            "SplashPage 自动登录失败 → 无参 LoginScreen → 显示当前环境",
-            "所有可达的 LoginScreen 构造点均无 serverUrl 参数（静态代码检查）"
-          ]
-        },
-        {
-          "type": "integration",
-          "description": "首用与异常场景",
-          "scenarios": [
-            "首次安装 → 默认环境正确（Debug=本地，Release=线上）",
-            "首次进入 → host/port 显示默认值 localhost",
-            "本地环境 host 填写非法值 → 校验提示",
-            "本地环境服务不可达 → 登录失败提示（非崩溃）",
-            "线上环境服务不可达 → 登录失败提示",
-            "EnvironmentService 初始化时 SharedPreferences 读取失败 → 回退默认",
-            "切换环境时 Agent 停止超时 → 仍完成环境切换",
-            "disconnectAll 失败 → 环境切换仍完成，UI 不卡死",
-            "AuthService.logout 失败 → 环境切换仍完成，用户可手动重试登录"
+            "防火墙未开放 8880 端口 → 客户端连接超时 → 提示明确",
+            "Agent 通过 ws://IP:8880 连接超时 → 日志记录 → 自动重试",
+            "RC_DIRECT_PORT 环境变量传入非法值 → deploy 脚本报错",
+            "线上同时存在 TLS 直连两路 → 数据不串扰"
           ]
         }
       ],
+      "smoke_required": true,
       "files": [
-        "client/lib/screens/login_screen.dart",
-        "client/lib/main.dart",
-        "client/lib/screens/terminal_screen.dart",
-        "client/lib/screens/terminal_workspace_screen.dart",
-        "client/lib/screens/user_profile_screen.dart",
-        "client/lib/screens/runtime_selection_screen.dart",
-        "client/lib/services/logout_helper.dart",
-        "client/lib/services/desktop_agent_supervisor.dart"
-      ],
-      "started_at": "2026-04-14",
-      "completed_at": "2026-04-14",
-      "actual_minutes": 45,
-      "execution_notes": "295 tests passed. LoginScreen 无参构造 + 环境选择 UI + 协调层编排。logout_helper 重构。Code review fail→修复协调层编排+UI校验。",
-      "evidence_file": "evidence/F060.md"
+        "deploy/docker-compose.yml",
+        "deploy/deploy.sh",
+        "deploy/remote-deploy.sh"
+      ]
     }
   ],
   "archived_phases": [
     {
+      "phase": "env-selector",
+      "status": "completed",
+      "task_count": 2,
+      "task_ids": ["F059", "F060"],
+      "conclusion": "环境选择阶段完成：登录页环境选择 UI + EnvironmentService 纯状态服务 + 全链路集成",
+      "archived_at": "2026-04-15",
+      "archive_file": "_archive/phases/phase_env-selector.json"
+    },
+    {
       "phase": "security-hardening",
       "status": "completed",
       "task_count": 10,
-      "task_ids": [
-        "B062",
-        "B063",
-        "B064",
-        "B065",
-        "B066",
-        "B067",
-        "B068",
-        "F058",
-        "B070",
-        "S038"
-      ],
+      "task_ids": ["B062", "B063", "B064", "B065", "B066", "B067", "B068", "F058", "B070", "S038"],
       "conclusion": "安全加固阶段完成，10/10 任务",
       "archived_at": "2026-04-14",
       "archive_file": "_archive/phases/phase_security-hardening.json"
@@ -221,9 +185,7 @@
       "phase": "agent",
       "status": "completed",
       "task_count": 1,
-      "task_ids": [
-        "B013"
-      ],
+      "task_ids": ["B013"],
       "conclusion": "agent 阶段完成，1 个任务",
       "archived_at": "2026-03-30T17:00:00Z",
       "archive_file": "_archive/phases/phase_agent.json"
@@ -232,31 +194,7 @@
       "phase": "backend",
       "status": "completed",
       "task_count": 23,
-      "task_ids": [
-        "B001",
-        "B002",
-        "B003",
-        "B004",
-        "B005",
-        "B006",
-        "B007",
-        "B008",
-        "B009",
-        "B010",
-        "B011",
-        "B012",
-        "B014",
-        "B015",
-        "B016",
-        "B017",
-        "B018",
-        "B019",
-        "B022",
-        "B032",
-        "B033",
-        "B034",
-        "B035"
-      ],
+      "task_ids": ["B001", "B002", "B003", "B004", "B005", "B006", "B007", "B008", "B009", "B010", "B011", "B012", "B014", "B015", "B016", "B017", "B018", "B019", "B022", "B032", "B033", "B034", "B035"],
       "conclusion": "backend 阶段完成，23 个任务",
       "archived_at": "2026-03-30T17:00:00Z",
       "archive_file": "_archive/phases/phase_backend.json"
@@ -265,39 +203,7 @@
       "phase": "frontend",
       "status": "completed",
       "task_count": 31,
-      "task_ids": [
-        "F001",
-        "F002",
-        "F003",
-        "F004",
-        "F005",
-        "F006",
-        "F007",
-        "F008",
-        "F009",
-        "F010",
-        "F011",
-        "F012",
-        "F013",
-        "F014",
-        "F015",
-        "F016",
-        "F017",
-        "F018",
-        "F019",
-        "F020",
-        "F021",
-        "F022",
-        "F023",
-        "F024",
-        "F025",
-        "F026",
-        "F027",
-        "F028",
-        "F029",
-        "F030",
-        "F031"
-      ],
+      "task_ids": ["F001", "F002", "F003", "F004", "F005", "F006", "F007", "F008", "F009", "F010", "F011", "F012", "F013", "F014", "F015", "F016", "F017", "F018", "F019", "F020", "F021", "F022", "F023", "F024", "F025", "F026", "F027", "F028", "F029", "F030", "F031"],
       "conclusion": "frontend 阶段完成，31 个任务",
       "archived_at": "2026-03-30T17:00:00Z",
       "archive_file": "_archive/phases/phase_frontend.json"
@@ -306,241 +212,94 @@
       "phase": "shared",
       "status": "completed",
       "task_count": 14,
-      "task_ids": [
-        "S001",
-        "S002",
-        "S003",
-        "S011",
-        "S012",
-        "S013",
-        "S014",
-        "S015",
-        "S016",
-        "S017",
-        "S018",
-        "S019",
-        "S022",
-        "S023"
-      ],
+      "task_ids": ["S001", "S002", "S003", "S011", "S012", "S013", "S014", "S015", "S016", "S017", "S018", "S019", "S022", "S023"],
       "conclusion": "shared 阶段完成，14 个任务",
       "archived_at": "2026-03-30T17:00:00Z",
       "archive_file": "_archive/phases/phase_shared.json"
     },
     {
       "phase": "agent-lifecycle",
-      "task_ids": [
-        "S024",
-        "F032",
-        "F033",
-        "F034",
-        "F035",
-        "F036",
-        "F037",
-        "F038"
-      ],
+      "task_ids": ["S024", "F032", "F033", "F034", "F035", "F036", "F037", "F038"],
       "archived_at": "2026-04-10T14:03:03Z",
-      "summary": {
-        "total": 8,
-        "completed": 7,
-        "cancelled": 1
-      }
+      "summary": {"total": 8, "completed": 7, "cancelled": 1}
     },
     {
       "phase": "ws-lifecycle",
-      "task_ids": [
-        "F039",
-        "F040"
-      ],
+      "task_ids": ["F039", "F040"],
       "archived_at": "2026-04-10T14:03:03Z",
-      "summary": {
-        "total": 2,
-        "completed": 2,
-        "cancelled": 0
-      }
+      "summary": {"total": 2, "completed": 2, "cancelled": 0}
     },
     {
       "phase": "agent-hardening",
-      "task_ids": [
-        "F041",
-        "F042",
-        "F043",
-        "F044"
-      ],
+      "task_ids": ["F041", "F042", "F043", "F044"],
       "archived_at": "2026-04-10T14:03:03Z",
-      "summary": {
-        "total": 4,
-        "completed": 4,
-        "cancelled": 0
-      }
+      "summary": {"total": 4, "completed": 4, "cancelled": 0}
     },
     {
       "phase": "device-online-limit",
-      "task_ids": [
-        "B036",
-        "B037",
-        "F045",
-        "F046",
-        "F047"
-      ],
+      "task_ids": ["B036", "B037", "F045", "F046", "F047"],
       "archived_at": "2026-04-10T14:03:03Z",
-      "summary": {
-        "total": 5,
-        "completed": 5,
-        "cancelled": 0
-      }
+      "summary": {"total": 5, "completed": 5, "cancelled": 0}
     },
     {
       "phase": "login-device-limit",
-      "task_ids": [
-        "B038",
-        "B039",
-        "F048",
-        "F049",
-        "S025"
-      ],
+      "task_ids": ["B038", "B039", "F048", "F049", "S025"],
       "archived_at": "2026-04-10T14:03:03Z",
-      "summary": {
-        "total": 5,
-        "completed": 5,
-        "cancelled": 0
-      }
+      "summary": {"total": 5, "completed": 5, "cancelled": 0}
     },
     {
       "phase": "token-unification",
-      "task_ids": [
-        "B040",
-        "B041",
-        "S026"
-      ],
+      "task_ids": ["B040", "B041", "S026"],
       "archived_at": "2026-04-10T14:03:03Z",
-      "summary": {
-        "total": 3,
-        "completed": 3,
-        "cancelled": 0
-      }
+      "summary": {"total": 3, "completed": 3, "cancelled": 0}
     },
     {
       "phase": "remove-conflict-dialog",
-      "task_ids": [
-        "B042",
-        "F050",
-        "S027"
-      ],
+      "task_ids": ["B042", "F050", "S027"],
       "archived_at": "2026-04-10T14:03:03Z",
-      "summary": {
-        "total": 3,
-        "completed": 3,
-        "cancelled": 0
-      }
+      "summary": {"total": 3, "completed": 3, "cancelled": 0}
     },
     {
       "phase": "feedback-feature",
-      "task_ids": [
-        "B048",
-        "B049",
-        "F051",
-        "F052",
-        "F053",
-        "S030"
-      ],
+      "task_ids": ["B048", "B049", "F051", "F052", "F053", "S030"],
       "archived_at": "2026-04-12T14:00:00Z",
-      "summary": {
-        "total": 6,
-        "completed": 6,
-        "cancelled": 0
-      }
+      "summary": {"total": 6, "completed": 6, "cancelled": 0}
     },
     {
       "phase": "log-decoupling",
-      "task_ids": [
-        "B054",
-        "B055",
-        "S031"
-      ],
+      "task_ids": ["B054", "B055", "S031"],
       "archived_at": "2026-04-12T14:00:00Z",
-      "summary": {
-        "total": 3,
-        "completed": 3,
-        "cancelled": 0
-      }
+      "summary": {"total": 3, "completed": 3, "cancelled": 0}
     },
     {
       "phase": "logging-integration",
-      "task_ids": [
-        "B043",
-        "B044",
-        "B045",
-        "B046",
-        "B047",
-        "S028",
-        "S029"
-      ],
+      "task_ids": ["B043", "B044", "B045", "B046", "B047", "S028", "S029"],
       "archived_at": "2026-04-10T14:03:03Z",
-      "summary": {
-        "total": 7,
-        "completed": 7,
-        "cancelled": 0
-      }
+      "summary": {"total": 7, "completed": 7, "cancelled": 0}
     },
     {
       "phase": "user-info",
-      "task_ids": [
-        "B056",
-        "F054",
-        "F055",
-        "F056",
-        "S032"
-      ],
+      "task_ids": ["B056", "F054", "F055", "F056", "S032"],
       "archived_at": "2026-04-12T19:00:00Z",
-      "summary": {
-        "total": 5,
-        "completed": 5,
-        "cancelled": 0
-      }
+      "summary": {"total": 5, "completed": 5, "cancelled": 0}
     },
     {
       "phase": "feedback-to-issues",
-      "task_ids": [
-        "B057",
-        "F057",
-        "B058",
-        "B059",
-        "S033"
-      ],
+      "task_ids": ["B057", "F057", "B058", "B059", "S033"],
       "archived_at": "2026-04-12T23:17:00Z",
-      "summary": {
-        "total": 5,
-        "completed": 5,
-        "cancelled": 0
-      }
+      "summary": {"total": 5, "completed": 5, "cancelled": 0}
     },
     {
       "phase": "deploy-standardization",
-      "task_ids": [
-        "S034",
-        "S035",
-        "S036"
-      ],
+      "task_ids": ["S034", "S035", "S036"],
       "archived_at": "2026-04-13T02:27:00Z",
-      "summary": {
-        "total": 3,
-        "completed": 3,
-        "cancelled": 0
-      }
+      "summary": {"total": 3, "completed": 3, "cancelled": 0}
     },
     {
       "phase": "user-persistence",
-      "task_ids": [
-        "B060",
-        "B061",
-        "S037"
-      ],
+      "task_ids": ["B060", "B061", "S037"],
       "archived_at": "2026-04-13T02:27:00Z",
-      "summary": {
-        "total": 3,
-        "completed": 3,
-        "cancelled": 0
-      }
+      "summary": {"total": 3, "completed": 3, "cancelled": 0}
     }
   ]
 }

@@ -21,6 +21,7 @@ from app.pty_wrapper import PTYWrapper, PTYConfig
 
 
 from app.config import Config, ssl_context_for_websockets
+from app.crypto import agent_crypto
 
 logger = logging.getLogger(__name__)
 
@@ -267,11 +268,28 @@ class WebSocketClient:
                 _log("已连接到服务器")
 
                 try:
-                    # B068: 发送 auth 消息进行鉴权
-                    await ws.send(json.dumps({
+                    # B068: 发送 auth 消息进行鉴权（携带加密的 AES 密钥）
+                    auth_msg = {
                         "type": "auth",
                         "token": self.token,
-                    }))
+                    }
+                    ws_needs_encryption = self.server_url.startswith("ws://")
+
+                    if ws_needs_encryption and not agent_crypto.has_public_key:
+                        raise Exception("ws:// 连接必须加密，但公钥未获取")
+
+                    if agent_crypto.has_public_key:
+                        try:
+                            agent_crypto.generate_aes_key()
+                            auth_msg["encrypted_aes_key"] = agent_crypto.get_encrypted_aes_key_b64()
+                            _log("AES key generated and encrypted")
+                        except Exception as e:
+                            logger.error("AES key exchange failed: %s", e)
+                            agent_crypto.clear_aes_key()
+                            if ws_needs_encryption:
+                                raise Exception("ws:// 连接 AES 密钥交换失败") from e
+
+                    await ws.send(json.dumps(auth_msg))
 
                     # 等待连接确认消息
                     # 等待连接确认消息
@@ -396,6 +414,15 @@ class WebSocketClient:
             try:
                 message = await asyncio.wait_for(self.ws.recv(), timeout=1)
                 data = json.loads(message)
+
+                # 解密 AES 加密消息
+                if data.get("encrypted") and agent_crypto.has_public_key:
+                    try:
+                        data = agent_crypto.decrypt_message(data)
+                    except Exception as e:
+                        logger.warning("Decrypt failed: %s", e)
+                        continue
+
                 msg_type = data.get("type")
                 _log(f"收到消息 type={msg_type} data={json.dumps(data, ensure_ascii=False)[:200]}")
 
@@ -494,7 +521,8 @@ class WebSocketClient:
 
                 elif msg_type == "error":
                     _log(f"服务器错误: {data.get('message')}")
-                    break
+                    # 非致命错误，继续运行（如未知消息类型等）
+                    continue
 
             except asyncio.TimeoutError:
                 continue
@@ -503,12 +531,19 @@ class WebSocketClient:
                 break
 
     async def _send_ws_message(self, message: dict):
-        """发送消息到 WebSocket。
+        """发送消息到 WebSocket（自动加密）。
 
         使用 asyncio.Lock 确保 ws.send() 不被并发调用。
         json.dumps 在 Lock 外完成，避免不必要地延长 Lock 持有时间。
         """
         if self.ws and self._connected:
+            msg_type = message.get("type", "")
+            if agent_crypto.has_public_key and agent_crypto.should_encrypt(msg_type):
+                try:
+                    message = agent_crypto.encrypt_message(message)
+                except Exception as e:
+                    logger.error("Encrypt failed, dropping message (not sending plaintext): %s", e)
+                    return
             text = json.dumps(message)
             async with self._send_lock:
                 await self.ws.send(text)
@@ -577,6 +612,7 @@ class WebSocketClient:
             return  # 避免重复清理
 
         self._connected = False
+        agent_crypto.clear_aes_key()
 
         # 记录各任务状态，用于排查断连原因
         task_states = []

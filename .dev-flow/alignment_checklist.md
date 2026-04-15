@@ -82,3 +82,5 @@
 | **安全加固** | **Redis 密码保护 + Docker 非 root** | **CONTRACT-034** | **pending** | **not_applicable** | **pending** | **B070: Redis --requirepass + 非 root 容器** |
 | **安全加固** | **安全加固集成验证** | **CONTRACT-031..036** | **pending** | **pending** | **pending** | **S038: 端到端全链路安全加固验证** |
 | **环境选择** | **环境模型与选择服务** | — | **not_applicable** | **completed** | **completed** | **F059: AppEnvironment 枚举 + EnvironmentService 纯状态服务 + ConfigService 委托** |
+| **IP 直连** | **本地 URL 修复 + 直连端口暴露** | **CONTRACT-037, CONTRACT-038** | **completed** | **in_progress** | **in_progress** | **S063: ws:// URL 格式 + Docker 端口映射 8880 + RSA+AES 加密（符合不变量 #27）** |
+| **IP 直连** | **直连端口部署验证 + 线上适配** | **CONTRACT-037, CONTRACT-038** | **pending** | **pending** | **pending** | **S064: 线上防火墙开放 + 真机直连 smoke + Agent 注册验证** |

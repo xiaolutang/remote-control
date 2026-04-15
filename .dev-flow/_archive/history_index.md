@@ -36,6 +36,7 @@
 | S033 | 2026-04-13 15:30 | 安全加固规划 | planning | 15 个安全问题拆解为 10 个交付任务 |
 | S034 | 2026-04-13 16:00 | 安全加固执行 | security | Server/Agent/Client 三端安全加固，10/10 完成 |
 | S035 | 2026-04-14 10:00 | 安全加固集成验证 + Session 治理 | security | 三端 E2E 验证 + Session TTL + Stale 清理 + SSL 分层 |
+| S036 | 2026-04-15 | IP 直连 + RSA/AES 加密 | feature | 分两期：Phase1 IP 直连（紧急）+ Phase2 RSA+AES 加密（后续） |
 
 ## 已沉淀到 architecture.md 的决策
 

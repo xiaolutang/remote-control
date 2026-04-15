@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:io' show Platform;
+import 'dart:io' show HttpClient, HttpHeaders, Platform, SystemEncoding;
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,6 +7,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'http_client_factory.dart';
 import 'logger_service.dart';
 import 'user_info_service.dart';
+import 'crypto_service.dart';
 
 /// 根据运行平台判断 view 参数
 String get currentView {
@@ -42,6 +43,7 @@ class AuthService {
   // 日志服务（可选)
   final LoggerService? _logger;
   final http.Client _client;
+  final CryptoService _crypto;
   final FlutterSecureStorage _secureStorage;
 
   AuthService({
@@ -51,10 +53,12 @@ class AuthService {
     FlutterSecureStorage? secureStorage,
   })  : _logger = logger,
         _client = client ?? HttpClientFactory.create(),
+        _crypto = CryptoService.instance,
         _secureStorage = secureStorage ??
             FlutterSecureStorage(
               aOptions: const AndroidOptions(encryptedSharedPreferences: true),
-              iOptions: const IOSOptions(accessibility: KeychainAccessibility.first_unlock),
+              iOptions: const IOSOptions(
+                  accessibility: KeychainAccessibility.first_unlock),
               mOptions: MacOsOptions(useDataProtectionKeyChain: !kDebugMode),
             );
 
@@ -69,12 +73,34 @@ class AuthService {
   }
 
   /// 注册
-  Future<Map<String, dynamic>> register(String username, String password) async {
+  Future<Map<String, dynamic>> register(
+      String username, String password) async {
     final httpUrl = _getHttpUrl();
+
+    // 拉取公钥并加密密码
+    final body = <String, dynamic>{
+      'username': username,
+      'view': currentView,
+    };
+    try {
+      await _crypto.fetchPublicKey(httpUrl);
+      final encryptedPwd = base64Encode(
+        _crypto.rsaEncrypt(utf8.encode(password)),
+      );
+      body['password_encrypted'] = encryptedPwd;
+    } catch (e) {
+      // ws:// 必须加密（不变量 #27），公钥获取失败则拒绝注册
+      if (serverUrl.startsWith('ws://')) {
+        throw Exception('安全连接建立失败，无法安全注册');
+      }
+      // wss:// 由 TLS 保护，可回退到明文密码
+      body['password'] = password;
+    }
+
     final response = await _client.post(
       Uri.parse('$httpUrl/api/register'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'username': username, 'password': password, 'view': currentView}),
+      body: jsonEncode(body),
     );
 
     final data = jsonDecode(response.body);
@@ -93,14 +119,51 @@ class AuthService {
   /// 登录
   Future<Map<String, dynamic>> login(String username, String password) async {
     final httpUrl = _getHttpUrl();
+    final uri = Uri.parse('$httpUrl/api/login');
 
     _logger?.info('Login attempt', metadata: {'username': username});
 
-    final response = await _client.post(
-      Uri.parse('$httpUrl/api/login'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'username': username, 'password': password, 'view': currentView}),
-    );
+    // 拉取公钥并加密密码
+    final body = <String, dynamic>{
+      'username': username,
+      'view': currentView,
+    };
+    try {
+      await _crypto.fetchPublicKey(httpUrl);
+      final encryptedPwd = base64Encode(
+        _crypto.rsaEncrypt(utf8.encode(password)),
+      );
+      body['password_encrypted'] = encryptedPwd;
+    } catch (e) {
+      // ws:// 必须加密（不变量 #27），公钥获取失败则拒绝登录
+      if (serverUrl.startsWith('ws://')) {
+        _logger?.error(
+            'Public key fetch failed on ws://, refusing plaintext login',
+            metadata: {'error': e.toString()});
+        throw Exception('安全连接建立失败，无法安全登录');
+      }
+      // wss:// 由 TLS 保护，可回退到明文密码
+      _logger?.warn('Public key fetch failed, TLS protects transport',
+          metadata: {'error': e.toString()});
+      body['password'] = password;
+    }
+
+    http.Response response;
+    try {
+      response = await _client.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(body),
+      );
+    } catch (e) {
+      await _debugProbeLoginFailure(
+        uri: uri,
+        username: username,
+        password: password,
+        originalError: e,
+      );
+      rethrow;
+    }
 
     final data = jsonDecode(response.body);
 
@@ -127,6 +190,70 @@ class AuthService {
     }
   }
 
+  Future<void> _debugProbeLoginFailure({
+    required Uri uri,
+    required String username,
+    required String password,
+    required Object originalError,
+  }) async {
+    if (!kDebugMode) {
+      return;
+    }
+
+    debugPrint('[AuthService] login primary client failed: $originalError');
+    await _debugRawHttpProbe(
+      label: 'system-proxy',
+      uri: uri,
+      username: username,
+      password: password,
+      useSystemProxy: true,
+    );
+    await _debugRawHttpProbe(
+      label: 'direct',
+      uri: uri,
+      username: username,
+      password: password,
+      useSystemProxy: false,
+    );
+  }
+
+  Future<void> _debugRawHttpProbe({
+    required String label,
+    required Uri uri,
+    required String username,
+    required String password,
+    required bool useSystemProxy,
+  }) async {
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 10);
+    if (kDebugMode) {
+      client.badCertificateCallback = (_, __, ___) => true;
+    }
+    client.findProxy =
+        useSystemProxy ? HttpClient.findProxyFromEnvironment : (_) => 'DIRECT';
+
+    try {
+      final request = await client.postUrl(uri);
+      request.persistentConnection = false;
+      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
+      request.write(jsonEncode({
+        'username': username,
+        'password': password,
+        'view': currentView,
+      }));
+      final response = await request.close();
+      final body = await response.transform(SystemEncoding().decoder).join();
+      debugPrint(
+        '[AuthService] raw probe($label) '
+        'status=${response.statusCode} body=$body',
+      );
+    } catch (e) {
+      debugPrint('[AuthService] raw probe($label) failed: $e');
+    } finally {
+      client.close(force: true);
+    }
+  }
+
   /// 保存凭证（密码存入 secure storage，用户名保留 SharedPreferences）
   Future<void> _saveCredentials(String username, String password) async {
     final prefs = await SharedPreferences.getInstance();
@@ -145,7 +272,8 @@ class AuthService {
     await prefs.setString('rc_session_id', data['session_id'] ?? '');
     await prefs.setString('rc_expires_at', data['expires_at'] ?? '');
     await _secureStorage.write(key: 'rc_token', value: data['token'] ?? '');
-    await _secureStorage.write(key: 'rc_refresh_token', value: data['refresh_token'] ?? '');
+    await _secureStorage.write(
+        key: 'rc_refresh_token', value: data['refresh_token'] ?? '');
     // 迁移旧 SharedPreferences 中的 token
     final oldToken = prefs.getString('rc_token');
     if (oldToken != null) {
