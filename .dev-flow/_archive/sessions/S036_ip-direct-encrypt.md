@@ -2,7 +2,7 @@
 
 > 时间：2026-04-15
 > 类型：feature + infrastructure
-> 状态：planning
+> 状态：completed (S063)
 
 ## 背景
 
@@ -75,10 +75,10 @@ Client/Agent                          Server
 
 ### 密钥生命周期
 
-- AES 密钥在登录时生成，绑定 session_id
-- 存入 Redis: `aes_key:{session_id}`，TTL = session TTL
-- 登出时 Redis key 自然过期
-- WebSocket 复用登录时协商的 AES 密钥
+- AES 密钥在每次 WebSocket 连接时独立生成，绑定连接对象
+- Agent 和 Client 各自独立协商 AES 密钥（per-connection）
+- WS 断开时销毁（clear_aes_key），不复用跨连接
+- RSA 公钥通过 TOFU 机制本地持久化，跨会话复用
 
 ### 加密覆盖范围
 

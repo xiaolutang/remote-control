@@ -1,8 +1,8 @@
 # 测试覆盖清单
 
 > 项目：remote-control
-> 更新时间：2026-04-13
-> 状态：security-hardening 阶段规划完成，待执行
+> 更新时间：2026-04-15
+> 状态：ip-direct 阶段 S063 已完成，S064 待执行
 
 ## 测试统计
 
@@ -322,17 +322,17 @@
 
 | Module | Task IDs | Test Type | Required Scenarios | Status |
 |--------|----------|-----------|--------------------|--------|
-| 本地 URL 修复 + 直连端口 | S063 | unit, integration | URL 格式修正(ws://)；端口映射配置；RSA+AES 加密链路；HTTP URL 转换 | 🔄 |
+| 本地 URL 修复 + 直连端口 | S063 | unit, integration | URL 格式修正(ws://)；端口映射配置；RSA+AES 加密链路；HTTP URL 转换 | ✅ |
 | 直连端口部署验证 | S064 | integration, manual | 线上端口可达；真机直连登录；Agent 注册；TLS 环境不受影响 | ⬜ |
 
 #### IP 直连关键测试场景
 
 ##### S063 失败分支
-- [ ] RC_DIRECT_PORT 未注入时使用默认 8880
-- [ ] RC_DIRECT_PORT 指定已被占用端口时 Server 启动失败
-- [ ] ws:// 连接超时（防火墙未开放）客户端提示明确
-- [ ] ws:// → http:// URL 转换异常处理
-- [ ] 环境切换（local→direct→production）时旧 WS 连接正确断开
+- [x] RC_DIRECT_PORT 未注入时使用默认 8880
+- [x] RC_DIRECT_PORT 指定已被占用端口时 Server 启动失败
+- [x] ws:// 连接超时（防火墙未开放）客户端提示明确
+- [x] ws:// → http:// URL 转换异常处理
+- [x] 环境切换（local→direct→production）时旧 WS 连接正确断开
 
 ##### S064 线上 smoke
 - [ ] 真机直连 IP:8880 → 登录成功 → 终端收发

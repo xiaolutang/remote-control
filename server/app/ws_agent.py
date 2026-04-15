@@ -122,6 +122,13 @@ async def agent_websocket_handler(
         except Exception as e:
             logger.info("Failed to decrypt Agent AES key: session_id=%s error=%s", session_id, e)
 
+    # 不变量 #27 服务端守卫：非 TLS 连接（ws://）必须携带 AES 密钥
+    forwarded_proto = dict(websocket.headers).get("x-forwarded-proto", "")
+    if forwarded_proto != "https" and not agent_conn.aes_key:
+        logger.warning("ws:// connection rejected: no AES key, session_id=%s", session_id)
+        await websocket.close(code=4003, reason="ws:// requires encrypted_aes_key")
+        return
+
     active_agents[session_id] = agent_conn
     logger.info(
         "Agent connected: session_id=%s owner=%s",
@@ -181,10 +188,9 @@ async def agent_websocket_handler(
                     message = decrypt_message(agent_conn.aes_key, message)
                 except Exception as e:
                     logger.info(
-                        "Agent decrypt FAIL: session_id=%s key=%s iv=%s data_len=%s error=%s",
+                        "Agent decrypt FAIL: session_id=%s iv_len=%s data_len=%s error=%s",
                         session_id,
-                        agent_conn.aes_key.hex()[:16],
-                        message.get("iv", "")[:16],
+                        len(message.get("iv", "")),
                         len(message.get("data", "")),
                         e,
                     )

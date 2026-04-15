@@ -4,7 +4,24 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/io_client.dart';
 import 'package:http/http.dart' as http;
 
+/// 网络诊断集成测试 — 验证 S063 三环境模型的连通性
+///
+/// 环境说明：
+/// - production: wss://rc.xiaolutang.top/rc (TLS + Traefik)
+/// - direct (IP 绕过): https://IP/rc + Host: rc.xiaolutang.top (TLS + Traefik)
+/// - local (直连): ws://IP:8880 (无 TLS，直连 FastAPI，需 S064 部署)
+///
+/// 测试分层：
+/// - test 4-6（IP+Host TLS）: 直接断言 → 证明 TLS 线上正常
+/// - test 1-3（域名 TLS）: catch-and-print 诊断模式 → DNS 污染为外部依赖
+/// - test 7-10（ws:// 直连）: catch-and-print 诊断模式 → S064 部署为外部依赖
+///
+/// 运行条件：需要能访问线上服务器 111.229.125.161
 void main() {
+  const serverIp = '111.229.125.161';
+  const domainHost = 'rc.xiaolutang.top';
+  const directPort = 8880;
+
   group('Network diagnostic', () {
     late http.Client trustAllClient;
 
@@ -19,66 +36,43 @@ void main() {
       trustAllClient.close();
     });
 
-    test('1. 域名 HTTPS → health', () async {
+    // ─── DNS 诊断 ───
+
+    test('1. DNS 解析对比', () async {
+      final domainResult = await InternetAddress.lookup(domainHost);
+      for (final addr in domainResult) {
+        print('$domainHost → ${addr.address} (${addr.type.name})');
+      }
+
       try {
-        final r = await trustAllClient.get(Uri.parse('https://xiaolutang.top/rc/health'));
+        final localhost = await InternetAddress.lookup('localhost');
+        for (final addr in localhost) {
+          print('localhost → ${addr.address} (${addr.type.name})');
+        }
+      } catch (e) {
+        print('localhost lookup FAILED: $e');
+      }
+    });
+
+    // ─── 域名 HTTPS（预期 DNS 污染导致失败）───
+
+    test('2. 域名 HTTPS → health（预期 DNS 污染）', () async {
+      try {
+        final r = await trustAllClient
+            .get(Uri.parse('https://$domainHost/rc/health'));
         print('域名 health: ${r.statusCode} ${r.body}');
         expect(r.statusCode, 200);
       } catch (e) {
-        print('域名 health FAILED: $e');
-        // 预期失败 — DNS 污染
-        print('  → DNS 解析到 ${(await InternetAddress.lookup('xiaolutang.top')).first.address}');
+        print('域名 health FAILED: $e（预期：DNS 污染）');
+        print(
+            '  → DNS 解析到 ${(await InternetAddress.lookup(domainHost)).first.address}');
       }
     });
 
-    test('2. IP 直连 HTTPS (无 Host 头) → health', () async {
-      try {
-        final r = await trustAllClient.get(Uri.parse('https://111.229.125.161/rc/health'));
-        print('IP health (无Host头): ${r.statusCode} ${r.body}');
-        // 预期 404 — Traefik Host 路由不匹配
-      } catch (e) {
-        print('IP health FAILED: $e');
-        rethrow;
-      }
-    });
-
-    test('3. IP 直连 HTTPS (带 Host 头) → health', () async {
-      try {
-        final r = await trustAllClient.get(
-          Uri.parse('https://111.229.125.161/rc/health'),
-          headers: {'Host': 'xiaolutang.top'},
-        );
-        print('IP health (带Host头): ${r.statusCode} ${r.body}');
-        expect(r.statusCode, 200);
-      } catch (e) {
-        print('IP health (带Host头) FAILED: $e');
-        rethrow;
-      }
-    });
-
-    test('4. IP 直连 HTTPS (带 Host 头) → login', () async {
+    test('3. 域名 HTTPS → login（预期 DNS 污染）', () async {
       try {
         final r = await trustAllClient.post(
-          Uri.parse('https://111.229.125.161/rc/api/login'),
-          headers: {'Content-Type': 'application/json', 'Host': 'xiaolutang.top'},
-          body: jsonEncode({
-            'username': 'prod_test',
-            'password': 'test123456',
-            'view': 'mobile',
-          }),
-        );
-        print('IP login (带Host头): ${r.statusCode} body前100字符=${r.body.substring(0, r.body.length > 100 ? 100 : r.body.length)}');
-        expect(r.statusCode, 200);
-      } catch (e) {
-        print('IP login (带Host头) FAILED: $e');
-        rethrow;
-      }
-    });
-
-    test('4. 域名 HTTPS → login', () async {
-      try {
-        final r = await trustAllClient.post(
-          Uri.parse('https://xiaolutang.top/rc/api/login'),
+          Uri.parse('https://$domainHost/rc/api/login'),
           headers: {'Content-Type': 'application/json'},
           body: jsonEncode({
             'username': 'prod_test',
@@ -89,36 +83,120 @@ void main() {
         print('域名 login: ${r.statusCode} ${r.body}');
         expect(r.statusCode, 200);
       } catch (e) {
-        print('域名 login FAILED: $e');
-        // 预期失败 — DNS 污染
-        print('  → DNS 解析到 ${(await InternetAddress.lookup('xiaolutang.top')).first.address}');
+        print('域名 login FAILED: $e（预期：DNS 污染）');
+        print(
+            '  → DNS 解析到 ${(await InternetAddress.lookup(domainHost)).first.address}');
       }
     });
 
-    test('5. 本地 HTTPS → health', () async {
+    // ─── IP + Host 头 HTTPS（当前唯一可用路径）───
+
+    test('4. IP HTTPS 无 Host 头 → 404（Traefik 不匹配）', () async {
+      final r = await trustAllClient
+          .get(Uri.parse('https://$serverIp/rc/health'));
+      print('IP health (无Host头): ${r.statusCode} ${r.body}');
+      expect(r.statusCode, 404);
+    });
+
+    test('5. IP HTTPS + Host: rc.xiaolutang.top → health', () async {
+      final r = await trustAllClient.get(
+        Uri.parse('https://$serverIp/rc/health'),
+        headers: {'Host': domainHost},
+      );
+      print('IP health (Host=$domainHost): ${r.statusCode} ${r.body}');
+      expect(r.statusCode, 200);
+    });
+
+    test('6. IP HTTPS + Host: rc.xiaolutang.top → login', () async {
+      final r = await trustAllClient.post(
+        Uri.parse('https://$serverIp/rc/api/login'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Host': domainHost,
+        },
+        body: jsonEncode({
+          'username': 'prod_test',
+          'password': 'test123456',
+          'view': 'mobile',
+        }),
+      );
+      print(
+          'IP login (Host=$domainHost): ${r.statusCode} body前100=${r.body.substring(0, r.body.length > 100 ? 100 : r.body.length)}');
+      expect(r.statusCode, 200);
+    });
+
+    // ─── ws:// 直连端口（需 S064 部署，当前可能不可用）───
+    // 注意：此处 HTTP 请求测试网络可达性，不经过客户端 RSA+AES 加密链路。
+    // 实际客户端通过 CryptoService 自动处理加密（ws:// 强制，wss:// 可选）。
+
+    test('7. ws://IP:$directPort 直连 HTTP health（需 S064 部署）', () async {
       try {
-        final r = await trustAllClient.get(Uri.parse('https://localhost/rc/health'));
-        print('本地 health: ${r.statusCode} ${r.body}');
+        final r = await trustAllClient
+            .get(Uri.parse('http://$serverIp:$directPort/health'));
+        print('ws:// 直连 health: ${r.statusCode} ${r.body}');
         expect(r.statusCode, 200);
       } catch (e) {
-        print('本地 health FAILED: $e');
-        rethrow;
+        print('ws:// 直连 health FAILED: $e（S064 尚未部署或端口未映射）');
       }
     });
 
-    test('6. DNS 解析对比', () async {
-      final domainResult = await InternetAddress.lookup('xiaolutang.top');
-      for (final addr in domainResult) {
-        print('xiaolutang.top → ${addr.address} (${addr.type.name})');
-      }
-
+    test('8. ws://IP:$directPort 直连 HTTP login（需 S064 部署）', () async {
       try {
-        final localhost = await InternetAddress.lookup('localhost');
-        for (final addr in localhost) {
-          print('localhost → ${addr.address} (${addr.type.name})');
-        }
+        final r = await trustAllClient.post(
+          Uri.parse('http://$serverIp:$directPort/api/login'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'username': 'prod_test',
+            'password': 'test123456',
+            'view': 'mobile',
+          }),
+        );
+        print(
+            'ws:// 直连 login: ${r.statusCode} body前100=${r.body.substring(0, r.body.length > 100 ? 100 : r.body.length)}');
+        expect(r.statusCode, 200);
+        final data = jsonDecode(r.body) as Map<String, dynamic>;
+        expect(data['success'], true);
+        expect(data['token'], isNotNull);
       } catch (e) {
-        print('localhost lookup FAILED: $e');
+        print('ws:// 直连 login FAILED: $e（S064 尚未部署或端口未映射）');
+      }
+    });
+
+    test('9. ws://IP:$directPort 直连 → RSA 公钥端点（需 S064 部署）', () async {
+      try {
+        final r = await trustAllClient
+            .get(Uri.parse('http://$serverIp:$directPort/api/public-key'));
+        print(
+            'ws:// 直连 public-key: ${r.statusCode} body前100=${r.body.substring(0, r.body.length > 100 ? 100 : r.body.length)}');
+        expect(r.statusCode, 200);
+        final data = jsonDecode(r.body) as Map<String, dynamic>;
+        expect(data['public_key_pem'], isNotNull);
+      } catch (e) {
+        print('ws:// 直连 public-key FAILED: $e（S064 尚未部署或端口未映射）');
+      }
+    });
+
+    test('10. ws://IP:$directPort 直连 WebSocket（需 S064 部署）', () async {
+      final wsClient = HttpClient()
+        ..connectionTimeout = const Duration(seconds: 10);
+      try {
+        final socket = await WebSocket.connect(
+          'ws://$serverIp:$directPort/ws/client?view=mobile',
+          customClient: wsClient,
+        ).timeout(const Duration(seconds: 10));
+
+        socket.add(jsonEncode({
+          'type': 'auth',
+          'token': 'invalid-token-for-diagnostic',
+        }));
+
+        final first = await socket.first.timeout(const Duration(seconds: 5));
+        print('ws:// 直连 WS first=$first');
+        await socket.close();
+      } catch (e) {
+        print('ws:// 直连 WS FAILED: $e（S064 尚未部署或端口未映射）');
+      } finally {
+        wsClient.close(force: true);
       }
     });
   });

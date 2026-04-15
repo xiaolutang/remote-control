@@ -3,7 +3,7 @@
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
   "updated_at": "2026-04-15",
-  "status": "planning",
+  "status": "in_progress",
   "active_requirement_cycle": {
     "name": "ip-direct",
     "branch": "feat/ip-direct-encrypt",
@@ -20,8 +20,8 @@
   "summary": {
     "total": 2,
     "pending": 1,
-    "in_progress": 1,
-    "completed": 0,
+    "in_progress": 0,
+    "completed": 1,
     "blocked": 0,
     "cancelled": 0
   },
@@ -43,7 +43,7 @@
       "description": "修复本地环境 URL 格式，支持 IP 直连 Server 绕过 TLS。\n\n直连路径已实现 RSA+AES 应用层加密（符合 architecture.md 不变量 #27）：Client/Agent 获取 Server RSA 公钥 → 本地生成 AES-256 密钥 → RSA 加密 AES 密钥随 auth 消息发送 → Server 解密建立会话密钥 → WS 消息 AES-GCM 加解密。\n\n1. 客户端 URL 修复（client/lib/services/environment_service.dart）：\n   - _buildLocalUrl: wss:// → ws://\n   - 去掉 /rc 后缀（直连 Server 不走 Traefik striprefix）\n   - 修复后格式：ws://{host}:{port} 或 ws://{host}\n\n2. 注释更新（client/lib/models/app_environment.dart）：\n   - local 枚举注释：ws://{host}:{port}/rc → ws://{host}:{port}\n\n3. _serverUrlFor 生产环境 URL 不变（wss://rc.xiaolutang.top/rc）\n\n4. 部署配置（deploy/docker-compose.yml）：\n   - server 服务增加端口映射：ports: - \"${RC_DIRECT_PORT:-8880}:8000\"\n   - 直连端口通过环境变量 RC_DIRECT_PORT 控制，默认 8880\n   - 保留现有 expose: \"8000\"（Traefik 网络路由需要）\n\n5. 测试适配：\n   - 更新 environment_service_test.dart 中 URL 生成断言（wss://.../rc → ws://...）\n   - 更新 config_service_test.dart 中相关 URL 断言\n   - 修复 production URL 测试断言不一致（xiaolutang.top → rc.xiaolutang.top）\n\n用户操作：选择「本地」→ 输入服务器 IP + 8880 → ws://{ip}:8880 直连 → RSA+AES 加密链路建立 → 登录成功",
       "verification": "F1",
       "depends_on": [],
-      "status": "in_progress",
+      "status": "completed",
       "priority": "P0",
       "acceptance_criteria": [
         "_buildLocalUrl('localhost', '') 返回 ws://localhost",
@@ -108,9 +108,22 @@
       "files": [
         "client/lib/services/environment_service.dart",
         "client/lib/models/app_environment.dart",
+        "client/lib/services/crypto_service.dart",
+        "client/lib/services/auth_service.dart",
+        "client/lib/services/websocket_service.dart",
+        "server/app/crypto.py",
+        "server/app/user_api.py",
+        "server/app/ws_auth.py",
+        "server/app/ws_agent.py",
+        "server/app/ws_client.py",
+        "agent/app/crypto.py",
+        "agent/app/auth_service.py",
+        "agent/app/websocket_client.py",
         "deploy/docker-compose.yml",
         "client/test/services/environment_service_test.dart",
-        "client/test/services/config_service_test.dart"
+        "client/test/services/config_service_test.dart",
+        "client/test/integration/production_login_test.dart",
+        "client/test/integration/network_diagnostic_test.dart"
       ]
     },
     {

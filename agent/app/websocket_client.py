@@ -252,6 +252,15 @@ class WebSocketClient:
 
         _log(f"正在连接服务器: {self.server_url}")
 
+        # ws:// 连接需要应用层加密，预先获取公钥
+        if self.server_url.startswith("ws://") and not agent_crypto.has_public_key:
+            http_base = self.server_url.replace("ws://", "http://")
+            try:
+                await agent_crypto.fetch_public_key(http_base)
+            except Exception as e:
+                logger.error("ws:// 公钥获取失败: %s", e)
+                raise
+
         # 禁用代理 - 设置 NO_PROXY 环境变量
         import os
         original_no_proxy = os.environ.get('NO_PROXY', '')

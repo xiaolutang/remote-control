@@ -207,6 +207,13 @@ async def client_websocket_handler(
         except Exception as e:
             logger.warning("Failed to decrypt Client AES key: session_id=%s error=%s", session_id, e)
 
+    # 不变量 #27 服务端守卫：非 TLS 连接（ws://）必须携带 AES 密钥
+    forwarded_proto = dict(websocket.headers).get("x-forwarded-proto", "")
+    if forwarded_proto != "https" and not client_conn.aes_key:
+        logger.warning("ws:// connection rejected: no AES key, session_id=%s", session_id)
+        await websocket.close(code=4003, reason="ws:// requires encrypted_aes_key")
+        return
+
     active_clients[channel_key].append(client_conn)
     logger.info(
         "Client connected: session_id=%s view=%s device_id=%s terminal_id=%s",
