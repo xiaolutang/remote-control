@@ -279,3 +279,35 @@
     - xlfoundry-risk: 审查"检测→等待→放弃"链路时，必须追问"放弃后有没有清理和自愈"
 - owner: xlfoundry-plan
 - status: open
+
+---
+
+## DF-20260416-01
+
+- issue_id: DF-20260416-01
+- source: real_use
+- related_task: S065
+- symptom: 服务器重启后 Agent 收到 1012 (service restart) 断连，进程永久挂起不退出也不重连
+- escape_path: >-
+    1. test_reconnect.py 7 个测试全是属性断言（默认值/自定义值/退避公式），没有验证断连后的实际重连行为
+    2. test_agent_connection_stability.py 只测长连接存活，不测断连恢复
+    3. asyncio.gather 死锁未被任何测试覆盖
+- fix_level: L2
+- root_cause_summary: >-
+    _connect_and_run() 内部三个并行任务（PTY读/WS读/心跳）使用 asyncio.gather 协调，
+    但任务间缺少断连信号传播。WS 读和心跳检测到断连后只 break 不设置 _connected=False，
+    导致 PTY 读任务永远循环（while self._running and self._connected）。gather 死锁，run() 无法进入重试。
+- root_cause_analysis:
+    1. 根因：并行任务间缺少断连信号传播机制（实现遗漏，非需求遗漏）
+    2. 同类问题：任何使用 asyncio.gather 协调多个长期运行任务的场景，都需要退出信号传播
+    3. 统一模式：任何检测到连接断开的任务，必须在 break 前设置 self._connected = False
+    4. architecture.md 需补充：Agent 并行任务断连信号传播不变量 (#34)
+- upstream_actions:
+    - 新增 S066: Agent 1012 重连阻塞修复
+    - 更新 architecture.md 不变量 #34
+    - 补 5 个断连信号传播测试
+- rules_to_update:
+    - xlfoundry-plan: asyncio.gather 并行任务的测试必须覆盖"部分任务退出后 gather 是否完成"
+    - xlfoundry-risk: 审查并行任务协调时，必须检查任务间是否有退出信号传播
+- owner: xlfoundry-execute
+- status: closed

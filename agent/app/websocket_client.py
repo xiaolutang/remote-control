@@ -400,6 +400,10 @@ class WebSocketClient:
 
             except Exception as e:
                 _log(f"PTY 读取错误: {e}")
+                # WS 发送失败属于连接断开，传播退出信号；PTY 本地错误不影响连接
+                if isinstance(e, (websockets.exceptions.ConnectionClosedError,
+                                  websockets.exceptions.ConnectionClosedOK)):
+                    self._connected = False
                 break
 
     async def _runtime_pty_to_websocket(self, terminal_id: str, runtime: PTYWrapper):
@@ -549,6 +553,7 @@ class WebSocketClient:
                 continue
             except Exception as e:
                 _log(f"WebSocket 接收错误: {e}")
+                self._connected = False
                 break
 
     async def _send_ws_message(self, message: dict):
@@ -602,6 +607,7 @@ class WebSocketClient:
                 await asyncio.sleep(30)  # 30 秒心跳间隔
             except Exception as e:
                 _log(f"心跳发送错误: {e}")
+                self._connected = False
                 break
 
     async def _start_local_server(self):
