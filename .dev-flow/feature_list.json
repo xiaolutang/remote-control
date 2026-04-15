@@ -18,10 +18,10 @@
     "risk_provider": "local"
   },
   "summary": {
-    "total": 3,
+    "total": 4,
     "pending": 0,
     "in_progress": 0,
-    "completed": 3,
+    "completed": 4,
     "blocked": 0,
     "cancelled": 0
   },
@@ -272,6 +272,65 @@
         "agent/app/cli.py",
         "client/lib/services/desktop_agent_supervisor.dart",
         "client/lib/services/desktop_agent_manager.dart"
+      ]
+    },
+    {
+      "id": "S066",
+      "phase": "ip-direct",
+      "module": "agent",
+      "name": "Agent 1012 重连阻塞修复 — 断连信号传播",
+      "description": "L2 修复：服务器重启后 Agent 收到 1012 断连，进程永久挂起不退出也不重连。\n\n根因：_connect_and_run() 内部三个并行任务（PTY读/WS读/心跳）使用 asyncio.gather 协调，但任务间缺少断连信号传播。WS 读和心跳检测到断连后只 break 不设置 _connected=False，导致 PTY 读任务永远循环（while self._running and self._connected）。gather 死锁，run() 无法进入重试。\n\n修复：\n1. _websocket_to_pty: break 前设置 _connected=False\n2. _heartbeat_loop: break 前设置 _connected=False\n3. _pty_to_websocket: 仅对 WS ConnectionClosed 传播断连，PTY 本地错误（OSError）不传播",
+      "verification": "F2",
+      "depends_on": ["S065"],
+      "status": "completed",
+      "started_at": "2026-04-16",
+      "completed_at": "2026-04-16",
+      "commit": "a536ea4",
+      "evidence_file": ".dev-flow/evidence/S066.md",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "WS 读任务断连后设置 _connected=False，使 PTY 读任务退出循环",
+        "心跳任务断连后设置 _connected=False，使 PTY 读任务退出循环",
+        "PTY→WS 发送失败（ConnectionClosed）传播断连信号",
+        "PTY 本地读取错误（OSError）不传播断连信号（职责边界）",
+        "本地 stdin 异常不传播断连信号",
+        "asyncio.gather 在断连信号传播后能完成（不死锁）",
+        "run() while 循环能进入下一次重连"
+      ],
+      "risk_tags": ["network", "startup"],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "断连信号传播",
+          "scenarios": [
+            "_websocket_to_pty 断连后设置 _connected=False",
+            "_heartbeat_loop 断连后设置 _connected=False",
+            "_pty_to_websocket WS ConnectionClosed 传播断连",
+            "_pty_to_websocket PTY OSError 不传播断连"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "gather 解阻塞",
+          "scenarios": [
+            "三任务 gather 在断连信号传播后完成（不死锁）",
+            "真实 _connect_and_run() gather 在 WS 断连后解除阻塞"
+          ]
+        }
+      ],
+      "smoke_required": false,
+      "fix_level": "L2",
+      "root_cause_analysis": "并行任务间缺少断连信号传播机制。asyncio.gather 等待所有任务完成，但部分任务检测到断连后只 break 不通知其他任务，导致其他任务永远循环。gather 死锁后外层 run() 无法进入重试。",
+      "defect_record": "DF-20260416-01",
+      "similar_locations": [
+        "agent/app/websocket_client.py _pty_to_websocket()",
+        "agent/app/websocket_client.py _websocket_to_pty()",
+        "agent/app/websocket_client.py _heartbeat_loop()"
+      ],
+      "architecture_feedback": "补充 architecture.md 不变量 #34：Agent 并行任务中任一检测到连接断开，必须立即设置 _connected=False，使其他任务退出循环，避免 asyncio.gather 死锁",
+      "files": [
+        "agent/app/websocket_client.py",
+        "agent/tests/test_disconnect_signal_propagation.py"
       ]
     }
   ],
