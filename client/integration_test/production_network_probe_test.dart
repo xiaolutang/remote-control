@@ -13,9 +13,10 @@ void main() {
 
   group('Production network probe', () {
     const domainBase = 'https://rc.xiaolutang.top/rc';
-    const ipBase = 'https://${RC_TEST_SERVER_IP}/rc';
+    final serverIp = Platform.environment['RC_TEST_SERVER_IP'] ?? '';
+    final ipBase = 'https://$serverIp/rc';
     const domainWsBase = 'wss://rc.xiaolutang.top/rc';
-    const ipWsBase = 'wss://${RC_TEST_SERVER_IP}/rc';
+    final ipWsBase = 'wss://$serverIp/rc';
     const host = 'rc.xiaolutang.top';
     const username = 'prod_test';
     const password = 'test123456';

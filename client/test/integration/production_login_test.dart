@@ -15,9 +15,9 @@ import 'package:http/http.dart' as http;
 /// - 路径 2（IP+Host TLS）: 无 try-catch，直接断言 200 → 证明 TLS 线上不受影响
 /// - 路径 1/3: catch-and-print 诊断模式 → DNS 污染和 S064 部署为外部依赖，不影响测试通过
 ///
-/// 运行条件：需要能访问线上服务器 ${RC_TEST_SERVER_IP}
+/// 运行条件：设置环境变量 RC_TEST_SERVER_IP，需要能访问线上服务器
 void main() {
-  const serverIp = '${RC_TEST_SERVER_IP}';
+  final serverIp = Platform.environment['RC_TEST_SERVER_IP'] ?? '';
   const domainHost = 'rc.xiaolutang.top';
   const directPort = 8880;
 

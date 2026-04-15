@@ -16,9 +16,9 @@ import 'package:http/http.dart' as http;
 /// - test 1-3（域名 TLS）: catch-and-print 诊断模式 → DNS 污染为外部依赖
 /// - test 7-10（ws:// 直连）: catch-and-print 诊断模式 → S064 部署为外部依赖
 ///
-/// 运行条件：需要能访问线上服务器 ${RC_TEST_SERVER_IP}
+/// 运行条件：设置环境变量 RC_TEST_SERVER_IP，需要能访问线上服务器
 void main() {
-  const serverIp = '${RC_TEST_SERVER_IP}';
+  final serverIp = Platform.environment['RC_TEST_SERVER_IP'] ?? '';
   const domainHost = 'rc.xiaolutang.top';
   const directPort = 8880;
 
