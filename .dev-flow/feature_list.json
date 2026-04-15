@@ -19,8 +19,8 @@
   },
   "summary": {
     "total": 3,
-    "pending": 1,
-    "in_progress": 0,
+    "pending": 0,
+    "in_progress": 1,
     "completed": 2,
     "completed": 1,
     "blocked": 0,
@@ -135,7 +135,10 @@
       "description": "验证直连端口在线上服务器的部署，确保客户端能通过 IP 直连正常使用。\n\n1. deploy/deploy.sh 或 deploy/remote-deploy.sh 适配：\n   - 确保直连端口映射在部署时生效\n   - RC_DIRECT_PORT 环境变量传入\n\n2. 防火墙/安全组确认：\n   - 确认 8880（或自定义）端口在服务器防火墙/安全组中开放\n   - 文档记录端口配置\n\n3. 客户端实测验证：\n   - 真机/桌面端通过 IP:8880 直连线上服务器\n   - 登录、终端收发、Agent 注册全链路验证（含 RSA+AES 加密）\n   - 切换回 TLS 线上环境验证不受影响",
       "verification": "L4",
       "depends_on": ["S063"],
-      "status": "pending",
+      "status": "in_progress",
+      "started_at": "2026-04-16",
+      "evidence_file": ".dev-flow/evidence/S064.md",
+      "execution_notes": "本地 Docker 部署验证先行，线上验证最后统一执行",
       "priority": "P0",
       "acceptance_criteria": [
         "线上服务器 8880 端口可通过外部 IP 访问",
