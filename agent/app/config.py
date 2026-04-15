@@ -46,7 +46,7 @@ class Config(BaseModel):
     shell_mode: bool = False
     # 连接配置
     auto_reconnect: bool = True
-    max_retries: int = 5
+    max_retries: int = 60
     reconnect_max_attempts: int = 10
     reconnect_base_delay: float = 1.0
     heartbeat_interval: float = 30.0

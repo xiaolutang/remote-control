@@ -18,9 +18,9 @@
     "risk_provider": "local"
   },
   "summary": {
-    "total": 2,
+    "total": 3,
     "pending": 1,
-    "in_progress": 0,
+    "in_progress": 1,
     "completed": 1,
     "blocked": 0,
     "cancelled": 0
@@ -172,6 +172,100 @@
         "deploy/docker-compose.yml",
         "deploy/deploy.sh",
         "deploy/remote-deploy.sh"
+      ]
+    },
+    {
+      "id": "S065",
+      "phase": "ip-direct",
+      "module": "client",
+      "name": "Agent 重连韧性：进程退出 + 客户端自愈 + 配置统一",
+      "description": "L2 修复：服务器部署后桌面 Agent 永久离线。\n\n根因：Agent 重连耗尽后进程不退出（local_server 保持监听），Flutter 用 PID 存活判断 Agent 在线（不检查实际连接），两层都缺少失败后清理和自愈逻辑。\n\n修复内容：\n1. Agent 侧：retry 耗尽 / 不可恢复错误后，走统一退出路径（cleanup + sys.exit），不留僵尸进程\n2. Flutter 侧：ensureAgentOnline 检测到旧 managed 进程无法恢复时，杀掉旧进程 + 清除 PID + 用新 token 重新启动\n3. 配置统一：agent/app/config.py、agent/app/cli.py、desktop_agent_supervisor.dart 的 max_retries 默认值全部改为 60",
+      "verification": "F2",
+      "depends_on": ["S063"],
+      "status": "in_progress",
+      "started_at": "2026-04-15",
+      "evidence_file": ".dev-flow/evidence/S065.md",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "Agent retry 耗尽后进程完全退出（local_server 关闭、PTY 清理、无残留 TCP 监听）",
+        "Agent 收到 4001/4004/4009 后进程完全退出（无僵尸）",
+        "Flutter ensureAgentOnline 检测到旧进程无法恢复时，杀掉旧进程并重新启动（使用新 token）",
+        "max_retries 在 agent/app/config.py、agent/app/cli.py、desktop_agent_supervisor.dart 三处默认值均为 60",
+        "服务器重启后桌面 Agent 自动恢复在线（端到端 smoke 验证）"
+      ],
+      "risk_tags": ["startup", "network", "first_use"],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "Agent 进程退出行为",
+          "scenarios": [
+            "retry 耗尽后 run() 调用 _cleanup + sys.exit（非 break 继续存活）",
+            "4001/4004/4009 后 _cleanup 被调用，local_server 已停止",
+            "正常 stop() 时 _cleanup 被调用，PTY 已清理"
+          ]
+        },
+        {
+          "type": "unit",
+          "description": "Flutter 旧进程清理",
+          "scenarios": [
+            "managed PID 存在但 server 报 offline → 超时后杀掉旧进程 + 清除 PID",
+            "managed PID 不存在但 pgrep 找到旧进程 → 标记为 external，不强制杀",
+            "杀旧进程失败 → SIGTERM → SIGKILL 回退 → 日志记录"
+          ]
+        },
+        {
+          "type": "unit",
+          "description": "重启 token 注入与重启失败处理",
+          "scenarios": [
+            "杀旧进程后重启 Agent 使用新 token（syncManagedAgentConfig 写入最新凭证）",
+            "杀旧成功但重启 Agent 失败（进程启动异常）→ 清除 PID + 日志记录 + 不死循环重试",
+            "连续重启失败超过 3 次 → 停止尝试 + 用户可见提示"
+          ]
+        },
+        {
+          "type": "unit",
+          "description": "配置一致性",
+          "scenarios": [
+            "agent/app/config.py 默认 max_retries=60",
+            "agent/app/cli.py start --max-retries 默认 60",
+            "desktop_agent_supervisor.dart 写入 config max_retries=60"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "服务器重启后自愈 smoke",
+          "scenarios": [
+            "Agent 在线 → 模拟 Server 重启 → Agent 自动重连 → 客户端刷新后看到 Agent 在线",
+            "Agent retry 耗尽退出 → Flutter 检测到离线 → 杀旧进程 → 启动新 Agent → 在线恢复",
+            "手动 kill Agent 进程 → Flutter 检测到 → 自动重启"
+          ]
+        },
+        {
+          "type": "smoke",
+          "description": "真机手工验证：Server 重启后桌面端完整自愈",
+          "scenarios": [
+            "macOS 桌面端 Agent 在线 → docker compose restart server → 等待 Agent 重连 → 刷新设备列表确认 Agent 在线",
+            "Agent 僵尸（retry 耗尽）→ 桌面端检测到离线 → 自动杀旧重启 → 用户看到状态从离线变为在线",
+            "重启过程中用户可见 Agent 状态变化（在线 → 离线 → 在线），无死循环重试"
+          ]
+        }
+      ],
+      "smoke_required": true,
+      "fix_level": "L2",
+      "root_cause_analysis": "Agent 和 Client 对'在线'定义不一致。Agent 重连耗尽后进程不退出（local_server 保持监听），Flutter 看到进程存活就认为 Agent 还在工作，不再重启。两层都缺少失败后的清理和自愈逻辑。这不是简单的参数问题（max_retries 5→60），而是进程所有权/退出回收/离线重启链路没有形成可验证的不变量。",
+      "similar_locations": [
+        "agent/app/websocket_client.py run() 退出路径",
+        "client/lib/services/desktop_agent_supervisor.dart ensureAgentOnline() 旧进程处理",
+        "agent/app/config.py Config 默认值",
+        "agent/app/cli.py start 命令默认值"
+      ],
+      "architecture_feedback": "需补充 architecture.md 不变量：Agent 重连失败后必须完全退出进程，不留僵尸；Flutter 客户端检测到 Agent 不在线时必须杀掉旧进程重启",
+      "files": [
+        "agent/app/websocket_client.py",
+        "agent/app/config.py",
+        "agent/app/cli.py",
+        "client/lib/services/desktop_agent_supervisor.dart",
+        "client/lib/services/desktop_agent_manager.dart"
       ]
     }
   ],

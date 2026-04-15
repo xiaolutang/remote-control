@@ -50,7 +50,7 @@ def _log_agent(message: str) -> None:
 @click.option("--shell", is_flag=True, default=False, help="启动交互式 shell")
 @click.option("--local-display/--no-local-display", default=False, help="是否在本地终端镜像显示 PTY，并允许本地键盘直接操作")
 @click.option("--reconnect/--no-reconnect", default=True, help="自动重连")
-@click.option("--max-retries", default=5, help="最大重试次数")
+@click.option("--max-retries", default=60, help="最大重试次数")
 @click.option("--config", "config_path", type=click.Path(), help="配置文件路径")
 @click.version_option(version="1.0.0", prog_name="rc-agent")
 @click.pass_context
@@ -256,7 +256,7 @@ def run(ctx, command, shell, reconnect, max_retries):
 @click.option("--shell", is_flag=True, default=False, help="启动交互式 shell")
 @click.option("--local-display/--no-local-display", default=False, help="是否在本地终端镜像显示 PTY，并允许本地键盘直接操作")
 @click.option("--reconnect/--no-reconnect", default=True, help="自动重连")
-@click.option("--max-retries", default=5, help="最大重试次数")
+@click.option("--max-retries", default=60, help="最大重试次数")
 @click.pass_context
 def start(ctx, server, token, command, shell, local_display, reconnect, max_retries):
     """手动指定参数启动 Agent（不保存配置）"""
