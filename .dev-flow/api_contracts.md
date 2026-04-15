@@ -1428,14 +1428,17 @@ Redis `token_version:{session_id}:{view_type}` 记录当前版本号。登录时
 Client/Agent                         Server
     |                                    |
     |  GET /api/public-key               |
-    |  ← {public_key_pem, fingerprint}   |
+    |  ← {public_key_pem}                |
+    |                                    |
+    |  本地存储公钥 PEM (TOFU)            |
+    |  后续连接比对公钥，变更则拒绝(ws://) |
     |                                    |
     |  本地生成 AES-256 密钥 (32 bytes)   |
-    |  RSA-OAEP 加密 AES 密钥             |
+    |  RSA-OAEP-SHA256 加密 AES 密钥      |
     |                                    |
     |  POST /api/login (或 /api/register) |
-    |  {username, password_encrypted,     |
-    |   encryption_meta: {fingerprint}}   |
+    |  ws://: {username, password_encrypted}  (RSA-OAEP-SHA256 加密密码)
+    |  wss://: {username, password}          (TLS 保护，明文密码)
     |  ← {token, session_id, ...}         |
 ```
 
@@ -1443,11 +1446,11 @@ Client/Agent                         Server
 
 | Rule | Meaning |
 |------|---------|
-| 公钥端点 | GET /api/public-key 返回 PEM、模数、指数、SHA256 指纹 |
-| TOFU | Agent/Client 首次存储指纹，后续比对，变更则拒绝连接 |
-| 密码加密 | password_encrypted = RSA-OAEP(public_key, password_utf8) → base64 |
-| AES 密钥交换 | WebSocket auth 消息携带 encrypted_aes_key = RSA-OAEP(public_key, aes_key) → base64 |
-| 加密判断 | ws:// 必须加密，wss:// 不加密（TLS 已保护） |
+| 公钥端点 | GET /api/public-key 返回 PEM（含模数、指数）；ws:// 必须获取成功才允许登录，wss:// 获取失败可回退明文（不变量 #29） |
+| TOFU | Agent/Client 首次存储公钥 PEM，后续比对完整公钥，变更则拒绝连接（ws:// 强制，wss:// 依赖 TLS 证书验证） |
+| 密码加密 | ws://: password_encrypted = RSA-OAEP-SHA256(public_key, password_utf8) → base64；wss://: 明文 password（TLS 保护） |
+| AES 密钥交换 | WebSocket auth 消息携带 encrypted_aes_key = RSA-OAEP-SHA256(public_key, aes_key) → base64 |
+| 加密判断 | ws:// 必须加密（不变量 #27），wss:// 不加密（TLS 已保护，不变量 #29） |
 
 ### WebSocket AES 加解密
 

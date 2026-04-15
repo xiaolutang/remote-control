@@ -49,12 +49,12 @@ class CryptoService {
     }
   }
 
-  /// RSA-OAEP 加密（用于加密密码和 AES 密钥）
+  /// RSA-OAEP-SHA256 加密（用于加密密码和 AES 密钥）
   Uint8List rsaEncrypt(Uint8List plaintext) {
     if (_publicKey == null) {
       throw StateError('Public key not loaded. Call fetchPublicKey first.');
     }
-    final cipher = OAEPEncoding(RSAEngine())
+    final cipher = OAEPEncoding.withSHA256(RSAEngine())
       ..init(
         true,
         PublicKeyParameter<RSAPublicKey>(_publicKey!),

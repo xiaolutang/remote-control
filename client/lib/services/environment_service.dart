@@ -36,7 +36,7 @@ class EnvironmentService {
 
   static const String _productionHost = 'wss://rc.xiaolutang.top/rc';
   static const String _defaultLocalHost = 'localhost';
-  static const String _defaultDirectHost = 'SERVER_IP_REMOVED';
+  static const String _defaultDirectHost = '${RC_TEST_SERVER_IP}';
   static const String _defaultDirectPort = '8880';
 
   final SharedPreferences? _prefs;
