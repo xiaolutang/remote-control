@@ -8,6 +8,19 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../mocks/mock_websocket_service.dart';
 
+/// 内置命令增多后"当前项目"section 可能需要滚动才能看到
+Future<void> scrollToProjectSection(WidgetTester tester) async {
+  final scrollables = find.byType(Scrollable).evaluate().toList();
+  if (scrollables.isNotEmpty) {
+    await tester.scrollUntilVisible(
+      find.text('当前项目'),
+      200,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.pumpAndSettle();
+  }
+}
+
 void main() {
   group('TerminalScreen mobile shortcuts', () {
     late _PreconnectedWebSocketService mockService;
@@ -197,6 +210,8 @@ void main() {
       await tester.tap(find.text('更多'));
       await tester.pumpAndSettle();
 
+      await scrollToProjectSection(tester);
+
       expect(find.text('当前项目'), findsOneWidget);
       expect(find.text('运行测试'), findsOneWidget);
 
@@ -280,6 +295,44 @@ void main() {
       expect(mockService.sentMessages, contains('\x1b'));
     });
 
+    testWidgets('sends new control key payloads from shortcut bar',
+        (tester) async {
+      await pumpScreen(tester, mockService);
+
+      await tester.ensureVisible(find.text('Ctrl+A'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Ctrl+A'));
+      await tester.pump();
+
+      expect(mockService.sentMessages, contains('\x01'));
+
+      await tester.ensureVisible(find.text('Ctrl+U'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Ctrl+U'));
+      await tester.pump();
+
+      expect(mockService.sentMessages, contains('\x15'));
+    });
+
+    testWidgets('sends new escape sequence key payloads from shortcut bar',
+        (tester) async {
+      await pumpScreen(tester, mockService);
+
+      await tester.ensureVisible(find.text('Home'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Home'));
+      await tester.pump();
+
+      expect(mockService.sentMessages, contains('\x1b[H'));
+
+      await tester.ensureVisible(find.text('End'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('End'));
+      await tester.pump();
+
+      expect(mockService.sentMessages, contains('\x1b[F'));
+    });
+
     testWidgets('persists hidden Claude commands across screen rebuilds',
         (tester) async {
       await pumpScreen(tester, mockService);
@@ -335,6 +388,9 @@ void main() {
 
       await tester.tap(find.text('更多'));
       await tester.pumpAndSettle();
+
+      // 内置命令增多后"当前项目"section 可能需要滚动才能看到
+      await scrollToProjectSection(tester);
 
       expect(find.text('当前项目'), findsOneWidget);
       expect(find.text('运行测试'), findsOneWidget);

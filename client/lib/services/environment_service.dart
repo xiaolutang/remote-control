@@ -8,6 +8,10 @@ import '../models/app_environment.dart';
 /// 不调用 AuthService、DesktopAgentManager 或任何 UI 组件。
 /// 环境切换的副作用（登出、停 Agent 等）由 UI/协调层负责。
 class EnvironmentService {
+  /// 编译时通过 --dart-define=SERVER_IP=xxx 注入的服务器 IP
+  static const String _compiledServerIp =
+      String.fromEnvironment('SERVER_IP', defaultValue: '');
+
   EnvironmentService({
     SharedPreferences? prefs,
     bool Function()? debugModeProvider,
@@ -86,6 +90,12 @@ class EnvironmentService {
     _cachedLocalPort = prefs.getString(_keyLocalPort) ?? '';
     _cachedDirectHost = prefs.getString(_keyDirectHost) ?? _defaultDirectHost;
     _cachedDirectPort = prefs.getString(_keyDirectPort) ?? _defaultDirectPort;
+
+    // 编译时注入了 IP → 每次运行都强制使用该 IP 直连
+    if (_compiledServerIp.isNotEmpty) {
+      await updateDirectHost(_compiledServerIp);
+      await switchEnvironment(AppEnvironment.direct);
+    }
   }
 
   /// 切换环境（仅更新状态，无副作用）

@@ -19,6 +19,17 @@ void main() {
           'left',
           'right',
           'confirm',
+          'ctrl_a',
+          'ctrl_d',
+          'ctrl_z',
+          'ctrl_u',
+          'ctrl_k',
+          'ctrl_w',
+          'ctrl_r',
+          'home',
+          'end',
+          'page_up',
+          'page_down',
         ],
       );
     });
@@ -100,6 +111,35 @@ void main() {
       );
 
       expect(action.toTerminalPayload(), isEmpty);
+    });
+
+    test('new control keys map to correct control characters', () {
+      final profile = TerminalShortcutProfile.claudeCode;
+      final controlShortcuts = {
+        'ctrl_a': '\x01', 'ctrl_d': '\x04', 'ctrl_z': '\x1a',
+        'ctrl_u': '\x15', 'ctrl_k': '\x0b', 'ctrl_w': '\x17',
+        'ctrl_r': '\x12',
+      };
+
+      for (final entry in controlShortcuts.entries) {
+        final shortcut = profile.shortcuts.firstWhere((s) => s.id == entry.key);
+        expect(shortcut.action.toTerminalPayload(), entry.value,
+            reason: '${entry.key} should produce 0x${entry.value.codeUnitAt(0).toRadixString(16)}');
+      }
+    });
+
+    test('new escape sequence keys produce correct payloads', () {
+      final profile = TerminalShortcutProfile.claudeCode;
+      final escapeShortcuts = {
+        'home': '\x1b[H', 'end': '\x1b[F',
+        'page_up': '\x1b[5~', 'page_down': '\x1b[6~',
+      };
+
+      for (final entry in escapeShortcuts.entries) {
+        final shortcut = profile.shortcuts.firstWhere((s) => s.id == entry.key);
+        expect(shortcut.action.toTerminalPayload(), entry.value,
+            reason: '${entry.key} should produce ${entry.value.replaceAll("\x1b", "ESC")}');
+      }
     });
   });
 }

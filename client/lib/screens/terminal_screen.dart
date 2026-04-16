@@ -1118,20 +1118,12 @@ class _TerminalScreenState extends State<TerminalScreen> {
   }
 
   String _shortcutMenuDescription(ShortcutItem item) {
-    switch (item.id) {
-      case 'claude_help':
-        return '查看 Claude Code 可用命令和帮助入口';
-      case 'claude_status':
-        return '查看当前会话状态和上下文信息';
-      case 'claude_clear':
-        return '清理当前终端显示，保留会话继续操作';
-      case 'claude_compact':
-        return '压缩当前上下文，适合继续长会话';
-      default:
-        return item.source == ShortcutItemSource.project
-            ? '发送当前项目的预设命令'
-            : '发送预设快捷命令到终端';
+    if (item.description != null && item.description!.isNotEmpty) {
+      return item.description!;
     }
+    return item.source == ShortcutItemSource.project
+        ? '发送当前项目的预设命令'
+        : '发送预设快捷命令到终端';
   }
 
   TerminalTheme _buildTerminalTheme(ThemeData theme) {

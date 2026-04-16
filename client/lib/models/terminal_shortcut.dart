@@ -74,17 +74,31 @@ class TerminalShortcutProfile {
 
   static const String claudeCodeId = 'claude_code';
 
-  static const TerminalShortcutProfile claudeCode = TerminalShortcutProfile(
-    id: claudeCodeId,
-    shortcuts: [
+  // ── 工厂方法：消除 Ctrl / Esc 序列的重复构造 ──
+
+  static TerminalShortcut _ctrl(String key) => TerminalShortcut(
+        id: 'ctrl_$key',
+        label: 'Ctrl+${key.toUpperCase()}',
+        action: TerminalShortcutAction(
+          type: TerminalShortcutActionType.sendControl,
+          value: key,
+        ),
+      );
+
+  static TerminalShortcut _esc(String id, String label, String seq) =>
       TerminalShortcut(
-        id: 'esc',
-        label: 'Esc',
+        id: id,
+        label: label,
         action: TerminalShortcutAction(
           type: TerminalShortcutActionType.sendEscapeSequence,
-          value: '\x1b',
+          value: seq,
         ),
-      ),
+      );
+
+  static final TerminalShortcutProfile claudeCode = TerminalShortcutProfile(
+    id: claudeCodeId,
+    shortcuts: [
+      _esc('esc', 'Esc', '\x1b'),
       TerminalShortcut(
         id: 'tab',
         label: 'Tab',
@@ -93,22 +107,8 @@ class TerminalShortcutProfile {
           value: '\t',
         ),
       ),
-      TerminalShortcut(
-        id: 'ctrl_c',
-        label: 'Ctrl+C',
-        action: TerminalShortcutAction(
-          type: TerminalShortcutActionType.sendControl,
-          value: 'c',
-        ),
-      ),
-      TerminalShortcut(
-        id: 'ctrl_l',
-        label: 'Ctrl+L',
-        action: TerminalShortcutAction(
-          type: TerminalShortcutActionType.sendControl,
-          value: 'l',
-        ),
-      ),
+      _ctrl('c'),
+      _ctrl('l'),
       TerminalShortcut(
         id: 'prev_item',
         label: '上一项',
@@ -119,22 +119,8 @@ class TerminalShortcutProfile {
         label: '下一项',
         action: _standardNextAction,
       ),
-      TerminalShortcut(
-        id: 'left',
-        label: '左移',
-        action: TerminalShortcutAction(
-          type: TerminalShortcutActionType.sendEscapeSequence,
-          value: '\x1b[D',
-        ),
-      ),
-      TerminalShortcut(
-        id: 'right',
-        label: '右移',
-        action: TerminalShortcutAction(
-          type: TerminalShortcutActionType.sendEscapeSequence,
-          value: '\x1b[C',
-        ),
-      ),
+      _esc('left', '左移', '\x1b[D'),
+      _esc('right', '右移', '\x1b[C'),
       TerminalShortcut(
         id: 'confirm',
         label: 'Enter',
@@ -143,6 +129,19 @@ class TerminalShortcutProfile {
           value: '\r',
         ),
       ),
+      // 终端控制键
+      _ctrl('a'),
+      _ctrl('d'),
+      _ctrl('z'),
+      _ctrl('u'),
+      _ctrl('k'),
+      _ctrl('w'),
+      _ctrl('r'),
+      // 光标移动键
+      _esc('home', 'Home', '\x1b[H'),
+      _esc('end', 'End', '\x1b[F'),
+      _esc('page_up', 'PgUp', '\x1b[5~'),
+      _esc('page_down', 'PgDn', '\x1b[6~'),
     ],
   );
 
