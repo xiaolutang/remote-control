@@ -59,7 +59,9 @@ class AuthService {
               aOptions: const AndroidOptions(encryptedSharedPreferences: true),
               iOptions: const IOSOptions(
                   accessibility: KeychainAccessibility.first_unlock),
-              mOptions: MacOsOptions(useDataProtectionKeyChain: !kDebugMode),
+              // Keep macOS secure storage behavior identical across debug and
+              // release builds until stable signing/keychain-sharing is set up.
+              mOptions: const MacOsOptions(useDataProtectionKeyChain: false),
             );
 
   /// 将 WebSocket URL 转换为 HTTP URL

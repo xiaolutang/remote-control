@@ -21,8 +21,10 @@ class TuiPatterns {
 class TuiOption {
   /// 选项标识符（如 '1', 'y', 'n'）
   final String key;
+
   /// 选项显示文本
   final String label;
+
   /// 选项类型
   final TuiOptionType type;
 
@@ -37,8 +39,10 @@ class TuiOption {
 enum TuiOptionType {
   /// 数字选项（1. xxx, 2. xxx）
   numbered,
+
   /// 是/否选项（[y/n]）
   yesNo,
+
   /// 确认选项（Press Enter to continue）
   confirm,
 }
@@ -154,10 +158,13 @@ class TuiSelectorState extends State<TuiSelector> {
     }
 
     final mediaQuery = MediaQuery.of(context);
-    final bottomInset = mediaQuery.padding.bottom >
-            mediaQuery.systemGestureInsets.bottom
-        ? mediaQuery.padding.bottom
-        : mediaQuery.systemGestureInsets.bottom;
+    final safeBottomInset =
+        mediaQuery.padding.bottom > mediaQuery.systemGestureInsets.bottom
+            ? mediaQuery.padding.bottom
+            : mediaQuery.systemGestureInsets.bottom;
+    final bottomInset = mediaQuery.viewInsets.bottom > 0
+        ? mediaQuery.viewInsets.bottom
+        : safeBottomInset;
 
     return Container(
       decoration: BoxDecoration(
@@ -190,12 +197,12 @@ class TuiSelectorState extends State<TuiSelector> {
     switch (option.type) {
       case TuiOptionType.yesNo:
         buttonColor = option.key.toLowerCase() == 'y'
-            ? const Color.fromRGBO(76, 175, 80, 0.8)  // Green 800
-            : const Color.fromRGBO(244, 67, 54, 0.8);  // Red
+            ? const Color.fromRGBO(76, 175, 80, 0.8) // Green 800
+            : const Color.fromRGBO(244, 67, 54, 0.8); // Red
         icon = option.key.toLowerCase() == 'y' ? Icons.check : Icons.close;
         break;
       case TuiOptionType.confirm:
-        buttonColor = const Color.fromRGBO(33, 150, 243, 0.8);  // Blue
+        buttonColor = const Color.fromRGBO(33, 150, 243, 0.8); // Blue
         icon = Icons.keyboard_return;
         break;
       case TuiOptionType.numbered:
@@ -226,10 +233,13 @@ class TuiSelectorState extends State<TuiSelector> {
                   fontSize: 12,
                 ),
               ),
-              if (option.label.isNotEmpty && option.type != TuiOptionType.yesNo) ...[
+              if (option.label.isNotEmpty &&
+                  option.type != TuiOptionType.yesNo) ...[
                 const SizedBox(width: 4),
                 Text(
-                  option.label.length > 20 ? '${option.label.substring(0, 20)}...' : option.label,
+                  option.label.length > 20
+                      ? '${option.label.substring(0, 20)}...'
+                      : option.label,
                   style: const TextStyle(
                     color: Color.fromRGBO(255, 255, 255, 0.8),
                     fontSize: 12,

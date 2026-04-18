@@ -3,8 +3,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:rc_client/screens/terminal_screen.dart';
 import 'package:rc_client/services/environment_service.dart';
+import 'package:rc_client/services/terminal_session_manager.dart';
 import 'package:rc_client/services/websocket_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:xterm/xterm.dart';
+import 'dart:io';
 
 import '../mocks/mock_websocket_service.dart';
 
@@ -37,19 +40,40 @@ void main() {
       mockService.dispose();
     });
 
-    Future<void> pumpScreen(
-      WidgetTester tester,
-      WebSocketService service,
-    ) async {
+    Future<void> pumpScreenWithManager(
+      WidgetTester tester, {
+      required WebSocketService service,
+      required TerminalSessionManager sessionManager,
+      MediaQueryData? mediaQueryData,
+    }) async {
       await tester.pumpWidget(
-        ChangeNotifierProvider<WebSocketService>.value(
-          value: service,
-          child: const MaterialApp(
-            home: TerminalScreen(platformOverride: TargetPlatform.android),
+        MediaQuery(
+          data: mediaQueryData ?? const MediaQueryData(size: Size(400, 800)),
+          child: MultiProvider(
+            providers: [
+              ChangeNotifierProvider<TerminalSessionManager>.value(
+                value: sessionManager,
+              ),
+              ChangeNotifierProvider<WebSocketService>.value(value: service),
+            ],
+            child: const MaterialApp(
+              home: TerminalScreen(platformOverride: TargetPlatform.android),
+            ),
           ),
         ),
       );
       await tester.pump(const Duration(milliseconds: 150));
+    }
+
+    Future<void> pumpScreen(
+      WidgetTester tester,
+      WebSocketService service,
+    ) async {
+      await pumpScreenWithManager(
+        tester,
+        service: service,
+        sessionManager: TerminalSessionManager(),
+      );
     }
 
     testWidgets('shows shortcut bar on mobile and sends control payloads',
@@ -86,6 +110,140 @@ void main() {
       expect(mockService.sentMessages, contains('1'));
     });
 
+    testWidgets('reuses cached Terminal buffer across screen remounts',
+        (tester) async {
+      final sessionManager = TerminalSessionManager();
+      addTearDown(sessionManager.dispose);
+
+      await pumpScreenWithManager(
+        tester,
+        service: mockService,
+        sessionManager: sessionManager,
+      );
+
+      mockService.simulateOutput('hello from cached terminal\n');
+      await tester.pumpAndSettle();
+
+      final cachedTerminal = sessionManager.getTerminal('device-1', 'term-1');
+      expect(cachedTerminal, isNotNull);
+      expect(cachedTerminal!.buffer.lines[0].toString(), contains('hello'));
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+
+      final newService = _PreconnectedWebSocketService()..simulateConnect();
+      addTearDown(newService.dispose);
+      await pumpScreenWithManager(
+        tester,
+        service: newService,
+        sessionManager: sessionManager,
+      );
+
+      final reusedTerminal = sessionManager.getTerminal('device-1', 'term-1');
+      expect(identical(reusedTerminal, cachedTerminal), isTrue);
+      expect(reusedTerminal!.buffer.lines[0].toString(), contains('hello'));
+    });
+
+    testWidgets('keeps shortcut bar above software keyboard on mobile',
+        (tester) async {
+      final sessionManager = TerminalSessionManager();
+      addTearDown(sessionManager.dispose);
+
+      await pumpScreenWithManager(
+        tester,
+        service: mockService,
+        sessionManager: sessionManager,
+        mediaQueryData: const MediaQueryData(
+          size: Size(400, 800),
+          viewInsets: EdgeInsets.only(bottom: 320),
+        ),
+      );
+
+      final ctrlCBottom = tester.getBottomLeft(find.text('Ctrl+C')).dy;
+      expect(ctrlCBottom, lessThan(800 - 320));
+    });
+
+    testWidgets(
+        'keeps cached terminal receiving output while screen is offstage',
+        (tester) async {
+      final sessionManager = TerminalSessionManager();
+      addTearDown(sessionManager.dispose);
+
+      final serviceA = _PreconnectedWebSocketService(
+        terminalId: 'term-1',
+      )..simulateConnect();
+      final serviceB = _PreconnectedWebSocketService(
+        terminalId: 'term-2',
+      )..simulateConnect();
+      addTearDown(serviceA.dispose);
+      addTearDown(serviceB.dispose);
+
+      await pumpScreenWithManager(
+        tester,
+        service: serviceA,
+        sessionManager: sessionManager,
+      );
+      serviceA.simulateOutput('term-1 visible\n');
+      await tester.pumpAndSettle();
+
+      await pumpScreenWithManager(
+        tester,
+        service: serviceB,
+        sessionManager: sessionManager,
+      );
+      serviceA.simulateOutput('term-1 background\n');
+      serviceB.simulateOutput('term-2 visible\n');
+      await tester.pumpAndSettle();
+
+      final terminalA = sessionManager.getTerminal('device-1', 'term-1');
+      expect(terminalA, isNotNull);
+
+      final terminalAText = List.generate(
+        terminalA!.buffer.lines.length,
+        (index) => terminalA.buffer.lines[index].toString(),
+      ).join('\n');
+
+      expect(terminalAText, contains('term-1 background'));
+    });
+
+    testWidgets('mobile scaffold disables resizeToAvoidBottomInset',
+        (tester) async {
+      await pumpScreen(tester, mockService);
+
+      final scaffold = tester.widget<Scaffold>(find.byType(Scaffold));
+      expect(scaffold.resizeToAvoidBottomInset, isFalse);
+    });
+
+    testWidgets('mobile follows shared PTY instead of auto resizing',
+        (tester) async {
+      mockService.simulatePresence({'mobile': 1, 'desktop': 1});
+      mockService.simulateGeometryOwner('desktop');
+
+      await pumpScreen(tester, mockService);
+
+      final terminalView =
+          tester.widget<TerminalView>(find.byType(TerminalView));
+      expect(terminalView.autoResize, isFalse);
+    });
+
+    test(
+        'source guard: _onOutput does not rebuild TerminalScreen with setState',
+        () async {
+      final source =
+          await File('lib/screens/terminal_screen.dart').readAsString();
+      final onOutputBody = RegExp(
+        r'void _onOutput\(String data\) \{([\s\S]*?)\n  \}',
+      ).firstMatch(source);
+
+      expect(onOutputBody, isNotNull);
+      expect(
+        onOutputBody!.group(1),
+        isNot(contains('setState(')),
+        reason:
+            '终端输出重绘应由 xterm/RenderTerminal 和局部 notifier 驱动，不应重建整个 TerminalScreen subtree',
+      );
+    });
+
     testWidgets('sends enter and ctrl+l payloads from shortcut bar',
         (tester) async {
       await pumpScreen(tester, mockService);
@@ -101,7 +259,8 @@ void main() {
       expect(mockService.sentMessages, contains('\r'));
     });
 
-    testWidgets('sends default Claude command pack items and updates smart ordering',
+    testWidgets(
+        'sends default Claude command pack items and updates smart ordering',
         (tester) async {
       await pumpScreen(tester, mockService);
 
@@ -221,7 +380,8 @@ void main() {
       expect(mockService.sentMessages, contains('pnpm test\r'));
     });
 
-    testWidgets('allows switching Claude navigation mode without changing labels',
+    testWidgets(
+        'allows switching Claude navigation mode without changing labels',
         (tester) async {
       await pumpScreen(tester, mockService);
 
@@ -429,7 +589,9 @@ void main() {
       EnvironmentService.setInstance(
         EnvironmentService(debugModeProvider: () => true),
       );
-      mockService = _PreconnectedWebSocketService()..simulateConnect();
+      mockService = _PreconnectedWebSocketService(
+        viewType: ViewType.desktop,
+      )..simulateConnect();
     });
 
     tearDown(() {
@@ -438,8 +600,13 @@ void main() {
 
     testWidgets('does not show mobile shortcut bar on desktop', (tester) async {
       await tester.pumpWidget(
-        ChangeNotifierProvider<WebSocketService>.value(
-          value: mockService,
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider<TerminalSessionManager>(
+              create: (_) => TerminalSessionManager(),
+            ),
+            ChangeNotifierProvider<WebSocketService>.value(value: mockService),
+          ],
           child: const MaterialApp(
             home: TerminalScreen(platformOverride: TargetPlatform.macOS),
           ),
@@ -453,10 +620,96 @@ void main() {
       expect(find.text('Paste'), findsNothing);
       expect(find.text('更多'), findsNothing);
     });
+
+    testWidgets('desktop scaffold keeps resizeToAvoidBottomInset enabled',
+        (tester) async {
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider<TerminalSessionManager>(
+              create: (_) => TerminalSessionManager(),
+            ),
+            ChangeNotifierProvider<WebSocketService>.value(value: mockService),
+          ],
+          child: const MaterialApp(
+            home: TerminalScreen(platformOverride: TargetPlatform.macOS),
+          ),
+        ),
+      );
+
+      await tester.pump(const Duration(milliseconds: 150));
+
+      final scaffold = tester.widget<Scaffold>(find.byType(Scaffold));
+      expect(scaffold.resizeToAvoidBottomInset, isTrue);
+    });
+
+    testWidgets('desktop follows shared PTY when another viewer is attached',
+        (tester) async {
+      mockService.simulatePresence({'mobile': 1, 'desktop': 1});
+      mockService.simulateGeometryOwner('mobile');
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider<TerminalSessionManager>(
+              create: (_) => TerminalSessionManager(),
+            ),
+            ChangeNotifierProvider<WebSocketService>.value(value: mockService),
+          ],
+          child: const MaterialApp(
+            home: TerminalScreen(platformOverride: TargetPlatform.macOS),
+          ),
+        ),
+      );
+
+      await tester.pump(const Duration(milliseconds: 150));
+
+      final terminalView =
+          tester.widget<TerminalView>(find.byType(TerminalView));
+      expect(terminalView.autoResize, isFalse);
+    });
+
+    testWidgets(
+        'desktop does not send resize events while following shared PTY',
+        (tester) async {
+      final sessionManager = TerminalSessionManager();
+      addTearDown(sessionManager.dispose);
+      mockService.simulatePresence({'mobile': 1, 'desktop': 1});
+      mockService.simulateGeometryOwner('mobile');
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider<TerminalSessionManager>.value(
+              value: sessionManager,
+            ),
+            ChangeNotifierProvider<WebSocketService>.value(value: mockService),
+          ],
+          child: const MaterialApp(
+            home: TerminalScreen(platformOverride: TargetPlatform.macOS),
+          ),
+        ),
+      );
+
+      await tester.pump(const Duration(milliseconds: 150));
+
+      final terminal = sessionManager.getTerminal('device-1', 'term-1');
+      expect(terminal, isNotNull);
+
+      terminal!.onResize?.call(120, 40, 0, 0);
+
+      expect(mockService.sentMessages, isEmpty);
+    });
   });
 }
 
 class _PreconnectedWebSocketService extends MockWebSocketService {
+  _PreconnectedWebSocketService({
+    super.deviceId,
+    super.terminalId,
+    super.viewType,
+  });
+
   @override
   Future<bool> connect() async {
     connectCallCount++;

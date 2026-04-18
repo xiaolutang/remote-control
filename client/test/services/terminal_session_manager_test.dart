@@ -1,10 +1,10 @@
-import 'dart:async';
+import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rc_client/services/terminal_session_manager.dart';
 import 'package:rc_client/services/websocket_service.dart';
+import 'package:xterm/xterm.dart';
 
 /// 测试用 Mock WebSocketService
 /// 不发起真实连接，但可以追踪方法调用
@@ -25,6 +25,7 @@ class MockWebSocketService extends WebSocketService {
     super.sessionId = '',
     super.deviceId = 'dev-1',
     super.terminalId = 'term-1',
+    super.viewType = ViewType.mobile,
   });
 
   void setMockConnected(bool value) {
@@ -49,7 +50,8 @@ class MockWebSocketService extends WebSocketService {
   int? get lastCloseCode => _mockLastCloseCode;
 
   @override
-  bool get isAuthFailed => _mockLastCloseCode == 4001 || _mockLastCloseCode == 4011;
+  bool get isAuthFailed =>
+      _mockLastCloseCode == 4001 || _mockLastCloseCode == 4011;
 
   @override
   bool get isConnected => _mockConnected;
@@ -100,6 +102,132 @@ void main() {
 
       manager.disconnectAll();
     });
+
+    test('reuses existing Terminal instance for same device and terminal', () {
+      final manager = TerminalSessionManager();
+      var createCount = 0;
+
+      Terminal build() {
+        createCount += 1;
+        return Terminal(maxLines: 10000);
+      }
+
+      final first = manager.getOrCreateTerminal('mbp-01', 'term-1', build);
+      first.write('hello');
+      final second = manager.getOrCreateTerminal('mbp-01', 'term-1', build);
+
+      expect(identical(first, second), isTrue);
+      expect(createCount, 1);
+      expect(second.buffer.lines[0].toString(), contains('hello'));
+    });
+
+    test(
+        'replaces cached terminal buffer when snapshot arrives after reconnect',
+        () async {
+      final manager = TerminalSessionManager();
+      final firstService = MockWebSocketService(
+        sessionId: 'session-1',
+        deviceId: 'mbp-01',
+        terminalId: 'term-1',
+      );
+
+      final terminal = manager.getOrCreateTerminal(
+        'mbp-01',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: firstService,
+      );
+
+      firstService.debugHandleMessage(jsonEncode({
+        'type': 'data',
+        'payload': base64Encode(utf8.encode('stale frame')),
+      }));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(terminal.buffer.lines[0].toString(), contains('stale frame'));
+
+      final reconnectedService = MockWebSocketService(
+        sessionId: 'session-1',
+        deviceId: 'mbp-01',
+        terminalId: 'term-1',
+      );
+      manager.bindTerminalOutput('mbp-01', 'term-1', reconnectedService);
+
+      reconnectedService.debugHandleMessage(jsonEncode({
+        'type': 'snapshot',
+        'payload': base64Encode(utf8.encode('fresh snapshot')),
+      }));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(
+          terminal.buffer.lines[0].toString(), isNot(contains('stale frame')));
+      expect(terminal.buffer.lines[0].toString(), contains('fresh snapshot'));
+    });
+
+    test('does not let later snapshot clobber existing live terminal buffer',
+        () async {
+      final manager = TerminalSessionManager();
+      final service = MockWebSocketService(
+        sessionId: 'session-1',
+        deviceId: 'mbp-01',
+        terminalId: 'term-1',
+      );
+
+      final terminal = manager.getOrCreateTerminal(
+        'mbp-01',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: service,
+      );
+
+      service.debugHandleMessage(jsonEncode({
+        'type': 'data',
+        'payload': base64Encode(utf8.encode('codex live frame')),
+      }));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(terminal.buffer.lines[0].toString(), contains('codex live frame'));
+
+      service.debugHandleMessage(jsonEncode({
+        'type': 'snapshot',
+        'payload': base64Encode(utf8.encode('truncated snapshot')),
+      }));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(
+        terminal.buffer.lines[0].toString(),
+        contains('codex live frame'),
+      );
+      expect(
+        terminal.buffer.lines[0].toString(),
+        isNot(contains('truncated snapshot')),
+      );
+    });
+
+    test('applies authoritative remote pty resize to cached terminal',
+        () async {
+      final manager = TerminalSessionManager();
+      final service = MockWebSocketService(
+        sessionId: 'session-1',
+        deviceId: 'mbp-01',
+        terminalId: 'term-1',
+      );
+
+      final terminal = manager.getOrCreateTerminal(
+        'mbp-01',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: service,
+      );
+
+      service.debugHandleMessage(jsonEncode({
+        'type': 'resize',
+        'rows': 36,
+        'cols': 110,
+      }));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(terminal.viewHeight, 36);
+      expect(terminal.viewWidth, 110);
+    });
   });
 
   group('TerminalSessionManager lifecycle - 正常路径', () {
@@ -108,10 +236,12 @@ void main() {
     MockWebSocketService buildMock({
       String deviceId = 'dev-1',
       String terminalId = 'term-1',
+      ViewType viewType = ViewType.mobile,
     }) {
       return MockWebSocketService(
         deviceId: deviceId,
         terminalId: terminalId,
+        viewType: viewType,
       );
     }
 
@@ -174,6 +304,21 @@ void main() {
       expect(mock.connectCallCount, 0);
     });
 
+    test('disconnectTerminal 同时清理 cached Terminal', () async {
+      final mock = buildMock();
+      manager.getOrCreate('dev-1', 'term-1', () => mock);
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
+
+      await manager.disconnectTerminal('dev-1', 'term-1');
+
+      expect(manager.get('dev-1', 'term-1'), isNull);
+      expect(manager.getTerminal('dev-1', 'term-1'), isNull);
+    });
+
     test('pause 后新增的 service 不被 resumeAll 影响', () async {
       manager.pauseAll();
 
@@ -227,10 +372,12 @@ void main() {
     MockWebSocketService buildMock({
       String deviceId = 'dev-1',
       String terminalId = 'term-1',
+      ViewType viewType = ViewType.mobile,
     }) {
       return MockWebSocketService(
         deviceId: deviceId,
         terminalId: terminalId,
+        viewType: viewType,
       );
     }
 
@@ -313,12 +460,18 @@ void main() {
       final mock = buildMock();
       manager.getOrCreate('dev-1', 'term-1', () => mock);
       mock.setMockConnected(true);
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
 
       await manager.disconnectAll();
 
       // disconnectAll 清空了所有状态
       expect(() => manager.pauseAll(), returnsNormally);
       await expectLater(manager.resumeAll(), completes);
+      expect(manager.getTerminal('dev-1', 'term-1'), isNull);
     });
 
     test('桌面端 pauseAll/resumeAll 安全调用', () async {
@@ -340,10 +493,12 @@ void main() {
     MockWebSocketService buildMock({
       String deviceId = 'dev-1',
       String terminalId = 'term-1',
+      ViewType viewType = ViewType.mobile,
     }) {
       return MockWebSocketService(
         deviceId: deviceId,
         terminalId: terminalId,
+        viewType: viewType,
       );
     }
 
@@ -405,10 +560,12 @@ void main() {
     MockWebSocketService buildMock({
       String deviceId = 'dev-1',
       String terminalId = 'term-1',
+      ViewType viewType = ViewType.mobile,
     }) {
       return MockWebSocketService(
         deviceId: deviceId,
         terminalId: terminalId,
+        viewType: viewType,
       );
     }
 
@@ -435,12 +592,24 @@ void main() {
       final first = manager.getOrCreate('dev-1', 'term-1', build);
       expect(identical(first, mock1), isTrue);
       expect(createCount, 1);
+      final firstTerminal = manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
 
-      // 第二次调用：mock1 的 lastCloseCode=4001，应被淘汰并重建
+      // 第二次调用：mock1 的 lastCloseCode=4001，应被淘汰并重建，
+      // 但 cached terminal 应保留，避免 terminal 切换后内容丢失。
       final second = manager.getOrCreate('dev-1', 'term-1', build);
       expect(identical(second, mock1), isFalse);
       expect(createCount, 2);
       expect(mock1.disconnectCallCount, 1);
+      final secondTerminal = manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
+      expect(identical(firstTerminal, secondTerminal), isTrue);
     });
 
     test('getOrCreate 自动淘汰 closeCode=4011 的缓存服务', () {
@@ -510,7 +679,8 @@ void main() {
       mock1.setMockLastCloseCode(4001);
 
       // getOrCreate 应淘汰并清理 _pausedKeys
-      final newService = manager.getOrCreate('dev-1', 'term-1', () => buildMock());
+      final newService =
+          manager.getOrCreate('dev-1', 'term-1', () => buildMock());
       expect(identical(newService, mock1), isFalse);
 
       // resumeAll 不应尝试重连已被淘汰的 mock1
@@ -530,6 +700,34 @@ void main() {
       // 新服务可正常连接
       mock2.setMockConnected(true);
       expect(service.isConnected, isTrue);
+    });
+
+    test('切换 terminal 前主动断开同 device 同 view 的其他 service', () async {
+      final current = buildMock(deviceId: 'dev-1', terminalId: 'term-1');
+      final next = buildMock(deviceId: 'dev-1', terminalId: 'term-2');
+      final desktop = buildMock(
+        deviceId: 'dev-1',
+        terminalId: 'term-3',
+        viewType: ViewType.desktop,
+      );
+      final otherDevice = buildMock(deviceId: 'dev-2', terminalId: 'term-4');
+
+      manager.getOrCreate('dev-1', 'term-1', () => current);
+      manager.getOrCreate('dev-1', 'term-2', () => next);
+      manager.getOrCreate('dev-1', 'term-3', () => desktop);
+      manager.getOrCreate('dev-2', 'term-4', () => otherDevice);
+
+      current.setMockConnected(true);
+      next.setMockConnected(true);
+      desktop.setMockConnected(true);
+      otherDevice.setMockConnected(true);
+
+      await manager.deactivateConflictingTerminalSessions(next);
+
+      expect(current.disconnectCallCount, 1);
+      expect(next.disconnectCallCount, 0);
+      expect(desktop.disconnectCallCount, 0);
+      expect(otherDevice.disconnectCallCount, 0);
     });
   });
 
@@ -576,7 +774,8 @@ void main() {
       expect(mock.disconnectCallCount, 1);
     });
 
-    test('didChangeAppLifecycleState(resumed) 触发 resumeAll（通过直接调用验证）', () async {
+    test('didChangeAppLifecycleState(resumed) 触发 resumeAll（通过直接调用验证）',
+        () async {
       final mock = buildMock();
       manager.getOrCreate('dev-1', 'term-1', () => mock);
       mock.setMockConnected(true);

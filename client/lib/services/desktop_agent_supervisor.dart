@@ -101,7 +101,8 @@ class DesktopAgentSupervisor {
     final devices = await runtimeService.listDevices(token);
     final current = _findDevice(devices, deviceId);
     final managedPid = await _loadManagedAgentPid();
-    final managedRunning = managedPid != null && await _isProcessRunning(managedPid);
+    final managedRunning =
+        managedPid != null && await _isProcessRunning(managedPid);
     if (managedPid != null && !managedRunning) {
       await _clearManagedAgentPid();
     }
@@ -132,7 +133,8 @@ class DesktopAgentSupervisor {
     final runtimeService =
         _runtimeService ?? RuntimeDeviceService(serverUrl: serverUrl);
 
-    final before = _findDevice(await runtimeService.listDevices(token), deviceId);
+    final before =
+        _findDevice(await runtimeService.listDevices(token), deviceId);
     _logDesktopAgent(
       'ensureAgentOnline before agentOnline=${before?.agentOnline ?? false}',
     );
@@ -146,7 +148,8 @@ class DesktopAgentSupervisor {
     _logDesktopAgent('ensureAgentOnline managedPid=${managedPid ?? -1}');
     if (managedPid != null) {
       if (await _isProcessRunning(managedPid)) {
-        _logDesktopAgent('ensureAgentOnline waiting existing managed pid=$managedPid');
+        _logDesktopAgent(
+            'ensureAgentOnline waiting existing managed pid=$managedPid');
         final recovered = await _waitForAgentOnline(
           runtimeService: runtimeService,
           token: token,
@@ -303,7 +306,8 @@ class DesktopAgentSupervisor {
     final deadline = DateTime.now().add(timeout);
     while (DateTime.now().isBefore(deadline)) {
       await Future<void>.delayed(const Duration(milliseconds: 400));
-      final refreshed = _findDevice(await runtimeService.listDevices(token), deviceId);
+      final refreshed =
+          _findDevice(await runtimeService.listDevices(token), deviceId);
       if (!(refreshed?.agentOnline ?? false)) {
         await _clearManagedAgentPid();
         return true;
@@ -327,7 +331,8 @@ class DesktopAgentSupervisor {
       }
 
       final graceTimeout = timeout.inSeconds.clamp(1, 10);
-      final stopSent = await client.sendStop(status.port, graceTimeout: graceTimeout);
+      final stopSent =
+          await client.sendStop(status.port, graceTimeout: graceTimeout);
       if (!stopSent) {
         return false;
       }
@@ -398,7 +403,7 @@ class DesktopAgentSupervisor {
       const secureStorage = FlutterSecureStorage(
         aOptions: AndroidOptions(encryptedSharedPreferences: true),
         iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
-        mOptions: MacOsOptions(useDataProtectionKeyChain: !kDebugMode),
+        mOptions: MacOsOptions(useDataProtectionKeyChain: false),
       );
       final refreshToken = await secureStorage.read(key: 'rc_refresh_token');
       final username = prefs.getString('rc_username');
@@ -483,7 +488,8 @@ class DesktopAgentSupervisor {
     final deadline = DateTime.now().add(timeout);
     while (DateTime.now().isBefore(deadline)) {
       await Future<void>.delayed(const Duration(milliseconds: 600));
-      final refreshed = _findDevice(await runtimeService.listDevices(token), deviceId);
+      final refreshed =
+          _findDevice(await runtimeService.listDevices(token), deviceId);
       if (refreshed?.agentOnline ?? false) {
         return true;
       }
@@ -602,10 +608,13 @@ class DesktopAgentSupervisor {
   }
 
   Directory? _resolveAgentWorkdir({String? preferredWorkdir}) {
-    _logDesktopAgent('_resolveAgentWorkdir: preferredWorkdir=$preferredWorkdir');
-    for (final candidate in _candidateAgentDirs(preferredWorkdir: preferredWorkdir)) {
+    _logDesktopAgent(
+        '_resolveAgentWorkdir: preferredWorkdir=$preferredWorkdir');
+    for (final candidate
+        in _candidateAgentDirs(preferredWorkdir: preferredWorkdir)) {
       final looksLike = _looksLikeAgentDir(candidate);
-      _logDesktopAgent('_resolveAgentWorkdir: checking ${candidate.path}, looksLike=$looksLike');
+      _logDesktopAgent(
+          '_resolveAgentWorkdir: checking ${candidate.path}, looksLike=$looksLike');
       if (looksLike) {
         _logDesktopAgent('_resolveAgentWorkdir: resolved ${candidate.path}');
         return candidate;
@@ -618,7 +627,8 @@ class DesktopAgentSupervisor {
   Iterable<Directory> _candidateAgentDirs({String? preferredWorkdir}) sync* {
     _logDesktopAgent('_candidateAgentDirs: preferredWorkdir=$preferredWorkdir');
     _logDesktopAgent('_candidateAgentDirs: current=${Directory.current.path}');
-    _logDesktopAgent('_candidateAgentDirs: resolvedExecutable=${Platform.resolvedExecutable}');
+    _logDesktopAgent(
+        '_candidateAgentDirs: resolvedExecutable=${Platform.resolvedExecutable}');
 
     if (preferredWorkdir != null && preferredWorkdir.isNotEmpty) {
       yield Directory(preferredWorkdir);
@@ -630,7 +640,8 @@ class DesktopAgentSupervisor {
     }
 
     final executableDir = _resolveExecutableDirectory();
-    _logDesktopAgent('_candidateAgentDirs: executableDir=${executableDir?.path}');
+    _logDesktopAgent(
+        '_candidateAgentDirs: executableDir=${executableDir?.path}');
     if (executableDir != null) {
       yield* _searchAgentDirsFrom(executableDir);
     }
@@ -664,6 +675,7 @@ class DesktopAgentSupervisor {
   }
 
   bool _looksLikeAgentDir(Directory dir) {
-    return dir.existsSync() && File(p.join(dir.path, 'app', 'cli.py')).existsSync();
+    return dir.existsSync() &&
+        File(p.join(dir.path, 'app', 'cli.py')).existsSync();
   }
 }

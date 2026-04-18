@@ -1,11 +1,136 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
+import 'package:xterm/xterm.dart';
 
 import 'websocket_service.dart';
+
+class _TerminalState {
+  _TerminalState(this.terminal);
+
+  final Terminal terminal;
+  final ValueNotifier<String> outputText = ValueNotifier<String>('');
+  final List<String> _outputBuffer = [];
+  final List<String> _pendingRecoveryFrames = [];
+  bool _hasLiveOutput = false;
+  bool _recovering = false;
+
+  static const int _maxBufferLines = 50;
+
+  void applyRemotePtySize(int rows, int cols) {
+    if (rows <= 0 || cols <= 0) {
+      return;
+    }
+    if (terminal.viewHeight == rows && terminal.viewWidth == cols) {
+      return;
+    }
+    final previousOnResize = terminal.onResize;
+    terminal.onResize = null;
+    try {
+      terminal.resize(cols, rows);
+    } finally {
+      terminal.onResize = previousOnResize;
+    }
+  }
+
+  void _writeFrame(String data) {
+    terminal.write(data);
+    appendOutput(data);
+  }
+
+  // TODO(F073): 通过 RendererAdapter 收口，不直接操作 xterm mainBuffer/altBuffer
+  void _resetTerminalBuffers() {
+    terminal.useMainBuffer();
+    terminal.mainBuffer.clear();
+    terminal.altBuffer.clear();
+    _outputBuffer.clear();
+  }
+
+  void beginRecovery() {
+    _recovering = true;
+    _hasLiveOutput = false;
+    _pendingRecoveryFrames.clear();
+  }
+
+  void replaceWithSnapshot(String data) {
+    if (!_recovering && _hasLiveOutput) {
+      return;
+    }
+    _resetTerminalBuffers();
+    _writeFrame(data);
+  }
+
+  void prepareForRebind() {
+    beginRecovery();
+  }
+
+  void appendLiveFrame(String data) {
+    if (_recovering) {
+      _pendingRecoveryFrames.add(data);
+      return;
+    }
+    _writeFrame(data);
+  }
+
+  void finishRecovery() {
+    if (!_recovering) {
+      return;
+    }
+    _recovering = false;
+    for (final frame in _pendingRecoveryFrames) {
+      _writeFrame(frame);
+    }
+    _pendingRecoveryFrames.clear();
+  }
+
+  void appendOutput(String data) {
+    if (data.isNotEmpty) {
+      _hasLiveOutput = true;
+    }
+    final lines = data.split('\n');
+    for (final line in lines) {
+      if (line.isEmpty) {
+        continue;
+      }
+      _outputBuffer.add(line);
+      if (_outputBuffer.length > _maxBufferLines) {
+        _outputBuffer.removeAt(0);
+      }
+    }
+    outputText.value = _outputBuffer.join('\n');
+  }
+
+  void dispose() {
+    outputText.dispose();
+  }
+}
+
+class _TerminalBinding {
+  const _TerminalBinding({
+    required this.service,
+    required this.connectedSubscription,
+    required this.outputSubscription,
+    required this.ptySubscription,
+  });
+
+  final WebSocketService service;
+  final StreamSubscription<void> connectedSubscription;
+  final StreamSubscription<TerminalOutputFrame> outputSubscription;
+  final StreamSubscription<TerminalPtySize> ptySubscription;
+
+  Future<void> cancel() async {
+    await connectedSubscription.cancel();
+    await outputSubscription.cancel();
+    await ptySubscription.cancel();
+  }
+}
 
 class TerminalSessionManager extends ChangeNotifier
     with WidgetsBindingObserver {
   final Map<String, WebSocketService> _sessions = {};
+  final Map<String, _TerminalState> _terminals = {};
+  final Map<String, _TerminalBinding> _terminalBindings = {};
 
   /// 暂停前已连接的 session keys，用于 resumeAll 时重连
   Set<String> _pausedKeys = {};
@@ -69,8 +194,7 @@ class TerminalSessionManager extends ChangeNotifier
     await Future.wait(
       keysToResume.map((key) async {
         final service = _sessions[key];
-        if (service != null &&
-            service.status != ConnectionStatus.connected) {
+        if (service != null && service.status != ConnectionStatus.connected) {
           try {
             await service.connect();
           } catch (e) {
@@ -103,7 +227,7 @@ class TerminalSessionManager extends ChangeNotifier
         );
         _sessions.remove(key);
         _pausedKeys.remove(key);
-        existing.disconnect();
+        unawaited(existing.disconnect());
       } else {
         return existing;
       }
@@ -118,9 +242,129 @@ class TerminalSessionManager extends ChangeNotifier
     return _sessions[_key(deviceId, terminalId)];
   }
 
+  Terminal getOrCreateTerminal(
+    String? deviceId,
+    String terminalId,
+    Terminal Function() create, {
+    WebSocketService? service,
+  }) {
+    final key = _key(deviceId, terminalId);
+    final state = _terminals.putIfAbsent(key, () => _TerminalState(create()));
+    if (service != null) {
+      bindTerminalOutput(deviceId, terminalId, service);
+    }
+    return state.terminal;
+  }
+
+  Terminal? getTerminal(String? deviceId, String terminalId) {
+    return _terminals[_key(deviceId, terminalId)]?.terminal;
+  }
+
+  ValueListenable<String>? getTerminalOutputListenable(
+    String? deviceId,
+    String terminalId,
+  ) {
+    return _terminals[_key(deviceId, terminalId)]?.outputText;
+  }
+
+  void bindTerminalOutput(
+    String? deviceId,
+    String terminalId,
+    WebSocketService service,
+  ) {
+    final key = _key(deviceId, terminalId);
+    final state = _terminals[key];
+    if (state == null) {
+      return;
+    }
+
+    final existing = _terminalBindings[key];
+    if (existing != null && identical(existing.service, service)) {
+      return;
+    }
+
+    if (existing != null) {
+      state.prepareForRebind();
+      unawaited(existing.cancel());
+    }
+    final currentRows = service.ptyRows;
+    final currentCols = service.ptyCols;
+    if (currentRows != null && currentCols != null) {
+      state.applyRemotePtySize(currentRows, currentCols);
+    }
+    if (existing == null && service.status == ConnectionStatus.connected) {
+      state.beginRecovery();
+    }
+    _terminalBindings[key] = _TerminalBinding(
+      service: service,
+      connectedSubscription: service.terminalConnectedStream.listen((_) {
+        state.beginRecovery();
+      }),
+      outputSubscription: service.outputFrameStream.listen((frame) {
+        if (frame.isSnapshot) {
+          state.replaceWithSnapshot(frame.payload);
+          return;
+        }
+        if (frame.kind == TerminalOutputKind.snapshotComplete) {
+          state.finishRecovery();
+          return;
+        }
+        state.appendLiveFrame(frame.payload);
+      }),
+      ptySubscription: service.ptySizeStream.listen((pty) {
+        state.applyRemotePtySize(pty.rows, pty.cols);
+      }),
+    );
+  }
+
+  Future<void> deactivateConflictingTerminalSessions(
+    WebSocketService activeService,
+  ) async {
+    final activeTerminalId = activeService.terminalId;
+    final activeDeviceId = activeService.deviceId;
+    if ((activeTerminalId ?? '').isEmpty) {
+      return;
+    }
+
+    final conflictingEntries = _sessions.entries.where((entry) {
+      final candidate = entry.value;
+      if (identical(candidate, activeService)) {
+        return false;
+      }
+      if (candidate.deviceId != activeDeviceId) {
+        return false;
+      }
+      if (candidate.viewType != activeService.viewType) {
+        return false;
+      }
+      final candidateTerminalId = candidate.terminalId;
+      if ((candidateTerminalId ?? '').isEmpty) {
+        return false;
+      }
+      if (candidateTerminalId == activeTerminalId) {
+        return false;
+      }
+      return candidate.status != ConnectionStatus.disconnected;
+    }).toList(growable: false);
+
+    for (final entry in conflictingEntries) {
+      _pausedKeys.remove(entry.key);
+      await entry.value.disconnect(notify: false);
+    }
+  }
+
+  void _disposeTerminalState(String key) {
+    final binding = _terminalBindings.remove(key);
+    if (binding != null) {
+      unawaited(binding.cancel());
+    }
+    _terminals.remove(key)?.dispose();
+  }
+
   Future<void> disconnectTerminal(String? deviceId, String terminalId) async {
     final key = _key(deviceId, terminalId);
     final service = _sessions.remove(key);
+    _disposeTerminalState(key);
     if (service == null) {
       return;
     }
@@ -132,6 +376,9 @@ class TerminalSessionManager extends ChangeNotifier
   Future<void> disconnectAll() async {
     final sessions = _sessions.values.toList(growable: false);
     _sessions.clear();
+    for (final key in _terminals.keys.toList(growable: false)) {
+      _disposeTerminalState(key);
+    }
     _pausedKeys = {};
     await Future.wait(
       sessions.map((service) async {

@@ -35,11 +35,14 @@ class TerminalScreen extends StatefulWidget {
 }
 
 class _TerminalScreenState extends State<TerminalScreen> {
-  late final Terminal _terminal;
-  late final WebSocketService _webSocketService;
+  Terminal? _terminal;
+  WebSocketService? _webSocketService;
   late final ShortcutConfigService _shortcutConfigService;
   final TerminalController _terminalController = TerminalController();
   final FocusNode _terminalFocusNode = FocusNode();
+  final ValueNotifier<String> _localTerminalOutputText =
+      ValueNotifier<String>('');
+  ValueListenable<String>? _terminalOutputText;
 
   StreamSubscription<String>? _outputSubscription;
   StreamSubscription<Map<String, int>>? _presenceSubscription;
@@ -48,11 +51,12 @@ class _TerminalScreenState extends State<TerminalScreen> {
   bool _showErrorBanner = false;
   bool _authDialogShowing = false;
   Map<String, int> _views = {'mobile': 0, 'desktop': 0};
-  ShortcutLayout _shortcutLayout = const ShortcutLayout(coreItems: [], smartItems: []);
+  ShortcutLayout _shortcutLayout =
+      const ShortcutLayout(coreItems: [], smartItems: []);
 
   /// 终端输出缓冲区，用于 TUI 选择器解析
   /// 保留最近 50 行输出
-  final List<String> _outputBuffer = [];
+  final List<String> _localOutputBuffer = [];
   static const int _maxBufferLines = 50;
   static const String _shortcutProfileId = TerminalShortcutProfile.claudeCodeId;
   static const String _defaultProjectId = 'current-project';
@@ -64,48 +68,134 @@ class _TerminalScreenState extends State<TerminalScreen> {
     return platform == TargetPlatform.android || platform == TargetPlatform.iOS;
   }
 
+  // TODO(F072): 迁入 TerminalSessionCoordinator，UI 层不应承载 geometry owner 策略
+  bool _shouldFollowSharedPty(WebSocketService service) {
+    if ((service.terminalId ?? '').isNotEmpty &&
+        service.status != ConnectionStatus.connected) {
+      return true;
+    }
+
+    final terminalId = service.terminalId;
+    if ((terminalId ?? '').isEmpty) {
+      return false;
+    }
+
+    final geometryOwnerView = service.geometryOwnerView;
+    if (geometryOwnerView == null) {
+      return false;
+    }
+
+    return !service.isGeometryOwner;
+  }
+
+  bool _shouldAutoResize(WebSocketService service) {
+    return !_shouldFollowSharedPty(service);
+  }
+
   TerminalShortcutProfile get _shortcutProfile =>
       TerminalShortcutProfile.fromId(_shortcutProfileId);
 
   @override
   void initState() {
     super.initState();
-
-    _webSocketService = context.read<WebSocketService>();
     _shortcutConfigService = ShortcutConfigService();
-    _terminal = Terminal(maxLines: 10000);
-    _terminal.onOutput = (data) {
-      if (!mounted) return;
-      _webSocketService.send(data);
-    };
-    _terminal.onResize = (width, height, pixelWidth, pixelHeight) {
-      if (!mounted) return;
-      _webSocketService.resize(height, width);
-    };
-
-    _connectToServer();
-    _loadPresenceSnapshot();
     _loadShortcutItems();
   }
 
-  Future<void> _connectToServer() async {
-    _webSocketService.addListener(_onStatusChanged);
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _bindSession(context.read<WebSocketService>());
+  }
 
-    _outputSubscription ??=
-        _webSocketService.outputStream.listen(_onOutput, onError: _onOutputError);
+  Terminal get _activeTerminal => _terminal!;
+  WebSocketService get _activeService => _webSocketService!;
+  ValueListenable<String> get _terminalOutputListenable =>
+      _terminalOutputText ?? _localTerminalOutputText;
 
-    _presenceSubscription ??= _webSocketService.presenceStream.listen(_onPresence);
+  void _bindSession(WebSocketService service) {
+    if (identical(_webSocketService, service) && _terminal != null) {
+      return;
+    }
 
-    _deviceKickedSubscription ??=
-        _webSocketService.deviceKickedStream.listen((_) => _onDeviceKicked());
-    _tokenInvalidSubscription ??=
-        _webSocketService.tokenInvalidStream.listen((_) => _onTokenInvalid());
+    _detachServiceBindings();
+    _webSocketService = service;
 
-    _views = Map<String, int>.from(_webSocketService.views);
+    final terminalId = service.terminalId;
+    if ((terminalId ?? '').isNotEmpty) {
+      final sessionManager = context.read<TerminalSessionManager>();
+      _terminal = sessionManager.getOrCreateTerminal(
+        service.deviceId,
+        terminalId!,
+        () => Terminal(maxLines: 10000),
+        service: service,
+      );
+      _terminalOutputText = sessionManager.getTerminalOutputListenable(
+        service.deviceId,
+        terminalId,
+      );
+    } else {
+      _terminal ??= Terminal(maxLines: 10000);
+      _terminalOutputText = _localTerminalOutputText;
+      _outputSubscription =
+          service.outputStream.listen(_onOutput, onError: _onOutputError);
+    }
 
-    await _webSocketService.connect();
+    _configureTerminalCallbacks(service);
+    service.addListener(_onStatusChanged);
+    _presenceSubscription = service.presenceStream.listen(_onPresence);
+    _deviceKickedSubscription =
+        service.deviceKickedStream.listen((_) => _onDeviceKicked());
+    _tokenInvalidSubscription =
+        service.tokenInvalidStream.listen((_) => _onTokenInvalid());
+    _views = Map<String, int>.from(service.views);
 
-    if (!mounted || _isMobilePlatform) return;
+    unawaited(_connectToServer(service));
+    unawaited(_loadPresenceSnapshot(service));
+  }
+
+  void _configureTerminalCallbacks(WebSocketService service) {
+    _activeTerminal.onOutput = (data) {
+      if (!mounted) return;
+      service.send(data);
+    };
+    _activeTerminal.onResize = (width, height, pixelWidth, pixelHeight) {
+      if (!mounted) return;
+      if (_shouldFollowSharedPty(service)) {
+        return;
+      }
+      service.resize(height, width);
+    };
+  }
+
+  void _detachServiceBindings() {
+    if (_webSocketService != null) {
+      _webSocketService!.removeListener(_onStatusChanged);
+    }
+    _outputSubscription?.cancel();
+    _outputSubscription = null;
+    _presenceSubscription?.cancel();
+    _presenceSubscription = null;
+    _deviceKickedSubscription?.cancel();
+    _deviceKickedSubscription = null;
+    _tokenInvalidSubscription?.cancel();
+    _tokenInvalidSubscription = null;
+  }
+
+  Future<void> _connectToServer(WebSocketService service) async {
+    final terminalId = service.terminalId;
+    if ((terminalId ?? '').isNotEmpty) {
+      await context
+          .read<TerminalSessionManager>()
+          .deactivateConflictingTerminalSessions(service);
+    }
+    await service.connect();
+
+    if (!mounted ||
+        _isMobilePlatform ||
+        !identical(_webSocketService, service)) {
+      return;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _terminalFocusNode.requestFocus();
@@ -113,21 +203,23 @@ class _TerminalScreenState extends State<TerminalScreen> {
     });
   }
 
-  Future<void> _loadPresenceSnapshot() async {
-    final deviceId = _webSocketService.deviceId;
-    final terminalId = _webSocketService.terminalId;
+  Future<void> _loadPresenceSnapshot(WebSocketService service) async {
+    final deviceId = service.deviceId;
+    final terminalId = service.terminalId;
     if ((deviceId ?? '').isEmpty || (terminalId ?? '').isEmpty) {
       return;
     }
 
     try {
-      final runtimeService = RuntimeDeviceService(serverUrl: _webSocketService.serverUrl);
+      final runtimeService = RuntimeDeviceService(serverUrl: service.serverUrl);
       final terminal = await runtimeService.getTerminal(
-        _webSocketService.token,
+        service.token,
         deviceId!,
         terminalId!,
       );
-      if (!mounted || terminal == null) {
+      if (!mounted ||
+          terminal == null ||
+          !identical(_webSocketService, service)) {
         return;
       }
       setState(() {
@@ -139,8 +231,10 @@ class _TerminalScreenState extends State<TerminalScreen> {
   }
 
   Future<void> _loadShortcutItems() async {
-    final navigationMode = await _shortcutConfigService.loadClaudeNavigationMode();
-    final baseItems = _shortcutProfile.shortcutsForNavigationMode(navigationMode)
+    final navigationMode =
+        await _shortcutConfigService.loadClaudeNavigationMode();
+    final baseItems = _shortcutProfile
+        .shortcutsForNavigationMode(navigationMode)
         .asMap()
         .entries
         .map(
@@ -151,7 +245,8 @@ class _TerminalScreenState extends State<TerminalScreen> {
         )
         .toList(growable: false);
 
-    final configuredItems = await _shortcutConfigService.loadCombinedShortcutItems(
+    final configuredItems =
+        await _shortcutConfigService.loadCombinedShortcutItems(
       projectId: _defaultProjectId,
     );
     final allItems = [...baseItems, ...configuredItems];
@@ -169,7 +264,10 @@ class _TerminalScreenState extends State<TerminalScreen> {
   }
 
   void _onStatusChanged() {
-    final service = _webSocketService;
+    if (_webSocketService == null) {
+      return;
+    }
+    final service = _activeService;
 
     if (service.status == ConnectionStatus.error) {
       setState(() {
@@ -178,6 +276,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
     } else if (service.status == ConnectionStatus.connected) {
       setState(() {
         _showErrorBanner = false;
+        _views = Map<String, int>.from(service.views);
       });
     }
 
@@ -199,12 +298,9 @@ class _TerminalScreenState extends State<TerminalScreen> {
   }
 
   void _onOutput(String data) {
-    _terminal.write(data);
+    _activeTerminal.write(data);
     // 更新输出缓冲区（用于 TUI 选择器）
     _updateOutputBuffer(data);
-    if (mounted) {
-      setState(() {});
-    }
   }
 
   /// 更新输出缓冲区
@@ -212,16 +308,14 @@ class _TerminalScreenState extends State<TerminalScreen> {
     final lines = data.split('\n');
     for (final line in lines) {
       if (line.isNotEmpty) {
-        _outputBuffer.add(line);
-        if (_outputBuffer.length > _maxBufferLines) {
-          _outputBuffer.removeAt(0);
+        _localOutputBuffer.add(line);
+        if (_localOutputBuffer.length > _maxBufferLines) {
+          _localOutputBuffer.removeAt(0);
         }
       }
     }
+    _localTerminalOutputText.value = _localOutputBuffer.join('\n');
   }
-
-  /// 获取终端输出文本
-  String get _terminalOutputText => _outputBuffer.join('\n');
 
   void _onOutputError(dynamic error) {
     setState(() {
@@ -299,13 +393,13 @@ class _TerminalScreenState extends State<TerminalScreen> {
   }
 
   Future<void> _retryConnection() async {
-    await _webSocketService.connect();
+    await _activeService.connect();
     if (!mounted || _isMobilePlatform) return;
     _terminalFocusNode.requestFocus();
   }
 
   void _sendSpecialKey(String key) {
-    _webSocketService.send(key);
+    _activeService.send(key);
     if (!_isMobilePlatform) {
       _terminalFocusNode.requestFocus();
     }
@@ -442,7 +536,8 @@ class _TerminalScreenState extends State<TerminalScreen> {
     var projectItems = _sortShortcutItems(
       await _shortcutConfigService.loadProjectShortcutItems(_defaultProjectId),
     );
-    var navigationMode = await _shortcutConfigService.loadClaudeNavigationMode();
+    var navigationMode =
+        await _shortcutConfigService.loadClaudeNavigationMode();
     if (!mounted) return;
 
     await showModalBottomSheet<void>(
@@ -483,8 +578,8 @@ class _TerminalScreenState extends State<TerminalScreen> {
             }
 
             Future<void> restoreDefaults() async {
-              final restored = await _shortcutConfigService
-                  .restoreDefaultShortcutItems();
+              final restored =
+                  await _shortcutConfigService.restoreDefaultShortcutItems();
               editableItems = _sortShortcutItems(restored);
               if (!mounted) return;
               await _loadShortcutItems();
@@ -691,13 +786,14 @@ class _TerminalScreenState extends State<TerminalScreen> {
                                               '当前项目命令',
                                               style: theme.textTheme.titleSmall
                                                   ?.copyWith(
-                                                    fontWeight: FontWeight.w700,
-                                                  ),
+                                                fontWeight: FontWeight.w700,
+                                              ),
                                             ),
                                           ),
                                           TextButton.icon(
                                             onPressed: () => editProjectItem(),
-                                            icon: const Icon(Icons.add, size: 18),
+                                            icon:
+                                                const Icon(Icons.add, size: 18),
                                             label: const Text('新增'),
                                           ),
                                         ],
@@ -705,12 +801,11 @@ class _TerminalScreenState extends State<TerminalScreen> {
                                       const SizedBox(height: 6),
                                       Text(
                                         '这些命令只属于当前项目，会在命令面板的“当前项目”分组里展示。',
-                                        style: theme.textTheme.bodySmall
-                                            ?.copyWith(
-                                              color:
-                                                  colorScheme.onSurfaceVariant,
-                                              height: 1.35,
-                                            ),
+                                        style:
+                                            theme.textTheme.bodySmall?.copyWith(
+                                          color: colorScheme.onSurfaceVariant,
+                                          height: 1.35,
+                                        ),
                                       ),
                                       if (projectItems.isEmpty) ...[
                                         const SizedBox(height: 12),
@@ -718,32 +813,29 @@ class _TerminalScreenState extends State<TerminalScreen> {
                                           '还没有项目命令，先新增一个常用命令。',
                                           style: theme.textTheme.bodySmall
                                               ?.copyWith(
-                                                color: colorScheme
-                                                    .onSurfaceVariant,
-                                              ),
+                                            color: colorScheme.onSurfaceVariant,
+                                          ),
                                         ),
                                       ] else ...[
                                         const SizedBox(height: 12),
-                                        for (
-                                          var projectIndex = 0;
-                                          projectIndex < projectItems.length;
-                                          projectIndex++
-                                        ) ...[
+                                        for (var projectIndex = 0;
+                                            projectIndex < projectItems.length;
+                                            projectIndex++) ...[
                                           _buildProjectCommandTile(
                                             item: projectItems[projectIndex],
                                             onMoveUp: projectIndex == 0
                                                 ? null
                                                 : () => moveProjectItem(
-                                                    projectIndex,
-                                                    projectIndex - 1,
-                                                  ),
+                                                      projectIndex,
+                                                      projectIndex - 1,
+                                                    ),
                                             onMoveDown: projectIndex ==
                                                     projectItems.length - 1
                                                 ? null
                                                 : () => moveProjectItem(
-                                                    projectIndex,
-                                                    projectIndex + 1,
-                                                  ),
+                                                      projectIndex,
+                                                      projectIndex + 1,
+                                                    ),
                                             onEdit: () => editProjectItem(
                                               projectItems[projectIndex],
                                             ),
@@ -782,18 +874,18 @@ class _TerminalScreenState extends State<TerminalScreen> {
                                             item.label,
                                             style: theme.textTheme.titleSmall
                                                 ?.copyWith(
-                                                  fontWeight: FontWeight.w600,
-                                                ),
+                                              fontWeight: FontWeight.w600,
+                                            ),
                                           ),
                                           const SizedBox(height: 4),
                                           Text(
                                             _shortcutMenuDescription(item),
                                             style: theme.textTheme.bodySmall
                                                 ?.copyWith(
-                                                  color: colorScheme
-                                                      .onSurfaceVariant,
-                                                  height: 1.3,
-                                                ),
+                                              color:
+                                                  colorScheme.onSurfaceVariant,
+                                              height: 1.3,
+                                            ),
                                           ),
                                         ],
                                       ),
@@ -809,10 +901,12 @@ class _TerminalScreenState extends State<TerminalScreen> {
                                     IconButton(
                                       key: Key('shortcut-move-down-${item.id}'),
                                       tooltip: '下移 ${item.label}',
-                                      onPressed: index == editableItems.length - 1
+                                      onPressed: index ==
+                                              editableItems.length - 1
                                           ? null
                                           : () => moveItem(index, index + 1),
-                                      icon: const Icon(Icons.keyboard_arrow_down),
+                                      icon:
+                                          const Icon(Icons.keyboard_arrow_down),
                                     ),
                                     Switch(
                                       key: Key('shortcut-toggle-${item.id}'),
@@ -934,7 +1028,8 @@ class _TerminalScreenState extends State<TerminalScreen> {
     ShortcutItem? initialItem,
   }) async {
     _releaseInputFocus();
-    final labelController = TextEditingController(text: initialItem?.label ?? '');
+    final labelController =
+        TextEditingController(text: initialItem?.label ?? '');
     final commandController = TextEditingController(
       text: initialItem == null ? '' : _projectCommandValue(initialItem),
     );
@@ -1003,7 +1098,8 @@ class _TerminalScreenState extends State<TerminalScreen> {
     );
 
     if (result == null) return null;
-    if (result.label.trim().isEmpty || _projectCommandValue(result).trim().isEmpty) {
+    if (result.label.trim().isEmpty ||
+        _projectCommandValue(result).trim().isEmpty) {
       return null;
     }
     return result;
@@ -1167,7 +1263,8 @@ class _TerminalScreenState extends State<TerminalScreen> {
     _releaseInputFocus();
     final configService = ConfigService();
     final config = await configService.loadConfig();
-    final session = await AuthService(serverUrl: config.serverUrl).getSavedSession();
+    final session =
+        await AuthService(serverUrl: config.serverUrl).getSavedSession();
     final sessionId = session?['session_id'] ?? '';
     if (!mounted) return;
     await Navigator.of(context).push(
@@ -1183,11 +1280,8 @@ class _TerminalScreenState extends State<TerminalScreen> {
 
   @override
   void dispose() {
-    _webSocketService.removeListener(_onStatusChanged);
-    _outputSubscription?.cancel();
-    _presenceSubscription?.cancel();
-    _deviceKickedSubscription?.cancel();
-    _tokenInvalidSubscription?.cancel();
+    _detachServiceBindings();
+    _localTerminalOutputText.dispose();
     _terminalFocusNode.dispose();
     super.dispose();
   }
@@ -1197,6 +1291,53 @@ class _TerminalScreenState extends State<TerminalScreen> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final terminalTheme = _buildTerminalTheme(theme);
+    final platform = widget.platformOverride ?? defaultTargetPlatform;
+    final terminalTextStyle = _isMobilePlatform
+        ? platform == TargetPlatform.iOS
+            ? const TerminalStyle(
+                fontSize: 13,
+                height: 1.2,
+                fontFamily: 'Courier',
+                fontFamilyFallback: [
+                  'Courier New',
+                  'Menlo',
+                  'Monaco',
+                  'SF Mono',
+                  'Noto Sans Mono CJK SC',
+                  'Noto Sans Mono CJK TC',
+                  'Noto Sans Mono CJK KR',
+                  'Noto Sans Mono CJK JP',
+                  'Noto Sans Mono CJK HK',
+                  'PingFang SC',
+                  'Hiragino Sans GB',
+                  'Noto Color Emoji',
+                  'Noto Sans Symbols',
+                  'monospace',
+                  'sans-serif',
+                ],
+              )
+            : const TerminalStyle(
+                fontSize: 13,
+                height: 1.2,
+                fontFamily: 'monospace',
+                fontFamilyFallback: [
+                  'Roboto Mono',
+                  'Noto Sans Mono',
+                  'Noto Sans Mono CJK SC',
+                  'Noto Sans Mono CJK TC',
+                  'Noto Sans Mono CJK KR',
+                  'Noto Sans Mono CJK JP',
+                  'Noto Sans Mono CJK HK',
+                  'Noto Color Emoji',
+                  'Noto Sans Symbols',
+                  'monospace',
+                  'sans-serif',
+                ],
+              )
+        : const TerminalStyle(
+            fontSize: 14,
+            fontFamily: 'monospace',
+          );
     final terminalShellColor = theme.brightness == Brightness.dark
         ? Colors.black
         : const Color(0xFFF3F6FB);
@@ -1208,168 +1349,170 @@ class _TerminalScreenState extends State<TerminalScreen> {
         : colorScheme.outlineVariant;
 
     final content = Column(
-        children: [
-          if (_showErrorBanner)
-            Material(
-              color: Theme.of(context).colorScheme.errorContainer,
-              child: InkWell(
-                onTap: _retryConnection,
-                child: Container(
-                  width: double.infinity,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.error_outline,
-                        color: Theme.of(context).colorScheme.onErrorContainer,
-                        size: 20,
+      children: [
+        if (_showErrorBanner)
+          Material(
+            color: Theme.of(context).colorScheme.errorContainer,
+            child: InkWell(
+              onTap: _retryConnection,
+              child: Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.error_outline,
+                      color: Theme.of(context).colorScheme.onErrorContainer,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Consumer<WebSocketService>(
+                        builder: (context, service, _) {
+                          return Text(
+                            _getErrorMessage(service),
+                            style: TextStyle(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onErrorContainer,
+                            ),
+                          );
+                        },
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Consumer<WebSocketService>(
-                          builder: (context, service, _) {
-                            return Text(
-                              _getErrorMessage(service),
-                              style: TextStyle(
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onErrorContainer,
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: _retryConnection,
-                        child: const Text('重试'),
-                      ),
-                    ],
-                  ),
+                    ),
+                    TextButton(
+                      onPressed: _retryConnection,
+                      child: const Text('重试'),
+                    ),
+                  ],
                 ),
               ),
             ),
-          Expanded(
-            child: Container(
-              color: terminalShellColor,
-              child: Consumer<WebSocketService>(
-                builder: (context, service, _) {
-                  if (service.status == ConnectionStatus.reconnecting) {
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const CircularProgressIndicator(),
-                          const SizedBox(height: 16),
-                          Text(
-                            '正在重连... (${service.errorMessage ?? ""})',
-                            style: TextStyle(
-                              color: colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-
-                  if (service.status == ConnectionStatus.connecting) {
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          CircularProgressIndicator(),
-                          SizedBox(height: 16),
-                          Text(
-                            '正在连接...',
-                            style: TextStyle(
-                              color: colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-
-                  return SafeArea(
-                    top: false,
-                    child: GestureDetector(
-                      key: const Key('terminal-touch-layer'),
-                      behavior: HitTestBehavior.translucent,
-                      onTap: _requestInputFocus,
-                      child: Container(
-                        margin: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: terminalPanelColor,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: terminalBorderColor),
-                          boxShadow: [
-                            BoxShadow(
-                              color: colorScheme.shadow.withValues(alpha: 0.08),
-                              blurRadius: 18,
-                              offset: const Offset(0, 8),
-                            ),
-                          ],
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(20),
-                          child: TerminalView(
-                            _terminal,
-                            controller: _terminalController,
-                            focusNode: _terminalFocusNode,
-                            autofocus: !_isMobilePlatform,
-                            // 不设 hardwareKeyboardOnly，保持默认 false，桌面端也启用 IME 支持中文输入
-                            theme: terminalTheme,
-                            padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
-                            backgroundOpacity: 1,
-                            deleteDetection: true,
-                            keyboardType: TextInputType.text,
-                            inputAction: _isMobilePlatform
-                                ? TextInputAction.send
-                                : TextInputAction.newline,
-                            enableSuggestions: _isMobilePlatform,
-                            enableIMEPersonalizedLearning: _isMobilePlatform,
-                            autocorrect: false,
-                            textStyle: const TerminalStyle(
-                              fontSize: 14,
-                              fontFamily: 'monospace',
-                            ),
+          ),
+        Expanded(
+          child: Container(
+            color: terminalShellColor,
+            child: Consumer<WebSocketService>(
+              builder: (context, service, _) {
+                if (service.status == ConnectionStatus.reconnecting) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const CircularProgressIndicator(),
+                        const SizedBox(height: 16),
+                        Text(
+                          '正在重连... (${service.errorMessage ?? ""})',
+                          style: TextStyle(
+                            color: colorScheme.onSurfaceVariant,
                           ),
                         ),
-                      ),
+                      ],
                     ),
                   );
-                },
-              ),
-            ),
-          ),
-          if (_isMobilePlatform)
-            TuiSelector(
-              terminalOutput: _terminalOutputText,
-              onSelect: (key) {
-                context.read<WebSocketService>().send(key);
+                }
+
+                if (service.status == ConnectionStatus.connecting) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircularProgressIndicator(),
+                        SizedBox(height: 16),
+                        Text(
+                          '正在连接...',
+                          style: TextStyle(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                return SafeArea(
+                  top: false,
+                  child: GestureDetector(
+                    key: const Key('terminal-touch-layer'),
+                    behavior: HitTestBehavior.translucent,
+                    onTap: _requestInputFocus,
+                    child: Container(
+                      margin: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: terminalPanelColor,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: terminalBorderColor),
+                        boxShadow: [
+                          BoxShadow(
+                            color: colorScheme.shadow.withValues(alpha: 0.08),
+                            blurRadius: 18,
+                            offset: const Offset(0, 8),
+                          ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(20),
+                        child: TerminalView(
+                          _activeTerminal,
+                          controller: _terminalController,
+                          focusNode: _terminalFocusNode,
+                          autofocus: !_isMobilePlatform,
+                          autoResize: _shouldAutoResize(service),
+                          // 不设 hardwareKeyboardOnly，保持默认 false，桌面端也启用 IME 支持中文输入
+                          theme: terminalTheme,
+                          padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+                          backgroundOpacity: 1,
+                          deleteDetection: true,
+                          keyboardType: TextInputType.text,
+                          inputAction: _isMobilePlatform
+                              ? TextInputAction.send
+                              : TextInputAction.newline,
+                          enableSuggestions: _isMobilePlatform,
+                          enableIMEPersonalizedLearning: _isMobilePlatform,
+                          autocorrect: false,
+                          textStyle: terminalTextStyle,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
               },
             ),
-          if (_isMobilePlatform &&
-              (_shortcutLayout.coreItems.isNotEmpty ||
-                  _shortcutLayout.smartItems.isNotEmpty))
-            TerminalShortcutBar(
-              items: _shortcutLayout.coreItems,
-              onItemPressed: _handleShortcutPressed,
-              trailing: _shortcutLayout.smartItems.isEmpty
-                  ? null
-                  : TextButton(
-                      onPressed: _showShortcutMenu,
-                      child: const Text('更多'),
-                    ),
+          ),
+        ),
+        if (_isMobilePlatform)
+          ValueListenableBuilder<String>(
+            valueListenable: _terminalOutputListenable,
+            builder: (context, terminalOutput, _) => TuiSelector(
+              terminalOutput: terminalOutput,
+              onSelect: (key) {
+                _activeService.send(key);
+              },
             ),
-        ],
-      );
+          ),
+        if (_isMobilePlatform &&
+            (_shortcutLayout.coreItems.isNotEmpty ||
+                _shortcutLayout.smartItems.isNotEmpty))
+          TerminalShortcutBar(
+            items: _shortcutLayout.coreItems,
+            onItemPressed: _handleShortcutPressed,
+            trailing: _shortcutLayout.smartItems.isEmpty
+                ? null
+                : TextButton(
+                    onPressed: _showShortcutMenu,
+                    child: const Text('更多'),
+                  ),
+          ),
+      ],
+    );
 
     if (widget.embedded) {
       return content;
     }
 
     return Scaffold(
+      resizeToAvoidBottomInset: !_isMobilePlatform,
       appBar: AppBar(
         title: const Text('Remote Terminal'),
         actions: [
