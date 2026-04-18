@@ -20,6 +20,20 @@ DEFAULT_MAX_TERMINALS = int(os.getenv("DEFAULT_MAX_TERMINALS", "3"))
 MAX_TERMINAL_RECORDS = int(os.getenv("MAX_TERMINAL_RECORDS", "5"))
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", str(24 * 60 * 60)))  # session 默认 24h 过期
 
+SESSION_STATES = {
+    "pending",
+    "online",
+    "offline_recoverable",
+    "offline_expired",
+}
+
+TERMINAL_STATES = {
+    "recovering",
+    "live",
+    "detached_recoverable",
+    "closed",
+}
+
 # 键名前缀
 KEY_PREFIX = "rc:session"
 HISTORY_KEY_PREFIX = "rc:history"
@@ -117,7 +131,8 @@ def _default_terminal_state(
     cwd: str,
     command: str,
     env: Optional[dict] = None,
-    status: str = "pending",
+    pty: Optional[dict] = None,
+    status: str = "recovering",
 ) -> dict:
     """生成默认 terminal 状态。"""
     now = datetime.now(timezone.utc).isoformat()
@@ -131,6 +146,13 @@ def _default_terminal_state(
         "disconnect_reason": None,
         "grace_expires_at": None,
         "views": {"mobile": 0, "desktop": 0},
+        "geometry_owner_view": None,
+        "attach_epoch": 0,
+        "recovery_epoch": 0,
+        "pty": {
+            "rows": max(1, int((pty or {}).get("rows", 24))),
+            "cols": max(1, int((pty or {}).get("cols", 80))),
+        },
         "created_at": now,
         "updated_at": now,
     }
@@ -140,10 +162,40 @@ def _normalize_session_data(session_id: str, session_data: dict) -> dict:
     """兼容旧 session 结构，补齐 device 相关字段。"""
     normalized = dict(session_data)
     normalized.setdefault("status", "pending")
+    normalized["status"] = _normalize_session_status(normalized["status"])
     normalized.setdefault("agent_online", False)
     normalized.setdefault("views", {"mobile": 0, "desktop": 0})
     normalized.setdefault("pty", {"rows": 24, "cols": 80})
     normalized.setdefault("terminals", [])
+    normalized_terminal_pty = {
+        "rows": max(1, int(normalized["pty"].get("rows", 24))),
+        "cols": max(1, int(normalized["pty"].get("cols", 80))),
+    }
+    normalized["pty"] = normalized_terminal_pty
+
+    normalized_terminals = []
+    for terminal in normalized["terminals"]:
+        terminal_copy = dict(terminal)
+        terminal_copy["status"] = _normalize_terminal_status(terminal_copy.get("status", "recovering"))
+        terminal_copy.setdefault("views", {"mobile": 0, "desktop": 0})
+        owner_view = terminal_copy.get("geometry_owner_view")
+        terminal_copy["geometry_owner_view"] = (
+            owner_view if owner_view in {"mobile", "desktop"} else None
+        )
+        terminal_copy["attach_epoch"] = max(0, int(terminal_copy.get("attach_epoch", 0) or 0))
+        terminal_copy["recovery_epoch"] = max(0, int(terminal_copy.get("recovery_epoch", 0) or 0))
+        terminal_copy["pty"] = {
+            "rows": max(
+                1,
+                int((terminal_copy.get("pty") or normalized_terminal_pty).get("rows", 24)),
+            ),
+            "cols": max(
+                1,
+                int((terminal_copy.get("pty") or normalized_terminal_pty).get("cols", 80)),
+            ),
+        }
+        normalized_terminals.append(terminal_copy)
+    normalized["terminals"] = normalized_terminals
 
     device = dict(normalized.get("device") or {})
     defaults = _default_device_state(session_id)
@@ -156,12 +208,43 @@ def _normalize_session_data(session_id: str, session_data: dict) -> dict:
     return normalized
 
 
+def _normalize_session_status(session_status: str) -> str:
+    legacy_map = {
+        "offline": "offline_expired",
+    }
+    return legacy_map.get(session_status, session_status if session_status in SESSION_STATES else "pending")
+
+
+def _normalize_terminal_status(terminal_status: str) -> str:
+    legacy_map = {
+        "pending": "recovering",
+        "attached": "live",
+        "detached": "detached_recoverable",
+        "closing": "detached_recoverable",
+    }
+    normalized = legacy_map.get(terminal_status, terminal_status)
+    return normalized if normalized in TERMINAL_STATES else "recovering"
+
+
 def _validate_terminal_status(terminal_status: str) -> None:
     """验证 terminal 状态。"""
-    if terminal_status not in {"pending", "attached", "detached", "closing", "closed"}:
+    if terminal_status not in TERMINAL_STATES and terminal_status not in {
+        "pending",
+        "attached",
+        "detached",
+        "closing",
+    }:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"无效的 terminal 状态: {terminal_status}",
+        )
+
+
+def _validate_session_status(session_status: str) -> None:
+    if session_status not in SESSION_STATES and session_status != "offline":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"无效状态: {session_status}",
         )
 
 
@@ -206,7 +289,7 @@ def _close_expired_detached_terminals(terminals: list[dict], now: Optional[datet
     changed = 0
 
     for terminal in terminals:
-        if terminal.get("status") != "detached":
+        if _normalize_terminal_status(terminal.get("status", "recovering")) != "detached_recoverable":
             continue
         grace_expires_at = terminal.get("grace_expires_at")
         if not grace_expires_at:
@@ -222,23 +305,60 @@ def _close_expired_detached_terminals(terminals: list[dict], now: Optional[datet
     return changed
 
 
-def _reconcile_terminal_attachment_states(terminals: list[dict], now: Optional[datetime] = None) -> int:
-    """将无活跃视图的 attached terminal 对齐为 detached。"""
-    current = now or datetime.now(timezone.utc)
+def _backfill_terminal_views(terminals: list[dict]) -> int:
+    """兼容旧数据：补齐缺失 views 和无效 geometry_owner_view，不做状态推断。"""
     changed = 0
 
     for terminal in terminals:
-        if terminal.get("status") != "attached":
-            continue
-        views = terminal.get("views") or {}
-        view_count = sum(int(value) for value in views.values())
-        if view_count > 0:
-            continue
-        terminal["status"] = "detached"
-        terminal["updated_at"] = current.isoformat()
-        changed += 1
+        if "views" not in terminal:
+            terminal["views"] = {"mobile": 0, "desktop": 0}
+            changed += 1
+        owner_view = terminal.get("geometry_owner_view")
+        if owner_view not in {"mobile", "desktop", None}:
+            terminal["geometry_owner_view"] = None
+            changed += 1
 
     return changed
+
+
+def _resolve_geometry_owner_view(
+    terminal: dict,
+    views: dict[str, int],
+    *,
+    preferred_owner_view: Optional[str] = None,
+) -> Optional[str]:
+    """为 shared terminal 选择唯一的几何 owner。"""
+    total_views = views["mobile"] + views["desktop"]
+    if total_views <= 0:
+        return None
+
+    current_owner_view = terminal.get("geometry_owner_view")
+    if current_owner_view in {"mobile", "desktop"} and views.get(current_owner_view, 0) > 0:
+        return current_owner_view
+
+    if preferred_owner_view in {"mobile", "desktop"} and views.get(preferred_owner_view, 0) > 0:
+        return preferred_owner_view
+
+    if views["mobile"] > 0:
+        return "mobile"
+    if views["desktop"] > 0:
+        return "desktop"
+    return None
+
+
+def _clear_terminal_attachment_state(terminal: dict) -> None:
+    terminal["views"] = {"mobile": 0, "desktop": 0}
+    terminal["geometry_owner_view"] = None
+
+
+def _advance_attach_epoch(terminal: dict) -> int:
+    terminal["attach_epoch"] = max(0, int(terminal.get("attach_epoch", 0) or 0)) + 1
+    return terminal["attach_epoch"]
+
+
+def _advance_recovery_epoch(terminal: dict) -> int:
+    terminal["recovery_epoch"] = max(0, int(terminal.get("recovery_epoch", 0) or 0)) + 1
+    return terminal["recovery_epoch"]
 
 
 def _validate_session_id(session_id: str) -> None:
@@ -375,7 +495,7 @@ async def _get_session_raw(session_id: str) -> dict:
 
 def _reconcile_terminals(terminals: list[dict]) -> int:
     """执行 reconcile + close expired + trim 的标准组合。"""
-    changed = _reconcile_terminal_attachment_states(terminals)
+    changed = _backfill_terminal_views(terminals)
     changed += _close_expired_detached_terminals(terminals)
     changed += _trim_terminal_records(terminals)
     return changed
@@ -450,16 +570,11 @@ async def update_session_status(
         更新后的会话数据
     """
     _validate_session_id(session_id)
-
-    if new_status not in ["pending", "online", "offline"]:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"无效状态: {new_status}",
-        )
+    _validate_session_status(new_status)
 
     async with _session_locks.get_lock(session_id):
         session_data = await _get_session_raw(session_id)
-        session_data["status"] = new_status
+        session_data["status"] = _normalize_session_status(new_status)
         session_data["updated_at"] = datetime.now(timezone.utc).isoformat()
         await _save_session(session_id, session_data)
         return session_data
@@ -469,6 +584,7 @@ async def append_history(
     session_id: str,
     data: str,
     direction: str = "output",
+    terminal_id: Optional[str] = None,
 ) -> dict:
     """
     追加历史记录
@@ -491,6 +607,7 @@ async def append_history(
         "timestamp": now.isoformat(),
         "direction": direction,
         "data": data,
+        "terminal_id": terminal_id,
     }
 
     # 使用 LPUSH 添加到列表末尾
@@ -510,6 +627,9 @@ async def get_history(
     session_id: str,
     offset: int = 0,
     limit: int = 100,
+    *,
+    terminal_id: Optional[str] = None,
+    direction: Optional[str] = None,
 ) -> List[dict]:
     """
     分页获取历史记录
@@ -544,23 +664,45 @@ async def get_history(
             detail=f"会话 {session_id} 不存在",
         )
 
-    # 获取历史记录总数
     total = await redis.llen(history_key)
-
     if total == 0:
         return []
 
-    # 计算实际的起始和结束位置
-    start = offset
-    end = min(offset + limit - 1, total - 1)
+    # 降级兜底路径，限制最大扫描量防止长 session 内存膨胀
+    max_scan = min(total, 5000)
+    records = [json.loads(r) for r in await redis.lrange(history_key, total - max_scan, total - 1)]
 
-    if start >= total:
+    if terminal_id is not None:
+        records = [
+            record for record in records if record.get("terminal_id") == terminal_id
+        ]
+
+    if direction is not None:
+        records = [
+            record for record in records if record.get("direction") == direction
+        ]
+
+    if offset >= len(records):
         return []
 
-    # 使用 LRANGE 获取指定范围
-    records = await redis.lrange(history_key, start, end)
+    end = min(offset + limit, len(records))
+    return records[offset:end]
 
-    return [json.loads(r) for r in records]
+
+async def get_terminal_output_history(
+    session_id: str,
+    terminal_id: str,
+    *,
+    limit: int = 2000,
+) -> List[dict]:
+    """获取指定 terminal 的输出历史，用于诊断/降级兜底。"""
+    return await get_history(
+        session_id,
+        offset=0,
+        limit=limit,
+        terminal_id=terminal_id,
+        direction="output",
+    )
 
 
 async def get_history_count(session_id: str) -> int:
@@ -941,11 +1083,12 @@ async def create_session_terminal(
     cwd: str,
     command: str,
     env: Optional[dict] = None,
-    terminal_status: str = "pending",
+    terminal_status: str = "recovering",
 ) -> dict:
     """在 session 下创建 terminal 记录（加 per-session 锁）。"""
     _validate_session_id(session_id)
     _validate_terminal_status(terminal_status)
+    normalized_terminal_status = _normalize_terminal_status(terminal_status)
 
     async with _session_locks.get_lock(session_id):
         session_data = await _get_session_raw(session_id)
@@ -973,7 +1116,8 @@ async def create_session_terminal(
             cwd=cwd,
             command=command,
             env=env,
-            status=terminal_status,
+            pty=session_data.get("pty"),
+            status=normalized_terminal_status,
         )
         terminals.append(terminal)
         _trim_terminal_records(terminals)
@@ -994,6 +1138,7 @@ async def update_session_terminal_status(
     """更新指定 terminal 的状态（加 per-session 锁）。"""
     _validate_session_id(session_id)
     _validate_terminal_status(terminal_status)
+    normalized_terminal_status = _normalize_terminal_status(terminal_status)
 
     async with _session_locks.get_lock(session_id):
         session_data = await _get_session_raw(session_id)
@@ -1001,19 +1146,105 @@ async def update_session_terminal_status(
 
         for terminal in terminals:
             if terminal.get("terminal_id") == terminal_id:
-                terminal["status"] = terminal_status
+                terminal["status"] = normalized_terminal_status
                 terminal["disconnect_reason"] = disconnect_reason
                 terminal["grace_expires_at"] = (
                     datetime.now(timezone.utc) + timedelta(seconds=grace_seconds)
                 ).isoformat() if grace_seconds else None
-                if terminal_status == "closed":
-                    terminal["views"] = {"mobile": 0, "desktop": 0}
+                if normalized_terminal_status == "closed":
+                    _clear_terminal_attachment_state(terminal)
                     terminal["grace_expires_at"] = None
+                if normalized_terminal_status == "recovering":
+                    _advance_recovery_epoch(terminal)
                 terminal["updated_at"] = datetime.now(timezone.utc).isoformat()
                 _trim_terminal_records(terminals)
                 session_data["updated_at"] = datetime.now(timezone.utc).isoformat()
                 await _save_session(session_id, session_data)
                 return terminal
+
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"terminal {terminal_id} 不存在",
+        )
+
+
+async def update_session_terminal_views(
+    session_id: str,
+    terminal_id: str,
+    *,
+    views: dict[str, int],
+    preferred_owner_view: Optional[str] = None,
+) -> dict:
+    """同步 terminal 级 views，并据此收敛 live/detached_recoverable 状态。"""
+    _validate_session_id(session_id)
+
+    normalized_views = {
+        "mobile": max(0, int(views.get("mobile", 0))),
+        "desktop": max(0, int(views.get("desktop", 0))),
+    }
+    total_views = normalized_views["mobile"] + normalized_views["desktop"]
+
+    async with _session_locks.get_lock(session_id):
+        session_data = await _get_session_raw(session_id)
+        terminals = session_data["terminals"]
+
+        for terminal in terminals:
+            if terminal.get("terminal_id") != terminal_id:
+                continue
+
+            previous_total_views = sum((terminal.get("views") or {}).values())
+            terminal["views"] = normalized_views
+            terminal["geometry_owner_view"] = _resolve_geometry_owner_view(
+                terminal,
+                normalized_views,
+                preferred_owner_view=preferred_owner_view,
+            )
+            if terminal.get("status") != "closed":
+                terminal["status"] = "live" if total_views > 0 else "detached_recoverable"
+                if total_views > 0 and previous_total_views <= 0:
+                    _advance_attach_epoch(terminal)
+                    _advance_recovery_epoch(terminal)
+            if terminal.get("status") == "closed":
+                _clear_terminal_attachment_state(terminal)
+            terminal["updated_at"] = datetime.now(timezone.utc).isoformat()
+            session_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+            await _save_session(session_id, session_data)
+            return terminal
+
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"terminal {terminal_id} 不存在",
+        )
+
+
+async def update_session_terminal_pty(
+    session_id: str,
+    terminal_id: str,
+    *,
+    rows: int,
+    cols: int,
+) -> dict:
+    """同步 terminal 级 PTY 尺寸。"""
+    _validate_session_id(session_id)
+
+    normalized_pty = {
+        "rows": max(1, int(rows)),
+        "cols": max(1, int(cols)),
+    }
+
+    async with _session_locks.get_lock(session_id):
+        session_data = await _get_session_raw(session_id)
+        terminals = session_data["terminals"]
+
+        for terminal in terminals:
+            if terminal.get("terminal_id") != terminal_id:
+                continue
+
+            terminal["pty"] = normalized_pty
+            terminal["updated_at"] = datetime.now(timezone.utc).isoformat()
+            session_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+            await _save_session(session_id, session_data)
+            return terminal
 
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1066,6 +1297,12 @@ async def bulk_update_session_terminals(
     """批量更新 session 下 terminals 的状态（加 per-session 锁）。"""
     _validate_session_id(session_id)
     _validate_terminal_status(to_status)
+    normalized_to_status = _normalize_terminal_status(to_status)
+    normalized_from_statuses = (
+        {_normalize_terminal_status(value) for value in from_statuses}
+        if from_statuses is not None
+        else None
+    )
 
     async with _session_locks.get_lock(session_id):
         session_data = await _get_session_raw(session_id)
@@ -1075,16 +1312,19 @@ async def bulk_update_session_terminals(
 
         for terminal in terminals:
             current_status = terminal.get("status", "pending")
-            if from_statuses is not None and current_status not in from_statuses:
+            current_status = _normalize_terminal_status(current_status)
+            if normalized_from_statuses is not None and current_status not in normalized_from_statuses:
                 continue
-            terminal["status"] = to_status
+            terminal["status"] = normalized_to_status
             terminal["disconnect_reason"] = disconnect_reason
             terminal["grace_expires_at"] = (
                 datetime.now(timezone.utc) + timedelta(seconds=grace_seconds)
             ).isoformat() if grace_seconds else None
-            if to_status == "closed":
-                terminal["views"] = {"mobile": 0, "desktop": 0}
+            if normalized_to_status == "closed":
+                _clear_terminal_attachment_state(terminal)
                 terminal["grace_expires_at"] = None
+            if normalized_to_status == "recovering":
+                _advance_recovery_epoch(terminal)
             terminal["updated_at"] = now
             changed += 1
 
@@ -1097,7 +1337,7 @@ async def bulk_update_session_terminals(
 
 
 async def set_session_online(session_id: str) -> dict:
-    """原子操作：status=online + agent_online=True"""
+    """原子操作：device_state=online + agent_online=True"""
     _validate_session_id(session_id)
     async with _session_locks.get_lock(session_id):
         session_data = await _get_session_raw(session_id)
@@ -1109,30 +1349,58 @@ async def set_session_online(session_id: str) -> dict:
         return session_data
 
 
-async def set_session_offline(session_id: str, *, reason: str = "device_offline") -> dict:
-    """原子操作：status=offline + agent_online=False + bulk close terminals"""
+async def set_session_offline_recoverable(
+    session_id: str,
+    *,
+    reason: str = "device_offline",
+    grace_seconds: int = 90,
+) -> dict:
+    """原子操作：status=offline_recoverable + agent_online=False + terminals detached_recoverable。"""
     _validate_session_id(session_id)
     async with _session_locks.get_lock(session_id):
         session_data = await _get_session_raw(session_id)
         now = datetime.now(timezone.utc).isoformat()
-        session_data["status"] = "offline"
+        session_data["status"] = "offline_recoverable"
+        session_data["agent_online"] = False
+        for terminal in session_data.get("terminals", []):
+            if terminal.get("status") != "closed":
+                terminal["status"] = "detached_recoverable"
+                terminal["disconnect_reason"] = reason
+                _clear_terminal_attachment_state(terminal)
+                terminal["grace_expires_at"] = (
+                    datetime.now(timezone.utc) + timedelta(seconds=grace_seconds)
+                ).isoformat()
+                terminal["updated_at"] = now
+        session_data["updated_at"] = now
+        await _save_session(session_id, session_data)
+        logger.info("Session offline_recoverable: session_id=%s reason=%s", session_id, reason)
+        return session_data
+
+
+async def set_session_offline(session_id: str, *, reason: str = "device_offline") -> dict:
+    """原子操作：status=offline_expired + agent_online=False + bulk close terminals"""
+    _validate_session_id(session_id)
+    async with _session_locks.get_lock(session_id):
+        session_data = await _get_session_raw(session_id)
+        now = datetime.now(timezone.utc).isoformat()
+        session_data["status"] = "offline_expired"
         session_data["agent_online"] = False
         for terminal in session_data.get("terminals", []):
             if terminal.get("status") != "closed":
                 terminal["status"] = "closed"
                 terminal["disconnect_reason"] = reason
-                terminal["views"] = {"mobile": 0, "desktop": 0}
+                _clear_terminal_attachment_state(terminal)
                 terminal["grace_expires_at"] = None
                 terminal["updated_at"] = now
         session_data["updated_at"] = now
         await _save_session(session_id, session_data)
-        logger.info("Session offline: session_id=%s reason=%s", session_id, reason)
+        logger.info("Session offline_expired: session_id=%s reason=%s", session_id, reason)
         return session_data
 
 
 def is_terminal_recoverable(terminal: dict, now: Optional[datetime] = None) -> bool:
     """terminal 是否仍处于可恢复窗口。"""
-    if terminal.get("status") != "detached":
+    if _normalize_terminal_status(terminal.get("status", "recovering")) != "detached_recoverable":
         return False
     grace_expires_at = terminal.get("grace_expires_at")
     if not grace_expires_at:

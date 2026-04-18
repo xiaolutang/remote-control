@@ -224,6 +224,8 @@ async def create_runtime_terminal(
             cwd=request.cwd,
             command=request.command,
             env=request.env,
+            rows=(terminal.get("pty") or {}).get("rows", 24),
+            cols=(terminal.get("pty") or {}).get("cols", 80),
         )
     except HTTPException as exc:
         reason = "create_failed"

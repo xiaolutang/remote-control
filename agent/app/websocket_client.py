@@ -67,6 +67,117 @@ class TerminalSpec:
     cwd: Optional[str] = None
     env: dict = field(default_factory=dict)
     title: str = ""
+    rows: int = 24
+    cols: int = 80
+
+
+@dataclass
+class TerminalSnapshotState:
+    """单个 terminal 的可恢复 snapshot 状态。"""
+
+    terminal_id: str
+    rows: int
+    cols: int
+    active_buffer: str = "main"
+    payload: bytearray = field(default_factory=bytearray)
+
+
+class AgentSnapshotManager:
+    """维护 terminal 的权威恢复快照。"""
+
+    _ALT_BUFFER_ENABLE_MARKERS = (
+        b"\x1b[?1049h",
+        b"\x1b[?1047h",
+        b"\x1b[?47h",
+    )
+    _ALT_BUFFER_DISABLE_MARKERS = (
+        b"\x1b[?1049l",
+        b"\x1b[?1047l",
+        b"\x1b[?47l",
+    )
+
+    def __init__(self, snapshot_limit_bytes: int = 128 * 1024):
+        self._snapshot_limit_bytes = snapshot_limit_bytes
+        self._states: dict[str, TerminalSnapshotState] = {}
+
+    def create_terminal(self, spec: TerminalSpec) -> None:
+        self._states[spec.terminal_id] = TerminalSnapshotState(
+            terminal_id=spec.terminal_id,
+            rows=spec.rows,
+            cols=spec.cols,
+        )
+
+    def close_terminal(self, terminal_id: str) -> None:
+        self._states.pop(terminal_id, None)
+
+    def close_all(self) -> None:
+        self._states.clear()
+
+    def append_output(self, terminal_id: str, data: bytes) -> None:
+        state = self._states.get(terminal_id)
+        if state is None:
+            return
+        state.payload.extend(data)
+        overflow = len(state.payload) - self._snapshot_limit_bytes
+        if overflow > 0:
+            del state.payload[:overflow]
+        state.active_buffer = self._detect_active_buffer(state.active_buffer, data)
+
+    def update_terminal_pty(self, terminal_id: str, rows: int, cols: int) -> None:
+        state = self._states.get(terminal_id)
+        if state is None:
+            return
+        state.rows = rows
+        state.cols = cols
+
+    def get_snapshot_payload(self, terminal_id: str) -> Optional[str]:
+        state = self._states.get(terminal_id)
+        if not state or not state.payload:
+            return None
+        return base64.b64encode(bytes(state.payload)).decode("utf-8")
+
+    def get_snapshot_metadata(self, terminal_id: str) -> Optional[dict]:
+        state = self._states.get(terminal_id)
+        if state is None:
+            return None
+        return {
+            "pty": {
+                "rows": state.rows,
+                "cols": state.cols,
+            },
+            "active_buffer": state.active_buffer,
+        }
+
+    def build_snapshot_data(self, terminal_id: str) -> Optional[dict]:
+        state = self._states.get(terminal_id)
+        if state is None:
+            return None
+        payload = self.get_snapshot_payload(terminal_id)
+        return {
+            "terminal_id": terminal_id,
+            "payload": payload or "",
+            "pty": {
+                "rows": state.rows,
+                "cols": state.cols,
+            },
+            "active_buffer": state.active_buffer,
+        }
+
+    @classmethod
+    def _detect_active_buffer(cls, current: str, data: bytes) -> str:
+        latest_index = -1
+        next_state = current
+        for marker in cls._ALT_BUFFER_ENABLE_MARKERS:
+            index = data.rfind(marker)
+            if index > latest_index:
+                latest_index = index
+                next_state = "alt"
+        for marker in cls._ALT_BUFFER_DISABLE_MARKERS:
+            index = data.rfind(marker)
+            if index > latest_index:
+                latest_index = index
+                next_state = "main"
+        return next_state
 
 
 class TerminalRuntimeManager:
@@ -83,7 +194,12 @@ class TerminalRuntimeManager:
         runtime = self._pty_factory(
             spec.command,
             args=spec.args,
-            config=PTYConfig(env=spec.env, cwd=spec.cwd),
+            config=PTYConfig(
+                rows=spec.rows,
+                cols=spec.cols,
+                env=spec.env,
+                cwd=spec.cwd,
+            ),
         )
         if not runtime.start():
             err_msg = f"failed to start terminal {spec.terminal_id}"
@@ -185,6 +301,7 @@ class WebSocketClient:
         self._tasks: list[asyncio.Task] = []
         self._stdin_reader: Optional[asyncio.StreamReader] = None
         self.runtime_manager = TerminalRuntimeManager()
+        self.snapshot_manager = AgentSnapshotManager()
         self._runtime_tasks: dict[str, asyncio.Task] = {}
         self._send_lock = asyncio.Lock()
         # 本地 HTTP Server（用于 Flutter UI 控制）
@@ -418,6 +535,7 @@ class WebSocketClient:
                     continue
 
                 payload = base64.b64encode(data).decode("utf-8")
+                self.snapshot_manager.append_output(terminal_id, data)
                 await self._send_ws_message({
                     "type": "data",
                     "terminal_id": terminal_id,
@@ -428,6 +546,7 @@ class WebSocketClient:
         finally:
             try:
                 event = self.runtime_manager.close_terminal(terminal_id)
+                self.snapshot_manager.close_terminal(terminal_id)
                 await self._send_ws_message(event)
             except KeyError:
                 pass
@@ -476,6 +595,12 @@ class WebSocketClient:
                         target = self.runtime_manager.get_terminal(terminal_id) if terminal_id else self.pty
                         if target:
                             target.resize(rows, cols)
+                            if terminal_id:
+                                self.snapshot_manager.update_terminal_pty(
+                                    terminal_id,
+                                    int(rows),
+                                    int(cols),
+                                )
                     except Exception as e:
                         _log(f"终端大小调整失败: {e}")
 
@@ -503,8 +628,11 @@ class WebSocketClient:
                             cwd=cwd,
                             command=command,
                             env=env,
+                            rows=int(data.get("rows", 24) or 24),
+                            cols=int(data.get("cols", 80) or 80),
                         )
                         runtime = self.runtime_manager.create_terminal(spec)
+                        self.snapshot_manager.create_terminal(spec)
                         self._runtime_tasks[terminal_id] = asyncio.create_task(
                             self._runtime_pty_to_websocket(terminal_id, runtime)
                         )
@@ -532,6 +660,7 @@ class WebSocketClient:
                                 terminal_id,
                                 reason=data.get("reason", "terminal_exit"),
                             )
+                            self.snapshot_manager.close_terminal(terminal_id)
                             task = self._runtime_tasks.pop(terminal_id, None)
                             if task:
                                 task.cancel()
@@ -539,6 +668,22 @@ class WebSocketClient:
                     except Exception as e:
                         _log(f"Terminal {terminal_id} 关闭失败: {e}")
                         continue
+
+                elif msg_type == "snapshot_request":
+                    terminal_id = data.get("terminal_id")
+                    request_id = data.get("request_id")
+                    if not terminal_id or not request_id:
+                        continue
+                    snapshot = self.snapshot_manager.build_snapshot_data(terminal_id)
+                    await self._send_ws_message({
+                        "type": "snapshot_data",
+                        "terminal_id": terminal_id,
+                        "request_id": request_id,
+                        "payload": (snapshot or {}).get("payload", ""),
+                        "pty": (snapshot or {}).get("pty"),
+                        "active_buffer": (snapshot or {}).get("active_buffer", "main"),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    })
 
                 elif msg_type == "pong":
                     # 心跳响应，忽略
@@ -667,6 +812,7 @@ class WebSocketClient:
 
         # 关闭所有 terminal 并发送关闭事件
         close_events = self.runtime_manager.close_all()
+        self.snapshot_manager.close_all()
         if self.ws and close_events:
             for event in close_events:
                 try:
