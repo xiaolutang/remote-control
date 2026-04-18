@@ -742,7 +742,7 @@
       "description": "把本地 xterm Terminal 的职责从 screen/widget 层剥离出来，形成明确的 RendererAdapter。RendererAdapter 只暴露稳定的 applySnapshot / applyLiveOutput / resize / reset / dispose 接口，内部包装 xterm Terminal 的 screen buffer、cursor、alt/main buffer 操作。\n\n目标：\n- RendererAdapter 成为 xterm 的唯一稳定包装层，Coordinator 和 UI 只依赖 adapter 接口\n- UI 不再直接操纵 xterm Terminal / mainBuffer / altBuffer\n- Coordinator 通过 RendererAdapter 施加恢复材料与 live output\n- 为后续 agent authoritative snapshot / screen diff 演进保留接口",
       "verification": "F1",
       "depends_on": ["F072"],
-      "status": "pending",
+      "status": "completed",
       "priority": "P1",
       "acceptance_criteria": [
         "RendererAdapter 提供 applySnapshot / applyLiveOutput / resize / reset / dispose 稳定接口",

@@ -1223,6 +1223,179 @@ void main() {
     });
   });
 
+  // ─── F073: RendererAdapter 测试 ────────────────────────────────
+
+  group('RendererAdapter', () {
+    test('applySnapshot 清空旧 buffer 并写入新数据', () {
+      final terminal = Terminal(maxLines: 10000);
+      final adapter = RendererAdapter(terminal);
+
+      // 先写入一些旧数据
+      adapter.applyLiveOutput('old data line 1\nold data line 2');
+      expect(terminal.buffer.lines[0].toString(), contains('old data line 1'));
+
+      // applySnapshot 应清空旧 buffer 并写入新数据
+      adapter.applySnapshot('new snapshot data');
+      expect(
+        terminal.buffer.lines[0].toString(),
+        contains('new snapshot data'),
+      );
+      expect(
+        terminal.buffer.lines[0].toString(),
+        isNot(contains('old data')),
+      );
+      // outputText 也应只包含新数据
+      expect(adapter.outputText.value, contains('new snapshot data'));
+      expect(adapter.outputText.value, isNot(contains('old data')));
+    });
+
+    test('applyLiveOutput 追加数据不清空', () {
+      final terminal = Terminal(maxLines: 10000);
+      final adapter = RendererAdapter(terminal);
+
+      adapter.applyLiveOutput('first line\n');
+      adapter.applyLiveOutput('second line\n');
+
+      expect(adapter.outputText.value, contains('first line'));
+      expect(adapter.outputText.value, contains('second line'));
+    });
+
+    test('resize 调整 terminal 尺寸', () {
+      final terminal = Terminal(maxLines: 10000);
+      final adapter = RendererAdapter(terminal);
+
+      adapter.resize(120, 40);
+      expect(terminal.viewWidth, 120);
+      expect(terminal.viewHeight, 40);
+    });
+
+    test('resize 忽略无效尺寸', () {
+      final terminal = Terminal(maxLines: 10000);
+      final adapter = RendererAdapter(terminal);
+
+      adapter.resize(120, 40);
+      expect(terminal.viewWidth, 120);
+      expect(terminal.viewHeight, 40);
+
+      // 零值不应改变尺寸
+      adapter.resize(0, 0);
+      expect(terminal.viewWidth, 120);
+      expect(terminal.viewHeight, 40);
+
+      // 负值不应改变尺寸
+      adapter.resize(-1, -1);
+      expect(terminal.viewWidth, 120);
+      expect(terminal.viewHeight, 40);
+    });
+
+    test('resize 不触发 onResize 回调', () {
+      final terminal = Terminal(maxLines: 10000);
+      final adapter = RendererAdapter(terminal);
+
+      var resizeCallbackCount = 0;
+      terminal.onResize = (cols, rows, pixelWidth, pixelHeight) {
+        resizeCallbackCount++;
+      };
+
+      adapter.resize(120, 40);
+      expect(resizeCallbackCount, 0);
+    });
+
+    test('reset 清空所有 buffer', () {
+      final terminal = Terminal(maxLines: 10000);
+      final adapter = RendererAdapter(terminal);
+
+      adapter.applyLiveOutput('some data that will be cleared');
+      expect(adapter.outputText.value, isNotEmpty);
+
+      adapter.reset();
+      expect(adapter.outputText.value, isEmpty);
+    });
+
+    test('dispose 后 outputText 不再更新', () {
+      final terminal = Terminal(maxLines: 10000);
+      final adapter = RendererAdapter(terminal);
+
+      adapter.applyLiveOutput('before dispose');
+      final valueBeforeDispose = adapter.outputText.value;
+      expect(valueBeforeDispose, contains('before dispose'));
+
+      adapter.dispose();
+
+      // disposed ValueNotifier 不再可安全更新
+      // 验证：调用 dispose 不抛异常，且后续 applyLiveOutput 会因
+      // outputText 已 dispose 而抛 FlutterError（或静默失败），
+      // 这符合"dispose 后 adapter 不可用"的预期
+      expect(
+        () => adapter.applyLiveOutput('after dispose'),
+        throwsA(isA<FlutterError>()),
+      );
+    });
+
+    test('outputText 不超过 maxBufferLines', () {
+      final terminal = Terminal(maxLines: 10000);
+      final adapter = RendererAdapter(terminal);
+
+      // 写入超过 50 行（_maxBufferLines）
+      for (int i = 0; i < 60; i++) {
+        adapter.applyLiveOutput('line $i\n');
+      }
+
+      final lines = adapter.outputText.value.split('\n');
+      // 应只保留最后 50 行
+      expect(lines.length, lessThanOrEqualTo(50));
+      // 最早的行已被淘汰
+      expect(adapter.outputText.value, isNot(contains('line 0')));
+      // 最新的行保留
+      expect(adapter.outputText.value, contains('line 59'));
+    });
+  });
+
+  // ─── F073: getRendererAdapter 集成测试 ────────────────────────
+
+  group('getRendererAdapter', () {
+    late TerminalSessionManager manager;
+
+    setUp(() {
+      manager = TerminalSessionManager();
+    });
+
+    tearDown(() {
+      manager.disconnectAll();
+    });
+
+    test('返回已创建 terminal 的 RendererAdapter', () {
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
+
+      final adapter = manager.getRendererAdapter('dev-1', 'term-1');
+      expect(adapter, isNotNull);
+    });
+
+    test('不存在的 terminal 返回 null', () {
+      final adapter = manager.getRendererAdapter('dev-1', 'term-999');
+      expect(adapter, isNull);
+    });
+
+    test('通过 adapter 写入数据反映到 outputText', () {
+      // ignore: deprecated_member_use
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
+
+      final adapter = manager.getRendererAdapter('dev-1', 'term-1');
+      adapter!.applyLiveOutput('via adapter\n');
+
+      // 通过 RendererAdapter 的 outputText 验证（不依赖 terminal.buffer）
+      expect(adapter.outputText.value, contains('via adapter'));
+    });
+  });
+
   // ─── F072: 多 terminal active transport 测试 ──────────────────
 
   group('多 terminal active transport', () {

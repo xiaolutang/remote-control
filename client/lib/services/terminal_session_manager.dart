@@ -16,12 +16,80 @@ enum TerminalSessionState {
   error,
 }
 
-class _TerminalState {
-  _TerminalState(this.terminal);
+/// xterm Terminal 的稳定包装层（F073）
+/// Coordinator 和 UI 只依赖此接口，不直接操作 xterm Terminal。
+class RendererAdapter {
+  RendererAdapter(this._terminal);
 
-  final Terminal terminal;
-  final ValueNotifier<String> outputText = ValueNotifier<String>('');
+  final Terminal _terminal;
   final List<String> _outputBuffer = [];
+  final ValueNotifier<String> outputText = ValueNotifier<String>('');
+
+  static const int _maxBufferLines = 50;
+
+  /// 应用 snapshot（清空现有 buffer 后写入）
+  void applySnapshot(String data) {
+    _terminal.useMainBuffer();
+    _terminal.mainBuffer.clear();
+    _terminal.altBuffer.clear();
+    _outputBuffer.clear();
+    _write(data);
+  }
+
+  /// 应用 live output（直接追加写入）
+  void applyLiveOutput(String data) {
+    _write(data);
+  }
+
+  /// 调整 renderer 尺寸（静默 onResize 回调）
+  void resize(int cols, int rows) {
+    if (rows <= 0 || cols <= 0) return;
+    if (_terminal.viewHeight == rows && _terminal.viewWidth == cols) return;
+    final prev = _terminal.onResize;
+    _terminal.onResize = null;
+    try {
+      _terminal.resize(cols, rows);
+    } finally {
+      _terminal.onResize = prev;
+    }
+  }
+
+  /// 重置 renderer 状态（清空所有 buffer）
+  void reset() {
+    _terminal.useMainBuffer();
+    _terminal.mainBuffer.clear();
+    _terminal.altBuffer.clear();
+    _outputBuffer.clear();
+    outputText.value = '';
+  }
+
+  void _write(String data) {
+    _terminal.write(data);
+    _appendOutputBuffer(data);
+  }
+
+  void _appendOutputBuffer(String data) {
+    if (data.isEmpty) return;
+    final lines = data.split('\n');
+    for (final line in lines) {
+      if (line.isEmpty) continue;
+      _outputBuffer.add(line);
+      if (_outputBuffer.length > _maxBufferLines) {
+        _outputBuffer.removeAt(0);
+      }
+    }
+    outputText.value = _outputBuffer.join('\n');
+  }
+
+  void dispose() {
+    outputText.dispose();
+  }
+}
+
+class _TerminalState {
+  _TerminalState(Terminal terminal) : renderer = RendererAdapter(terminal);
+
+  final RendererAdapter renderer;
   final List<String> _pendingRecoveryFrames = [];
   bool _hasLiveOutput = false;
   bool _recovering = false;
@@ -84,36 +152,10 @@ class _TerminalState {
     }
   }
 
-  static const int _maxBufferLines = 50;
+  // 代理到 renderer
+  ValueNotifier<String> get outputText => renderer.outputText;
 
-  void applyRemotePtySize(int rows, int cols) {
-    if (rows <= 0 || cols <= 0) {
-      return;
-    }
-    if (terminal.viewHeight == rows && terminal.viewWidth == cols) {
-      return;
-    }
-    final previousOnResize = terminal.onResize;
-    terminal.onResize = null;
-    try {
-      terminal.resize(cols, rows);
-    } finally {
-      terminal.onResize = previousOnResize;
-    }
-  }
-
-  void _writeFrame(String data) {
-    terminal.write(data);
-    appendOutput(data);
-  }
-
-  // TODO(F073): 通过 RendererAdapter 收口，不直接操作 xterm mainBuffer/altBuffer
-  void _resetTerminalBuffers() {
-    terminal.useMainBuffer();
-    terminal.mainBuffer.clear();
-    terminal.altBuffer.clear();
-    _outputBuffer.clear();
-  }
+  void applyRemotePtySize(int rows, int cols) => renderer.resize(cols, rows);
 
   void beginRecovery() {
     _recovering = true;
@@ -127,8 +169,7 @@ class _TerminalState {
     if (!_recovering && _hasLiveOutput) {
       return;
     }
-    _resetTerminalBuffers();
-    _writeFrame(data);
+    renderer.applySnapshot(data);
   }
 
   void prepareForRebind() {
@@ -140,7 +181,10 @@ class _TerminalState {
       _pendingRecoveryFrames.add(data);
       return;
     }
-    _writeFrame(data);
+    if (data.isNotEmpty) {
+      _hasLiveOutput = true;
+    }
+    renderer.applyLiveOutput(data);
   }
 
   void finishRecovery() {
@@ -149,32 +193,15 @@ class _TerminalState {
     }
     _recovering = false;
     for (final frame in _pendingRecoveryFrames) {
-      _writeFrame(frame);
+      renderer.applyLiveOutput(frame);
     }
     _pendingRecoveryFrames.clear();
     // F072: recovering -> live
     _setSessionState(TerminalSessionState.live);
   }
 
-  void appendOutput(String data) {
-    if (data.isNotEmpty) {
-      _hasLiveOutput = true;
-    }
-    final lines = data.split('\n');
-    for (final line in lines) {
-      if (line.isEmpty) {
-        continue;
-      }
-      _outputBuffer.add(line);
-      if (_outputBuffer.length > _maxBufferLines) {
-        _outputBuffer.removeAt(0);
-      }
-    }
-    outputText.value = _outputBuffer.join('\n');
-  }
-
   void dispose() {
-    outputText.dispose();
+    renderer.dispose();
     _stateNotifier.dispose();
   }
 }
@@ -318,6 +345,10 @@ class TerminalSessionManager extends ChangeNotifier
     return _sessions[_key(deviceId, terminalId)];
   }
 
+  /// F073: 已废弃，上层应通过 getRendererAdapter 获取 RendererAdapter。
+  /// 完整迁移在 F074（UI 瘦身）中完成。
+  @Deprecated('Use getRendererAdapter instead. Will be removed in F074.')
+  // ignore: unnecessary_non_null_assertion
   Terminal getOrCreateTerminal(
     String? deviceId,
     String terminalId,
@@ -331,11 +362,18 @@ class TerminalSessionManager extends ChangeNotifier
     if (service != null) {
       bindTerminalOutput(deviceId, terminalId, service);
     }
-    return state.terminal;
+    return state.renderer._terminal;
   }
 
+  /// F073: 已废弃，上层应通过 getRendererAdapter 获取 RendererAdapter。
+  @Deprecated('Use getRendererAdapter instead. Will be removed in F074.')
   Terminal? getTerminal(String? deviceId, String terminalId) {
-    return _terminals[_key(deviceId, terminalId)]?.terminal;
+    return _terminals[_key(deviceId, terminalId)]?.renderer._terminal;
+  }
+
+  /// F073: 获取指定 terminal 的 RendererAdapter
+  RendererAdapter? getRendererAdapter(String? deviceId, String terminalId) {
+    return _terminals[_key(deviceId, terminalId)]?.renderer;
   }
 
   ValueListenable<String>? getTerminalOutputListenable(
