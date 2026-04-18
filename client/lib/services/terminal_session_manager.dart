@@ -27,6 +27,11 @@ class RendererAdapter {
 
   static const int _maxBufferLines = 50;
 
+  /// 底层 Terminal 实例的只读引用。
+  /// 仅用于 TerminalView widget 构造（xterm 包硬约束）。
+  /// 不要通过此引用直接操作 Terminal，应使用 RendererAdapter 的方法。
+  Terminal get terminalForView => _terminal;
+
   /// 应用 snapshot（清空现有 buffer 后写入）
   void applySnapshot(String data) {
     _terminal.useMainBuffer();

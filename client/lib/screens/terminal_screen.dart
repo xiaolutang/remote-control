@@ -124,24 +124,39 @@ class _TerminalScreenState extends State<TerminalScreen> {
     final terminalId = service.terminalId;
     if ((terminalId ?? '').isNotEmpty) {
       final sessionManager = context.read<TerminalSessionManager>();
-      _terminal = sessionManager.getOrCreateTerminal(
+      // F074: 通过 coordinator API 获取 RendererAdapter
+      final adapter = sessionManager.getRendererAdapter(
         service.deviceId,
         terminalId!,
-        () => Terminal(maxLines: 10000),
-        service: service,
       );
-      _terminalOutputText = sessionManager.getTerminalOutputListenable(
-        service.deviceId,
-        terminalId,
-      );
+      if (adapter != null) {
+        _terminal = adapter.terminalForView;
+        _terminalOutputText = adapter.outputText;
+        // F074: 注册 input/output 回调到 coordinator
+        _configureTerminalCallbacks(service, adapter);
+      } else {
+        // 首次创建：通过 deprecated API 创建 terminal（coordinator 会自动绑定）
+        // ignore: deprecated_member_use
+        _terminal = sessionManager.getOrCreateTerminal(
+          service.deviceId,
+          terminalId,
+          () => Terminal(maxLines: 10000),
+          service: service,
+        );
+        _terminalOutputText = sessionManager.getTerminalOutputListenable(
+          service.deviceId,
+          terminalId,
+        );
+        _configureTerminalCallbacksLegacy(service);
+      }
     } else {
       _terminal ??= Terminal(maxLines: 10000);
       _terminalOutputText = _localTerminalOutputText;
       _outputSubscription =
           service.outputStream.listen(_onOutput, onError: _onOutputError);
+      _configureTerminalCallbacksLegacy(service);
     }
 
-    _configureTerminalCallbacks(service);
     service.addListener(_onStatusChanged);
     _presenceSubscription = service.presenceStream.listen(_onPresence);
     _deviceKickedSubscription =
@@ -154,7 +169,28 @@ class _TerminalScreenState extends State<TerminalScreen> {
     unawaited(_loadPresenceSnapshot(service));
   }
 
-  void _configureTerminalCallbacks(WebSocketService service) {
+  /// F074: coordinator 版回调 — input 通过 adapter 发送，resize 由 coordinator 管理
+  void _configureTerminalCallbacks(
+    WebSocketService service,
+    RendererAdapter adapter,
+  ) {
+    adapter.terminalForView.onOutput = (data) {
+      if (!mounted) return;
+      service.send(data);
+    };
+    // F074: resize 策略仍需保留在 UI 层（因为 autoResize 参数影响 TerminalView），
+    // 但 coordinator 层管理远程 pty 同步
+    adapter.terminalForView.onResize = (width, height, pixelWidth, pixelHeight) {
+      if (!mounted) return;
+      if (_shouldFollowSharedPty(service)) {
+        return;
+      }
+      service.resize(height, width);
+    };
+  }
+
+  /// F074: legacy 版回调 — 无 terminalId 场景或首次创建时使用
+  void _configureTerminalCallbacksLegacy(WebSocketService service) {
     _activeTerminal.onOutput = (data) {
       if (!mounted) return;
       service.send(data);
@@ -185,11 +221,13 @@ class _TerminalScreenState extends State<TerminalScreen> {
   Future<void> _connectToServer(WebSocketService service) async {
     final terminalId = service.terminalId;
     if ((terminalId ?? '').isNotEmpty) {
-      await context
-          .read<TerminalSessionManager>()
-          .deactivateConflictingTerminalSessions(service);
+      final sessionManager = context.read<TerminalSessionManager>();
+      await sessionManager.deactivateConflictingTerminalSessions(service);
+      // F074: 通过 coordinator 连接（而非直接 service.connect）
+      await sessionManager.connectTerminal(service.deviceId, terminalId!);
+    } else {
+      await service.connect();
     }
-    await service.connect();
 
     if (!mounted ||
         _isMobilePlatform ||
@@ -393,7 +431,17 @@ class _TerminalScreenState extends State<TerminalScreen> {
   }
 
   Future<void> _retryConnection() async {
-    await _activeService.connect();
+    final service = _activeService;
+    final terminalId = service.terminalId;
+    if ((terminalId ?? '').isNotEmpty) {
+      // F074: 通过 coordinator 恢复连接
+      context
+          .read<TerminalSessionManager>()
+          .recoverTerminal(service.deviceId, terminalId!);
+      await service.connect();
+    } else {
+      await service.connect();
+    }
     if (!mounted || _isMobilePlatform) return;
     _terminalFocusNode.requestFocus();
   }

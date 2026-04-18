@@ -777,7 +777,7 @@
       "description": "最终把 TerminalScreen / TerminalWorkspaceScreen 收口为纯 UI 层。页面只负责 terminal 选择、焦点、快捷键、IME 和布局，不再直接协调 transport、reconnect、snapshot 恢复或 geometry owner 策略。\n\n目标：\n- TerminalScreen 不再自己拼 connect + bind + recover 逻辑\n- TerminalWorkspaceScreen 不再感知 active transport 细节\n- UI 只消费 coordinator 暴露的 terminal handle / view model\n- 桌面端与移动端复用同一套 coordinator 语义，只保留交互差异",
       "verification": "F2",
       "depends_on": ["F072", "F073"],
-      "status": "pending",
+      "status": "completed",
       "priority": "P1",
       "acceptance_criteria": [
         "TerminalScreen/Workspace 不再承载恢复策略，只消费 coordinator 的 terminal handle / view model",
