@@ -2,30 +2,30 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-15",
+  "updated_at": "2026-04-19T10:30:00+0800",
   "status": "in_progress",
   "active_requirement_cycle": {
-    "name": "ip-direct",
-    "branch": "feat/ip-direct-encrypt",
-    "started_at": "2026-04-15"
+    "name": "terminal-interaction-refactor",
+    "branch": "feat/terminal-interaction-refactor",
+    "started_at": "2026-04-17"
   },
   "workflow": {
     "name": "remote-control",
     "mode": "A",
     "runtime": "skill_orchestrated",
-    "review_provider": "local",
+    "review_provider": "codex_plugin",
     "audit_provider": "local",
     "risk_provider": "local"
   },
   "summary": {
-    "total": 4,
-    "pending": 0,
-    "in_progress": 0,
-    "completed": 4,
+    "total": 16,
+    "pending": 5,
+    "in_progress": 4,
+    "completed": 7,
     "blocked": 0,
     "cancelled": 0
   },
-  "next_phase": "ip-direct",
+  "next_phase": "terminal-interaction-refactor",
   "project_info": {
     "description": "远程控制终端（Server + Agent + Client）。含反馈系统、日志集成、用户信息、Docker 标准化部署。",
     "tech_stack": {
@@ -36,305 +36,914 @@
   },
   "features": [
     {
-      "id": "S063",
-      "phase": "ip-direct",
+      "id": "F067",
+      "phase": "terminal-p0-fixes",
       "module": "client",
-      "name": "本地环境 URL 修复 + 直连端口暴露",
-      "description": "修复本地环境 URL 格式，支持 IP 直连 Server 绕过 TLS。\n\n直连路径已实现 RSA+AES 应用层加密（符合 architecture.md 不变量 #27）：Client/Agent 获取 Server RSA 公钥 → 本地生成 AES-256 密钥 → RSA 加密 AES 密钥随 auth 消息发送 → Server 解密建立会话密钥 → WS 消息 AES-GCM 加解密。\n\n1. 客户端 URL 修复（client/lib/services/environment_service.dart）：\n   - _buildLocalUrl: wss:// → ws://\n   - 去掉 /rc 后缀（直连 Server 不走 Traefik striprefix）\n   - 修复后格式：ws://{host}:{port} 或 ws://{host}\n\n2. 注释更新（client/lib/models/app_environment.dart）：\n   - local 枚举注释：ws://{host}:{port}/rc → ws://{host}:{port}\n\n3. _serverUrlFor 生产环境 URL 不变（wss://rc.xiaolutang.top/rc）\n\n4. 部署配置（deploy/docker-compose.yml）：\n   - server 服务增加端口映射：ports: - \"${RC_DIRECT_PORT:-8880}:8000\"\n   - 直连端口通过环境变量 RC_DIRECT_PORT 控制，默认 8880\n   - 保留现有 expose: \"8000\"（Traefik 网络路由需要）\n\n5. 测试适配：\n   - 更新 environment_service_test.dart 中 URL 生成断言（wss://.../rc → ws://...）\n   - 更新 config_service_test.dart 中相关 URL 断言\n   - 修复 production URL 测试断言不一致（xiaolutang.top → rc.xiaolutang.top）\n\n用户操作：选择「本地」→ 输入服务器 IP + 8880 → ws://{ip}:8880 直连 → RSA+AES 加密链路建立 → 登录成功",
+      "name": "CPR 坐标修复：0-based → 1-based",
+      "description": "L1 修复：xterm fork 的 CPR (CSI 6n) 响应返回 0-based 坐标，违反 ANSI 标准。\n\n根因：emitter.dart cursorPosition(x, y) 直接拼接 buffer 的 cursorX/cursorY（0-based），\n当光标在左上角时生成非法 ESC[0;0R（标准要求最小值 ESC[1;1R）。\n现代 TUI（Codex 等）依赖 CPR 响应探测终端能力，非法响应导致退化成单行重绘模式。\n\n修复：emitter.dart cursorPosition() 对 x 和 y 各加 1。\n\n覆盖范围：\n- 主路径：工作台 TerminalScreen(embedded: true)\n- 旧路径：TerminalScreen standalone（connect_screen/runtime_selection_screen 直接打开）\n- 两条路径共用同一个 xterm fork emitter，一处修复两条路径同时受益。",
       "verification": "F1",
       "depends_on": [],
-      "status": "completed",
+      "status": "in_progress",
       "priority": "P0",
       "acceptance_criteria": [
-        "_buildLocalUrl('localhost', '') 返回 ws://localhost",
-        "_buildLocalUrl('10.0.0.1', '9090') 返回 ws://10.0.0.1:9090",
-        "production URL 不变：wss://rc.xiaolutang.top/rc",
-        "docker-compose server 有端口映射到宿主机",
-        "AuthService._getHttpUrl() 正确转换 ws:// → http://",
-        "本地直连端到端：选择本地 → 输入 IP:8880 → 登录 → 终端收发正常",
-        "线上 TLS 端到端不受影响：选择线上 → wss:// 登录 → 终端收发正常"
+        "光标在 (0,0) 时 CPR 响应为 ESC[1;1R",
+        "光标在 (5,3) 时 CPR 响应为 ESC[6;4R",
+        "Claude Code 运行时终端显示正常（回归）",
+        "Codex 运行时终端不再退化成单行模式",
+        "通用 ANSI 探针验证 CPR 响应严格 1-based，无其他终端响应回归"
       ],
-      "risk_tags": ["config", "network", "startup"],
+      "risk_tags": [],
       "test_tasks": [
         {
           "type": "unit",
-          "description": "本地 URL 生成",
+          "description": "CPR 响应坐标",
           "scenarios": [
-            "local host=192.168.1.100, port=8880 → ws://192.168.1.100:8880",
-            "local host=localhost, port='' → ws://localhost",
-            "local host=10.0.0.1, port=9090 → ws://10.0.0.1:9090",
-            "production → wss://rc.xiaolutang.top/rc（不变）"
+            "cursorPosition(0, 0) → ESC[1;1R",
+            "cursorPosition(5, 3) → ESC[6;4R",
+            "cursorPosition(79, 23) → ESC[80;24R"
           ]
         },
         {
           "type": "unit",
-          "description": "测试断言更新",
+          "description": "通用 ANSI 回归",
           "scenarios": [
-            "environment_service_test.dart URL 断言更新为 ws:// 格式",
-            "config_service_test.dart 本地 URL 断言更新为 ws:// 格式",
-            "config_service_test.dart production URL 断言修复为 rc.xiaolutang.top"
-          ]
-        },
-        {
-          "type": "integration",
-          "description": "直连端到端",
-          "scenarios": [
-            "本地 Docker：ws://localhost:8880 → 登录成功 → 终端收发",
-            "线上 TLS：wss://rc.xiaolutang.top/rc → 登录成功 → 终端收发",
-            "切换本地→线上：环境切换 + 连接切换正常"
-          ]
-        },
-        {
-          "type": "unit",
-          "description": "失败分支：端口与配置",
-          "scenarios": [
-            "RC_DIRECT_PORT 未注入时使用默认 8880",
-            "RC_DIRECT_PORT 指定已被占用端口时 Server 启动失败",
-            "ws://→http:// URL 转换：host 包含特殊字符时处理",
-            "环境切换（local→direct→production）时旧 WS 连接正确断开"
-          ]
-        },
-        {
-          "type": "integration",
-          "description": "失败分支：网络异常",
-          "scenarios": [
-            "ws:// 连接超时（防火墙未开放）客户端提示明确",
-            "Server 端口未监听时客户端超时不崩溃",
-            "ws:// 连接 RSA 公钥获取失败时拒绝登录（安全连接不可用）",
-            "wss:// 连接由 TLS 保护，公钥获取失败时可回退（不变量 #29）"
-          ]
-        }
-      ],
-      "files": [
-        "client/lib/services/environment_service.dart",
-        "client/lib/models/app_environment.dart",
-        "client/lib/services/crypto_service.dart",
-        "client/lib/services/auth_service.dart",
-        "client/lib/services/websocket_service.dart",
-        "server/app/crypto.py",
-        "server/app/user_api.py",
-        "server/app/ws_auth.py",
-        "server/app/ws_agent.py",
-        "server/app/ws_client.py",
-        "agent/app/crypto.py",
-        "agent/app/auth_service.py",
-        "agent/app/websocket_client.py",
-        "deploy/docker-compose.yml",
-        "client/test/services/environment_service_test.dart",
-        "client/test/services/config_service_test.dart",
-        "client/test/integration/production_login_test.dart",
-        "client/test/integration/network_diagnostic_test.dart"
-      ]
-    },
-    {
-      "id": "S064",
-      "phase": "ip-direct",
-      "module": "client",
-      "name": "直连端口部署验证 + 线上适配",
-      "description": "验证直连端口在线上服务器的部署，确保客户端能通过 IP 直连正常使用。\n\n1. deploy/deploy.sh 或 deploy/remote-deploy.sh 适配：\n   - 确保直连端口映射在部署时生效\n   - RC_DIRECT_PORT 环境变量传入\n\n2. 防火墙/安全组确认：\n   - 确认 8880（或自定义）端口在服务器防火墙/安全组中开放\n   - 文档记录端口配置\n\n3. 客户端实测验证：\n   - 真机/桌面端通过 IP:8880 直连线上服务器\n   - 登录、终端收发、Agent 注册全链路验证（含 RSA+AES 加密）\n   - 切换回 TLS 线上环境验证不受影响",
-      "verification": "L4",
-      "depends_on": ["S063"],
-      "status": "completed",
-      "started_at": "2026-04-16",
-      "completed_at": "2026-04-16",
-      "evidence_file": ".dev-flow/evidence/S064.md",
-      "execution_notes": "本地 + 线上部署验证均通过。TLS 受 Traefik 证书问题阻塞（与本次变更无关）。发现 Agent 1012 重连 gather 阻塞问题（预存 bug）。",
-      "priority": "P0",
-      "acceptance_criteria": [
-        "线上服务器 8880 端口可通过外部 IP 访问",
-        "客户端通过 IP:8880 直连 → 登录成功",
-        "直连模式下终端数据收发正常",
-        "直连模式下 Agent 注册和在线状态正常",
-        "TLS 线上环境不受影响",
-        "部署脚本正确处理 RC_DIRECT_PORT 环境变量"
-      ],
-      "risk_tags": ["network", "startup"],
-      "test_tasks": [
-        {
-          "type": "integration",
-          "description": "线上直连 smoke",
-          "scenarios": [
-            "真机直连 IP:8880 → 登录成功 → 进入终端",
-            "桌面端直连 IP:8880 → 登录成功 → 进入终端",
-            "Agent 注册正常 → 设备在线",
-            "TLS 线上环境同时可用"
-          ]
-        },
-        {
-          "type": "integration",
-          "description": "失败分支：线上部署",
-          "scenarios": [
-            "防火墙未开放 8880 端口 → 客户端连接超时 → 提示明确",
-            "Agent 通过 ws://IP:8880 连接超时 → 日志记录 → 自动重试",
-            "RC_DIRECT_PORT 环境变量传入非法值 → deploy 脚本报错",
-            "线上同时存在 TLS 直连两路 → 数据不串扰"
-          ]
-        }
-      ],
-      "smoke_required": true,
-      "files": [
-        "deploy/docker-compose.yml",
-        "deploy/deploy.sh",
-        "deploy/remote-deploy.sh"
-      ]
-    },
-    {
-      "id": "S065",
-      "phase": "ip-direct",
-      "module": "client",
-      "name": "Agent 重连韧性：进程退出 + 客户端自愈 + 配置统一",
-      "description": "L2 修复：服务器部署后桌面 Agent 永久离线。\n\n根因：Agent 重连耗尽后进程不退出（local_server 保持监听），Flutter 用 PID 存活判断 Agent 在线（不检查实际连接），两层都缺少失败后清理和自愈逻辑。\n\n修复内容：\n1. Agent 侧：retry 耗尽 / 不可恢复错误后，走统一退出路径（cleanup + sys.exit），不留僵尸进程\n2. Flutter 侧：ensureAgentOnline 检测到旧 managed 进程无法恢复时，杀掉旧进程 + 清除 PID + 用新 token 重新启动\n3. 配置统一：agent/app/config.py、agent/app/cli.py、desktop_agent_supervisor.dart 的 max_retries 默认值全部改为 60",
-      "verification": "F2",
-      "depends_on": ["S063"],
-      "status": "completed",
-      "started_at": "2026-04-15",
-      "completed_at": "2026-04-15",
-      "commit": "7904e35",
-      "evidence_file": ".dev-flow/evidence/S065.md",
-      "priority": "P0",
-      "acceptance_criteria": [
-        "Agent retry 耗尽后进程完全退出（local_server 关闭、PTY 清理、无残留 TCP 监听）",
-        "Agent 收到 4001/4004/4009 后进程完全退出（无僵尸）",
-        "Flutter ensureAgentOnline 检测到旧进程无法恢复时，杀掉旧进程并重新启动（使用新 token）",
-        "max_retries 在 agent/app/config.py、agent/app/cli.py、desktop_agent_supervisor.dart 三处默认值均为 60",
-        "服务器重启后桌面 Agent 自动恢复在线（端到端 smoke 验证）"
-      ],
-      "risk_tags": ["startup", "network", "first_use"],
-      "test_tasks": [
-        {
-          "type": "unit",
-          "description": "Agent 进程退出行为",
-          "scenarios": [
-            "retry 耗尽后 run() 调用 _cleanup + sys.exit（非 break 继续存活）",
-            "4001/4004/4009 后 _cleanup 被调用，local_server 已停止",
-            "正常 stop() 时 _cleanup 被调用，PTY 已清理"
-          ]
-        },
-        {
-          "type": "unit",
-          "description": "Flutter 旧进程清理",
-          "scenarios": [
-            "managed PID 存在但 server 报 offline → 超时后杀掉旧进程 + 清除 PID",
-            "managed PID 不存在但 pgrep 找到旧进程 → 标记为 external，不强制杀",
-            "杀旧进程失败 → SIGTERM → SIGKILL 回退 → 日志记录"
-          ]
-        },
-        {
-          "type": "unit",
-          "description": "重启 token 注入与重启失败处理",
-          "scenarios": [
-            "杀旧进程后重启 Agent 使用新 token（syncManagedAgentConfig 写入最新凭证）",
-            "杀旧成功但重启 Agent 失败（进程启动异常）→ 清除 PID + 日志记录 + 不死循环重试",
-            "连续重启失败超过 3 次 → 停止尝试 + 用户可见提示"
-          ]
-        },
-        {
-          "type": "unit",
-          "description": "配置一致性",
-          "scenarios": [
-            "agent/app/config.py 默认 max_retries=60",
-            "agent/app/cli.py start --max-retries 默认 60",
-            "desktop_agent_supervisor.dart 写入 config max_retries=60"
-          ]
-        },
-        {
-          "type": "integration",
-          "description": "服务器重启后自愈 smoke",
-          "scenarios": [
-            "Agent 在线 → 模拟 Server 重启 → Agent 自动重连 → 客户端刷新后看到 Agent 在线",
-            "Agent retry 耗尽退出 → Flutter 检测到离线 → 杀旧进程 → 启动新 Agent → 在线恢复",
-            "手动 kill Agent 进程 → Flutter 检测到 → 自动重启"
+            "发送 CSI 6n → 响应格式严格匹配 ESC[{row};{col}R，row>=1, col>=1",
+            "连续调用 cursorPosition 多次 → 返回值一致性（无状态泄漏）",
+            "光标在最大位置（viewWidth-1, viewHeight-1）时不越界"
           ]
         },
         {
           "type": "smoke",
-          "description": "真机手工验证：Server 重启后桌面端完整自愈",
+          "description": "真实 TUI 行为验证",
           "scenarios": [
-            "macOS 桌面端 Agent 在线 → docker compose restart server → 等待 Agent 重连 → 刷新设备列表确认 Agent 在线",
-            "Agent 僵尸（retry 耗尽）→ 桌面端检测到离线 → 自动杀旧重启 → 用户看到状态从离线变为在线",
-            "重启过程中用户可见 Agent 状态变化（在线 → 离线 → 在线），无死循环重试"
+            "Claude Code 运行中 → 终端全屏 TUI 正常（无退化）",
+            "Codex 运行中 → 终端不再退化成单行重绘",
+            "运行 vim/top 等 CPR 消费程序 → 布局正常"
+          ]
+        }
+      ],
+      "smoke_required": true,
+      "fix_level": "L1",
+      "root_cause_analysis": "xterm fork emitter 直接使用 buffer 内部 0-based 坐标，未转为 ANSI 标准的 1-based。上游 xterm.dart 是否有同样问题需确认，如有则应回馈上游。",
+      "defect_record": "DF-20260416-02",
+      "files": [
+        "client/third_party/xterm/lib/src/core/escape/emitter.dart"
+      ],
+      "started_at": "2026-04-16T15:13:22+0800",
+      "actual_minutes": 12,
+      "execution_state": {
+        "current_step": "implementing",
+        "retry_count": 0,
+        "resume_hint": "补做 F067 真实 TUI smoke（Codex/Claude/vim/top）后再决定是否 completed",
+        "waiting_for_external": false
+      },
+      "execution_notes": "已完成 CPR 1-based 实现和 xterm fork 协议级单测；真实 TUI smoke 仍待补，暂不判定 completed。",
+      "evidence_file": ".dev-flow/evidence/F067.md"
+    },
+    {
+      "id": "F068",
+      "phase": "terminal-p0-fixes",
+      "module": "client",
+      "name": "渲染闪烁修复：移除多余 setState",
+      "description": "L1 修复：_onOutput 中每次 WS 数据到达都调用 setState(() {})，导致整个 widget tree 重建。\n\n根因：terminal_screen.dart _onOutput() 中的 setState 是多余的——\n_terminal.write() → notifyListeners() → RenderTerminal._onTerminalChange() → markNeedsLayout() 已处理重绘。\nsetState 触发的是外层 widget tree（含 Container/ClipRRect/boxShadow）的重建，造成可见闪烁。\n\n修复：移除 _onOutput 中的 setState(() {}) 调用。\n\n覆盖范围：主路径和旧路径共用同一个 _onOutput，一处修复全部受益。",
+      "verification": "F1",
+      "depends_on": [],
+      "status": "in_progress",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "移除 setState 后终端数据正常显示",
+        "Claude Code 高频输出时无闪烁花屏",
+        "桌面端和移动端均无渲染异常",
+        "终端输入和输出功能不受影响"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "setState 移除验证",
+          "scenarios": [
+            "_onOutput 调用后不触发外层 build（通过 widget 测试验证 rebuild 次数）",
+            "Terminal.write 仍能触发 RenderTerminal 重绘（已有通知链路）"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "渲染性能",
+          "scenarios": [
+            "Claude Code 大量输出时无可见闪烁",
+            "快速输入时终端响应正常"
+          ]
+        }
+      ],
+      "smoke_required": false,
+      "fix_level": "L1",
+      "root_cause_analysis": "多余的 setState 与 RenderTerminal 自身的通知链路双重触发重绘。setState 导致整个 widget subtree 重建（包括带装饰的 Container），而 RenderTerminal 的 isRepaintBoundary 只保护了 paint 层不波及父节点，但 widget 重建本身产生可见闪烁。",
+      "defect_record": "DF-20260416-02",
+      "files": [
+        "client/lib/screens/terminal_screen.dart"
+      ],
+      "started_at": "2026-04-16T15:20:39+0800",
+      "actual_minutes": 15,
+      "execution_state": {
+        "current_step": "implementing",
+        "retry_count": 0,
+        "resume_hint": "补做 F068 高频输出运行态 smoke（桌面/移动端）后再决定是否 completed",
+        "waiting_for_external": false
+      },
+      "execution_notes": "已移除 _onOutput 的整页 setState，改为 ValueNotifier + ValueListenableBuilder 只刷新 TuiSelector；自动化回归已通过，视觉 smoke 仍待补。",
+      "evidence_file": ".dev-flow/evidence/F068.md"
+    },
+    {
+      "id": "F069",
+      "phase": "terminal-p0-fixes",
+      "module": "client",
+      "name": "移动端键盘 resize 隔离",
+      "description": "L2 修复：移动端键盘弹起/收起触发 Scaffold body resize → PTY resize → 影响桌面端。\n\n根因：Scaffold 默认 resizeToAvoidBottomInset=true，键盘弹起时 body 缩小 →\nRenderTerminal constraints 变化 → performLayout → Terminal.resize →\nonResize → WS resize 消息 → Agent PTY resize。\n共享裸 PTY 没有 owner 概念，谁最后发 resize 谁就改掉全局尺寸。\n\n修复：移动端设置 resizeToAvoidBottomInset: false。\n键盘覆盖在终端上方（Termux 模式），不触发 resize。\n同时修复：软键盘弹起/收起时页面闪烁（无 layout 变化 = 无闪烁）。\n桌面端不受影响（桌面无软键盘）。\n\n覆盖范围（两条路径都必须修复）：\n- 主路径：terminal_workspace_screen.dart:214 工作台 Scaffold（embedded 模式的主入口）\n- 旧路径：terminal_screen.dart:1372 TerminalScreen 独立 Scaffold（connect_screen/runtime_selection_screen 直接打开时生效）",
+      "verification": "F2",
+      "depends_on": [],
+      "status": "in_progress",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "工作台 Scaffold（主路径）移动端设置 resizeToAvoidBottomInset: false",
+        "TerminalScreen 独立 Scaffold（旧路径）移动端也设置 resizeToAvoidBottomInset: false",
+        "桌面端两个 Scaffold 均保持默认行为",
+        "移动端弹起键盘时终端区域不缩小不闪烁",
+        "移动端键盘弹起时不发送 resize 消息到远程 PTY",
+        "桌面端终端显示不受移动端键盘操作影响",
+        "终端输入功能正常（键盘仍可输入文字）",
+        "移动端弹起键盘后，底部提示符/光标仍可见（不被键盘永久遮挡）"
+      ],
+      "risk_tags": ["first_use"],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "resizeToAvoidBottomInset 设置",
+          "scenarios": [
+            "工作台 Scaffold: 移动端 resizeToAvoidBottomInset = false",
+            "TerminalScreen Scaffold: 移动端 resizeToAvoidBottomInset = false",
+            "桌面端两个 Scaffold 保持默认"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "键盘弹起不影响远端",
+          "scenarios": [
+            "手机弹键盘 → 桌面端终端尺寸不变",
+            "手机收键盘 → 桌面端终端尺寸不变",
+            "手机弹收键盘 3 次 → 桌面端无 resize 事件"
+          ]
+        },
+        {
+          "type": "smoke",
+          "description": "真机验证：手机+电脑同时使用",
+          "scenarios": [
+            "手机和电脑同时连同一终端",
+            "手机弹键盘 → 终端内容不闪烁 → 桌面端不受影响",
+            "手机输入命令 → 终端正常响应",
+            "手机弹键盘后底部提示符仍可见（不被键盘永久遮挡）"
           ]
         }
       ],
       "smoke_required": true,
       "fix_level": "L2",
-      "root_cause_analysis": "Agent 和 Client 对'在线'定义不一致。Agent 重连耗尽后进程不退出（local_server 保持监听），Flutter 看到进程存活就认为 Agent 还在工作，不再重启。两层都缺少失败后的清理和自愈逻辑。这不是简单的参数问题（max_retries 5→60），而是进程所有权/退出回收/离线重启链路没有形成可验证的不变量。",
-      "similar_locations": [
-        "agent/app/websocket_client.py run() 退出路径",
-        "client/lib/services/desktop_agent_supervisor.dart ensureAgentOnline() 旧进程处理",
-        "agent/app/config.py Config 默认值",
-        "agent/app/cli.py start 命令默认值"
-      ],
-      "architecture_feedback": "需补充 architecture.md 不变量：Agent 重连失败后必须完全退出进程，不留僵尸；Flutter 客户端检测到 Agent 不在线时必须杀掉旧进程重启",
+      "root_cause_analysis": "共享裸 PTY + 无 resize owner + Scaffold 默认 resize 行为三重叠加。移动端 viewport 变化被直接升级为全局 PTY resize，没有区分'本地 viewport 调整'和'全局 PTY 尺寸变更'。正确语义应是：移动端键盘是本地 UI 事件，不应改变共享 PTY 的全局状态。",
+      "defect_record": "DF-20260416-02",
+      "architecture_feedback": "补充 architecture.md 不变量 #35：移动端终端不得将本地 viewport 变化（键盘弹起/收起）升级为全局 PTY resize",
       "files": [
-        "agent/app/websocket_client.py",
-        "agent/app/config.py",
-        "agent/app/cli.py",
-        "client/lib/services/desktop_agent_supervisor.dart",
-        "client/lib/services/desktop_agent_manager.dart"
-      ]
+        "client/lib/screens/terminal_workspace_screen.dart",
+        "client/lib/screens/terminal_screen.dart"
+      ],
+      "started_at": "2026-04-16T15:23:46+0800",
+      "actual_minutes": 12,
+      "execution_state": {
+        "current_step": "implementing",
+        "retry_count": 0,
+        "resume_hint": "补做 F069 真机键盘弹收和跨端 resize smoke 后再决定是否 completed",
+        "waiting_for_external": false
+      },
+      "execution_notes": "已将两个 Scaffold 收口为移动端 resizeToAvoidBottomInset=false、桌面端=true；根据真机反馈又补了 shortcut bar / TUI selector 跟随 viewInsets.bottom 上浮的修复与回归。真机键盘 resize/不发远端 resize 仍待运行态验证。",
+      "evidence_file": ".dev-flow/evidence/F069.md"
     },
     {
-      "id": "S066",
-      "phase": "ip-direct",
-      "module": "agent",
-      "name": "Agent 1012 重连阻塞修复 — 断连信号传播",
-      "description": "L2 修复：服务器重启后 Agent 收到 1012 断连，进程永久挂起不退出也不重连。\n\n根因：_connect_and_run() 内部三个并行任务（PTY读/WS读/心跳）使用 asyncio.gather 协调，但任务间缺少断连信号传播。WS 读和心跳检测到断连后只 break 不设置 _connected=False，导致 PTY 读任务永远循环（while self._running and self._connected）。gather 死锁，run() 无法进入重试。\n\n修复：\n1. _websocket_to_pty: break 前设置 _connected=False\n2. _heartbeat_loop: break 前设置 _connected=False\n3. _pty_to_websocket: 仅对 WS ConnectionClosed 传播断连，PTY 本地错误（OSError）不传播",
+      "id": "F070",
+      "phase": "terminal-p0-fixes",
+      "module": "client",
+      "name": "终端切换白屏修复",
+      "description": "L2 修复：切换终端后页面空白，需要手动刷新才能显示内容，刷新也不稳定。\n\n根因：每次 TerminalScreen 挂载时新建 Terminal(maxLines: 10000) 实例，TerminalSessionManager\n只缓存 WebSocketService，不缓存 Terminal state/buffer。切换 A→B→A 时，切回 A 需要重新\n创建 Terminal 实例并等待 WebSocket 重新推送数据，期间显示空白。\n\n已排除的假设：\n- ❌ 'TerminalView 缺少 key'：工作台已使用 ValueKey(terminalId) + KeyedSubtree\n- ❌ '重连时没有 loading'：terminal_screen.dart:1257 已有 loading 状态处理\n\n修复方向：在 TerminalSessionManager 中缓存每个 terminal 的 Terminal 实例（含 buffer/state），\n切换时复用已有实例而非新建，避免 buffer 丢失和重新等待数据。\n\n前置 F069：resize 隔离后减少了 layout 变量，更容易定位白屏的具体触发条件。",
       "verification": "F2",
-      "depends_on": ["S065"],
-      "status": "completed",
-      "started_at": "2026-04-16",
-      "completed_at": "2026-04-16",
-      "commit": "a536ea4",
-      "evidence_file": ".dev-flow/evidence/S066.md",
+      "depends_on": ["F069"],
+      "status": "in_progress",
       "priority": "P0",
       "acceptance_criteria": [
-        "WS 读任务断连后设置 _connected=False，使 PTY 读任务退出循环",
-        "心跳任务断连后设置 _connected=False，使 PTY 读任务退出循环",
-        "PTY→WS 发送失败（ConnectionClosed）传播断连信号",
-        "PTY 本地读取错误（OSError）不传播断连信号（职责边界）",
-        "本地 stdin 异常不传播断连信号",
-        "asyncio.gather 在断连信号传播后能完成（不死锁）",
-        "run() while 循环能进入下一次重连"
+        "切换到另一个终端后内容立即显示（不白屏）",
+        "切回原终端时 scrollback 内容保留（Terminal 实例被复用）",
+        "连续快速切换 3 次不出现白屏",
+        "WebSocket 重连中显示已有 loading 状态（确认已有逻辑正常工作）",
+        "切换到已断开连接的终端显示明确状态而非空白"
       ],
-      "risk_tags": ["network", "startup"],
+      "risk_tags": ["first_use"],
       "test_tasks": [
         {
           "type": "unit",
-          "description": "断连信号传播",
+          "description": "Terminal 实例缓存",
           "scenarios": [
-            "_websocket_to_pty 断连后设置 _connected=False",
-            "_heartbeat_loop 断连后设置 _connected=False",
-            "_pty_to_websocket WS ConnectionClosed 传播断连",
-            "_pty_to_websocket PTY OSError 不传播断连"
+            "TerminalSessionManager 为每个 terminalId 维护 Terminal 实例缓存",
+            "切换时复用已有 Terminal 实例（不新建）",
+            "terminal 关闭时清理对应 Terminal 缓存",
+            "disconnectAll() 时清空所有 Terminal 实例缓存",
+            "登出/被踢下线/切环境时 Terminal 缓存被完全清除，不泄漏到下一次会话"
           ]
         },
         {
           "type": "integration",
-          "description": "gather 解阻塞",
+          "description": "切换场景",
           "scenarios": [
-            "三任务 gather 在断连信号传播后完成（不死锁）",
-            "真实 _connect_and_run() gather 在 WS 断连后解除阻塞"
+            "有 2 个活跃终端 → 切换到第 2 个 → 内容立即显示",
+            "切回第 1 个 → scrollback 内容保留（验证 Terminal 实例复用）",
+            "WebSocket 重连中 → 显示 loading（确认已有逻辑）"
+          ]
+        },
+        {
+          "type": "unit",
+          "description": "缓存生命周期",
+          "scenarios": [
+            "disconnectAll() → 所有 Terminal 实例被销毁",
+            "logout_helper.dart 调用 disconnectAll → Terminal 缓存清空",
+            "auth error/session reset → Terminal 缓存清空"
+          ]
+        },
+        {
+          "type": "smoke",
+          "description": "真机验证：多终端切换",
+          "scenarios": [
+            "创建 2 个终端 → 快速切换 3 次 → 无白屏",
+            "切换到已断开连接的终端 → 明确提示而非空白",
+            "切换后 scrollback 内容完整",
+            "登出后重新登录 → 不会看到旧用户的终端内容残留"
+          ]
+        }
+      ],
+      "smoke_required": true,
+      "fix_level": "L2",
+      "root_cause_analysis": "TerminalSessionManager 只缓存 WebSocketService，不缓存 Terminal 实例。每次 TerminalScreen 挂载都新建 Terminal(maxLines: 10000)，导致切换时 buffer 丢失。工作台已正确使用 ValueKey + KeyedSubtree 管理 widget 生命周期，问题不在 widget key 层面，而在 Terminal 状态管理层面。",
+      "defect_record": "DF-20260416-02",
+      "files": [
+        "client/lib/services/terminal_session_manager.dart",
+        "client/lib/screens/terminal_screen.dart"
+      ],
+      "started_at": "2026-04-16T15:29:28+0800",
+      "actual_minutes": 14,
+      "execution_state": {
+        "current_step": "implementing",
+        "retry_count": 0,
+        "resume_hint": "补做 F070 多 terminal 切换、断开状态显示和快速切换 3 次的运行态 smoke 后再决定是否 completed",
+        "waiting_for_external": false
+      },
+      "execution_notes": "已将 terminal cache 升级为 session 层持续 output binding，并让 TerminalScreen 在依赖变化时重绑当前 service/terminal；unit/widget 回归已通过，但真实多 terminal 切换 smoke 仍待补。",
+      "evidence_file": ".dev-flow/evidence/F070.md"
+    },
+    {
+      "id": "S071",
+      "phase": "terminal-interaction-refactor",
+      "module": "shared",
+      "name": "终端交互架构基线：单 Transport + 单 Coordinator + 单权威恢复源",
+      "description": "系统性重构的 shared 基线任务。明确 terminal 交互的四层职责：UI / Coordinator / Transport / Renderer，并收口跨 server/agent/client 的恢复与 attach 语义。\n\n目标模型：\n- 一个 client view 同时只有一个 active terminal transport\n- Agent 成为 terminal 内容恢复的主权威源；Server 只保留 metadata 与必要的诊断级历史，不再让 output history 与 agent snapshot 双主\n- 客户端切换 terminal ≠ reconnect ≠ recover，三类事件必须分离\n- 恢复协议显式包含 snapshot, snapshot_complete, live_output 三段边界\n- Geometry owner 继续保留，但仅属于 Coordinator/Server 元数据，不进入 UI 层",
+      "verification": "F2",
+      "depends_on": [],
+      "status": "completed",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "形成终端交互四层职责边界，并回写 architecture.md",
+        "明确同一 client view 的 active terminal transport 语义",
+        "明确 Agent / Server / Client 各自保存什么状态、谁负责恢复",
+        "明确 switch / reconnect / recover 三类事件的独立状态机"
+      ],
+      "risk_tags": ["cross_client", "reconnect", "shared_state", "tui"],
+      "test_tasks": [
+        {
+          "type": "design",
+          "description": "架构验收",
+          "scenarios": [
+            "四层职责边界图",
+            "状态源矩阵（PTY / session metadata / local renderer）",
+            "switch / reconnect / recover 状态机"
           ]
         }
       ],
       "smoke_required": false,
-      "fix_level": "L2",
-      "root_cause_analysis": "并行任务间缺少断连信号传播机制。asyncio.gather 等待所有任务完成，但部分任务检测到断连后只 break 不通知其他任务，导致其他任务永远循环。gather 死锁后外层 run() 无法进入重试。",
-      "defect_record": "DF-20260416-01",
-      "similar_locations": [
-        "agent/app/websocket_client.py _pty_to_websocket()",
-        "agent/app/websocket_client.py _websocket_to_pty()",
-        "agent/app/websocket_client.py _heartbeat_loop()"
+      "planning_notes": "本任务是后续 server/agent/client 重构的 shared 前置，不直接写业务代码。",
+      "started_at": "2026-04-17T19:45:31+0800",
+      "completed_at": "2026-04-17T19:45:31+0800",
+      "actual_minutes": 20,
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 0,
+        "resume_hint": "继续执行 S072，固化 snapshot/epoch/exclusive/shared 语义",
+        "waiting_for_external": false
+      },
+      "execution_notes": "已将终端交互四层职责、状态源矩阵和 switch/reconnect/recover 状态机回写到 architecture.md，并同步 feature_list/test_coverage/alignment_checklist。",
+      "evidence_file": ".dev-flow/evidence/S071.md"
+    },
+    {
+      "id": "S072",
+      "phase": "terminal-interaction-refactor",
+      "module": "shared",
+      "name": "终端恢复语义与模式基线：snapshot/epoch/exclusive/shared",
+      "description": "把 terminal 恢复语义正式化，统一定义 snapshot、local cache、attach_epoch、recovery_epoch 以及 terminal 模式（exclusive/shared）。\n\n目标：\n- snapshot 绑定 terminal_id + attach_epoch + recovery_epoch + pty\n- live output 在 snapshot_complete 前只缓冲，不直接渲染\n- local renderer cache 只用于本地 continuity，不参与跨端真相\n- terminal 支持 exclusive/shared 两种模式，并定义默认策略（Codex 偏 exclusive，Claude/shell 偏 shared）\n- switch / reconnect / recover 的恢复边界由 shared 契约统一，不再由各层自由发挥",
+      "verification": "F2",
+      "depends_on": ["S071"],
+      "status": "completed",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "snapshot / local cache / live output 的职责边界明确并文档化",
+        "attach_epoch / recovery_epoch 成为跨端协议与协调层正式字段",
+        "exclusive/shared 两种 terminal mode 有明确默认策略与限制",
+        "switch / reconnect / recover 的边界有配套测试规划"
       ],
-      "architecture_feedback": "补充 architecture.md 不变量 #34：Agent 并行任务中任一检测到连接断开，必须立即设置 _connected=False，使其他任务退出循环，避免 asyncio.gather 死锁",
+      "contract_refs": ["CONTRACT-039", "CONTRACT-042"],
+      "risk_tags": ["cross_client", "reconnect", "shared_state", "tui"],
+      "test_tasks": [
+        {
+          "type": "design",
+          "description": "恢复语义与模式校验",
+          "scenarios": [
+            "旧 epoch 的 snapshot/output/resize 明确丢弃",
+            "snapshot_complete 前 live output 明确缓冲",
+            "Codex exclusive 模式与 Claude shared 模式策略区分",
+            "switch 不创建新的 recovery_epoch，reconnect 必须创建新的 attach_epoch"
+          ]
+        }
+      ],
+      "smoke_required": false,
+      "planning_notes": "本任务为 server/agent/client/desktop 的共同前提，先固化恢复语义，再落代码重构。",
+      "started_at": "2026-04-17T19:45:31+0800",
+      "completed_at": "2026-04-17T19:45:31+0800",
+      "actual_minutes": 20,
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 0,
+        "resume_hint": "继续执行 S073，补齐新旧恢复协议兼容窗口、发布顺序与回退策略",
+        "waiting_for_external": false
+      },
+      "execution_notes": "已在 architecture.md 和 api_contracts.md 中正式定义 snapshot/local cache/live output 边界、attach_epoch/recovery_epoch 和 exclusive/shared mode，并同步测试矩阵与对齐清单。",
+      "evidence_file": ".dev-flow/evidence/S072.md"
+    },
+    {
+      "id": "S073",
+      "phase": "terminal-interaction-refactor",
+      "module": "shared",
+      "name": "协议兼容迁移与灰度切换策略：双协议窗口、回退与发布顺序",
+      "description": "为 terminal-interaction-refactor 增加显式的迁移计划，避免 server/agent/client 分步上线时因协议不兼容再次引入终端内容丢失。\n\n目标：\n- 明确新旧恢复协议共存窗口\n- 定义 server 先支持双协议、agent/client 分步切换还是一次性切换\n- 明确旧 client/desktop 连接到新 server 时的回退策略\n- 明确新 client 连接到旧 server/agent 时的能力降级策略\n- 补发布顺序、灰度验证点与回滚条件",
+      "verification": "F2",
+      "depends_on": ["S072"],
+      "status": "completed",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "存在明确的新旧恢复协议兼容窗口与版本边界",
+        "server/agent/client 的发布顺序清晰，避免中间态错配",
+        "旧 client/desktop 与新 server 的回退行为明确",
+        "回滚条件与灰度验证点明确"
+      ],
+      "contract_refs": ["CONTRACT-042"],
+      "risk_tags": ["network", "startup", "reconnect", "shared_state", "first_use"],
+      "test_tasks": [
+        {
+          "type": "design",
+          "description": "兼容迁移校验",
+          "scenarios": [
+            "新 server + 旧 client/desktop 的降级路径",
+            "新 client + 旧 server/agent 的降级路径",
+            "协议切换期间 Codex/Claude terminal 不出现整批不可恢复",
+            "回滚后 active terminal 仍能继续工作"
+          ]
+        }
+      ],
+      "smoke_required": false,
+      "planning_notes": "本任务不直接改业务代码，先明确 rollout 与回退边界，避免执行期继续补丁式对齐。",
+      "started_at": "2026-04-17T19:45:31+0800",
+      "completed_at": "2026-04-17T19:45:31+0800",
+      "actual_minutes": 15,
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 0,
+        "resume_hint": "继续执行 B071/B072，开始真正的 server/agent 重构",
+        "waiting_for_external": false
+      },
+      "execution_notes": "已在 architecture.md 中定义双协议兼容窗口、Server->Agent->Client 发布顺序、降级路径、回退条件与灰度验证点。",
+      "evidence_file": ".dev-flow/evidence/S073.md"
+    },
+    {
+      "id": "B071",
+      "phase": "terminal-interaction-refactor",
+      "module": "server",
+      "name": "Server 状态中心收瘦：只维护 metadata / ownership / routing 真相",
+      "description": "重构 session.py 与 ws_client.py 的职责，确保 Server 只做 terminal metadata、ownership、routing 和 attach gating 的真相源，不再把 output history 当 attach 恢复的主来源。\n\n收口目标：\n- session.py 管 device/session/terminal metadata、views、geometry_owner_view、pty、status\n- output history 降级为诊断/审计用途，不再作为 attach 后主 snapshot 源\n- connected / presence / close / detach 路径不再做隐式状态推导\n- attach/reconnect 时序围绕显式 recovery 协议重建",
+      "verification": "F2",
+      "depends_on": ["S071", "S072"],
+      "status": "completed",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "session.py 的 terminal 真相字段收口到 metadata / ownership / pty / status",
+        "attach 恢复不再以 Redis output history 为主恢复源",
+        "connected/presence/cleanup 路径无重复状态推导",
+        "Server 端 contract 对 client/agent 的职责边界清晰",
+        "session/device 的 online / offline_recoverable / offline_expired 与 terminal 的 live / detached_recoverable / recovering / closed 状态模型明确"
+      ],
+      "contract_refs": ["CONTRACT-040", "CONTRACT-042"],
+      "risk_tags": ["cross_client", "reconnect", "shared_state"],
+      "test_tasks": [
+        {
+          "type": "integration",
+          "description": "Server 状态中心回归",
+          "scenarios": [
+            "terminal attach 后 connected 首包只返回 metadata/ownership/pty",
+            "cleanup 后 views/owner/status 不漂移",
+            "history 为空与不为空时，恢复主来源语义一致",
+            "agent 断连后进入 offline_recoverable，TTL 超时后进入 offline_expired",
+            "terminal 在 agent 断连后进入 detached_recoverable，而不是立即 closed"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "Mobile observer attach",
+          "scenarios": [
+            "mobile 后加入 attach 已存在 terminal → 不抢占 geometry_owner",
+            "mobile refresh/reconnect → 不把本地 viewport 变化升级为 shared PTY resize",
+            "mobile attach 时 connected 首包 geometry_owner_view 为 desktop",
+            "mobile 断开后 geometry_owner 回归 desktop 或 None"
+          ]
+        }
+      ],
+      "smoke_required": false,
+      "files": [
+        "server/app/session.py",
+        "server/app/ws_client.py",
+        "server/app/runtime_api.py"
+      ],
+      "started_at": "2026-04-18T08:08:23+0800",
+      "completed_at": "2026-04-18T08:08:23+0800",
+      "actual_minutes": 90,
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 0,
+        "resume_hint": "继续执行 B072，收口 AgentSnapshotManager 与主权威恢复源语义",
+        "waiting_for_external": false
+      },
+      "execution_notes": "已把 server 状态中心迁到 online/offline_recoverable/offline_expired 与 recovering/live/detached_recoverable/closed 模型，connected 首包补齐 epoch，attach 恢复改为 snapshot_start/chunk/complete，agent snapshot 成为恢复优先来源。",
+      "evidence_file": ".dev-flow/evidence/B071.md"
+    },
+    {
+      "id": "B072",
+      "phase": "terminal-interaction-refactor",
+      "module": "agent",
+      "name": "Agent 主权威恢复源：terminal snapshot manager",
+      "description": "将 Agent 提升为 terminal 内容恢复的主权威源。Agent 维护每个 terminal 的最近可恢复内容与恢复边界，对 Server 暴露 snapshot_request / snapshot_data 语义。\n\n目标不是实现完整 screen diff，而是先把 Agent authoritative snapshot 做成唯一主路径：\n- 每个 terminal 独立 snapshot buffer\n- snapshot 与 live data 使用显式边界\n- terminal close / recreate 时 snapshot 生命周期明确\n- Server attach 恢复时优先取 Agent 当前 snapshot，而不是回放 output history",
+      "verification": "F2",
+      "depends_on": ["S071", "S072"],
+      "status": "completed",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "Agent 对每个 terminal 维护独立 snapshot 生命周期",
+        "snapshot_request / snapshot_data 成为 attach 恢复主路径",
+        "terminal close / recreate 不会污染旧 snapshot",
+        "Codex/Claude 高频输出下 snapshot 仍能提供可恢复状态"
+      ],
+      "contract_refs": ["CONTRACT-041", "CONTRACT-042"],
+      "risk_tags": ["cross_client", "reconnect", "shared_state", "tui"],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "Agent snapshot manager",
+          "scenarios": [
+            "多 terminal 独立 snapshot",
+            "close 后 snapshot 清空",
+            "重新创建同 terminal_id 或新 terminal 时不继承旧状态"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "恢复链",
+          "scenarios": [
+            "attach 时 snapshot_request -> snapshot_data 主路径",
+            "高频输出时 snapshot 仍可恢复可见内容"
+          ]
+        }
+      ],
+      "smoke_required": false,
+      "started_at": "2026-04-18T14:10:00+0800",
+      "completed_at": "2026-04-18T14:35:00+0800",
+      "actual_minutes": 25,
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 0,
+        "resume_hint": "继续执行 B073，升级 snapshot_start/snapshot_chunk/snapshot_complete 与 output 协议边界",
+        "waiting_for_external": false
+      },
+      "execution_notes": "已将 agent 侧 runtime 和 snapshot 生命周期拆分为独立管理器，snapshot_data 现在附带 pty 与 active_buffer 元数据；per-terminal 隔离、close/recreate 清理和高频输出下可恢复性均已通过回归验证。",
+      "evidence_file": ".dev-flow/evidence/B072.md",
       "files": [
         "agent/app/websocket_client.py",
-        "agent/tests/test_disconnect_signal_propagation.py"
+        "server/app/ws_agent.py",
+        "server/app/ws_client.py"
+      ]
+    },
+    {
+      "id": "B073",
+      "phase": "terminal-interaction-refactor",
+      "module": "server-agent-protocol",
+      "name": "恢复协议升级：snapshot / snapshot_complete / live_output 边界与顺序",
+      "description": "补齐 server-agent-client 之间的恢复协议，确保 reconnect / attach 时 snapshot 与 live output 不乱序、不互相覆盖。\n\n目标协议：\n- connected 表示 transport ready，不表示恢复完成\n- snapshot 为恢复材料块\n- snapshot_complete 表示恢复边界结束\n- live output 只在 snapshot_complete 之后进入 live 阶段\n- 后续必要时可增加序号/epoch，但本阶段先保证边界语义完整",
+      "verification": "F2",
+      "depends_on": ["S072", "S073", "B071", "B072"],
+      "status": "completed",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "attach/reconnect 恢复时有显式 snapshot_complete 边界",
+        "snapshot 与 live output 不再无边界交错",
+        "客户端可根据协议明确进入 recovering/live 阶段",
+        "output 事件附带 attach_epoch/recovery_epoch，旧 epoch 消息可被客户端丢弃",
+        "存在新旧恢复协议兼容/降级语义，避免迁移期错配"
+      ],
+      "contract_refs": ["CONTRACT-042"],
+      "risk_tags": ["cross_client", "reconnect", "shared_state", "tui"],
+      "test_tasks": [
+        {
+          "type": "integration",
+          "description": "恢复边界时序",
+          "scenarios": [
+            "connected -> snapshot* -> snapshot_complete -> live data",
+            "空 snapshot 情况仍会发送 snapshot_complete",
+            "高频输出下 refresh 后无明显漏帧",
+            "协议迁移窗口内旧 client/desktop 仍有可用降级路径"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "协议异常与边界",
+          "scenarios": [
+            "收到旧 attach_epoch 的 output 消息时客户端丢弃",
+            "snapshot 和 output 乱序到达时不污染 renderer",
+            "recovering 中触发 reconnect 时旧 snapshot_complete 不被消费",
+            "mixed-version fallback 失败后降级到 history 兜底路径"
+          ]
+        }
+      ],
+      "smoke_required": true,
+      "started_at": "2026-04-18T14:40:00+0800",
+      "completed_at": "2026-04-18T15:05:00+0800",
+      "actual_minutes": 25,
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 0,
+        "resume_hint": "继续执行 F071，收瘦 client transport 并正式消费 snapshot_chunk/output 协议",
+        "waiting_for_external": false
+      },
+      "execution_notes": "已将 server->client live 数据升级为 output+epoch，client transport 兼容消费 snapshot_chunk/output 与旧 snapshot/data；attach 恢复边界现在具备显式 snapshot_start/chunk/complete 语义。静态分析结果为 No issues found，但 dart/flutter telemetry 写入 ~/.dart-tool 在沙箱内被拒绝，属环境噪音。",
+      "evidence_file": ".dev-flow/evidence/B073.md",
+      "files": [
+        "server/app/ws_client.py",
+        "agent/app/websocket_client.py",
+        "client/lib/services/websocket_service.dart"
+      ]
+    },
+    {
+      "id": "F071",
+      "phase": "terminal-interaction-refactor",
+      "module": "client-transport",
+      "name": "Client Transport 收瘦：WebSocketService 只负责协议事件",
+      "description": "将 WebSocketService 收口为纯 transport 层，不再承载 terminal 恢复和 xterm 语义。\n\n目标：\n- 只保留 connect/reconnect/send/receive\n- 对外暴露标准化 terminal events（connected/snapshot/snapshot_complete/output/resize/presence/closed）\n- 不直接持有 terminal renderer 语义\n- geometry owner 等 metadata 仍可解析，但只作为 transport event / state，不在该层做恢复策略",
+      "verification": "F2",
+      "depends_on": ["B073"],
+      "status": "completed",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "WebSocketService 不再承担 terminal 恢复策略",
+        "对外事件流标准化（TerminalProtocolEvent），供 coordinator 消费",
+        "connected 事件包含 attach_epoch/recovery_epoch/pty/views/geometry_owner_view",
+        "output/snapshot_chunk/snapshot_complete/resize/presence/closed 各类协议事件按类型正确分发",
+        "收到 malformed 或缺失字段的 frame 时不崩溃，静默丢弃",
+        "旧专用 stream（outputStream/presenceStream）仍可用但标记为迁移窗口，可被关闭",
+        "同一 service reconnect 时不会直接覆盖 local xterm state"
+      ],
+      "contract_refs": ["CONTRACT-042"],
+      "risk_tags": ["reconnect", "shared_state"],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "Transport 事件流",
+          "scenarios": [
+            "connected/snapshot/snapshot_complete/output/resize 事件正确发出",
+            "连接状态与协议事件分离"
+          ]
+        },
+        {
+          "type": "unit",
+          "description": "Transport 异常与边界",
+          "scenarios": [
+            "收到旧 attach_epoch 的事件时丢弃，不触发 output 更新",
+            "reconnect 中断 recovering 时，旧 snapshot_complete 不被消费",
+            "收到未知 type 的消息时不崩溃",
+            "旧专用 stream（outputStream）与 eventStream 内容一致，迁移结束后可关闭旧 stream"
+          ]
+        }
+      ],
+      "smoke_required": false,
+      "started_at": "2026-04-18T15:10:00+0800",
+      "completed_at": "2026-04-19T10:30:00+0800",
+      "actual_minutes": 45,
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 0,
+        "waiting_for_external": false
+      },
+      "execution_notes": "WebSocketService 收口为纯 transport 层：标准化 eventStream 输出 TerminalProtocolEvent 7 种事件；epoch 丢弃逻辑实现；旧 outputStream/presenceStream 标记 @Deprecated；default 分支处理未知 type。33/33 测试通过。",
+      "evidence_file": ".dev-flow/evidence/F071.md",
+      "files": [
+        "client/lib/services/websocket_service.dart",
+        "client/test/services/websocket_service_test.dart"
+      ]
+    },
+    {
+      "id": "F072",
+      "phase": "terminal-interaction-refactor",
+      "module": "client-coordinator",
+      "name": "Client Coordinator 新建：TerminalSessionCoordinator 状态机",
+      "description": "引入显式的 TerminalSessionCoordinator，成为 terminal cache、switch、reconnect、recover、geometry owner 策略的唯一协调层。\n\n目标：\n- 显式状态机：idle -> connecting -> recovering -> live -> reconnecting\n- 统一处理 switch / reconnect / recover 三类事件\n- 管理每个 terminal 的 local renderer cache 与 active transport\n- 保证同一 client view 只有一个 active terminal transport\n- 切换 terminal 时保留 cached renderer，不再误触发恢复覆盖",
+      "verification": "F2",
+      "depends_on": ["S072", "F071"],
+      "status": "pending",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "Coordinator 成为 switch/reconnect/recover 唯一协调者",
+        "同一 view 只有一个 active terminal transport",
+        "切换 terminal 不再误清 cached renderer",
+        "桌面端创建终端：create success -> 首次 attach -> recovering -> snapshot_complete -> live -> 首屏输出可见",
+        "桌面端创建终端：agent_offline / max_terminals 拒绝时 coordinator 进入 error 状态，UI 可感知",
+        "创建后 active transport 从旧 terminal 切到新 terminal",
+        "switch 只切换 active transport + renderer，不进入 recover",
+        "reconnect 进入 recover -> snapshot_complete -> live",
+        "平台触发编排（foreground/cold-start/network）由 F075/F076 负责，本任务只提供状态机 entry points"
+      ],
+      "contract_refs": ["CONTRACT-039", "CONTRACT-042"],
+      "risk_tags": ["cross_client", "reconnect", "shared_state", "tui"],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "Coordinator 状态机",
+          "scenarios": [
+            "idle -> connecting -> recovering -> live 完整路径",
+            "switch 只切 active transport，不进入 recover",
+            "reconnect 进入 recover 再进入 live",
+            "snapshot_complete 前 live output 缓冲不直接覆盖 renderer",
+            "create 成功后 coordinator 进入 recovering -> live",
+            "create 失败（agent_offline / max_terminals）coordinator 进入 error"
+          ]
+        },
+        {
+          "type": "unit",
+          "description": "多 terminal active transport",
+          "scenarios": [
+            "创建新 terminal 后 active transport 切到新 terminal",
+            "同时只有一个 active transport",
+            "切回旧 terminal 时 renderer cache 保留"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "多 terminal 切换与恢复",
+          "scenarios": [
+            "Codex 切换后再切回内容保留",
+            "switch 后 output 立即显示在 renderer",
+            "reconnect 后 snapshot_complete -> live 首屏输出可见"
+          ]
+        }
+      ],
+      "smoke_required": true,
+      "files": [
+        "client/lib/services/terminal_session_manager.dart",
+        "client/test/services/terminal_session_manager_test.dart"
+      ]
+    },
+    {
+      "id": "F073",
+      "phase": "terminal-interaction-refactor",
+      "module": "client-renderer",
+      "name": "Renderer 隔离：xterm handle 与 local screen state 下沉",
+      "description": "把本地 xterm Terminal 的职责从 screen/widget 层剥离出来，形成明确的 RendererAdapter。RendererAdapter 只暴露稳定的 applySnapshot / applyLiveOutput / resize / reset / dispose 接口，内部包装 xterm Terminal 的 screen buffer、cursor、alt/main buffer 操作。\n\n目标：\n- RendererAdapter 成为 xterm 的唯一稳定包装层，Coordinator 和 UI 只依赖 adapter 接口\n- UI 不再直接操纵 xterm Terminal / mainBuffer / altBuffer\n- Coordinator 通过 RendererAdapter 施加恢复材料与 live output\n- 为后续 agent authoritative snapshot / screen diff 演进保留接口",
+      "verification": "F1",
+      "depends_on": ["F072"],
+      "status": "pending",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "RendererAdapter 提供 applySnapshot / applyLiveOutput / resize / reset / dispose 稳定接口",
+        "Coordinator 和 UI 只依赖 RendererAdapter，不直接 import xterm Terminal 或 third_party API",
+        "xterm local state 不再散落在 screen + manager 两处，全部通过 adapter 访问",
+        "snapshot/live apply 路径统一走 adapter",
+        "为 future screen snapshot/diff 预留单一 renderer 入口"
+      ],
+      "risk_tags": ["shared_state", "tui"],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "Renderer handle",
+          "scenarios": [
+            "apply snapshot",
+            "apply live output",
+            "reset/clear/close 生命周期"
+          ]
+        }
+      ],
+      "smoke_required": false,
+      "files": [
+        "client/lib/services/terminal_session_manager.dart",
+        "client/third_party/xterm/**"
+      ]
+    },
+    {
+      "id": "F074",
+      "phase": "terminal-interaction-refactor",
+      "module": "client-ui",
+      "name": "UI 瘦身：TerminalScreen / TerminalWorkspaceScreen 只做展示和交互",
+      "description": "最终把 TerminalScreen / TerminalWorkspaceScreen 收口为纯 UI 层。页面只负责 terminal 选择、焦点、快捷键、IME 和布局，不再直接协调 transport、reconnect、snapshot 恢复或 geometry owner 策略。\n\n目标：\n- TerminalScreen 不再自己拼 connect + bind + recover 逻辑\n- TerminalWorkspaceScreen 不再感知 active transport 细节\n- UI 只消费 coordinator 暴露的 terminal handle / view model\n- 桌面端与移动端复用同一套 coordinator 语义，只保留交互差异",
+      "verification": "F2",
+      "depends_on": ["F072", "F073"],
+      "status": "pending",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "TerminalScreen/Workspace 不再承载恢复策略，只消费 coordinator 的 terminal handle / view model",
+        "输入焦点、快捷键、IME 行为不回归",
+        "桌面/移动端共享同一 terminal coordinator 语义",
+        "移动端 observer attach 已存在 terminal 时显示内容，不抢占 geometry_owner",
+        "移动端 refresh/reconnect 时不触发 shared PTY resize",
+        "双端同时观察同一 terminal 时不白屏，无 geometry 抢占"
+      ],
+      "risk_tags": ["cross_client", "first_use", "tui"],
+      "test_tasks": [
+        {
+          "type": "widget",
+          "description": "UI 回归",
+          "scenarios": [
+            "桌面/移动端 terminal 打开、切换、关闭",
+            "快捷键与 IME 交互不回归",
+            "Codex/Claude 终端进入与退出路径正常"
+          ]
+        },
+        {
+          "type": "widget",
+          "description": "移动端 observer 模式",
+          "scenarios": [
+            "移动端 attach 已存在 terminal → 内容显示、不触发 resize",
+            "移动端 refresh 时不抢占 geometry_owner",
+            "双端同时观察同一 terminal → 不白屏、内容同步"
+          ]
+        },
+        {
+          "type": "widget",
+          "description": "页面不承载恢复策略",
+          "scenarios": [
+            "TerminalScreen 不直接调用 service.connect/bind/recover",
+            "TerminalWorkspaceScreen 不直接感知 active transport 细节"
+          ]
+        }
+      ],
+      "smoke_required": true,
+      "files": [
+        "client/lib/screens/terminal_screen.dart",
+        "client/lib/screens/terminal_workspace_screen.dart",
+        "client/test/screens/terminal_screen_shortcuts_test.dart",
+        "client/test/screens/terminal_workspace_screen_test.dart"
+      ]
+    },
+    {
+      "id": "F075",
+      "phase": "terminal-interaction-refactor",
+      "module": "desktop",
+      "name": "桌面端 Agent 断连恢复编排：recoverable/offline_expired/agent restart",
+      "description": "把桌面端对本机 Agent 的管理纳入新的 terminal 生命周期模型，统一处理 agent 与 server 断连、TTL 恢复、app 前后台切换、app 被杀重启后的恢复。\n\n目标：\n- 桌面端区分“agent 进程仍在但网络断开”和“agent 进程已死”两类场景\n- session/device 状态显式区分 online / offline_recoverable / offline_expired\n- terminal 状态显式区分 live / detached_recoverable / recovering / closed\n- DesktopAgentManager 与 TerminalSessionCoordinator 协同：agent 断连不立刻清空 terminal，本地 renderer cache 保留，TTL 内优先恢复；必要时桌面端负责本地重启 agent\n- app 从后台回前台、app 重启、网络恢复三类场景统一走同一套恢复状态机",
+      "verification": "F2",
+      "depends_on": ["S072", "B071", "B072", "B073", "F072"],
+      "status": "pending",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "桌面端能区分网络断连与 agent 进程死亡",
+        "agent 断连后 terminal 进入 recoverable 状态，不立刻 closed",
+        "TTL 内 agent 恢复后桌面端能重新 attach 并正确 recover terminal 内容",
+        "TTL 超时后 terminal 正式 closed，UI 显示明确的 offline_expired 状态",
+        "agent restart 失败或不可恢复退出时，桌面端展示恢复失败提示，不静默挂死",
+        "恢复状态机只在 DesktopAgentManager + Coordinator 中运行，TerminalWorkspaceScreen 只展示状态和转发事件",
+        "app 前后台切换、app 被杀重启、网络异常恢复三类场景走统一恢复状态机"
+      ],
+      "contract_refs": ["CONTRACT-040", "CONTRACT-041", "CONTRACT-042"],
+      "risk_tags": ["network", "startup", "reconnect", "shared_state", "first_use"],
+      "test_tasks": [
+        {
+          "type": "integration",
+          "description": "桌面端 agent 生命周期恢复",
+          "scenarios": [
+            "agent 与 server 短暂断连后 TTL 内恢复",
+            "agent 进程死亡后桌面端重启 agent 并恢复 terminal",
+            "app 从后台回前台后恢复 active terminal",
+            "app 被杀重启后重新 attach terminal 并 recover"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "桌面端恢复失败与边界",
+          "scenarios": [
+            "TTL 超时后 terminal 进入 closed，UI 显示 offline_expired",
+            "agent restart 失败（二进制不存在/权限不足），coordinator 进入 error，UI 展示恢复失败",
+            "agent 不可恢复退出（非零退出码），不静默挂死",
+            "恢复失败后 UI 提供重试入口"
+          ]
+        },
+        {
+          "type": "smoke",
+          "description": "桌面端真机联调",
+          "scenarios": [
+            "桌面端 Codex/Claude 运行中断网再恢复",
+            "桌面端关闭再打开后 terminal 恢复语义正确",
+            "移动端同时观察同一 terminal 时不因桌面端恢复链路丢内容"
+          ]
+        }
+      ],
+      "smoke_required": true,
+      "files": [
+        "client/lib/services/desktop_agent_manager.dart",
+        "client/lib/services/terminal_session_manager.dart",
+        "client/lib/screens/terminal_workspace_screen.dart",
+        "server/app/session.py",
+        "server/app/ws_agent.py",
+        "agent/app/websocket_client.py"
+      ]
+    },
+    {
+      "id": "F076",
+      "phase": "terminal-interaction-refactor",
+      "module": "client-lifecycle",
+      "name": "客户端生命周期恢复编排：foreground/cold start/network restore",
+      "description": "把 app 从后台回前台、app 被杀后重新打开、使用中网络异常恢复三类场景纳入统一的 client recovery 模型，不再由页面或单点 reconnect 逻辑临时兜底。\n\n目标：\n- foreground resume 保留 local renderer cache，但使用新的 attach_epoch 重新对齐 transport\n- cold start 不依赖旧 local cache，直接走 terminal attach + agent snapshot recover\n- network restore 统一走 reconnect -> recovering -> live，不再要求用户多次手动刷新\n- 移动端与桌面端共享同一 recovery 语义，桌面端额外的 agent restart 由 F075 补充",
+      "verification": "F2",
+      "depends_on": ["S072", "S073", "B073", "F072"],
+      "status": "pending",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "app 从后台回前台后 active terminal 能通过统一恢复链重新进入 live",
+        "app 被杀后重新打开，terminal 能通过 agent 主恢复源恢复内容",
+        "网络异常恢复后不再需要多次手动刷新才能看到内容",
+        "移动端与桌面端共享同一 client lifecycle recovery 语义",
+        "恢复状态机只在 Coordinator 中运行，页面只转发生命周期事件、不承载恢复策略",
+        "网络恢复重试耗尽后 coordinator 进入 error 状态，UI 展示恢复失败提示"
+      ],
+      "contract_refs": ["CONTRACT-039", "CONTRACT-042"],
+      "risk_tags": ["network", "startup", "reconnect", "first_use", "shared_state"],
+      "test_tasks": [
+        {
+          "type": "integration",
+          "description": "客户端生命周期恢复",
+          "scenarios": [
+            "app 从后台切回前台，active terminal recover 后进入 live",
+            "app 被杀后重启，通过 snapshot_complete 恢复 terminal",
+            "网络异常后恢复，旧 epoch 消息不会污染当前 terminal",
+            "Codex 高频刷新 terminal 在恢复后不再需要多次手动刷新"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "生命周期恢复异常与边界",
+          "scenarios": [
+            "cold start 空缓存 → 走 agent snapshot recover 主路径",
+            "cold start 坏缓存（损坏数据）→ 丢弃本地缓存，不渲染乱码",
+            "snapshot 不可用或超时 → 降级到 history fallback，不白屏",
+            "网络恢复重试耗尽 → coordinator 进入 error，UI 展示恢复失败",
+            "resume 后收到旧 epoch 消息 → 丢弃，不污染当前 terminal"
+          ]
+        },
+        {
+          "type": "smoke",
+          "description": "移动端/桌面端 lifecycle 联调",
+          "scenarios": [
+            "iOS/Android 前后台切换后 Codex/Claude 内容恢复",
+            "桌面端 app 重启后 attach 恢复语义正确",
+            "双端观察同一 terminal 时恢复链不再导致明显内容分叉"
+          ]
+        }
+      ],
+      "smoke_required": true,
+      "files": [
+        "client/lib/services/terminal_session_manager.dart",
+        "client/lib/services/websocket_service.dart",
+        "client/lib/screens/terminal_screen.dart",
+        "client/lib/screens/terminal_workspace_screen.dart"
       ]
     }
   ],
   "archived_phases": [
+    {
+      "phase": "ip-direct",
+      "task_ids": ["S063", "S064", "S065", "S066"],
+      "archived_at": "2026-04-16",
+      "summary": {"total": 4, "completed": 4, "cancelled": 0}
+    },
     {
       "phase": "env-selector",
       "status": "completed",

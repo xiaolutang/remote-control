@@ -23,6 +23,70 @@ enum ViewType {
   desktop,
 }
 
+enum TerminalOutputKind {
+  data,
+  snapshot,
+  snapshotComplete,
+}
+
+enum TerminalProtocolEventKind {
+  connected,
+  presence,
+  snapshot,
+  snapshotComplete,
+  output,
+  resize,
+  closed,
+}
+
+class TerminalProtocolEvent {
+  const TerminalProtocolEvent({
+    required this.kind,
+    this.payload,
+    this.attachEpoch,
+    this.recoveryEpoch,
+    this.ptySize,
+    this.views,
+    this.geometryOwnerView,
+    this.terminalStatus,
+  });
+
+  final TerminalProtocolEventKind kind;
+  final String? payload;
+  final int? attachEpoch;
+  final int? recoveryEpoch;
+  final TerminalPtySize? ptySize;
+  final Map<String, int>? views;
+  final String? geometryOwnerView;
+  final String? terminalStatus;
+}
+
+class TerminalOutputFrame {
+  const TerminalOutputFrame({
+    required this.kind,
+    required this.payload,
+    this.attachEpoch,
+    this.recoveryEpoch,
+  });
+
+  final TerminalOutputKind kind;
+  final String payload;
+  final int? attachEpoch;
+  final int? recoveryEpoch;
+
+  bool get isSnapshot => kind == TerminalOutputKind.snapshot;
+}
+
+class TerminalPtySize {
+  const TerminalPtySize({
+    required this.rows,
+    required this.cols,
+  });
+
+  final int rows;
+  final int cols;
+}
+
 /// WebSocket 服务
 class WebSocketService extends ChangeNotifier {
   WebSocketChannel? _channel;
@@ -57,11 +121,24 @@ class WebSocketService extends ChangeNotifier {
   String _owner = '';
   String? _terminalStatus;
   Map<String, int> _views = {'mobile': 0, 'desktop': 0};
+  String? _geometryOwnerView;
   int? _lastCloseCode;
   String? _lastCloseReason;
+  int? _ptyRows;
+  int? _ptyCols;
+  int? _attachEpoch;
+  int? _recoveryEpoch;
 
   final StreamController<String> _outputController =
       StreamController<String>.broadcast();
+  final StreamController<TerminalOutputFrame> _outputFrameController =
+      StreamController<TerminalOutputFrame>.broadcast();
+  final StreamController<TerminalProtocolEvent> _eventController =
+      StreamController<TerminalProtocolEvent>.broadcast();
+  final StreamController<void> _terminalConnectedController =
+      StreamController<void>.broadcast();
+  final StreamController<TerminalPtySize> _ptySizeController =
+      StreamController<TerminalPtySize>.broadcast();
   final StreamController<Map<String, int>> _presenceController =
       StreamController<Map<String, int>>.broadcast();
   final StreamController<Map<String, dynamic>> _terminalsChangedController =
@@ -86,28 +163,143 @@ class WebSocketService extends ChangeNotifier {
 
   ConnectionStatus get status => _status;
   String? get errorMessage => _errorMessage;
+  @Deprecated('Use eventStream with TerminalProtocolEventKind.output instead')
   Stream<String> get outputStream => _outputController.stream;
+  Stream<TerminalOutputFrame> get outputFrameStream =>
+      _outputFrameController.stream;
+  Stream<TerminalProtocolEvent> get eventStream => _eventController.stream;
+  Stream<void> get terminalConnectedStream => _terminalConnectedController.stream;
+  Stream<TerminalPtySize> get ptySizeStream => _ptySizeController.stream;
+  @Deprecated('Use eventStream with TerminalProtocolEventKind.presence instead')
   Stream<Map<String, int>> get presenceStream => _presenceController.stream;
-  Stream<Map<String, dynamic>> get terminalsChangedStream => _terminalsChangedController.stream;
+  Stream<Map<String, dynamic>> get terminalsChangedStream =>
+      _terminalsChangedController.stream;
   Stream<void> get deviceKickedStream => _deviceKickedController.stream;
+
   /// WS close code 4001 (token 验证失败) 时触发，UI 层应跳转登录页
   Stream<void> get tokenInvalidStream => _tokenInvalidController.stream;
   bool get isConnected => _status == ConnectionStatus.connected;
   bool get agentOnline => _agentOnline;
+
   /// 设备在线状态 - 来自 Server 首包消息中的 device_online
   /// 表示 Agent 到 Server 的连接状态，与客户端 WebSocket 连接状态无关
   bool get deviceOnline => _deviceOnline;
   String get owner => _owner;
   String? get terminalStatus => _terminalStatus;
   Map<String, int> get views => _views;
+  String? get geometryOwnerView => _geometryOwnerView;
+  bool get isGeometryOwner => _geometryOwnerView == _viewTypeString;
   int? get lastCloseCode => _lastCloseCode;
   String? get lastCloseReason => _lastCloseReason;
+  int? get ptyRows => _ptyRows;
+  int? get ptyCols => _ptyCols;
+  int? get attachEpoch => _attachEpoch;
+  int? get recoveryEpoch => _recoveryEpoch;
+
   /// 是否因认证失败而永久断开（close code 4001 或 4011），
   /// 此类服务不可复用，应丢弃重建。
-  bool get isAuthFailed =>
-      _lastCloseCode == 4001 || _lastCloseCode == 4011;
+  bool get isAuthFailed => _lastCloseCode == 4001 || _lastCloseCode == 4011;
 
-  String get _viewTypeString => viewType == ViewType.desktop ? 'desktop' : 'mobile';
+  String get _viewTypeString =>
+      viewType == ViewType.desktop ? 'desktop' : 'mobile';
+
+  void _applyPtySize(Map<String, dynamic>? pty, {bool notify = true}) {
+    if (pty == null) {
+      return;
+    }
+    final rows = pty['rows'];
+    final cols = pty['cols'];
+    if (rows is! num || cols is! num) {
+      return;
+    }
+    final normalizedRows = rows.toInt();
+    final normalizedCols = cols.toInt();
+    if (normalizedRows <= 0 || normalizedCols <= 0) {
+      return;
+    }
+    final changed = normalizedRows != _ptyRows || normalizedCols != _ptyCols;
+    _ptyRows = normalizedRows;
+    _ptyCols = normalizedCols;
+    if (!changed) {
+      return;
+    }
+    _ptySizeController.add(
+      TerminalPtySize(rows: normalizedRows, cols: normalizedCols),
+    );
+    if (notify) {
+      notifyListeners();
+    }
+  }
+
+  bool _applyTerminalMeta(Map<String, dynamic> data) {
+    var changed = false;
+
+    final geometryOwnerView = data['geometry_owner_view'];
+    final nextGeometryOwnerView =
+        geometryOwnerView is String ? geometryOwnerView : null;
+    if (nextGeometryOwnerView != _geometryOwnerView) {
+      _geometryOwnerView = nextGeometryOwnerView;
+      changed = true;
+    }
+
+    final viewsData = data['views'] as Map<String, dynamic>?;
+    if (viewsData != null) {
+      final nextViews = viewsData.map((k, v) => MapEntry(k, v as int));
+      if (!mapEquals(nextViews, _views)) {
+        _views = nextViews;
+        _presenceController.add(_views);
+        changed = true;
+      }
+    }
+
+    return changed;
+  }
+
+  void _applyConnectedMessage(Map<String, dynamic> data) {
+    _status = ConnectionStatus.connected;
+    _retryCount = 0;
+    _agentOnline = data['agent_online'] ?? false;
+    _deviceOnline = data['device_online'] ?? _agentOnline;
+    _owner = data['owner'] ?? '';
+    _terminalStatus = data['terminal_status'] as String?;
+    final attachEpoch = data['attach_epoch'];
+    _attachEpoch = attachEpoch is num ? attachEpoch.toInt() : null;
+    final recoveryEpoch = data['recovery_epoch'];
+    _recoveryEpoch = recoveryEpoch is num ? recoveryEpoch.toInt() : null;
+    _applyTerminalMeta(data);
+    _applyPtySize(data['pty'] as Map<String, dynamic>?, notify: false);
+    _eventController.add(
+      TerminalProtocolEvent(
+        kind: TerminalProtocolEventKind.connected,
+        attachEpoch: _attachEpoch,
+        recoveryEpoch: _recoveryEpoch,
+        ptySize: _ptyRows != null && _ptyCols != null
+            ? TerminalPtySize(rows: _ptyRows!, cols: _ptyCols!)
+            : null,
+        views: _views,
+        geometryOwnerView: _geometryOwnerView,
+        terminalStatus: _terminalStatus,
+      ),
+    );
+    notifyListeners();
+    if ((terminalId ?? '').isNotEmpty) {
+      _terminalConnectedController.add(null);
+    }
+  }
+
+  void _applyPresenceMessage(Map<String, dynamic> data) {
+    if (_applyTerminalMeta(data)) {
+      _eventController.add(
+        TerminalProtocolEvent(
+          kind: TerminalProtocolEventKind.presence,
+          views: _views,
+          geometryOwnerView: _geometryOwnerView,
+          terminalStatus: _terminalStatus,
+        ),
+      );
+      notifyListeners();
+    }
+  }
 
   /// 连接到服务器
   Future<bool> connect() async {
@@ -169,8 +361,7 @@ class WebSocketService extends ChangeNotifier {
       if (_crypto.hasPublicKey) {
         try {
           _crypto.generateAesKey();
-          authMessage['encrypted_aes_key'] =
-              _crypto.getEncryptedAesKeyBase64();
+          authMessage['encrypted_aes_key'] = _crypto.getEncryptedAesKeyBase64();
           aesKeyExchanged = true;
         } catch (e) {
           debugPrint('[WebSocketService] AES key exchange failed: $e');
@@ -200,15 +391,8 @@ class WebSocketService extends ChangeNotifier {
             try {
               final data = jsonDecode(message!) as Map<String, dynamic>;
               if (data['type'] == 'connected') {
-                _status = ConnectionStatus.connected;
-                _retryCount = 0;
                 _encryptionEnabled = aesKeyExchanged;
-                // 解析 connected 消息（CONTRACT-003）
-                _agentOnline = data['agent_online'] ?? false;
-                _deviceOnline = data['device_online'] ?? _agentOnline;
-                _owner = data['owner'] ?? '';
-                _terminalStatus = data['terminal_status'] as String?;
-                notifyListeners();
+                _applyConnectedMessage(data);
                 _startHeartbeat();
 
                 // 日志埋点：连接成功
@@ -300,21 +484,103 @@ class WebSocketService extends ChangeNotifier {
       final type = data['type'] as String?;
 
       switch (type) {
-        case 'data':
-          final payload = data['payload'] as String?;
-          if (payload != null) {
-            final bytes = base64Decode(payload);
-            final decoded = utf8.decode(bytes, allowMalformed: true);
-            _outputController.add(decoded);
-          }
+        case 'connected':
+          _applyConnectedMessage(data);
           break;
+        case 'snapshot':
+        case 'snapshot_chunk':
+        case 'data':
+        case 'output':
+          {
+            final msgAttachEpoch = data['attach_epoch'];
+            final msgEpoch = msgAttachEpoch is num ? msgAttachEpoch.toInt() : null;
+            final currentEpoch = _attachEpoch;
+            // 旧 epoch 消息静默丢弃（不变量 #32）
+            if (msgEpoch != null &&
+                currentEpoch != null &&
+                msgEpoch < currentEpoch) {
+              break;
+            }
+            final payload = data['payload'] as String?;
+            if (payload != null) {
+              final bytes = base64Decode(payload);
+              final decoded = utf8.decode(bytes, allowMalformed: true);
+              final recoveryEpoch = data['recovery_epoch'];
+              _outputFrameController.add(
+                TerminalOutputFrame(
+                  kind: type == 'snapshot' || type == 'snapshot_chunk'
+                      ? TerminalOutputKind.snapshot
+                      : TerminalOutputKind.data,
+                  payload: decoded,
+                  attachEpoch: msgEpoch,
+                  recoveryEpoch:
+                      recoveryEpoch is num ? recoveryEpoch.toInt() : null,
+                ),
+              );
+              _eventController.add(
+                TerminalProtocolEvent(
+                  kind: type == 'snapshot' || type == 'snapshot_chunk'
+                      ? TerminalProtocolEventKind.snapshot
+                      : TerminalProtocolEventKind.output,
+                  payload: decoded,
+                  attachEpoch: msgEpoch,
+                  recoveryEpoch:
+                      recoveryEpoch is num ? recoveryEpoch.toInt() : null,
+                ),
+              );
+              _outputController.add(decoded);
+            }
+            break;
+          }
+        case 'snapshot_complete':
+          {
+            final msgAttachEpoch = data['attach_epoch'];
+            final msgEpoch =
+                msgAttachEpoch is num ? msgAttachEpoch.toInt() : null;
+            final currentEpoch = _attachEpoch;
+            // 旧 epoch 消息静默丢弃（不变量 #32）
+            if (msgEpoch != null &&
+                currentEpoch != null &&
+                msgEpoch < currentEpoch) {
+              break;
+            }
+            _outputFrameController.add(
+              const TerminalOutputFrame(
+                kind: TerminalOutputKind.snapshotComplete,
+                payload: '',
+              ),
+            );
+            _eventController.add(
+              TerminalProtocolEvent(
+                kind: TerminalProtocolEventKind.snapshotComplete,
+                attachEpoch: msgEpoch,
+                recoveryEpoch: data['recovery_epoch'] is num
+                    ? (data['recovery_epoch'] as num).toInt()
+                    : null,
+              ),
+            );
+            break;
+          }
         case 'presence':
-          // 处理 presence 消息（CONTRACT-003）
-          final viewsData = data['views'] as Map<String, dynamic>?;
-          if (viewsData != null) {
-            _views = viewsData.map((k, v) => MapEntry(k, v as int));
-            _presenceController.add(_views);
-            notifyListeners();
+          _applyPresenceMessage(data);
+          break;
+        case 'resize':
+          final rows = data['rows'];
+          final cols = data['cols'];
+          _applyPtySize({
+            'rows': data['rows'],
+            'cols': data['cols'],
+          });
+          if (rows is num && cols is num) {
+            _eventController.add(
+              TerminalProtocolEvent(
+                kind: TerminalProtocolEventKind.resize,
+                ptySize: TerminalPtySize(
+                  rows: rows.toInt(),
+                  cols: cols.toInt(),
+                ),
+              ),
+            );
           }
           break;
         case 'pong':
@@ -329,22 +595,39 @@ class WebSocketService extends ChangeNotifier {
           _errorMessage = 'terminal 已关闭';
           _allowReconnect = false;
           _status = ConnectionStatus.disconnected;
+          _eventController.add(
+            const TerminalProtocolEvent(
+              kind: TerminalProtocolEventKind.closed,
+              terminalStatus: 'closed',
+            ),
+          );
           notifyListeners();
           unawaited(disconnect());
           break;
         case 'terminals_changed':
           // 跨平台终端变化通知
-          debugPrint('[WebSocketService] received terminals_changed: action=${data['action']} terminal_id=${data['terminal_id']}');
+          debugPrint(
+              '[WebSocketService] received terminals_changed: action=${data['action']} terminal_id=${data['terminal_id']}');
           _terminalsChangedController.add(data);
           break;
         case 'device_kicked':
-          debugPrint('[WebSocketService] received device_kicked: reason=${data['reason']}');
+          debugPrint(
+              '[WebSocketService] received device_kicked: reason=${data['reason']}');
           _deviceKickedController.add(null);
+          break;
+        default:
+          debugPrint(
+              '[WebSocketService] unknown message type: $type');
           break;
       }
     } catch (e) {
       debugPrint('Error parsing message: $e');
     }
+  }
+
+  @visibleForTesting
+  void debugHandleMessage(String message) {
+    _handleMessage(message);
   }
 
   Uint8List base64Decode(String source) {
@@ -424,7 +707,8 @@ class WebSocketService extends ChangeNotifier {
       if (closeCode != null) {
         _lastCloseCode = closeCode;
         _lastCloseReason = closeReason;
-        debugPrint('[WebSocketService] WS closed: code=$closeCode reason=$closeReason');
+        debugPrint(
+            '[WebSocketService] WS closed: code=$closeCode reason=$closeReason');
       }
     } catch (e) {
       debugPrint('[WebSocketService] error capturing close code: $e');
@@ -508,6 +792,10 @@ class WebSocketService extends ChangeNotifier {
   void dispose() {
     disconnect(notify: false);
     _outputController.close();
+    _outputFrameController.close();
+    _eventController.close();
+    _terminalConnectedController.close();
+    _ptySizeController.close();
     _presenceController.close();
     _terminalsChangedController.close();
     _deviceKickedController.close();
