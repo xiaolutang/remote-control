@@ -4,6 +4,46 @@
 
 ---
 
+## DF-20260417-02
+
+- issue_id: DF-20260417-02
+- source: real_use
+- related_task: F067, F068, F069, F070
+- symptom: >-
+    终端问题连续修复一天后仍反复出现新症状：Codex 高频刷新丢内容、切换 terminal 后内容缺失、
+    刷新后桌面端与移动端显示不完全一致、Claude/Codex 对同一问题敏感度不同。
+- escape_path: >-
+    现有修复大多针对局部症状：xterm 协议、snapshot 覆盖、geometry owner、terminal cache。
+    虽然分别有效，但 client/server/agent 对 terminal 状态的职责边界不清，
+    导致每次修复都可能把复杂度转移到另一层。
+- fix_level: L2
+- root_cause_summary: >-
+    terminal 交互已演变成跨 server/agent/client 的状态系统问题，而不是单点实现 bug。
+    当前架构同时存在三套恢复相关状态：
+    1. agent snapshot
+    2. server output history
+    3. client local xterm state
+    且 client 内部 UI / Coordinator / Transport / Renderer 职责未真正拆开，
+    导致 switch / reconnect / recover 被混用。
+- root_cause_analysis:
+    1. Client 端职责混叠：TerminalScreen 仍承载恢复策略，TerminalSessionManager 是半个 coordinator，WebSocketService 又承载了部分 terminal 语义
+    2. 恢复真相双主：agent snapshot 与 server output history 同时存在，但未明确主从
+    3. 事件语义混用：switch terminal、reconnect、recover 三类动作共享了部分路径
+    4. 同一 view 只有一个 live terminal WS 的隐含约束未被正式建模，直到 Codex 高频刷新/切换才暴露
+    5. 真正需要的是架构重构而不是继续打补丁
+- upstream_actions:
+    - 新增 terminal-interaction-refactor phase
+    - architecture.md 补 terminal 四层架构与恢复不变量
+    - feature_list.json 新增 S071/B071/B072/B073/F071/F072/F073/F074
+    - test_coverage.md 补 shared/server/agent/client 重构验收矩阵
+- rules_to_update:
+    - xlfoundry-plan: 终端/实时协作问题出现连续逃逸时，必须升级为架构层规划，不得只新增补丁任务
+    - xlfoundry-risk: 对 shared-state/reconnect/tui 类任务，必须检查是否存在多套状态真相并存
+- owner: xlfoundry-plan
+- status: open
+
+---
+
 ## DF-20260408-05
 
 - issue_id: DF-20260408-05
@@ -121,7 +161,12 @@
 - rules_to_update:
     - xlfoundry-plan: 并发限制不应只在连接层实现，必须在更上层（登录层）有兜底
 - owner: xlfoundry-plan
-- status: planned
+- status: closed
+- closed_note: >-
+    登录层 token_version 已实现（login/register 均递增版本），
+    所有 HTTP API 均通过 get_current_user_id → async_verify_token 鉴权，
+    WS 路由也通过 ws_auth.py 使用 async_verify_token。
+    2026-04-16 代码验证确认已修复。
 
 ---
 
@@ -218,7 +263,12 @@
 - rules_to_update:
     - xlfoundry-plan: 新增安全机制时，验收条件必须覆盖所有路由类型（HTTP + WS），不能只覆盖 HTTP
 - owner: xlfoundry-plan
-- status: planned
+- status: closed
+- closed_note: >-
+    ws_auth.py wait_for_ws_auth() 已改用 async_verify_token，
+    含 Redis token_version 校验，旧 token 无法通过 WS 重连。
+    HTTP 和 WS 统一使用同一条 token 校验路径。
+    2026-04-16 代码验证确认已修复。
 
 ---
 
@@ -278,7 +328,14 @@
     - xlfoundry-plan: 高风险 startup/network 任务必须测试进程退出路径
     - xlfoundry-risk: 审查"检测→等待→放弃"链路时，必须追问"放弃后有没有清理和自愈"
 - owner: xlfoundry-plan
-- status: open
+- status: closed
+- closed_note: >-
+    Agent 端：retry 耗尽后 sys.exit(1) 干净退出；三个并行任务均设 _connected=False
+    传播断连信号，asyncio.gather 不再死锁；1012 走正常重连逻辑。
+    Flutter 端：DesktopAgentSupervisor 有僵尸进程检测（PID 存活 + waitForAgentOnline 超时），
+    kill 后自动重启；DesktopAgentManager.loadState() 自愈。
+    测试覆盖：test_disconnect_signal_propagation.py (7个) + test_defect_escape_config.py。
+    2026-04-16 代码验证确认已修复。
 
 ---
 
@@ -356,4 +413,43 @@
     - xlfoundry-plan: 终端/PTY 相关需求必须区分"协议兼容"与"多端共享语义"两类任务
     - xlfoundry-risk: 评审移动端终端功能时，必须检查软键盘/viewport 变化是否会影响共享 PTY 全局状态
 - owner: xlfoundry-plan
+- status: open
+
+---
+
+## DF-20260417-01
+
+- issue_id: DF-20260417-01
+- source: real_use
+- related_task: F069, F070
+- symptom: >-
+    Codex 在最新几轮修复后已接近稳定，但 Claude Code 在“手机先创建 -> 桌面端 refresh/重连后继续查看同一 terminal”
+    的场景下更容易出现布局错位、旧 frame 残留、退出后 shell 与旧 TUI 混叠。
+- escape_path: >-
+    1. 自动化测试分别覆盖了 xterm 协议、client snapshot/pty 同步、server terminal pty 持久化，
+       但没有覆盖“desktop/mobile 双端 + refresh/reconnect + full-screen TUI”这一真实组合链路。
+    2. 当前 shared terminal 语义默认允许本地 viewport/layout 变化通过 onResize 改写共享 PTY，
+       桌面端 refresh 后会重新按本地窗口尺寸争抢 geometry，Claude Code 这类全屏 TUI 比 Codex 更敏感，因此更早暴露。
+    3. 现有 smoke 主要验证键盘、白屏、切换，不足以发现“后加入视图抢 shared PTY geometry”的问题。
+- fix_level: L2
+- root_cause_summary: >-
+    问题已不是单点 parser 或单端 UI 缺陷，而是 shared terminal 的 geometry ownership 和恢复时序没有被完整建模。
+    “谁能改 PTY 尺寸”“attach/reconnect 时先恢复什么状态”这两个问题如果不收口，
+    局部修复都会在真实双端联动里再次被打穿。
+- root_cause_analysis:
+    1. 根因：共享 PTY 几何策略不完整，默认把“后加入视图的本地 layout”当成全局 resize 合法来源
+    2. 同类问题：任何 full-screen TUI（Claude/vim/top 等）都会对 geometry 漂移更敏感，并在 refresh/reconnect 后出现错位或残影
+    3. 统一模式：
+       - 单 terminal 在 multi-view 模式下必须先跟随既有 terminal 的权威 PTY
+       - 本地窗口大小变化只有在单视图模式下才允许重新成为 resize 来源
+       - attach/reconnect 的验证必须覆盖 desktop/mobile 双端真实组合
+    4. architecture.md 需补充：multi-view 模式下不得通过后加入视图抢占 shared PTY geometry（不变量 #36）
+- upstream_actions:
+    - 补 TerminalScreen shared-PTY follower 策略与 widget 回归
+    - 后续补 desktop/mobile refresh + Claude full-screen TUI 的专项 smoke
+    - test_coverage.md 追加 shared PTY geometry consistency 测试项
+- rules_to_update:
+    - xlfoundry-plan: 实时跨端 terminal 任务必须按“协议层 + 双端模拟 + 真机 smoke”三层规划
+    - xlfoundry-risk: 审查 shared terminal 需求时，必须检查“后加入视图是否会抢占 geometry”
+- owner: xlfoundry-execute
 - status: open

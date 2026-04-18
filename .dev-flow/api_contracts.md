@@ -44,6 +44,10 @@
 | CONTRACT-036 | 1450 | 安全加固：Client 安全存储 | F058 |
 | CONTRACT-037 | 1421 | RSA+AES 加密登录/注册 | S063, S064 |
 | CONTRACT-038 | 1456 | WebSocket AES 加解密 | S063, S064 |
+| CONTRACT-039 | 1491 | 终端恢复状态机与生命周期语义 | S071, S072, F072, F076 |
+| CONTRACT-040 | 1519 | Server terminal metadata / ownership / lifecycle truth | B071, F075 |
+| CONTRACT-041 | 1560 | Agent terminal snapshot authority | B072, F075 |
+| CONTRACT-042 | 1590 | Terminal recovery WebSocket protocol | S072, S073, B071, B072, B073, F071, F072, F075, F076 |
 
 ## 日志集成
 
@@ -1487,3 +1491,153 @@ Agent/Client                         Server
 | 密钥绑定 | AES 密钥绑定 session，WS 断开时销毁（clear_aes_key） |
 | 加密失败 | 加密失败时断开连接（Agent/Client 侧），解密失败静默丢弃并记录日志（Server 侧）。不得降级为明文发送（禁止模式 #105） |
 | 双向加密 | Server→Agent/Client 和 Agent/Client→Server 均使用同一 AES 密钥 |
+
+### 终端恢复状态机与生命周期语义
+
+| 字段 | 值 |
+|------|----|
+| ID | CONTRACT-039 |
+| Scope | Client, Desktop, Server, Agent |
+| Related Tasks | S071, S072, F072, F076 |
+
+#### States
+
+```text
+terminal lifecycle:
+inactive -> connecting -> recovering -> live
+live -> reconnecting -> recovering -> live
+live -> switched_away (inactive local cache only)
+live -> detached_recoverable -> closed
+```
+
+#### Rules
+
+| Rule | Meaning |
+|------|---------|
+| switch != reconnect | terminal 切换只影响 UI 与 active binding，不自动创建恢复会话 |
+| reconnect != recover | transport 重连成功后，仍需显式 recover 才能进入 live |
+| local cache scope | local renderer cache 只用于单端 continuity，不作为跨端恢复真相 |
+| exclusive/shared mode | terminal 必须显式或默认落在 `exclusive` / `shared` 模式之一；Codex 默认 exclusive，Claude/shell 默认 shared |
+| lifecycle recovery | foreground resume、cold start、network restore 三类场景都必须走统一恢复状态机，而不是页面层临时兜底 |
+
+### Server terminal metadata / ownership / lifecycle truth
+
+| 字段 | 值 |
+|------|----|
+| ID | CONTRACT-040 |
+| Scope | Server |
+| Related Tasks | B071, F075 |
+
+#### Terminal Metadata
+
+```json
+{
+  "terminal_id": "term_123",
+  "status": "live|detached_recoverable|recovering|closed",
+  "views": {"mobile": 1, "desktop": 0},
+  "pty": {"rows": 40, "cols": 120},
+  "geometry_owner_view": "desktop",
+  "attach_epoch": 12,
+  "recovery_epoch": 7
+}
+```
+
+#### Session / Device State
+
+```json
+{
+  "agent_online": true,
+  "device_state": "online|offline_recoverable|offline_expired"
+}
+```
+
+#### Rules
+
+| Rule | Meaning |
+|------|---------|
+| server truth | Server 维护 metadata / ownership / routing / epoch 真相，不维护 terminal 内容真相 |
+| recoverable offline | agent 断开后先进入 `offline_recoverable`，TTL 超时后才进入 `offline_expired` |
+| terminal recoverable | agent 断开后 terminal 先进入 `detached_recoverable`，不立刻 closed |
+| owner enforcement | 只有 geometry owner 对应视图可以发全局 resize |
+| cleanup | cleanup 路径不得再次隐式推导 attached/detached，必须依据显式字段 |
+
+### Agent terminal snapshot authority
+
+| 字段 | 值 |
+|------|----|
+| ID | CONTRACT-041 |
+| Scope | Agent |
+| Related Tasks | B072, F075 |
+
+#### Snapshot Semantics
+
+```json
+{
+  "terminal_id": "term_123",
+  "attach_epoch": 12,
+  "recovery_epoch": 7,
+  "pty": {"rows": 40, "cols": 120},
+  "active_buffer": "main|alt",
+  "payload": "..."
+}
+```
+
+#### Rules
+
+| Rule | Meaning |
+|------|---------|
+| authoritative recovery source | Agent 是 terminal 内容恢复主权威源 |
+| per-terminal isolation | 每个 terminal 独立 snapshot 生命周期，close/recreate 不得污染彼此 |
+| no dual primary | Server output history 只能做诊断或极端降级兜底，不能与 Agent snapshot 双主并存 |
+| buffer semantics | snapshot 至少要能恢复 terminal 当前可见状态，短期允许输出回放包，长期演进到 screen state + diff |
+
+### Terminal recovery WebSocket protocol
+
+| 字段 | 值 |
+|------|----|
+| ID | CONTRACT-042 |
+| Scope | Client, Server, Agent |
+| Related Tasks | S072, S073, B071, B072, B073, F071, F072, F075, F076 |
+
+#### Connected
+
+```json
+{
+  "type": "connected",
+  "terminal_id": "term_123",
+  "view_id": "desktop",
+  "pty": {"rows": 40, "cols": 120},
+  "geometry_owner_view": "desktop",
+  "attach_epoch": 12,
+  "recovery_epoch": 7
+}
+```
+
+#### Recovery Boundary
+
+```json
+{"type": "snapshot_start", "terminal_id": "term_123", "attach_epoch": 12, "recovery_epoch": 7}
+{"type": "snapshot_chunk", "terminal_id": "term_123", "attach_epoch": 12, "recovery_epoch": 7, "payload": "..."}
+{"type": "snapshot_complete", "terminal_id": "term_123", "attach_epoch": 12, "recovery_epoch": 7}
+```
+
+#### Live Output
+
+```json
+{
+  "type": "output",
+  "terminal_id": "term_123",
+  "attach_epoch": 12,
+  "payload": "..."
+}
+```
+
+#### Rules
+
+| Rule | Meaning |
+|------|---------|
+| connected != recovered | `connected` 只表示 transport ready，不表示 terminal 已恢复完成 |
+| buffering before complete | `snapshot_complete` 前 live output 只允许缓冲，不允许直接写 renderer |
+| epoch drop | 旧 `attach_epoch` / `recovery_epoch` 的 snapshot/output/resize 必须被丢弃 |
+| compatibility window | 迁移期允许 server 做双协议兼容，但必须有明确灰度与回退策略 |
+| cold start | 冷启动恢复必须依赖权威 snapshot，而不是旧 local cache |
