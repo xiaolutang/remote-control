@@ -250,14 +250,11 @@ class TerminalSessionManager extends ChangeNotifier
     _maybeRegisterObserver();
   }
 
-  /// 仅移动端注册 WidgetsBindingObserver
+  /// F076: 全平台注册 WidgetsBindingObserver
+  /// 桌面端也需要感知前后台切换（macOS 合盖/窗口最小化等）
   void _maybeRegisterObserver() {
-    final isMobile = defaultTargetPlatform == TargetPlatform.android ||
-        defaultTargetPlatform == TargetPlatform.iOS;
-    if (isMobile) {
-      WidgetsBinding.instance.addObserver(this);
-      _observerRegistered = true;
-    }
+    WidgetsBinding.instance.addObserver(this);
+    _observerRegistered = true;
   }
 
   @override
@@ -293,7 +290,8 @@ class TerminalSessionManager extends ChangeNotifier
     }
   }
 
-  /// App 回到前台时调用：对暂停前已连接的 service 并行调用 connect()。
+  /// App 回到前台时调用：对暂停前已连接的 service 并行恢复。
+  /// F076: 使用 recoverTerminal 状态机而非直接 service.connect()。
   /// 手动 disconnect 或 pause 后新增的 service 不受影响。
   /// 单个 service connect 失败不阻塞其他 service。
   Future<void> resumeAll() async {
@@ -302,12 +300,22 @@ class TerminalSessionManager extends ChangeNotifier
     await Future.wait(
       keysToResume.map((key) async {
         final service = _sessions[key];
-        if (service != null && service.status != ConnectionStatus.connected) {
+        if (service != null &&
+            service.status != ConnectionStatus.connected) {
+          final state = _terminals[key];
           try {
+            if (state != null) {
+              // F076: 通过状态机恢复
+              state._setSessionState(TerminalSessionState.reconnecting);
+            }
             await service.connect();
           } catch (e) {
             debugPrint(
                 '[TerminalSessionManager] resume connect error for $key: $e');
+            if (state != null) {
+              // F076: 恢复失败进入 error 状态
+              state._setSessionState(TerminalSessionState.error);
+            }
           }
         }
       }),
@@ -576,6 +584,42 @@ class TerminalSessionManager extends ChangeNotifier
     }
     // reconnecting -> recovering (via beginRecovery)
     state.beginRecovery();
+  }
+
+  /// F076: 网络恢复重试。在连接失败后自动重试，耗尽后进入 error。
+  static const int _maxNetworkRetries = 3;
+  static const Duration _networkRetryDelay = Duration(seconds: 2);
+  final Map<String, int> _networkRetryCount = {};
+
+  Future<void> recoverWithRetry(String? deviceId, String terminalId) async {
+    final key = _key(deviceId, terminalId);
+    final state = _terminals[key];
+    final service = _sessions[key];
+    if (state == null || service == null) return;
+
+    final retryCount = _networkRetryCount[key] ?? 0;
+    if (retryCount >= _maxNetworkRetries) {
+      state._setSessionState(TerminalSessionState.error);
+      _networkRetryCount.remove(key);
+      return;
+    }
+
+    _networkRetryCount[key] = retryCount + 1;
+    state._setSessionState(TerminalSessionState.recovering);
+
+    try {
+      await service.connect();
+      // connect 成功后，bindTerminalOutput 的 connectedSubscription
+      // 会触发 beginRecovery -> recovering -> live
+      _networkRetryCount.remove(key);
+    } catch (e) {
+      debugPrint(
+        '[TerminalSessionManager] network recovery retry $retryCount for $key: $e',
+      );
+      // 延迟后重试
+      await Future.delayed(_networkRetryDelay);
+      await recoverWithRetry(deviceId, terminalId);
+    }
   }
 
   /// 查询指定 terminal 的当前状态

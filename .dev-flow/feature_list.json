@@ -894,7 +894,7 @@
       "description": "把 app 从后台回前台、app 被杀后重新打开、使用中网络异常恢复三类场景纳入统一的 client recovery 模型，不再由页面或单点 reconnect 逻辑临时兜底。\n\n目标：\n- foreground resume 保留 local renderer cache，但使用新的 attach_epoch 重新对齐 transport\n- cold start 不依赖旧 local cache，直接走 terminal attach + agent snapshot recover\n- network restore 统一走 reconnect -> recovering -> live，不再要求用户多次手动刷新\n- 移动端与桌面端共享同一 recovery 语义，桌面端额外的 agent restart 由 F075 补充",
       "verification": "F2",
       "depends_on": ["S072", "S073", "B073", "F072"],
-      "status": "pending",
+      "status": "completed",
       "priority": "P0",
       "acceptance_criteria": [
         "app 从后台回前台后 active terminal 能通过统一恢复链重新进入 live",
