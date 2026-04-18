@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -26,22 +27,64 @@ enum DesktopAgentStateKind {
   startFailed,
 }
 
+/// F075: Agent 断连恢复状态
+enum DesktopAgentRecoveryState {
+  /// 正常运行或未启动
+  none,
+
+  /// 检测到断连（瞬态，快速判断后转入 recoverable）
+  disconnecting,
+
+  /// 在 TTL 窗口内，等待恢复
+  recoverable,
+
+  /// TTL 超时，不可恢复
+  expired,
+
+  /// 正在尝试恢复（重启 agent + reconnect）
+  recovering,
+
+  /// 恢复失败
+  recoveryFailed,
+}
+
 class DesktopAgentState {
   const DesktopAgentState({
     required this.kind,
     this.workdir,
     this.message,
+    this.recoveryState = DesktopAgentRecoveryState.none,
   });
 
   final DesktopAgentStateKind kind;
   final String? workdir;
   final String? message;
 
+  /// F075: 恢复状态
+  final DesktopAgentRecoveryState recoveryState;
+
   bool get online =>
       kind == DesktopAgentStateKind.managedOnline ||
       kind == DesktopAgentStateKind.externalOnline;
 
   bool get managed => kind == DesktopAgentStateKind.managedOnline;
+
+  /// Sentinel value for [copyWith] to distinguish "not provided" from null.
+  static const Object _unset = Object();
+
+  DesktopAgentState copyWith({
+    DesktopAgentStateKind? kind,
+    String? workdir,
+    Object? message = _unset,
+    DesktopAgentRecoveryState? recoveryState,
+  }) {
+    return DesktopAgentState(
+      kind: kind ?? this.kind,
+      workdir: workdir ?? this.workdir,
+      message: identical(message, _unset) ? this.message : message as String?,
+      recoveryState: recoveryState ?? this.recoveryState,
+    );
+  }
 }
 
 /// Agent 生命周期唯一权威
@@ -55,11 +98,13 @@ class DesktopAgentManager extends ChangeNotifier {
     String deviceId = '',
     DesktopAgentSupervisor? supervisor,
     ConfigService? configService,
+    Duration? recoveryRetryDelayOverride,
   })  : _serverUrl = serverUrl,
         _token = token,
         _deviceId = deviceId,
         _supervisor = supervisor ?? DesktopAgentSupervisor(),
-        _configService = configService ?? ConfigService();
+        _configService = configService ?? ConfigService(),
+        _recoveryRetryDelayOverride = recoveryRetryDelayOverride;
 
   String _serverUrl;
   String _token;
@@ -67,6 +112,7 @@ class DesktopAgentManager extends ChangeNotifier {
   String? _username;
   final DesktopAgentSupervisor _supervisor;
   final ConfigService _configService;
+  final Duration? _recoveryRetryDelayOverride;
 
   DesktopAgentState _state =
       const DesktopAgentState(kind: DesktopAgentStateKind.unconfigured);
@@ -84,9 +130,166 @@ class DesktopAgentManager extends ChangeNotifier {
   String get deviceId => _deviceId;
 
   void _updateState(DesktopAgentState newState) {
-    if (_state.kind != newState.kind) {
+    if (_state.kind != newState.kind ||
+        _state.recoveryState != newState.recoveryState ||
+        _state.message != newState.message) {
       _state = newState;
       notifyListeners();
+    }
+  }
+
+  // ============================================================
+  // F075: Agent 断连恢复状态机
+  // ============================================================
+
+  /// 恢复 TTL 窗口（与 server 端 stale TTL 90s 对齐）
+  static const Duration recoveryTimeout = Duration(seconds: 90);
+
+  /// 最大恢复重试次数
+  static const int maxRecoveryAttempts = 3;
+
+  /// 恢复重试间隔
+  static const Duration recoveryRetryDelay = Duration(seconds: 5);
+
+  Timer? _recoveryTimer;
+  int _recoveryAttempts = 0;
+
+  /// 当 WebSocketService / 上层检测到 agent 断连时调用
+  ///
+  /// [reason] 用于区分断连类型（网络断连 vs 进程死亡）。
+  /// [isProcessAlive] 由调用方提供进程存活检测结果（因为 Manager
+  /// 本身不持有 managedPid，通过 Supervisor 间接判断）。
+  void onAgentDisconnect({
+    required String reason,
+    bool isProcessAlive = false,
+  }) {
+    if (_state.recoveryState != DesktopAgentRecoveryState.none) return;
+
+    _logDesktopAgentManager(
+      'onAgentDisconnect: reason=$reason isProcessAlive=$isProcessAlive',
+    );
+
+    _updateState(_state.copyWith(
+      recoveryState: DesktopAgentRecoveryState.recoverable,
+      message: 'Agent 断连: $reason',
+    ));
+
+    _startRecoveryTimeout();
+
+    // 如果进程已死，立即尝试恢复
+    if (!isProcessAlive) {
+      _attemptRecovery();
+    }
+    // 如果进程还活着（网络断连），等待 agent 自动重连；
+    // agent 重连成功后由上层调用 onAgentReconnected()。
+  }
+
+  /// Agent 重连成功后由上层调用
+  void onAgentReconnected() {
+    _logDesktopAgentManager('onAgentReconnected: recovery restored');
+    _recoveryTimer?.cancel();
+    _recoveryTimer = null;
+    _recoveryAttempts = 0;
+    _updateState(_state.copyWith(
+      recoveryState: DesktopAgentRecoveryState.none,
+      message: null,
+    ));
+  }
+
+  /// 取消恢复状态机（登出 / 手动停止时调用）
+  void cancelRecovery() {
+    _recoveryTimer?.cancel();
+    _recoveryTimer = null;
+    _recoveryAttempts = 0;
+  }
+
+  void _startRecoveryTimeout() {
+    _recoveryTimer?.cancel();
+    _recoveryTimer = Timer(recoveryTimeout, _onRecoveryExpired);
+  }
+
+  void _onRecoveryExpired() {
+    _logDesktopAgentManager('onRecoveryExpired: TTL exceeded');
+    _recoveryAttempts = 0;
+    _updateState(_state.copyWith(
+      recoveryState: DesktopAgentRecoveryState.expired,
+      message: 'Agent 恢复超时，连接已失效',
+    ));
+  }
+
+  /// F075: 仅供测试使用 -- 手动触发 TTL 超时逻辑
+  @visibleForTesting
+  void triggerRecoveryExpiredForTest() => _onRecoveryExpired();
+
+  Future<void> _attemptRecovery() async {
+    if (_recoveryAttempts >= maxRecoveryAttempts) {
+      _logDesktopAgentManager(
+        '_attemptRecovery: max attempts ($maxRecoveryAttempts) reached',
+      );
+      _updateState(_state.copyWith(
+        recoveryState: DesktopAgentRecoveryState.recoveryFailed,
+        message: 'Agent 恢复失败（已重试 $maxRecoveryAttempts 次）',
+      ));
+      return;
+    }
+
+    // 如果已经 expired 或 recoveryFailed，不再重试
+    final currentRecovery = _state.recoveryState;
+    if (currentRecovery == DesktopAgentRecoveryState.expired ||
+        currentRecovery == DesktopAgentRecoveryState.recoveryFailed) {
+      return;
+    }
+
+    _recoveryAttempts++;
+    _logDesktopAgentManager(
+      '_attemptRecovery: attempt $_recoveryAttempts/$maxRecoveryAttempts',
+    );
+
+    _updateState(_state.copyWith(
+      recoveryState: DesktopAgentRecoveryState.recovering,
+      message: '正在恢复 Agent（第 $_recoveryAttempts 次）',
+    ));
+
+    try {
+      final config = await _configService.loadConfig();
+      final workdir = _resolveConfiguredWorkdir(config);
+
+      final online = await _supervisor.syncAndEnsureOnline(
+        serverUrl: _serverUrl,
+        accessToken: _token,
+        deviceId: _deviceId,
+        agentWorkdir: workdir,
+      );
+
+      if (online) {
+        _logDesktopAgentManager('_attemptRecovery: agent online');
+        _recoveryTimer?.cancel();
+        _recoveryTimer = null;
+        _recoveryAttempts = 0;
+        _updateState(_state.copyWith(
+          recoveryState: DesktopAgentRecoveryState.none,
+          kind: DesktopAgentStateKind.managedOnline,
+          message: null,
+        ));
+      } else {
+        _logDesktopAgentManager(
+          '_attemptRecovery: still offline, retrying in ${recoveryRetryDelay.inSeconds}s',
+        );
+        // 回到 recoverable 状态等待下次重试
+        _updateState(_state.copyWith(
+          recoveryState: DesktopAgentRecoveryState.recoverable,
+        ));
+        await Future<void>.delayed(
+          _recoveryRetryDelayOverride ?? recoveryRetryDelay,
+        );
+        _attemptRecovery();
+      }
+    } catch (e) {
+      _logDesktopAgentManager('_attemptRecovery: exception - $e');
+      _updateState(_state.copyWith(
+        recoveryState: DesktopAgentRecoveryState.recoveryFailed,
+        message: 'Agent 恢复失败: $e',
+      ));
     }
   }
 
@@ -156,6 +359,8 @@ class DesktopAgentManager extends ChangeNotifier {
   /// 退出登录时关闭 Agent，使用存留凭证
   Future<void> onLogout() async {
     if (!isPlatformSupported) return;
+
+    cancelRecovery(); // F075: 取消恢复状态机
 
     _logDesktopAgentManager('onLogout: stopping agent');
     try {

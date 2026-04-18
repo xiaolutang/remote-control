@@ -522,4 +522,359 @@ void main() {
     // At least one notification (starting → startFailed)
     expect(notificationCount, greaterThanOrEqualTo(1));
   });
+
+  // ============================================================
+  // F075: Agent 断连恢复编排
+  // ============================================================
+
+  group('F075: Agent 断连恢复编排', () {
+    test('网络断连 -> recoverable -> 重连成功 -> none', () async {
+      final configService = ConfigService();
+      await configService.saveConfig(const AppConfig());
+
+      final manager = DesktopAgentManager(
+        serverUrl: 'ws://localhost:8888',
+        token: 'token',
+        deviceId: 'dev-1',
+        supervisor: DesktopAgentSupervisor(
+          processRunner: (executable, arguments) async {
+            return ProcessResult(0, 1, '', '');
+          },
+        ),
+        configService: configService,
+      );
+
+      // 先让 manager 进入 online 状态（手动设置）
+      // onAgentDisconnect 在 recoveryState != none 时跳过，所以需要先进入正常状态
+      expect(manager.agentState.recoveryState, DesktopAgentRecoveryState.none);
+
+      // 模拟网络断连（进程还在）
+      manager.onAgentDisconnect(
+        reason: 'network_lost',
+        isProcessAlive: true,
+      );
+
+      // 状态应变为 recoverable
+      expect(manager.agentState.recoveryState, DesktopAgentRecoveryState.recoverable);
+      expect(manager.agentState.message, contains('network_lost'));
+
+      // 模拟 agent 自动重连成功
+      manager.onAgentReconnected();
+
+      // 状态应回到 none
+      expect(manager.agentState.recoveryState, DesktopAgentRecoveryState.none);
+      expect(manager.agentState.message, isNull);
+    });
+
+    test('进程死亡 -> recoverable -> 重启成功 -> none', () async {
+      final tempRoot =
+          await Directory.systemTemp.createTemp('f075-process-death');
+      final agentDir = Directory('${tempRoot.path}/agent')
+        ..createSync(recursive: true);
+      File('${agentDir.path}/app/cli.py').createSync(recursive: true);
+
+      final configService = ConfigService();
+      await configService
+          .saveConfig(AppConfig(desktopAgentWorkdir: agentDir.path));
+
+      final manager = DesktopAgentManager(
+        serverUrl: 'ws://localhost:8888',
+        token: 'token',
+        deviceId: 'dev-1',
+        supervisor: DesktopAgentSupervisor(
+          runtimeService: _FakeRuntimeDeviceService([
+            // _attemptRecovery -> syncAndEnsureOnline -> ensureAgentOnline:
+            // before check: agent offline
+            const [
+              RuntimeDevice(
+                deviceId: 'dev-1',
+                name: 'mac-phone',
+                owner: 'user',
+                agentOnline: false,
+                maxTerminals: 3,
+                activeTerminals: 0,
+              ),
+            ],
+            // _waitForAgentOnline poll 1: agent online (recovery success)
+            const [
+              RuntimeDevice(
+                deviceId: 'dev-1',
+                name: 'mac-phone',
+                owner: 'user',
+                agentOnline: true,
+                maxTerminals: 3,
+                activeTerminals: 0,
+              ),
+            ],
+          ]),
+          processStarter: (
+            String executable,
+            List<String> arguments, {
+            String? workingDirectory,
+            Map<String, String>? environment,
+            ProcessStartMode mode = ProcessStartMode.normal,
+          }) async {
+            return Process.start('sleep', const ['1'],
+                mode: ProcessStartMode.detached);
+          },
+          processRunner: (executable, arguments) async {
+            // pgrep -> no existing agents; ps -> process running
+            return ProcessResult(0, 1, '', '');
+          },
+        ),
+        configService: configService,
+      );
+
+      // 模拟进程死亡导致的断连
+      manager.onAgentDisconnect(
+        reason: 'process_died',
+        isProcessAlive: false,
+      );
+
+      // 初始状态应变为 recoverable（然后 _attemptRecovery 异步执行）
+      expect(
+        manager.agentState.recoveryState,
+        anyOf(
+          DesktopAgentRecoveryState.recoverable,
+          DesktopAgentRecoveryState.recovering,
+        ),
+      );
+
+      // 等待异步恢复完成
+      await _pollUntil(
+        manager,
+        (s) => s.recoveryState == DesktopAgentRecoveryState.none,
+        timeout: const Duration(seconds: 10),
+      );
+
+      expect(manager.agentState.recoveryState, DesktopAgentRecoveryState.none);
+      expect(manager.agentState.kind, DesktopAgentStateKind.managedOnline);
+    });
+
+    test('TTL 超时 -> expired', () async {
+      final configService = ConfigService();
+      await configService.saveConfig(const AppConfig());
+
+      final manager = DesktopAgentManager(
+        serverUrl: 'ws://localhost:8888',
+        token: 'token',
+        deviceId: 'dev-1',
+        supervisor: DesktopAgentSupervisor(
+          processRunner: (executable, arguments) async {
+            return ProcessResult(0, 1, '', '');
+          },
+        ),
+        configService: configService,
+      );
+
+      // 模拟网络断连（进程还在，不会触发 _attemptRecovery）
+      manager.onAgentDisconnect(
+        reason: 'network_lost',
+        isProcessAlive: true,
+      );
+
+      expect(manager.agentState.recoveryState, DesktopAgentRecoveryState.recoverable);
+
+      // 通过 @visibleForTesting 方法模拟 TTL 超时
+      manager.triggerRecoveryExpiredForTest();
+
+      expect(manager.agentState.recoveryState, DesktopAgentRecoveryState.expired);
+      expect(manager.agentState.message, contains('超时'));
+    });
+
+    test('重启失败 -> recoveryFailed', () async {
+      final tempRoot =
+          await Directory.systemTemp.createTemp('f075-recovery-failed');
+      final fakeHome = Directory('${tempRoot.path}/home')
+        ..createSync(recursive: true);
+
+      SharedPreferences.setMockInitialValues({
+        'rc_refresh_token': 'refresh-token',
+        'rc_username': 'testuser',
+      });
+
+      final configService = ConfigService();
+      await configService.saveConfig(const AppConfig());
+
+      final manager = DesktopAgentManager(
+        serverUrl: 'ws://localhost:8888',
+        token: 'token',
+        deviceId: 'dev-1',
+        supervisor: DesktopAgentSupervisor(
+          homeDirectory: fakeHome.path,
+          runtimeService: _FakeRuntimeDeviceService([
+            // ensureAgentOnline: agent offline
+            const [
+              RuntimeDevice(
+                deviceId: 'dev-1',
+                name: 'mac-phone',
+                owner: 'user',
+                agentOnline: false,
+                maxTerminals: 3,
+                activeTerminals: 0,
+              ),
+            ],
+          ]),
+          processStarter: (
+            String executable,
+            List<String> arguments, {
+            String? workingDirectory,
+            Map<String, String>? environment,
+            ProcessStartMode mode = ProcessStartMode.normal,
+          }) async {
+            // 模拟进程启动失败
+            throw OSError('mock: cannot start process');
+          },
+          processRunner: (executable, arguments) async {
+            return ProcessResult(0, 1, '', '');
+          },
+        ),
+        configService: configService,
+        // 加速测试：去掉重试间隔
+        recoveryRetryDelayOverride: Duration.zero,
+      );
+
+      // 模拟进程死亡
+      manager.onAgentDisconnect(
+        reason: 'process_died',
+        isProcessAlive: false,
+      );
+
+      // 等待恢复失败（processStarter 抛异常导致 ensureAgentOnline 返回 false，
+      // 3 次重试后 recoveryFailed）
+      await _pollUntil(
+        manager,
+        (s) =>
+            s.recoveryState == DesktopAgentRecoveryState.recoveryFailed ||
+            s.recoveryState == DesktopAgentRecoveryState.expired,
+        timeout: const Duration(seconds: 10),
+      );
+
+      expect(
+        manager.agentState.recoveryState,
+        anyOf(
+          DesktopAgentRecoveryState.recoveryFailed,
+          DesktopAgentRecoveryState.expired,
+        ),
+      );
+    });
+
+    test('onLogout 取消恢复状态机', () async {
+      final configService = ConfigService();
+      await configService.saveConfig(const AppConfig());
+
+      final manager = DesktopAgentManager(
+        serverUrl: 'ws://localhost:8888',
+        token: 'token',
+        deviceId: 'dev-1',
+        supervisor: DesktopAgentSupervisor(
+          processRunner: (executable, arguments) async {
+            return ProcessResult(0, 1, '', '');
+          },
+        ),
+        configService: configService,
+      );
+
+      // 模拟断连
+      manager.onAgentDisconnect(
+        reason: 'network_lost',
+        isProcessAlive: true,
+      );
+
+      expect(manager.agentState.recoveryState, DesktopAgentRecoveryState.recoverable);
+
+      // 登出
+      await manager.onLogout();
+
+      // 状态应为 offline，recoveryState 回到 none
+      expect(manager.agentState.kind, DesktopAgentStateKind.offline);
+      expect(manager.agentState.recoveryState, DesktopAgentRecoveryState.none);
+    });
+
+    test('重复 onAgentDisconnect 被忽略', () async {
+      final configService = ConfigService();
+      await configService.saveConfig(const AppConfig());
+
+      final manager = DesktopAgentManager(
+        serverUrl: 'ws://localhost:8888',
+        token: 'token',
+        deviceId: 'dev-1',
+        supervisor: DesktopAgentSupervisor(
+          processRunner: (executable, arguments) async {
+            return ProcessResult(0, 1, '', '');
+          },
+        ),
+        configService: configService,
+      );
+
+      var notificationCount = 0;
+      manager.addListener(() => notificationCount++);
+
+      // 第一次断连
+      manager.onAgentDisconnect(
+        reason: 'network_lost',
+        isProcessAlive: true,
+      );
+      final countAfterFirst = notificationCount;
+      expect(manager.agentState.recoveryState, DesktopAgentRecoveryState.recoverable);
+
+      // 第二次断连（应被忽略，因为 recoveryState != none）
+      manager.onAgentDisconnect(
+        reason: 'another_disconnect',
+        isProcessAlive: true,
+      );
+
+      // 不应有新的通知
+      expect(notificationCount, countAfterFirst);
+      // message 不应被覆盖
+      expect(manager.agentState.message, contains('network_lost'));
+    });
+
+    test('onAgentReconnected 在非恢复状态下调用是安全的', () async {
+      final configService = ConfigService();
+      await configService.saveConfig(const AppConfig());
+
+      final manager = DesktopAgentManager(
+        serverUrl: 'ws://localhost:8888',
+        token: 'token',
+        deviceId: 'dev-1',
+        supervisor: DesktopAgentSupervisor(
+          processRunner: (executable, arguments) async {
+            return ProcessResult(0, 1, '', '');
+          },
+        ),
+        configService: configService,
+      );
+
+      // 在 none 状态下调用 onAgentReconnected
+      manager.onAgentReconnected();
+
+      // 应不报错，状态保持 none
+      expect(manager.agentState.recoveryState, DesktopAgentRecoveryState.none);
+    });
+  });
 }
+
+/// 轮询直到 condition 满足或超时
+Future<void> _pollUntil(
+  DesktopAgentManager manager,
+  bool Function(DesktopAgentState) condition, {
+  required Duration timeout,
+  Duration interval = const Duration(milliseconds: 100),
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (DateTime.now().isBefore(deadline)) {
+    if (condition(manager.agentState)) return;
+    await Future<void>.delayed(interval);
+  }
+  // 最终检查一次
+  if (!condition(manager.agentState)) {
+    throw StateError(
+      'pollUntil timed out after $timeout. '
+      'Final state: kind=${manager.agentState.kind} '
+      'recoveryState=${manager.agentState.recoveryState} '
+      'message=${manager.agentState.message}',
+    );
+  }
+}
+

@@ -832,7 +832,7 @@
       "description": "把桌面端对本机 Agent 的管理纳入新的 terminal 生命周期模型，统一处理 agent 与 server 断连、TTL 恢复、app 前后台切换、app 被杀重启后的恢复。\n\n目标：\n- 桌面端区分“agent 进程仍在但网络断开”和“agent 进程已死”两类场景\n- session/device 状态显式区分 online / offline_recoverable / offline_expired\n- terminal 状态显式区分 live / detached_recoverable / recovering / closed\n- DesktopAgentManager 与 TerminalSessionCoordinator 协同：agent 断连不立刻清空 terminal，本地 renderer cache 保留，TTL 内优先恢复；必要时桌面端负责本地重启 agent\n- app 从后台回前台、app 重启、网络恢复三类场景统一走同一套恢复状态机",
       "verification": "F2",
       "depends_on": ["S072", "B071", "B072", "B073", "F072"],
-      "status": "pending",
+      "status": "completed",
       "priority": "P0",
       "acceptance_criteria": [
         "桌面端能区分网络断连与 agent 进程死亡",
