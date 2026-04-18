@@ -95,7 +95,7 @@
 | **终端交互架构重构** | **Agent 主权威恢复源** | **CONTRACT-041** | **pending** | **not_applicable** | **pending** | **B072: Agent 维护 per-terminal authoritative snapshot，attach 恢复优先走 agent** |
 | **终端交互架构重构** | **恢复协议升级** | **CONTRACT-042** | **pending** | **pending** | **pending** | **B073: snapshot / snapshot_complete / live output 边界明确** |
 | **终端交互架构重构** | **Client Transport 收瘦** | **CONTRACT-042** | **not_applicable** | **completed** | **completed** | **F071: WebSocketService 收口为纯 transport events；eventStream 标准化输出；epoch 丢弃；旧 stream deprecated** |
-| **终端交互架构重构** | **Client Coordinator 状态机** | **CONTRACT-039, CONTRACT-042** | **not_applicable** | **pending** | **pending** | **F072: 单 active transport；switch/reconnect/recover 分离** |
+| **终端交互架构重构** | **Client Coordinator 状态机** | **CONTRACT-039, CONTRACT-042** | **not_applicable** | **completed** | **completed** | **F072: TerminalSessionState 枚举 + 状态机入口 + activeTerminalKey + 60/60 测试** |
 | **终端交互架构重构** | **Renderer 隔离** | **CONTRACT-039** | **not_applicable** | **pending** | **pending** | **F073: xterm renderer handle 下沉，UI 不再直接操纵恢复语义** |
 | **终端交互架构重构** | **UI 瘦身迁移** | **CONTRACT-039** | **not_applicable** | **pending** | **pending** | **F074: TerminalScreen / Workspace 只负责展示、焦点、快捷键、IME** |
 | **终端交互架构重构** | **桌面端 Agent 断连恢复编排** | **CONTRACT-040, CONTRACT-041, CONTRACT-042** | **pending** | **pending** | **pending** | **F075: agent 断连 recoverable/TTL/重启恢复 与 app lifecycle 编排统一** |

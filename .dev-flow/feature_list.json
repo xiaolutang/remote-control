@@ -19,9 +19,9 @@
   },
   "summary": {
     "total": 16,
-    "pending": 5,
+    "pending": 4,
     "in_progress": 4,
-    "completed": 7,
+    "completed": 8,
     "blocked": 0,
     "cancelled": 0
   },
@@ -671,7 +671,7 @@
       "description": "引入显式的 TerminalSessionCoordinator，成为 terminal cache、switch、reconnect、recover、geometry owner 策略的唯一协调层。\n\n目标：\n- 显式状态机：idle -> connecting -> recovering -> live -> reconnecting\n- 统一处理 switch / reconnect / recover 三类事件\n- 管理每个 terminal 的 local renderer cache 与 active transport\n- 保证同一 client view 只有一个 active terminal transport\n- 切换 terminal 时保留 cached renderer，不再误触发恢复覆盖",
       "verification": "F2",
       "depends_on": ["S072", "F071"],
-      "status": "pending",
+      "status": "completed",
       "priority": "P0",
       "acceptance_criteria": [
         "Coordinator 成为 switch/reconnect/recover 唯一协调者",
@@ -719,6 +719,16 @@
         }
       ],
       "smoke_required": true,
+      "started_at": "2026-04-19T10:35:00+0800",
+      "completed_at": "2026-04-19T11:30:00+0800",
+      "actual_minutes": 55,
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 1,
+        "waiting_for_external": false
+      },
+      "execution_notes": "TerminalSessionState 枚举 + 状态机入口 + activeTerminalKey + 60/60 测试。codex code-review round 1 fail（转换不完整）→ round 2 pass。codex audit partial（UI 未接入属 F074 scope）。",
+      "evidence_file": ".dev-flow/evidence/F072.md",
       "files": [
         "client/lib/services/terminal_session_manager.dart",
         "client/test/services/terminal_session_manager_test.dart"

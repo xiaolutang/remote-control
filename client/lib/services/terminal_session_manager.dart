@@ -6,6 +6,16 @@ import 'package:xterm/xterm.dart';
 
 import 'websocket_service.dart';
 
+/// Terminal session 状态机枚举（F072）
+enum TerminalSessionState {
+  idle,
+  connecting,
+  recovering,
+  live,
+  reconnecting,
+  error,
+}
+
 class _TerminalState {
   _TerminalState(this.terminal);
 
@@ -15,6 +25,64 @@ class _TerminalState {
   final List<String> _pendingRecoveryFrames = [];
   bool _hasLiveOutput = false;
   bool _recovering = false;
+
+  // F072: 显式状态机追踪
+  TerminalSessionState _sessionState = TerminalSessionState.idle;
+  final ValueNotifier<TerminalSessionState> _stateNotifier =
+      ValueNotifier<TerminalSessionState>(TerminalSessionState.idle);
+
+  TerminalSessionState get sessionState => _sessionState;
+  ValueNotifier<TerminalSessionState> get stateNotifier => _stateNotifier;
+
+  /// 合法的状态转换表
+  static const Map<TerminalSessionState, Set<TerminalSessionState>>
+      _transitions = {
+    TerminalSessionState.idle: {
+      TerminalSessionState.connecting,
+      TerminalSessionState.recovering,
+      TerminalSessionState.live,
+      TerminalSessionState.error,
+    },
+    TerminalSessionState.connecting: {
+      TerminalSessionState.recovering,
+      TerminalSessionState.error,
+      TerminalSessionState.idle,
+    },
+    TerminalSessionState.recovering: {
+      TerminalSessionState.live,
+      TerminalSessionState.error,
+      TerminalSessionState.idle,
+    },
+    TerminalSessionState.live: {
+      TerminalSessionState.recovering,
+      TerminalSessionState.reconnecting,
+      TerminalSessionState.live,
+      TerminalSessionState.error,
+      TerminalSessionState.idle,
+    },
+    TerminalSessionState.reconnecting: {
+      TerminalSessionState.recovering,
+      TerminalSessionState.error,
+      TerminalSessionState.idle,
+    },
+    TerminalSessionState.error: {
+      TerminalSessionState.connecting,
+      TerminalSessionState.idle,
+    },
+  };
+
+  void _setSessionState(TerminalSessionState newState) {
+    final allowed = _transitions[_sessionState];
+    if (allowed != null && allowed.contains(newState)) {
+      _sessionState = newState;
+      _stateNotifier.value = newState;
+    } else {
+      debugPrint(
+        '[TerminalSessionState] illegal transition: '
+        '$_sessionState -> $newState',
+      );
+    }
+  }
 
   static const int _maxBufferLines = 50;
 
@@ -51,6 +119,8 @@ class _TerminalState {
     _recovering = true;
     _hasLiveOutput = false;
     _pendingRecoveryFrames.clear();
+    // F072: 合法转换 connecting/reconnecting/idle/live -> recovering
+    _setSessionState(TerminalSessionState.recovering);
   }
 
   void replaceWithSnapshot(String data) {
@@ -82,6 +152,8 @@ class _TerminalState {
       _writeFrame(frame);
     }
     _pendingRecoveryFrames.clear();
+    // F072: recovering -> live
+    _setSessionState(TerminalSessionState.live);
   }
 
   void appendOutput(String data) {
@@ -103,6 +175,7 @@ class _TerminalState {
 
   void dispose() {
     outputText.dispose();
+    _stateNotifier.dispose();
   }
 }
 
@@ -137,6 +210,9 @@ class TerminalSessionManager extends ChangeNotifier
 
   /// 是否已注册 observer（仅移动端注册）
   bool _observerRegistered = false;
+
+  /// F072: 当前 view 的 active terminal key
+  String? _activeTerminalKey;
 
   TerminalSessionManager() {
     _maybeRegisterObserver();
@@ -250,6 +326,8 @@ class TerminalSessionManager extends ChangeNotifier
   }) {
     final key = _key(deviceId, terminalId);
     final state = _terminals.putIfAbsent(key, () => _TerminalState(create()));
+    // F072: 新创建的 terminal 自动成为 active terminal
+    _activeTerminalKey = key;
     if (service != null) {
       bindTerminalOutput(deviceId, terminalId, service);
     }
@@ -365,6 +443,9 @@ class TerminalSessionManager extends ChangeNotifier
     final key = _key(deviceId, terminalId);
     final service = _sessions.remove(key);
     _disposeTerminalState(key);
+    if (_activeTerminalKey == key) {
+      _activeTerminalKey = null;
+    }
     if (service == null) {
       return;
     }
@@ -380,6 +461,7 @@ class TerminalSessionManager extends ChangeNotifier
       _disposeTerminalState(key);
     }
     _pausedKeys = {};
+    _activeTerminalKey = null;
     await Future.wait(
       sessions.map((service) async {
         await service.disconnect();
@@ -388,6 +470,87 @@ class TerminalSessionManager extends ChangeNotifier
     );
     notifyListeners();
   }
+
+  // ─── F072: 显式状态机入口点 ───────────────────────────────
+
+  /// 连接到 terminal（首次 attach 或 reconnect）。
+  /// 状态路径：idle/connecting -> connecting -> recovering -> live
+  Future<void> connectTerminal(String? deviceId, String terminalId) async {
+    final key = _key(deviceId, terminalId);
+    final state = _terminals[key];
+    if (state == null) {
+      return;
+    }
+
+    final current = state.sessionState;
+    // 只有 idle 或 error 状态才允许 connect
+    if (current != TerminalSessionState.idle &&
+        current != TerminalSessionState.error) {
+      return;
+    }
+
+    state._setSessionState(TerminalSessionState.connecting);
+    _activeTerminalKey = key;
+
+    final service = _sessions[key];
+    if (service == null) {
+      state._setSessionState(TerminalSessionState.error);
+      return;
+    }
+
+    try {
+      await service.connect();
+      // connect 成功后，bindTerminalOutput 中的 connectedSubscription
+      // 会触发 beginRecovery，推动 recovering -> live
+    } catch (e) {
+      state._setSessionState(TerminalSessionState.error);
+    }
+  }
+
+  /// 切换 active terminal（只切 UI + active，不触发 recover）。
+  /// 不改变任何 terminal 的 sessionState。
+  void switchTerminal(String? deviceId, String terminalId) {
+    final key = _key(deviceId, terminalId);
+    if (!_terminals.containsKey(key)) {
+      return;
+    }
+    _activeTerminalKey = key;
+  }
+
+  /// 触发恢复（reconnect 或 follower re-enter 后调用）。
+  /// 状态路径：live/reconnecting -> recovering -> live
+  void recoverTerminal(String? deviceId, String terminalId) {
+    final key = _key(deviceId, terminalId);
+    final state = _terminals[key];
+    if (state == null) {
+      return;
+    }
+
+    final current = state.sessionState;
+    if (current == TerminalSessionState.live) {
+      // live -> reconnecting -> recovering
+      state._setSessionState(TerminalSessionState.reconnecting);
+    }
+    // reconnecting -> recovering (via beginRecovery)
+    state.beginRecovery();
+  }
+
+  /// 查询指定 terminal 的当前状态
+  TerminalSessionState getTerminalState(String? deviceId, String terminalId) {
+    return _terminals[_key(deviceId, terminalId)]?.sessionState ??
+        TerminalSessionState.idle;
+  }
+
+  /// 监听指定 terminal 的状态变化
+  ValueListenable<TerminalSessionState>? getTerminalStateListenable(
+    String? deviceId,
+    String terminalId,
+  ) {
+    return _terminals[_key(deviceId, terminalId)]?.stateNotifier;
+  }
+
+  /// 查询当前 active terminal key（仅测试用）
+  String? get activeTerminalKeyForTest => _activeTerminalKey;
 
   @override
   void dispose() {

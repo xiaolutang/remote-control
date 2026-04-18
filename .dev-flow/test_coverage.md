@@ -160,7 +160,7 @@
 | Agent 主权威恢复源 | B072 | unit,integration | per-terminal snapshot 生命周期；close/recreate 不污染旧 snapshot | 🔶 |
 | 恢复协议升级 | B073 | integration,smoke | connected -> snapshot_start/chunk/complete -> live；空 snapshot 边界 | 🔶 |
 | Client Transport 收瘦 | F071 | unit | transport events 标准化；不再承载恢复策略 | ✅ 33/33 |
-| Client Coordinator 状态机 | F072 | unit,integration,smoke | switch/reconnect/recover 分离；单 active transport；Codex/Claude 切换恢复 | 🔶 |
+| Client Coordinator 状态机 | F072 | unit,integration,smoke | switch/reconnect/recover 分离；单 active transport；Codex/Claude 切换恢复 | ✅ 60/60 (smoke 待 F074 集成) |
 | Renderer 隔离 | F073 | unit | RendererAdapter；snapshot/live apply 路径统一 | 🔶 |
 | UI 瘦身迁移 | F074 | widget,smoke | 页面只做展示/焦点/快捷键/IME；不再直接管 recover | 🔶 |
 | 桌面端 Agent 断连恢复编排 | F075 | integration,smoke | agent 断连 TTL 恢复；app 前后台；app 重启；agent 重启与 terminal 恢复 | 🔶 |
