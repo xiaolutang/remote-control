@@ -160,6 +160,7 @@ class _TerminalState {
   };
 
   void _setSessionState(TerminalSessionState newState) {
+    if (_sessionState == newState) return;
     final allowed = _transitions[_sessionState];
     if (allowed != null && allowed.contains(newState)) {
       _sessionState = newState;
@@ -448,7 +449,7 @@ class TerminalSessionManager extends ChangeNotifier
       connectedSubscription: service.terminalConnectedStream.listen((_) {
         if (_bindingGenerations[key] != generation) return;
         // 防止排队中的 connected 事件覆盖永久失败状态
-        if (service.isAuthFailed || service.terminalStatus == 'closed') {
+        if (service.isPermanentlyFailed) {
           return;
         }
         if (service.status != ConnectionStatus.connected) return;
@@ -480,7 +481,7 @@ class TerminalSessionManager extends ChangeNotifier
         // 在 autoReconnect 成功后调用 beginRecovery() 自然恢复。
         if (status == ConnectionStatus.disconnected ||
             status == ConnectionStatus.error) {
-          if (service.isAuthFailed || service.terminalStatus == 'closed') {
+          if (service.isPermanentlyFailed) {
             if (state.sessionState == TerminalSessionState.live ||
                 state.sessionState == TerminalSessionState.recovering ||
                 state.sessionState == TerminalSessionState.reconnecting ||
@@ -580,48 +581,10 @@ class TerminalSessionManager extends ChangeNotifier
 
   // ─── F072: 显式状态机入口点 ───────────────────────────────
 
-  /// 连接到 terminal（首次 attach 或 reconnect）。
+  /// 连接到 terminal（首次 attach）。
   /// 状态路径：idle/connecting -> connecting -> recovering -> live
   Future<void> connectTerminal(String? deviceId, String terminalId) async {
-    final key = _key(deviceId, terminalId);
-    final state = _terminals[key];
-    if (state == null) {
-      return;
-    }
-
-    final current = state.sessionState;
-    // 只有 idle 或 error 状态才允许 connect
-    if (current != TerminalSessionState.idle &&
-        current != TerminalSessionState.error) {
-      return;
-    }
-
-    state._setSessionState(TerminalSessionState.connecting);
-    _activeTerminalKey = key;
-
-    final service = _sessions[key];
-    if (service == null) {
-      state._setSessionState(TerminalSessionState.error);
-      return;
-    }
-
-    try {
-      await service.connect();
-      // connect 返回后检查是否真正连接成功
-      // 只在永久失败时设 error，临时失败（autoReconnect 可恢复）不干预
-      if (service.status != ConnectionStatus.connected) {
-        if (service.isAuthFailed || service.terminalStatus == 'closed') {
-          state._setSessionState(TerminalSessionState.error);
-        }
-        // 临时失败：autoReconnect 仍在运行，connectedSubscription
-        // 会在重连成功后触发 beginRecovery() 自然恢复
-        return;
-      }
-      // connect 成功后，bindTerminalOutput 中的 connectedSubscription
-      // 会触发 beginRecovery，推动 recovering -> live
-    } catch (e) {
-      state._setSessionState(TerminalSessionState.error);
-    }
+    await _connectInternal(deviceId, terminalId, TerminalSessionState.connecting);
   }
 
   /// 切换 active terminal（只切 UI + active，不触发 recover）。
@@ -636,29 +599,39 @@ class TerminalSessionManager extends ChangeNotifier
 
   /// F074: 重连 terminal（状态推进 + connect 统一入口）。
   /// 状态路径：error/idle -> reconnecting -> (connect) -> recovering -> live
-  /// UI 不应再直接调用 service.connect()，应通过此方法。
   Future<void> reconnectTerminal(String? deviceId, String terminalId) async {
+    await _connectInternal(deviceId, terminalId, TerminalSessionState.reconnecting);
+  }
+
+  /// connectTerminal / reconnectTerminal 共享的连接逻辑。
+  Future<void> _connectInternal(
+    String? deviceId,
+    String terminalId,
+    TerminalSessionState initialState,
+  ) async {
     final key = _key(deviceId, terminalId);
     final state = _terminals[key];
-    final service = _sessions[key];
-    if (state == null || service == null) return;
+    if (state == null) return;
 
     final current = state.sessionState;
-    // 从 error 或 idle 允许 reconnect
-    if (current != TerminalSessionState.error &&
-        current != TerminalSessionState.idle) {
+    if (current != TerminalSessionState.idle &&
+        current != TerminalSessionState.error) {
       return;
     }
 
-    state._setSessionState(TerminalSessionState.reconnecting);
+    state._setSessionState(initialState);
     _activeTerminalKey = key;
+
+    final service = _sessions[key];
+    if (service == null) {
+      state._setSessionState(TerminalSessionState.error);
+      return;
+    }
 
     try {
       await service.connect();
-      // connect 返回后检查是否真正连接成功
-      // 只在永久失败时设 error，临时失败（autoReconnect 可恢复）不干预
       if (service.status != ConnectionStatus.connected) {
-        if (service.isAuthFailed || service.terminalStatus == 'closed') {
+        if (service.isPermanentlyFailed) {
           state._setSessionState(TerminalSessionState.error);
         }
         // 临时失败：autoReconnect 仍在运行，connectedSubscription

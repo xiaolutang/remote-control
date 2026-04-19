@@ -142,7 +142,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
             () => service,
           ),
         );
-        _configureTerminalCallbacks(service, adapter);
+        _configureTerminalCallbacks(service, adapter.terminalForView);
       } else {
         // 首次创建：通过 deprecated API 创建 terminal（coordinator 会自动绑定）
         // ignore: deprecated_member_use
@@ -156,14 +156,14 @@ class _TerminalScreenState extends State<TerminalScreen> {
           service.deviceId,
           terminalId,
         );
-        _configureTerminalCallbacksLegacy(service);
+        _configureTerminalCallbacks(service, _activeTerminal);
       }
     } else {
       _terminal ??= Terminal(maxLines: 10000);
       _terminalOutputText = _localTerminalOutputText;
       _outputSubscription =
           service.outputStream.listen(_onOutput, onError: _onOutputError);
-      _configureTerminalCallbacksLegacy(service);
+      _configureTerminalCallbacks(service, _activeTerminal);
     }
 
     service.addListener(_onStatusChanged);
@@ -178,33 +178,16 @@ class _TerminalScreenState extends State<TerminalScreen> {
     unawaited(_loadPresenceSnapshot(service));
   }
 
-  /// F074: coordinator 版回调 — input 通过 adapter 发送，resize 由 coordinator 管理
+  /// 配置终端的 input/resize 回调
   void _configureTerminalCallbacks(
     WebSocketService service,
-    RendererAdapter adapter,
+    Terminal terminal,
   ) {
-    adapter.terminalForView.onOutput = (data) {
+    terminal.onOutput = (data) {
       if (!mounted) return;
       service.send(data);
     };
-    // F074: resize 策略仍需保留在 UI 层（因为 autoResize 参数影响 TerminalView），
-    // 但 coordinator 层管理远程 pty 同步
-    adapter.terminalForView.onResize = (width, height, pixelWidth, pixelHeight) {
-      if (!mounted) return;
-      if (_shouldFollowSharedPty(service)) {
-        return;
-      }
-      service.resize(height, width);
-    };
-  }
-
-  /// F074: legacy 版回调 — 无 terminalId 场景或首次创建时使用
-  void _configureTerminalCallbacksLegacy(WebSocketService service) {
-    _activeTerminal.onOutput = (data) {
-      if (!mounted) return;
-      service.send(data);
-    };
-    _activeTerminal.onResize = (width, height, pixelWidth, pixelHeight) {
+    terminal.onResize = (width, height, pixelWidth, pixelHeight) {
       if (!mounted) return;
       if (_shouldFollowSharedPty(service)) {
         return;
@@ -334,12 +317,8 @@ class _TerminalScreenState extends State<TerminalScreen> {
       return;
     }
 
-    final error = service.errorMessage?.toLowerCase() ?? '';
-    if (error.contains('401') ||
-        error.contains('token 已过期') ||
-        error.contains('token 过期') ||
-        error.contains('token 无效') ||
-        error.contains('unauthorized')) {
+    // 认证失败通过 close code 判断，不再依赖字符串匹配
+    if (service.isAuthFailed) {
       _handleTokenExpired();
     }
   }

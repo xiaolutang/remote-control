@@ -200,6 +200,9 @@ class WebSocketService extends ChangeNotifier {
   /// 此类服务不可复用，应丢弃重建。
   bool get isAuthFailed => _lastCloseCode == 4001 || _lastCloseCode == 4011;
 
+  /// 永久失败：认证失败或终端已关闭，此类服务不可恢复。
+  bool get isPermanentlyFailed => isAuthFailed || terminalStatus == 'closed';
+
   String get _viewTypeString =>
       viewType == ViewType.desktop ? 'desktop' : 'mobile';
 
