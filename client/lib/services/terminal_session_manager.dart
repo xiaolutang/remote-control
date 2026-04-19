@@ -699,6 +699,7 @@ class TerminalSessionManager extends ChangeNotifier
       return;
     }
 
+    // 已耗尽重试次数，收敛到 error
     final retryCount = _networkRetryCount[key] ?? 0;
     if (retryCount >= _maxNetworkRetries) {
       state._setSessionState(TerminalSessionState.error);
@@ -707,9 +708,7 @@ class TerminalSessionManager extends ChangeNotifier
     }
 
     _networkRetryCount[key] = retryCount + 1;
-    if (state.sessionState != TerminalSessionState.recovering) {
-      state._setSessionState(TerminalSessionState.recovering);
-    }
+    state._setSessionState(TerminalSessionState.recovering);
 
     try {
       await service.connect();
