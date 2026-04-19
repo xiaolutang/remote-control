@@ -1,7 +1,7 @@
 # Session S039: 终端交互架构重构规划
 
 > 日期：2026-04-17
-> 状态：规划完成，待执行
+> 状态：已完成，已合并 main
 
 ## 需求来源
 
@@ -94,3 +94,31 @@
 
 - `DF-20260417-01`: 真实使用中 `Claude` 双端 refresh / full-screen TUI 恢复缺口
 - `DF-20260417-02`: 客户端架构职责混叠，补丁修复持续外溢，需升级为整体交互重构
+
+## 遗留问题
+
+### Codex 终端刷新后内容丢失（未解决）
+
+**现象**：Codex 终端刷新/切换后内容丢失，只剩空白。Claude Code 终端无此问题。
+
+**根因分析**：
+- recovery 流程依赖服务端发送 `snapshot_complete` 触发 `finishRecovery()`
+- 如果 Agent snapshot 请求超时（1.5s）且回退 history 为空，`snapshot_complete` 虽然会到达，但无实际数据
+- Codex 使用 TUI（alternate screen buffer），idle 状态下无持续输出，恢复后无法自动填充内容
+- Claude Code 持续产生输出，即使 snapshot 不完整也会被新输出覆盖
+
+**已做保护**：添加 5 秒 recovery 超时，防止终端永久卡在 recovering 状态。
+
+**待深入排查方向**：
+1. Agent 对 Codex TUI alternate screen buffer 的 snapshot 捕获可靠性
+2. 服务端 snapshot fallback（history）对 alternate buffer 的兼容性
+3. 客户端 `applySnapshot` 对 `active_buffer` 字段的处理（当前忽略，一律写 main buffer）
+4. `snapshot_start` 消息是否应携带恢复语义信息供客户端预处理
+
+**优先级**：P1 — v1 主打 Claude Code 兼容，Codex 兼容性后续专项排查。
+
+### DesktopAgentManager 双实例问题（已知，未修）
+
+- 全局 Provider 实例与 `DesktopAgentBootstrapService` 创建的临时实例并存
+- F075 recovery state machine 中 `onAgentDisconnect`/`onAgentReconnected` 未被调用（dead code）
+- 三个独立状态机（TerminalSessionState / DesktopAgentRecoveryState / ConnectionStatus）缺乏协调

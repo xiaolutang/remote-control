@@ -2,12 +2,13 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-19T10:30:00+0800",
-  "status": "in_progress",
+  "updated_at": "2026-04-19T18:00:00+0800",
+  "status": "completed",
   "active_requirement_cycle": {
     "name": "terminal-interaction-refactor",
     "branch": "feat/terminal-interaction-refactor",
-    "started_at": "2026-04-17"
+    "started_at": "2026-04-17",
+    "completed_at": "2026-04-19"
   },
   "workflow": {
     "name": "remote-control",
@@ -19,9 +20,9 @@
   },
   "summary": {
     "total": 16,
-    "pending": 4,
-    "in_progress": 4,
-    "completed": 8,
+    "pending": 0,
+    "in_progress": 0,
+    "completed": 16,
     "blocked": 0,
     "cancelled": 0
   },
@@ -43,7 +44,7 @@
       "description": "L1 修复：xterm fork 的 CPR (CSI 6n) 响应返回 0-based 坐标，违反 ANSI 标准。\n\n根因：emitter.dart cursorPosition(x, y) 直接拼接 buffer 的 cursorX/cursorY（0-based），\n当光标在左上角时生成非法 ESC[0;0R（标准要求最小值 ESC[1;1R）。\n现代 TUI（Codex 等）依赖 CPR 响应探测终端能力，非法响应导致退化成单行重绘模式。\n\n修复：emitter.dart cursorPosition() 对 x 和 y 各加 1。\n\n覆盖范围：\n- 主路径：工作台 TerminalScreen(embedded: true)\n- 旧路径：TerminalScreen standalone（connect_screen/runtime_selection_screen 直接打开）\n- 两条路径共用同一个 xterm fork emitter，一处修复两条路径同时受益。",
       "verification": "F1",
       "depends_on": [],
-      "status": "in_progress",
+      "status": "completed",
       "priority": "P0",
       "acceptance_criteria": [
         "光标在 (0,0) 时 CPR 响应为 ESC[1;1R",
@@ -108,7 +109,7 @@
       "description": "L1 修复：_onOutput 中每次 WS 数据到达都调用 setState(() {})，导致整个 widget tree 重建。\n\n根因：terminal_screen.dart _onOutput() 中的 setState 是多余的——\n_terminal.write() → notifyListeners() → RenderTerminal._onTerminalChange() → markNeedsLayout() 已处理重绘。\nsetState 触发的是外层 widget tree（含 Container/ClipRRect/boxShadow）的重建，造成可见闪烁。\n\n修复：移除 _onOutput 中的 setState(() {}) 调用。\n\n覆盖范围：主路径和旧路径共用同一个 _onOutput，一处修复全部受益。",
       "verification": "F1",
       "depends_on": [],
-      "status": "in_progress",
+      "status": "completed",
       "priority": "P0",
       "acceptance_criteria": [
         "移除 setState 后终端数据正常显示",
@@ -161,7 +162,7 @@
       "description": "L2 修复：移动端键盘弹起/收起触发 Scaffold body resize → PTY resize → 影响桌面端。\n\n根因：Scaffold 默认 resizeToAvoidBottomInset=true，键盘弹起时 body 缩小 →\nRenderTerminal constraints 变化 → performLayout → Terminal.resize →\nonResize → WS resize 消息 → Agent PTY resize。\n共享裸 PTY 没有 owner 概念，谁最后发 resize 谁就改掉全局尺寸。\n\n修复：移动端设置 resizeToAvoidBottomInset: false。\n键盘覆盖在终端上方（Termux 模式），不触发 resize。\n同时修复：软键盘弹起/收起时页面闪烁（无 layout 变化 = 无闪烁）。\n桌面端不受影响（桌面无软键盘）。\n\n覆盖范围（两条路径都必须修复）：\n- 主路径：terminal_workspace_screen.dart:214 工作台 Scaffold（embedded 模式的主入口）\n- 旧路径：terminal_screen.dart:1372 TerminalScreen 独立 Scaffold（connect_screen/runtime_selection_screen 直接打开时生效）",
       "verification": "F2",
       "depends_on": [],
-      "status": "in_progress",
+      "status": "completed",
       "priority": "P0",
       "acceptance_criteria": [
         "工作台 Scaffold（主路径）移动端设置 resizeToAvoidBottomInset: false",
@@ -173,7 +174,9 @@
         "终端输入功能正常（键盘仍可输入文字）",
         "移动端弹起键盘后，底部提示符/光标仍可见（不被键盘永久遮挡）"
       ],
-      "risk_tags": ["first_use"],
+      "risk_tags": [
+        "first_use"
+      ],
       "test_tasks": [
         {
           "type": "unit",
@@ -231,8 +234,10 @@
       "name": "终端切换白屏修复",
       "description": "L2 修复：切换终端后页面空白，需要手动刷新才能显示内容，刷新也不稳定。\n\n根因：每次 TerminalScreen 挂载时新建 Terminal(maxLines: 10000) 实例，TerminalSessionManager\n只缓存 WebSocketService，不缓存 Terminal state/buffer。切换 A→B→A 时，切回 A 需要重新\n创建 Terminal 实例并等待 WebSocket 重新推送数据，期间显示空白。\n\n已排除的假设：\n- ❌ 'TerminalView 缺少 key'：工作台已使用 ValueKey(terminalId) + KeyedSubtree\n- ❌ '重连时没有 loading'：terminal_screen.dart:1257 已有 loading 状态处理\n\n修复方向：在 TerminalSessionManager 中缓存每个 terminal 的 Terminal 实例（含 buffer/state），\n切换时复用已有实例而非新建，避免 buffer 丢失和重新等待数据。\n\n前置 F069：resize 隔离后减少了 layout 变量，更容易定位白屏的具体触发条件。",
       "verification": "F2",
-      "depends_on": ["F069"],
-      "status": "in_progress",
+      "depends_on": [
+        "F069"
+      ],
+      "status": "completed",
       "priority": "P0",
       "acceptance_criteria": [
         "切换到另一个终端后内容立即显示（不白屏）",
@@ -241,7 +246,9 @@
         "WebSocket 重连中显示已有 loading 状态（确认已有逻辑正常工作）",
         "切换到已断开连接的终端显示明确状态而非空白"
       ],
-      "risk_tags": ["first_use"],
+      "risk_tags": [
+        "first_use"
+      ],
       "test_tasks": [
         {
           "type": "unit",
@@ -318,7 +325,12 @@
         "明确 Agent / Server / Client 各自保存什么状态、谁负责恢复",
         "明确 switch / reconnect / recover 三类事件的独立状态机"
       ],
-      "risk_tags": ["cross_client", "reconnect", "shared_state", "tui"],
+      "risk_tags": [
+        "cross_client",
+        "reconnect",
+        "shared_state",
+        "tui"
+      ],
       "test_tasks": [
         {
           "type": "design",
@@ -351,7 +363,9 @@
       "name": "终端恢复语义与模式基线：snapshot/epoch/exclusive/shared",
       "description": "把 terminal 恢复语义正式化，统一定义 snapshot、local cache、attach_epoch、recovery_epoch 以及 terminal 模式（exclusive/shared）。\n\n目标：\n- snapshot 绑定 terminal_id + attach_epoch + recovery_epoch + pty\n- live output 在 snapshot_complete 前只缓冲，不直接渲染\n- local renderer cache 只用于本地 continuity，不参与跨端真相\n- terminal 支持 exclusive/shared 两种模式，并定义默认策略（Codex 偏 exclusive，Claude/shell 偏 shared）\n- switch / reconnect / recover 的恢复边界由 shared 契约统一，不再由各层自由发挥",
       "verification": "F2",
-      "depends_on": ["S071"],
+      "depends_on": [
+        "S071"
+      ],
       "status": "completed",
       "priority": "P0",
       "acceptance_criteria": [
@@ -360,8 +374,16 @@
         "exclusive/shared 两种 terminal mode 有明确默认策略与限制",
         "switch / reconnect / recover 的边界有配套测试规划"
       ],
-      "contract_refs": ["CONTRACT-039", "CONTRACT-042"],
-      "risk_tags": ["cross_client", "reconnect", "shared_state", "tui"],
+      "contract_refs": [
+        "CONTRACT-039",
+        "CONTRACT-042"
+      ],
+      "risk_tags": [
+        "cross_client",
+        "reconnect",
+        "shared_state",
+        "tui"
+      ],
       "test_tasks": [
         {
           "type": "design",
@@ -395,7 +417,9 @@
       "name": "协议兼容迁移与灰度切换策略：双协议窗口、回退与发布顺序",
       "description": "为 terminal-interaction-refactor 增加显式的迁移计划，避免 server/agent/client 分步上线时因协议不兼容再次引入终端内容丢失。\n\n目标：\n- 明确新旧恢复协议共存窗口\n- 定义 server 先支持双协议、agent/client 分步切换还是一次性切换\n- 明确旧 client/desktop 连接到新 server 时的回退策略\n- 明确新 client 连接到旧 server/agent 时的能力降级策略\n- 补发布顺序、灰度验证点与回滚条件",
       "verification": "F2",
-      "depends_on": ["S072"],
+      "depends_on": [
+        "S072"
+      ],
       "status": "completed",
       "priority": "P0",
       "acceptance_criteria": [
@@ -404,8 +428,16 @@
         "旧 client/desktop 与新 server 的回退行为明确",
         "回滚条件与灰度验证点明确"
       ],
-      "contract_refs": ["CONTRACT-042"],
-      "risk_tags": ["network", "startup", "reconnect", "shared_state", "first_use"],
+      "contract_refs": [
+        "CONTRACT-042"
+      ],
+      "risk_tags": [
+        "network",
+        "startup",
+        "reconnect",
+        "shared_state",
+        "first_use"
+      ],
       "test_tasks": [
         {
           "type": "design",
@@ -439,7 +471,10 @@
       "name": "Server 状态中心收瘦：只维护 metadata / ownership / routing 真相",
       "description": "重构 session.py 与 ws_client.py 的职责，确保 Server 只做 terminal metadata、ownership、routing 和 attach gating 的真相源，不再把 output history 当 attach 恢复的主来源。\n\n收口目标：\n- session.py 管 device/session/terminal metadata、views、geometry_owner_view、pty、status\n- output history 降级为诊断/审计用途，不再作为 attach 后主 snapshot 源\n- connected / presence / close / detach 路径不再做隐式状态推导\n- attach/reconnect 时序围绕显式 recovery 协议重建",
       "verification": "F2",
-      "depends_on": ["S071", "S072"],
+      "depends_on": [
+        "S071",
+        "S072"
+      ],
       "status": "completed",
       "priority": "P0",
       "acceptance_criteria": [
@@ -449,8 +484,15 @@
         "Server 端 contract 对 client/agent 的职责边界清晰",
         "session/device 的 online / offline_recoverable / offline_expired 与 terminal 的 live / detached_recoverable / recovering / closed 状态模型明确"
       ],
-      "contract_refs": ["CONTRACT-040", "CONTRACT-042"],
-      "risk_tags": ["cross_client", "reconnect", "shared_state"],
+      "contract_refs": [
+        "CONTRACT-040",
+        "CONTRACT-042"
+      ],
+      "risk_tags": [
+        "cross_client",
+        "reconnect",
+        "shared_state"
+      ],
       "test_tasks": [
         {
           "type": "integration",
@@ -499,7 +541,10 @@
       "name": "Agent 主权威恢复源：terminal snapshot manager",
       "description": "将 Agent 提升为 terminal 内容恢复的主权威源。Agent 维护每个 terminal 的最近可恢复内容与恢复边界，对 Server 暴露 snapshot_request / snapshot_data 语义。\n\n目标不是实现完整 screen diff，而是先把 Agent authoritative snapshot 做成唯一主路径：\n- 每个 terminal 独立 snapshot buffer\n- snapshot 与 live data 使用显式边界\n- terminal close / recreate 时 snapshot 生命周期明确\n- Server attach 恢复时优先取 Agent 当前 snapshot，而不是回放 output history",
       "verification": "F2",
-      "depends_on": ["S071", "S072"],
+      "depends_on": [
+        "S071",
+        "S072"
+      ],
       "status": "completed",
       "priority": "P0",
       "acceptance_criteria": [
@@ -508,8 +553,16 @@
         "terminal close / recreate 不会污染旧 snapshot",
         "Codex/Claude 高频输出下 snapshot 仍能提供可恢复状态"
       ],
-      "contract_refs": ["CONTRACT-041", "CONTRACT-042"],
-      "risk_tags": ["cross_client", "reconnect", "shared_state", "tui"],
+      "contract_refs": [
+        "CONTRACT-041",
+        "CONTRACT-042"
+      ],
+      "risk_tags": [
+        "cross_client",
+        "reconnect",
+        "shared_state",
+        "tui"
+      ],
       "test_tasks": [
         {
           "type": "unit",
@@ -554,7 +607,12 @@
       "name": "恢复协议升级：snapshot / snapshot_complete / live_output 边界与顺序",
       "description": "补齐 server-agent-client 之间的恢复协议，确保 reconnect / attach 时 snapshot 与 live output 不乱序、不互相覆盖。\n\n目标协议：\n- connected 表示 transport ready，不表示恢复完成\n- snapshot 为恢复材料块\n- snapshot_complete 表示恢复边界结束\n- live output 只在 snapshot_complete 之后进入 live 阶段\n- 后续必要时可增加序号/epoch，但本阶段先保证边界语义完整",
       "verification": "F2",
-      "depends_on": ["S072", "S073", "B071", "B072"],
+      "depends_on": [
+        "S072",
+        "S073",
+        "B071",
+        "B072"
+      ],
       "status": "completed",
       "priority": "P0",
       "acceptance_criteria": [
@@ -564,8 +622,15 @@
         "output 事件附带 attach_epoch/recovery_epoch，旧 epoch 消息可被客户端丢弃",
         "存在新旧恢复协议兼容/降级语义，避免迁移期错配"
       ],
-      "contract_refs": ["CONTRACT-042"],
-      "risk_tags": ["cross_client", "reconnect", "shared_state", "tui"],
+      "contract_refs": [
+        "CONTRACT-042"
+      ],
+      "risk_tags": [
+        "cross_client",
+        "reconnect",
+        "shared_state",
+        "tui"
+      ],
       "test_tasks": [
         {
           "type": "integration",
@@ -613,7 +678,9 @@
       "name": "Client Transport 收瘦：WebSocketService 只负责协议事件",
       "description": "将 WebSocketService 收口为纯 transport 层，不再承载 terminal 恢复和 xterm 语义。\n\n目标：\n- 只保留 connect/reconnect/send/receive\n- 对外暴露标准化 terminal events（connected/snapshot/snapshot_complete/output/resize/presence/closed）\n- 不直接持有 terminal renderer 语义\n- geometry owner 等 metadata 仍可解析，但只作为 transport event / state，不在该层做恢复策略",
       "verification": "F2",
-      "depends_on": ["B073"],
+      "depends_on": [
+        "B073"
+      ],
       "status": "completed",
       "priority": "P0",
       "acceptance_criteria": [
@@ -625,8 +692,13 @@
         "旧专用 stream（outputStream/presenceStream）仍可用但标记为迁移窗口，可被关闭",
         "同一 service reconnect 时不会直接覆盖 local xterm state"
       ],
-      "contract_refs": ["CONTRACT-042"],
-      "risk_tags": ["reconnect", "shared_state"],
+      "contract_refs": [
+        "CONTRACT-042"
+      ],
+      "risk_tags": [
+        "reconnect",
+        "shared_state"
+      ],
       "test_tasks": [
         {
           "type": "unit",
@@ -670,7 +742,10 @@
       "name": "Client Coordinator 新建：TerminalSessionCoordinator 状态机",
       "description": "引入显式的 TerminalSessionCoordinator，成为 terminal cache、switch、reconnect、recover、geometry owner 策略的唯一协调层。\n\n目标：\n- 显式状态机：idle -> connecting -> recovering -> live -> reconnecting\n- 统一处理 switch / reconnect / recover 三类事件\n- 管理每个 terminal 的 local renderer cache 与 active transport\n- 保证同一 client view 只有一个 active terminal transport\n- 切换 terminal 时保留 cached renderer，不再误触发恢复覆盖",
       "verification": "F2",
-      "depends_on": ["S072", "F071"],
+      "depends_on": [
+        "S072",
+        "F071"
+      ],
       "status": "completed",
       "priority": "P0",
       "acceptance_criteria": [
@@ -684,8 +759,16 @@
         "reconnect 进入 recover -> snapshot_complete -> live",
         "平台触发编排（foreground/cold-start/network）由 F075/F076 负责，本任务只提供状态机 entry points"
       ],
-      "contract_refs": ["CONTRACT-039", "CONTRACT-042"],
-      "risk_tags": ["cross_client", "reconnect", "shared_state", "tui"],
+      "contract_refs": [
+        "CONTRACT-039",
+        "CONTRACT-042"
+      ],
+      "risk_tags": [
+        "cross_client",
+        "reconnect",
+        "shared_state",
+        "tui"
+      ],
       "test_tasks": [
         {
           "type": "unit",
@@ -741,7 +824,9 @@
       "name": "Renderer 隔离：xterm handle 与 local screen state 下沉",
       "description": "把本地 xterm Terminal 的职责从 screen/widget 层剥离出来，形成明确的 RendererAdapter。RendererAdapter 只暴露稳定的 applySnapshot / applyLiveOutput / resize / reset / dispose 接口，内部包装 xterm Terminal 的 screen buffer、cursor、alt/main buffer 操作。\n\n目标：\n- RendererAdapter 成为 xterm 的唯一稳定包装层，Coordinator 和 UI 只依赖 adapter 接口\n- UI 不再直接操纵 xterm Terminal / mainBuffer / altBuffer\n- Coordinator 通过 RendererAdapter 施加恢复材料与 live output\n- 为后续 agent authoritative snapshot / screen diff 演进保留接口",
       "verification": "F1",
-      "depends_on": ["F072"],
+      "depends_on": [
+        "F072"
+      ],
       "status": "completed",
       "priority": "P1",
       "acceptance_criteria": [
@@ -751,7 +836,10 @@
         "snapshot/live apply 路径统一走 adapter",
         "为 future screen snapshot/diff 预留单一 renderer 入口"
       ],
-      "risk_tags": ["shared_state", "tui"],
+      "risk_tags": [
+        "shared_state",
+        "tui"
+      ],
       "test_tasks": [
         {
           "type": "unit",
@@ -776,7 +864,10 @@
       "name": "UI 瘦身：TerminalScreen / TerminalWorkspaceScreen 只做展示和交互",
       "description": "最终把 TerminalScreen / TerminalWorkspaceScreen 收口为纯 UI 层。页面只负责 terminal 选择、焦点、快捷键、IME 和布局，不再直接协调 transport、reconnect、snapshot 恢复或 geometry owner 策略。\n\n目标：\n- TerminalScreen 不再自己拼 connect + bind + recover 逻辑\n- TerminalWorkspaceScreen 不再感知 active transport 细节\n- UI 只消费 coordinator 暴露的 terminal handle / view model\n- 桌面端与移动端复用同一套 coordinator 语义，只保留交互差异",
       "verification": "F2",
-      "depends_on": ["F072", "F073"],
+      "depends_on": [
+        "F072",
+        "F073"
+      ],
       "status": "completed",
       "priority": "P1",
       "acceptance_criteria": [
@@ -787,7 +878,11 @@
         "移动端 refresh/reconnect 时不触发 shared PTY resize",
         "双端同时观察同一 terminal 时不白屏，无 geometry 抢占"
       ],
-      "risk_tags": ["cross_client", "first_use", "tui"],
+      "risk_tags": [
+        "cross_client",
+        "first_use",
+        "tui"
+      ],
       "test_tasks": [
         {
           "type": "widget",
@@ -831,7 +926,13 @@
       "name": "桌面端 Agent 断连恢复编排：recoverable/offline_expired/agent restart",
       "description": "把桌面端对本机 Agent 的管理纳入新的 terminal 生命周期模型，统一处理 agent 与 server 断连、TTL 恢复、app 前后台切换、app 被杀重启后的恢复。\n\n目标：\n- 桌面端区分“agent 进程仍在但网络断开”和“agent 进程已死”两类场景\n- session/device 状态显式区分 online / offline_recoverable / offline_expired\n- terminal 状态显式区分 live / detached_recoverable / recovering / closed\n- DesktopAgentManager 与 TerminalSessionCoordinator 协同：agent 断连不立刻清空 terminal，本地 renderer cache 保留，TTL 内优先恢复；必要时桌面端负责本地重启 agent\n- app 从后台回前台、app 重启、网络恢复三类场景统一走同一套恢复状态机",
       "verification": "F2",
-      "depends_on": ["S072", "B071", "B072", "B073", "F072"],
+      "depends_on": [
+        "S072",
+        "B071",
+        "B072",
+        "B073",
+        "F072"
+      ],
       "status": "completed",
       "priority": "P0",
       "acceptance_criteria": [
@@ -843,8 +944,18 @@
         "恢复状态机只在 DesktopAgentManager + Coordinator 中运行，TerminalWorkspaceScreen 只展示状态和转发事件",
         "app 前后台切换、app 被杀重启、网络异常恢复三类场景走统一恢复状态机"
       ],
-      "contract_refs": ["CONTRACT-040", "CONTRACT-041", "CONTRACT-042"],
-      "risk_tags": ["network", "startup", "reconnect", "shared_state", "first_use"],
+      "contract_refs": [
+        "CONTRACT-040",
+        "CONTRACT-041",
+        "CONTRACT-042"
+      ],
+      "risk_tags": [
+        "network",
+        "startup",
+        "reconnect",
+        "shared_state",
+        "first_use"
+      ],
       "test_tasks": [
         {
           "type": "integration",
@@ -893,7 +1004,12 @@
       "name": "客户端生命周期恢复编排：foreground/cold start/network restore",
       "description": "把 app 从后台回前台、app 被杀后重新打开、使用中网络异常恢复三类场景纳入统一的 client recovery 模型，不再由页面或单点 reconnect 逻辑临时兜底。\n\n目标：\n- foreground resume 保留 local renderer cache，但使用新的 attach_epoch 重新对齐 transport\n- cold start 不依赖旧 local cache，直接走 terminal attach + agent snapshot recover\n- network restore 统一走 reconnect -> recovering -> live，不再要求用户多次手动刷新\n- 移动端与桌面端共享同一 recovery 语义，桌面端额外的 agent restart 由 F075 补充",
       "verification": "F2",
-      "depends_on": ["S072", "S073", "B073", "F072"],
+      "depends_on": [
+        "S072",
+        "S073",
+        "B073",
+        "F072"
+      ],
       "status": "completed",
       "priority": "P0",
       "acceptance_criteria": [
@@ -904,8 +1020,17 @@
         "恢复状态机只在 Coordinator 中运行，页面只转发生命周期事件、不承载恢复策略",
         "网络恢复重试耗尽后 coordinator 进入 error 状态，UI 展示恢复失败提示"
       ],
-      "contract_refs": ["CONTRACT-039", "CONTRACT-042"],
-      "risk_tags": ["network", "startup", "reconnect", "first_use", "shared_state"],
+      "contract_refs": [
+        "CONTRACT-039",
+        "CONTRACT-042"
+      ],
+      "risk_tags": [
+        "network",
+        "startup",
+        "reconnect",
+        "first_use",
+        "shared_state"
+      ],
       "test_tasks": [
         {
           "type": "integration",
@@ -950,15 +1075,27 @@
   "archived_phases": [
     {
       "phase": "ip-direct",
-      "task_ids": ["S063", "S064", "S065", "S066"],
+      "task_ids": [
+        "S063",
+        "S064",
+        "S065",
+        "S066"
+      ],
       "archived_at": "2026-04-16",
-      "summary": {"total": 4, "completed": 4, "cancelled": 0}
+      "summary": {
+        "total": 4,
+        "completed": 4,
+        "cancelled": 0
+      }
     },
     {
       "phase": "env-selector",
       "status": "completed",
       "task_count": 2,
-      "task_ids": ["F059", "F060"],
+      "task_ids": [
+        "F059",
+        "F060"
+      ],
       "conclusion": "环境选择阶段完成：登录页环境选择 UI + EnvironmentService 纯状态服务 + 全链路集成",
       "archived_at": "2026-04-15",
       "archive_file": "_archive/phases/phase_env-selector.json"
@@ -967,7 +1104,18 @@
       "phase": "security-hardening",
       "status": "completed",
       "task_count": 10,
-      "task_ids": ["B062", "B063", "B064", "B065", "B066", "B067", "B068", "F058", "B070", "S038"],
+      "task_ids": [
+        "B062",
+        "B063",
+        "B064",
+        "B065",
+        "B066",
+        "B067",
+        "B068",
+        "F058",
+        "B070",
+        "S038"
+      ],
       "conclusion": "安全加固阶段完成，10/10 任务",
       "archived_at": "2026-04-14",
       "archive_file": "_archive/phases/phase_security-hardening.json"
@@ -976,7 +1124,9 @@
       "phase": "agent",
       "status": "completed",
       "task_count": 1,
-      "task_ids": ["B013"],
+      "task_ids": [
+        "B013"
+      ],
       "conclusion": "agent 阶段完成，1 个任务",
       "archived_at": "2026-03-30T17:00:00Z",
       "archive_file": "_archive/phases/phase_agent.json"
@@ -985,7 +1135,31 @@
       "phase": "backend",
       "status": "completed",
       "task_count": 23,
-      "task_ids": ["B001", "B002", "B003", "B004", "B005", "B006", "B007", "B008", "B009", "B010", "B011", "B012", "B014", "B015", "B016", "B017", "B018", "B019", "B022", "B032", "B033", "B034", "B035"],
+      "task_ids": [
+        "B001",
+        "B002",
+        "B003",
+        "B004",
+        "B005",
+        "B006",
+        "B007",
+        "B008",
+        "B009",
+        "B010",
+        "B011",
+        "B012",
+        "B014",
+        "B015",
+        "B016",
+        "B017",
+        "B018",
+        "B019",
+        "B022",
+        "B032",
+        "B033",
+        "B034",
+        "B035"
+      ],
       "conclusion": "backend 阶段完成，23 个任务",
       "archived_at": "2026-03-30T17:00:00Z",
       "archive_file": "_archive/phases/phase_backend.json"
@@ -994,7 +1168,39 @@
       "phase": "frontend",
       "status": "completed",
       "task_count": 31,
-      "task_ids": ["F001", "F002", "F003", "F004", "F005", "F006", "F007", "F008", "F009", "F010", "F011", "F012", "F013", "F014", "F015", "F016", "F017", "F018", "F019", "F020", "F021", "F022", "F023", "F024", "F025", "F026", "F027", "F028", "F029", "F030", "F031"],
+      "task_ids": [
+        "F001",
+        "F002",
+        "F003",
+        "F004",
+        "F005",
+        "F006",
+        "F007",
+        "F008",
+        "F009",
+        "F010",
+        "F011",
+        "F012",
+        "F013",
+        "F014",
+        "F015",
+        "F016",
+        "F017",
+        "F018",
+        "F019",
+        "F020",
+        "F021",
+        "F022",
+        "F023",
+        "F024",
+        "F025",
+        "F026",
+        "F027",
+        "F028",
+        "F029",
+        "F030",
+        "F031"
+      ],
       "conclusion": "frontend 阶段完成，31 个任务",
       "archived_at": "2026-03-30T17:00:00Z",
       "archive_file": "_archive/phases/phase_frontend.json"
@@ -1003,94 +1209,271 @@
       "phase": "shared",
       "status": "completed",
       "task_count": 14,
-      "task_ids": ["S001", "S002", "S003", "S011", "S012", "S013", "S014", "S015", "S016", "S017", "S018", "S019", "S022", "S023"],
+      "task_ids": [
+        "S001",
+        "S002",
+        "S003",
+        "S011",
+        "S012",
+        "S013",
+        "S014",
+        "S015",
+        "S016",
+        "S017",
+        "S018",
+        "S019",
+        "S022",
+        "S023"
+      ],
       "conclusion": "shared 阶段完成，14 个任务",
       "archived_at": "2026-03-30T17:00:00Z",
       "archive_file": "_archive/phases/phase_shared.json"
     },
     {
       "phase": "agent-lifecycle",
-      "task_ids": ["S024", "F032", "F033", "F034", "F035", "F036", "F037", "F038"],
+      "task_ids": [
+        "S024",
+        "F032",
+        "F033",
+        "F034",
+        "F035",
+        "F036",
+        "F037",
+        "F038"
+      ],
       "archived_at": "2026-04-10T14:03:03Z",
-      "summary": {"total": 8, "completed": 7, "cancelled": 1}
+      "summary": {
+        "total": 8,
+        "completed": 7,
+        "cancelled": 1
+      }
     },
     {
       "phase": "ws-lifecycle",
-      "task_ids": ["F039", "F040"],
+      "task_ids": [
+        "F039",
+        "F040"
+      ],
       "archived_at": "2026-04-10T14:03:03Z",
-      "summary": {"total": 2, "completed": 2, "cancelled": 0}
+      "summary": {
+        "total": 2,
+        "completed": 2,
+        "cancelled": 0
+      }
     },
     {
       "phase": "agent-hardening",
-      "task_ids": ["F041", "F042", "F043", "F044"],
+      "task_ids": [
+        "F041",
+        "F042",
+        "F043",
+        "F044"
+      ],
       "archived_at": "2026-04-10T14:03:03Z",
-      "summary": {"total": 4, "completed": 4, "cancelled": 0}
+      "summary": {
+        "total": 4,
+        "completed": 4,
+        "cancelled": 0
+      }
     },
     {
       "phase": "device-online-limit",
-      "task_ids": ["B036", "B037", "F045", "F046", "F047"],
+      "task_ids": [
+        "B036",
+        "B037",
+        "F045",
+        "F046",
+        "F047"
+      ],
       "archived_at": "2026-04-10T14:03:03Z",
-      "summary": {"total": 5, "completed": 5, "cancelled": 0}
+      "summary": {
+        "total": 5,
+        "completed": 5,
+        "cancelled": 0
+      }
     },
     {
       "phase": "login-device-limit",
-      "task_ids": ["B038", "B039", "F048", "F049", "S025"],
+      "task_ids": [
+        "B038",
+        "B039",
+        "F048",
+        "F049",
+        "S025"
+      ],
       "archived_at": "2026-04-10T14:03:03Z",
-      "summary": {"total": 5, "completed": 5, "cancelled": 0}
+      "summary": {
+        "total": 5,
+        "completed": 5,
+        "cancelled": 0
+      }
     },
     {
       "phase": "token-unification",
-      "task_ids": ["B040", "B041", "S026"],
+      "task_ids": [
+        "B040",
+        "B041",
+        "S026"
+      ],
       "archived_at": "2026-04-10T14:03:03Z",
-      "summary": {"total": 3, "completed": 3, "cancelled": 0}
+      "summary": {
+        "total": 3,
+        "completed": 3,
+        "cancelled": 0
+      }
     },
     {
       "phase": "remove-conflict-dialog",
-      "task_ids": ["B042", "F050", "S027"],
+      "task_ids": [
+        "B042",
+        "F050",
+        "S027"
+      ],
       "archived_at": "2026-04-10T14:03:03Z",
-      "summary": {"total": 3, "completed": 3, "cancelled": 0}
+      "summary": {
+        "total": 3,
+        "completed": 3,
+        "cancelled": 0
+      }
     },
     {
       "phase": "feedback-feature",
-      "task_ids": ["B048", "B049", "F051", "F052", "F053", "S030"],
+      "task_ids": [
+        "B048",
+        "B049",
+        "F051",
+        "F052",
+        "F053",
+        "S030"
+      ],
       "archived_at": "2026-04-12T14:00:00Z",
-      "summary": {"total": 6, "completed": 6, "cancelled": 0}
+      "summary": {
+        "total": 6,
+        "completed": 6,
+        "cancelled": 0
+      }
     },
     {
       "phase": "log-decoupling",
-      "task_ids": ["B054", "B055", "S031"],
+      "task_ids": [
+        "B054",
+        "B055",
+        "S031"
+      ],
       "archived_at": "2026-04-12T14:00:00Z",
-      "summary": {"total": 3, "completed": 3, "cancelled": 0}
+      "summary": {
+        "total": 3,
+        "completed": 3,
+        "cancelled": 0
+      }
     },
     {
       "phase": "logging-integration",
-      "task_ids": ["B043", "B044", "B045", "B046", "B047", "S028", "S029"],
+      "task_ids": [
+        "B043",
+        "B044",
+        "B045",
+        "B046",
+        "B047",
+        "S028",
+        "S029"
+      ],
       "archived_at": "2026-04-10T14:03:03Z",
-      "summary": {"total": 7, "completed": 7, "cancelled": 0}
+      "summary": {
+        "total": 7,
+        "completed": 7,
+        "cancelled": 0
+      }
     },
     {
       "phase": "user-info",
-      "task_ids": ["B056", "F054", "F055", "F056", "S032"],
+      "task_ids": [
+        "B056",
+        "F054",
+        "F055",
+        "F056",
+        "S032"
+      ],
       "archived_at": "2026-04-12T19:00:00Z",
-      "summary": {"total": 5, "completed": 5, "cancelled": 0}
+      "summary": {
+        "total": 5,
+        "completed": 5,
+        "cancelled": 0
+      }
     },
     {
       "phase": "feedback-to-issues",
-      "task_ids": ["B057", "F057", "B058", "B059", "S033"],
+      "task_ids": [
+        "B057",
+        "F057",
+        "B058",
+        "B059",
+        "S033"
+      ],
       "archived_at": "2026-04-12T23:17:00Z",
-      "summary": {"total": 5, "completed": 5, "cancelled": 0}
+      "summary": {
+        "total": 5,
+        "completed": 5,
+        "cancelled": 0
+      }
     },
     {
       "phase": "deploy-standardization",
-      "task_ids": ["S034", "S035", "S036"],
+      "task_ids": [
+        "S034",
+        "S035",
+        "S036"
+      ],
       "archived_at": "2026-04-13T02:27:00Z",
-      "summary": {"total": 3, "completed": 3, "cancelled": 0}
+      "summary": {
+        "total": 3,
+        "completed": 3,
+        "cancelled": 0
+      }
     },
     {
       "phase": "user-persistence",
-      "task_ids": ["B060", "B061", "S037"],
+      "task_ids": [
+        "B060",
+        "B061",
+        "S037"
+      ],
       "archived_at": "2026-04-13T02:27:00Z",
-      "summary": {"total": 3, "completed": 3, "cancelled": 0}
+      "summary": {
+        "total": 3,
+        "completed": 3,
+        "cancelled": 0
+      }
+    },
+    {
+      "phase": "terminal-interaction-refactor",
+      "task_ids": [
+        "F067",
+        "F068",
+        "F069",
+        "F070",
+        "S071",
+        "S072",
+        "S073",
+        "B071",
+        "B072",
+        "B073",
+        "F071",
+        "F072",
+        "F073",
+        "F074",
+        "F075",
+        "F076"
+      ],
+      "archived_at": "2026-04-19T18:00:00+0800",
+      "summary": {
+        "total": 16,
+        "completed": 16,
+        "cancelled": 0
+      },
+      "known_issues": [
+        "Codex 终端刷新后内容丢失 — alternate screen buffer snapshot 兼容性问题，待专项排查"
+      ]
     }
   ]
 }
