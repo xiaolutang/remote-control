@@ -305,7 +305,7 @@ class TerminalSessionManager extends ChangeNotifier
   }
 
   /// App 回到前台时调用：对暂停前已连接的 service 并行恢复。
-  /// F076: 使用 recoverTerminal 状态机而非直接 service.connect()。
+  /// F076: 使用 recoverWithRetry 状态机而非直接 service.connect()。
   /// 手动 disconnect 或 pause 后新增的 service 不受影响。
   /// 单个 service connect 失败不阻塞其他 service。
   Future<void> resumeAll() async {
@@ -317,18 +317,20 @@ class TerminalSessionManager extends ChangeNotifier
         if (service != null &&
             service.status != ConnectionStatus.connected) {
           final state = _terminals[key];
-          try {
-            if (state != null) {
-              // F076: 通过状态机恢复
-              state._setSessionState(TerminalSessionState.reconnecting);
-            }
-            await service.connect();
-          } catch (e) {
-            debugPrint(
-                '[TerminalSessionManager] resume connect error for $key: $e');
-            if (state != null) {
-              // F076: 恢复失败进入 error 状态
-              state._setSessionState(TerminalSessionState.error);
+          if (state != null) {
+            // F076: 通过带重试的恢复路径
+            final parts = key.split('::');
+            await recoverWithRetry(
+              parts.isNotEmpty ? parts[0] : null,
+              parts.length > 1 ? parts.sublist(1).join('::') : key,
+            );
+          } else {
+            // 无 terminal state 的旧兼容路径
+            try {
+              await service.connect();
+            } catch (e) {
+              debugPrint(
+                  '[TerminalSessionManager] resume connect error for $key: $e');
             }
           }
         }
@@ -505,6 +507,7 @@ class TerminalSessionManager extends ChangeNotifier
   void _disposeTerminalState(String key) {
     final binding = _terminalBindings.remove(key);
     _bindingGenerations.remove(key);
+    _networkRetryCount.remove(key);
     if (binding != null) {
       unawaited(binding.cancel());
     }
@@ -644,7 +647,10 @@ class TerminalSessionManager extends ChangeNotifier
     final key = _key(deviceId, terminalId);
     final state = _terminals[key];
     final service = _sessions[key];
-    if (state == null || service == null) return;
+    if (state == null || service == null) {
+      _networkRetryCount.remove(key);
+      return;
+    }
 
     final retryCount = _networkRetryCount[key] ?? 0;
     if (retryCount >= _maxNetworkRetries) {
@@ -658,9 +664,18 @@ class TerminalSessionManager extends ChangeNotifier
 
     try {
       await service.connect();
-      // connect 成功后，bindTerminalOutput 的 connectedSubscription
-      // 会触发 beginRecovery -> recovering -> live
-      _networkRetryCount.remove(key);
+      // F076 fix: connect() 可能返回而不抛异常但实际连接失败
+      // 检查 service 状态确认是否真正连接
+      if (service.status == ConnectionStatus.connected) {
+        _networkRetryCount.remove(key);
+      } else {
+        // 连接未成功，延迟后重试
+        debugPrint(
+          '[TerminalSessionManager] recovery connect returned but not connected for $key',
+        );
+        await Future.delayed(_networkRetryDelay);
+        await recoverWithRetry(deviceId, terminalId);
+      }
     } catch (e) {
       debugPrint(
         '[TerminalSessionManager] network recovery retry $retryCount for $key: $e',
