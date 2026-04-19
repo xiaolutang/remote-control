@@ -214,6 +214,7 @@ class DesktopAgentManager extends ChangeNotifier {
 
   void _onRecoveryExpired() {
     _logDesktopAgentManager('onRecoveryExpired: TTL exceeded');
+    _recoveryEpoch++; // 使 in-flight recovery 失效，expired 成为终态
     _recoveryAttempts = 0;
     _updateState(_state.copyWith(
       recoveryState: DesktopAgentRecoveryState.expired,

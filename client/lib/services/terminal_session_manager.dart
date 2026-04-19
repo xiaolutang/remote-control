@@ -123,6 +123,7 @@ class _TerminalState {
       _transitions = {
     TerminalSessionState.idle: {
       TerminalSessionState.connecting,
+      TerminalSessionState.reconnecting,
       TerminalSessionState.recovering,
       TerminalSessionState.live,
       TerminalSessionState.error,
@@ -133,6 +134,7 @@ class _TerminalState {
       TerminalSessionState.idle,
     },
     TerminalSessionState.recovering: {
+      TerminalSessionState.recovering,
       TerminalSessionState.live,
       TerminalSessionState.error,
       TerminalSessionState.idle,
@@ -151,6 +153,7 @@ class _TerminalState {
     },
     TerminalSessionState.error: {
       TerminalSessionState.connecting,
+      TerminalSessionState.reconnecting,
       TerminalSessionState.idle,
     },
   };
@@ -324,15 +327,9 @@ class TerminalSessionManager extends ChangeNotifier
               parts.isNotEmpty ? parts[0] : null,
               parts.length > 1 ? parts.sublist(1).join('::') : key,
             );
-          } else {
-            // 无 terminal state 的旧兼容路径
-            try {
-              await service.connect();
-            } catch (e) {
-              debugPrint(
-                  '[TerminalSessionManager] resume connect error for $key: $e');
-            }
           }
+          // 无 terminal state 的 service 不走恢复路径：
+          // 需要先 bindTerminalOutput 创建 terminal state 后才能恢复。
         }
       }),
     );
@@ -660,7 +657,9 @@ class TerminalSessionManager extends ChangeNotifier
     }
 
     _networkRetryCount[key] = retryCount + 1;
-    state._setSessionState(TerminalSessionState.recovering);
+    if (state.sessionState != TerminalSessionState.recovering) {
+      state._setSessionState(TerminalSessionState.recovering);
+    }
 
     try {
       await service.connect();
@@ -709,6 +708,14 @@ class TerminalSessionManager extends ChangeNotifier
       WidgetsBinding.instance.removeObserver(this);
       _observerRegistered = false;
     }
+    // F076: 清理恢复编排状态，防止 disposed manager 继续推进恢复
+    _networkRetryCount.clear();
+    for (final key in _terminals.keys.toList(growable: false)) {
+      _disposeTerminalState(key);
+    }
+    _terminals.clear();
+    _terminalBindings.clear();
+    _bindingGenerations.clear();
     super.dispose();
   }
 }

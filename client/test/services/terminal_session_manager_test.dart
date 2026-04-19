@@ -282,6 +282,11 @@ void main() {
     test('resumeAll 重连暂停前已连接的 service', () async {
       final mock = buildMock();
       manager.getOrCreate('dev-1', 'term-1', () => mock);
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
 
       mock.setMockConnected(true);
       manager.pauseAll();
@@ -332,6 +337,11 @@ void main() {
     test('连续 pause-resume 不导致重复连接', () async {
       final mock = buildMock();
       manager.getOrCreate('dev-1', 'term-1', () => mock);
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
 
       // 第一轮
       mock.setMockConnected(true);
@@ -352,6 +362,11 @@ void main() {
 
       manager.getOrCreate('dev-1', 'term-1', () => connected);
       manager.getOrCreate('dev-2', 'term-2', () => disconnected);
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
 
       connected.setMockConnected(true);
 
@@ -519,6 +534,16 @@ void main() {
 
       manager.getOrCreate('dev-1', 'term-1', () => failMock);
       manager.getOrCreate('dev-2', 'term-2', () => okMock);
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
+      manager.getOrCreateTerminal(
+        'dev-2',
+        'term-2',
+        () => Terminal(maxLines: 10000),
+      );
 
       failMock.setMockConnected(true);
       okMock.setMockConnected(true);
@@ -528,8 +553,8 @@ void main() {
       // resumeAll 应该继续处理后续 service，即使第一个失败
       await manager.resumeAll();
 
-      // failMock 尝试了 connect 但失败
-      expect(failMock.connectCallCount, 1);
+      // failMock 尝试了 connect 但失败（recoverWithRetry 重试 3 次）
+      expect(failMock.connectCallCount, 3);
       // okMock 仍然成功重连
       expect(okMock.connectCallCount, 1);
     });
@@ -539,13 +564,18 @@ void main() {
       mock.connectShouldThrow = true;
 
       manager.getOrCreate('dev-1', 'term-1', () => mock);
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
       mock.setMockConnected(true);
 
       manager.pauseAll();
 
-      // 即使全部失败也不应抛出未捕获的异常
+      // 即使全部失败也不应抛出未捕获的异常（recoverWithRetry 重试 3 次）
       await expectLater(manager.resumeAll(), completes);
-      expect(mock.connectCallCount, 1);
+      expect(mock.connectCallCount, 3);
     });
 
     // 注意：pauseAll 中 disconnect() 是 fire-and-forget（不 await），
@@ -778,6 +808,11 @@ void main() {
         () async {
       final mock = buildMock();
       manager.getOrCreate('dev-1', 'term-1', () => mock);
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
       mock.setMockConnected(true);
 
       // 先通过 lifecycle 回调暂停
@@ -796,6 +831,16 @@ void main() {
 
       manager.getOrCreate('dev-1', 'term-1', () => mock1);
       manager.getOrCreate('dev-2', 'term-2', () => mock2);
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
+      manager.getOrCreateTerminal(
+        'dev-2',
+        'term-2',
+        () => Terminal(maxLines: 10000),
+      );
 
       mock1.setMockConnected(true);
       mock2.setMockConnected(true);
@@ -845,6 +890,11 @@ void main() {
     test('多次 pause-resume 周期稳定性', () async {
       final mock = buildMock();
       manager.getOrCreate('dev-1', 'term-1', () => mock);
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
 
       for (int i = 0; i < 5; i++) {
         mock.setMockConnected(true);
