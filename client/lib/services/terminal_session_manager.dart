@@ -597,8 +597,13 @@ class TerminalSessionManager extends ChangeNotifier
     try {
       await service.connect();
       // connect 返回后检查是否真正连接成功
+      // 只在永久失败时设 error，临时失败（autoReconnect 可恢复）不干预
       if (service.status != ConnectionStatus.connected) {
-        state._setSessionState(TerminalSessionState.error);
+        if (service.isAuthFailed || service.terminalStatus == 'closed') {
+          state._setSessionState(TerminalSessionState.error);
+        }
+        // 临时失败：autoReconnect 仍在运行，connectedSubscription
+        // 会在重连成功后触发 beginRecovery() 自然恢复
         return;
       }
       // connect 成功后，bindTerminalOutput 中的 connectedSubscription
@@ -640,8 +645,13 @@ class TerminalSessionManager extends ChangeNotifier
     try {
       await service.connect();
       // connect 返回后检查是否真正连接成功
+      // 只在永久失败时设 error，临时失败（autoReconnect 可恢复）不干预
       if (service.status != ConnectionStatus.connected) {
-        state._setSessionState(TerminalSessionState.error);
+        if (service.isAuthFailed || service.terminalStatus == 'closed') {
+          state._setSessionState(TerminalSessionState.error);
+        }
+        // 临时失败：autoReconnect 仍在运行，connectedSubscription
+        // 会在重连成功后触发 beginRecovery() 自然恢复
         return;
       }
       // connect 成功后，bindTerminalOutput 的 connectedSubscription

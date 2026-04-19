@@ -13,6 +13,12 @@ class MockWebSocketService extends ChangeNotifier implements WebSocketService {
 
   final List<String> sentMessages = [];
   int connectCallCount = 0;
+
+  /// 控制 connect() 行为：true=成功连接，false=临时失败（设为 reconnecting）
+  bool connectSucceeds = true;
+
+  /// 控制 connect() 是否抛异常
+  bool connectThrows = false;
   final StreamController<String> _outputController =
       StreamController<String>.broadcast();
   final StreamController<TerminalOutputFrame> _outputFrameController =
@@ -186,6 +192,20 @@ class MockWebSocketService extends ChangeNotifier implements WebSocketService {
     notifyListeners();
   }
 
+  /// 模拟认证失败（closeCode=4001）
+  void simulateAuthFailed() {
+    _lastCloseCode = 4001;
+    _status = ConnectionStatus.disconnected;
+    notifyListeners();
+  }
+
+  /// 模拟终端被服务端关闭
+  void simulateTerminalClosed() {
+    _terminalStatus = 'closed';
+    _status = ConnectionStatus.disconnected;
+    notifyListeners();
+  }
+
   /// 模拟接收终端输出
   void simulateOutput(String data) {
     _outputFrameController.add(
@@ -235,6 +255,14 @@ class MockWebSocketService extends ChangeNotifier implements WebSocketService {
   @override
   Future<bool> connect() async {
     connectCallCount++;
+    if (connectThrows) {
+      throw Exception('Connection failed');
+    }
+    if (!connectSucceeds) {
+      _status = ConnectionStatus.reconnecting;
+      notifyListeners();
+      return false;
+    }
     _status = ConnectionStatus.connecting;
     await Future.delayed(const Duration(milliseconds: 100));
     simulateConnect();

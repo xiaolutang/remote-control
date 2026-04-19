@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/widgets.dart';
@@ -14,10 +15,14 @@ class MockWebSocketService extends WebSocketService {
   bool _mockConnected = false;
   ConnectionStatus _mockStatus = ConnectionStatus.disconnected;
   int? _mockLastCloseCode;
+  String? _mockTerminalStatus;
 
   /// 控制 connect() 是否抛异常
   bool connectShouldThrow = false;
   String connectErrorMessage = 'Connection failed';
+
+  /// 控制 connect() 是否成功（false = 临时失败，设为 reconnecting）
+  bool connectSucceeds = true;
 
   MockWebSocketService({
     super.serverUrl = 'ws://localhost:8888',
@@ -43,11 +48,34 @@ class MockWebSocketService extends WebSocketService {
     _mockLastCloseCode = code;
   }
 
+  void setMockTerminalStatus(String? status) {
+    _mockTerminalStatus = status;
+  }
+
+  /// 模拟认证失败（closeCode=4001 + disconnected + notifyListeners）
+  void simulateAuthFailed() {
+    _mockLastCloseCode = 4001;
+    _mockConnected = false;
+    _mockStatus = ConnectionStatus.disconnected;
+    notifyListeners();
+  }
+
+  /// 模拟终端被服务端关闭（terminalStatus=closed + disconnected + notifyListeners）
+  void simulateTerminalClosed() {
+    _mockTerminalStatus = 'closed';
+    _mockConnected = false;
+    _mockStatus = ConnectionStatus.disconnected;
+    notifyListeners();
+  }
+
   @override
   ConnectionStatus get status => _mockStatus;
 
   @override
   int? get lastCloseCode => _mockLastCloseCode;
+
+  @override
+  String? get terminalStatus => _mockTerminalStatus;
 
   @override
   bool get isAuthFailed =>
@@ -68,6 +96,11 @@ class MockWebSocketService extends WebSocketService {
     connectCallCount++;
     if (connectShouldThrow) {
       throw Exception(connectErrorMessage);
+    }
+    if (!connectSucceeds) {
+      _mockStatus = ConnectionStatus.reconnecting;
+      notifyListeners();
+      return false;
     }
     _mockConnected = true;
     _mockStatus = ConnectionStatus.connected;
@@ -1269,6 +1302,118 @@ void main() {
       expect(
         terminal.buffer.lines[0].toString(),
         contains('recovery snapshot'),
+      );
+    });
+
+    // ─── F074: statusListener + connect() 永久失败区分 ────────
+
+    test('connect 临时失败不设 error（autoReconnect 可恢复）', () async {
+      final mock = buildMock();
+      mock.connectSucceeds = false; // connect 返回 false，状态为 reconnecting
+      manager.getOrCreate('dev-1', 'term-1', () => mock);
+
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: mock,
+      );
+
+      await manager.connectTerminal('dev-1', 'term-1');
+
+      // 临时失败：不应设为 error
+      final state = manager.getTerminalState('dev-1', 'term-1');
+      expect(state, isNot(equals(TerminalSessionState.error)));
+    });
+
+    test('connect auth_failed 时 statusListener 收敛到 error', () async {
+      final mock = buildMock();
+      manager.getOrCreate('dev-1', 'term-1', () => mock);
+
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: mock,
+      );
+
+      // 先连接成功 + connected 事件进入 recovering
+      await manager.connectTerminal('dev-1', 'term-1');
+      mock.debugHandleMessage(jsonEncode({'type': 'connected'}));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(
+        manager.getTerminalState('dev-1', 'term-1'),
+        TerminalSessionState.recovering,
+      );
+
+      // 模拟 auth_failed 断线
+      mock.simulateAuthFailed();
+
+      // statusListener 应将 recovering 收敛到 error
+      expect(
+        manager.getTerminalState('dev-1', 'term-1'),
+        TerminalSessionState.error,
+      );
+    });
+
+    test('terminal_closed 时 statusListener 收敛到 error', () async {
+      final mock = buildMock();
+      manager.getOrCreate('dev-1', 'term-1', () => mock);
+
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: mock,
+      );
+
+      // 先连接成功 + connected 事件进入 recovering
+      await manager.connectTerminal('dev-1', 'term-1');
+      mock.debugHandleMessage(jsonEncode({'type': 'connected'}));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      // 模拟终端被关闭
+      mock.simulateTerminalClosed();
+
+      // statusListener 应收敛到 error
+      expect(
+        manager.getTerminalState('dev-1', 'term-1'),
+        TerminalSessionState.error,
+      );
+    });
+
+    test('error 状态下 connected 事件可推进到 recovering', () async {
+      final mock = buildMock();
+      manager.getOrCreate('dev-1', 'term-1', () => mock);
+
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: mock,
+      );
+
+      // 先连接成功 + connected 事件进入 recovering
+      await manager.connectTerminal('dev-1', 'term-1');
+      mock.debugHandleMessage(jsonEncode({'type': 'connected'}));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      // 模拟 auth_failed 进入 error
+      mock.simulateAuthFailed();
+      expect(
+        manager.getTerminalState('dev-1', 'term-1'),
+        TerminalSessionState.error,
+      );
+
+      // 模拟重连成功（connected 事件）
+      mock.setMockConnected(true);
+      mock.debugHandleMessage(jsonEncode({'type': 'connected'}));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      // error → recovering 应该合法
+      expect(
+        manager.getTerminalState('dev-1', 'term-1'),
+        TerminalSessionState.recovering,
       );
     });
   });
