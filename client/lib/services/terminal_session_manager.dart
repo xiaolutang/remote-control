@@ -154,6 +154,7 @@ class _TerminalState {
     TerminalSessionState.error: {
       TerminalSessionState.connecting,
       TerminalSessionState.reconnecting,
+      TerminalSessionState.recovering,
       TerminalSessionState.idle,
     },
   };
@@ -468,13 +469,19 @@ class TerminalSessionManager extends ChangeNotifier
       statusListener: () {
         if (_bindingGenerations[key] != generation) return;
         final status = service.status;
-        // live/recovering/reconnecting 状态下 service 断线 → 收敛到 error（可重试）
+        // 只在永久不可恢复时收敛到 error：
+        // - auth_failed (4001/4011)：凭证失效，需重新登录
+        // - terminal_closed：服务端主动关闭终端
+        // 临时断线（autoReconnect 可恢复）不干预，由 connectedSubscription
+        // 在 autoReconnect 成功后调用 beginRecovery() 自然恢复。
         if (status == ConnectionStatus.disconnected ||
             status == ConnectionStatus.error) {
-          if (state.sessionState == TerminalSessionState.live ||
-              state.sessionState == TerminalSessionState.recovering ||
-              state.sessionState == TerminalSessionState.reconnecting) {
-            state._setSessionState(TerminalSessionState.error);
+          if (service.isAuthFailed || service.terminalStatus == 'closed') {
+            if (state.sessionState == TerminalSessionState.live ||
+                state.sessionState == TerminalSessionState.recovering ||
+                state.sessionState == TerminalSessionState.reconnecting) {
+              state._setSessionState(TerminalSessionState.error);
+            }
           }
         }
       },
