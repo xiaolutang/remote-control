@@ -1317,18 +1317,20 @@ void main() {
       final adapter = RendererAdapter(terminal);
 
       adapter.applyLiveOutput('before dispose');
-      final valueBeforeDispose = adapter.outputText.value;
-      expect(valueBeforeDispose, contains('before dispose'));
+      expect(adapter.outputText.value, contains('before dispose'));
+
+      // 记录 terminal 当前内容
+      final bufferContentBefore = terminal.buffer.lines[0].toString();
 
       adapter.dispose();
+      expect(adapter.isDisposed, true);
 
-      // disposed ValueNotifier 不再可安全更新
-      // 验证：调用 dispose 不抛异常，且后续 applyLiveOutput 会因
-      // outputText 已 dispose 而抛 FlutterError（或静默失败），
-      // 这符合"dispose 后 adapter 不可用"的预期
+      // F073 fix: dispose 后 applyLiveOutput 静默返回，不操作 terminal
+      adapter.applyLiveOutput('after dispose');
+      // terminal buffer 不应被 post-dispose 调用修改
       expect(
-        () => adapter.applyLiveOutput('after dispose'),
-        throwsA(isA<FlutterError>()),
+        terminal.buffer.lines[0].toString(),
+        equals(bufferContentBefore),
       );
     });
 

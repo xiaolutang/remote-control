@@ -23,7 +23,8 @@ class RendererAdapter {
 
   final Terminal _terminal;
   final List<String> _outputBuffer = [];
-  final ValueNotifier<String> outputText = ValueNotifier<String>('');
+  final ValueNotifier<String> _outputText = ValueNotifier<String>('');
+  bool _disposed = false;
 
   static const int _maxBufferLines = 50;
 
@@ -32,8 +33,14 @@ class RendererAdapter {
   /// 不要通过此引用直接操作 Terminal，应使用 RendererAdapter 的方法。
   Terminal get terminalForView => _terminal;
 
+  /// 输出文本的只读监听接口（不暴露可变 ValueNotifier）。
+  ValueListenable<String> get outputText => _outputText;
+
+  bool get isDisposed => _disposed;
+
   /// 应用 snapshot（清空现有 buffer 后写入）
   void applySnapshot(String data) {
+    if (_disposed) return;
     _terminal.useMainBuffer();
     _terminal.mainBuffer.clear();
     _terminal.altBuffer.clear();
@@ -43,11 +50,13 @@ class RendererAdapter {
 
   /// 应用 live output（直接追加写入）
   void applyLiveOutput(String data) {
+    if (_disposed) return;
     _write(data);
   }
 
   /// 调整 renderer 尺寸（静默 onResize 回调）
   void resize(int cols, int rows) {
+    if (_disposed) return;
     if (rows <= 0 || cols <= 0) return;
     if (_terminal.viewHeight == rows && _terminal.viewWidth == cols) return;
     final prev = _terminal.onResize;
@@ -61,11 +70,12 @@ class RendererAdapter {
 
   /// 重置 renderer 状态（清空所有 buffer）
   void reset() {
+    if (_disposed) return;
     _terminal.useMainBuffer();
     _terminal.mainBuffer.clear();
     _terminal.altBuffer.clear();
     _outputBuffer.clear();
-    outputText.value = '';
+    _outputText.value = '';
   }
 
   void _write(String data) {
@@ -74,7 +84,7 @@ class RendererAdapter {
   }
 
   void _appendOutputBuffer(String data) {
-    if (data.isEmpty) return;
+    if (data.isEmpty || _disposed) return;
     final lines = data.split('\n');
     for (final line in lines) {
       if (line.isEmpty) continue;
@@ -83,11 +93,12 @@ class RendererAdapter {
         _outputBuffer.removeAt(0);
       }
     }
-    outputText.value = _outputBuffer.join('\n');
+    _outputText.value = _outputBuffer.join('\n');
   }
 
   void dispose() {
-    outputText.dispose();
+    _disposed = true;
+    _outputText.dispose();
   }
 }
 
@@ -158,7 +169,7 @@ class _TerminalState {
   }
 
   // 代理到 renderer
-  ValueNotifier<String> get outputText => renderer.outputText;
+  ValueListenable<String> get outputText => renderer.outputText;
 
   void applyRemotePtySize(int rows, int cols) => renderer.resize(cols, rows);
 
@@ -214,12 +225,14 @@ class _TerminalState {
 class _TerminalBinding {
   const _TerminalBinding({
     required this.service,
+    required this.generation,
     required this.connectedSubscription,
     required this.outputSubscription,
     required this.ptySubscription,
   });
 
   final WebSocketService service;
+  final int generation;
   final StreamSubscription<void> connectedSubscription;
   final StreamSubscription<TerminalOutputFrame> outputSubscription;
   final StreamSubscription<TerminalPtySize> ptySubscription;
@@ -236,6 +249,7 @@ class TerminalSessionManager extends ChangeNotifier
   final Map<String, WebSocketService> _sessions = {};
   final Map<String, _TerminalState> _terminals = {};
   final Map<String, _TerminalBinding> _terminalBindings = {};
+  final Map<String, int> _bindingGenerations = {};
 
   /// 暂停前已连接的 session keys，用于 resumeAll 时重连
   Set<String> _pausedKeys = {};
@@ -424,12 +438,17 @@ class TerminalSessionManager extends ChangeNotifier
     if (existing == null && service.status == ConnectionStatus.connected) {
       state.beginRecovery();
     }
+    final generation = (_bindingGenerations[key] ?? 0) + 1;
+    _bindingGenerations[key] = generation;
     _terminalBindings[key] = _TerminalBinding(
       service: service,
+      generation: generation,
       connectedSubscription: service.terminalConnectedStream.listen((_) {
+        if (_bindingGenerations[key] != generation) return;
         state.beginRecovery();
       }),
       outputSubscription: service.outputFrameStream.listen((frame) {
+        if (_bindingGenerations[key] != generation) return;
         if (frame.isSnapshot) {
           state.replaceWithSnapshot(frame.payload);
           return;
@@ -441,6 +460,7 @@ class TerminalSessionManager extends ChangeNotifier
         state.appendLiveFrame(frame.payload);
       }),
       ptySubscription: service.ptySizeStream.listen((pty) {
+        if (_bindingGenerations[key] != generation) return;
         state.applyRemotePtySize(pty.rows, pty.cols);
       }),
     );
@@ -484,6 +504,7 @@ class TerminalSessionManager extends ChangeNotifier
 
   void _disposeTerminalState(String key) {
     final binding = _terminalBindings.remove(key);
+    _bindingGenerations.remove(key);
     if (binding != null) {
       unawaited(binding.cancel());
     }
