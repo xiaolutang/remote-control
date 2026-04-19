@@ -64,6 +64,41 @@ void main() {
       expect(item.section, ShortcutItemSection.core);
       expect(item.order, 1);
     });
+
+    test('round-trips description through serialization', () {
+      final item = ShortcutItem(
+        id: 'claude_help',
+        label: '/help',
+        source: ShortcutItemSource.builtin,
+        section: ShortcutItemSection.smart,
+        action: const TerminalShortcutAction(
+          type: TerminalShortcutActionType.sendText,
+          value: '/help\r',
+        ),
+        description: '查看帮助信息',
+      );
+
+      final restored = ShortcutItem.fromJson(item.toJson());
+      expect(restored.description, '查看帮助信息');
+    });
+
+    test('deserializes old data without description field', () {
+      final item = ShortcutItem.fromJson({
+        'id': 'claude_help',
+        'label': '/help',
+        'source': 'builtin',
+        'section': 'smart',
+        'action': {'type': 'sendText', 'value': '/help\r'},
+        'enabled': true,
+        'pinned': false,
+        'order': 10,
+        'useCount': 0,
+        'scope': 'project',
+      });
+
+      expect(item.id, 'claude_help');
+      expect(item.description, isNull);
+    });
   });
 
   group('ShortcutItemSorter', () {

@@ -71,3 +71,32 @@
 | **部署标准化** | **多阶段 Dockerfile** | — | **completed** | **not_applicable** | **completed** | **S034: deploy/ 目录 + server/agent 两阶段构建** |
 | **部署标准化** | **build.sh + compose 迁移** | — | **completed** | **not_applicable** | **completed** | **S035: 构建脚本 + compose 文件统一到 deploy/** |
 | **部署标准化** | **deploy.sh + 清理 + CLAUDE.md** | — | **completed** | **not_applicable** | **completed** | **S036: 部署脚本迁移 + 旧文件删除 + 文档更新** |
+| **安全加固** | **JWT Secret 加固 + 旧 token 拒绝** | **CONTRACT-031, CONTRACT-032** | **pending** | **not_applicable** | **pending** | **B062: JWT_SECRET 必填 + 无 token_version 拒绝** |
+| **安全加固** | **密码哈希迁移到 bcrypt** | **CONTRACT-032** | **pending** | **not_applicable** | **pending** | **B063: bcrypt 新注册 + SHA-256 自动迁移** |
+| **安全加固** | **CORS 收紧** | **CONTRACT-033** | **pending** | **not_applicable** | **pending** | **B064: CORS_ORIGINS 环境变量，禁止通配符** |
+| **安全加固** | **WebSocket 鉴权重构** | **CONTRACT-031** | **pending** | **pending** | **pending** | **B065: 首条 auth 消息认证 + 消息大小限制** |
+| **安全加固** | **日志 API 归属校验 + 错误脱敏** | **CONTRACT-032** | **pending** | **not_applicable** | **pending** | **B066: get_current_user_id + JWT 错误脱敏** |
+| **安全加固** | **登录/注册速率限制** | **CONTRACT-033** | **pending** | **not_applicable** | **pending** | **B067: IP 速率限制 10/min + fail-open** |
+| **安全加固** | **Agent 安全加固** | **CONTRACT-031, CONTRACT-035** | **not_applicable** | **not_applicable** | **pending** | **B068: WS auth 适配 + 命令校验 + 本地 HTTP 认证** |
+| **安全加固** | **Client 安全加固** | **CONTRACT-031, CONTRACT-036** | **not_applicable** | **pending** | **pending** | **F058: WS auth 适配 + flutter_secure_storage** |
+| **安全加固** | **Redis 密码保护 + Docker 非 root** | **CONTRACT-034** | **pending** | **not_applicable** | **pending** | **B070: Redis --requirepass + 非 root 容器** |
+| **安全加固** | **安全加固集成验证** | **CONTRACT-031..036** | **pending** | **pending** | **pending** | **S038: 端到端全链路安全加固验证** |
+| **环境选择** | **环境模型与选择服务** | — | **not_applicable** | **completed** | **completed** | **F059: AppEnvironment 枚举 + EnvironmentService 纯状态服务 + ConfigService 委托** |
+| **IP 直连** | **本地 URL 修复 + 直连端口暴露** | **CONTRACT-037, CONTRACT-038** | **completed** | **completed** | **completed** | **S063: ws:// URL 格式 + Docker 端口映射 8880 + RSA+AES 加密（符合不变量 #27）** |
+| **IP 直连** | **直连端口部署验证 + 线上适配** | **CONTRACT-037, CONTRACT-038** | **pending** | **pending** | **pending** | **S064: 线上防火墙开放 + 真机直连 smoke + Agent 注册验证** |
+| **终端 P0 修复** | **CPR 坐标修复：0-based → 1-based** | **—** | **not_applicable** | **pending** | **pending** | **F067: xterm fork emitter 的 CSI 6n 响应改为 ANSI 1-based，修复 Codex TUI 退化** |
+| **终端 P0 修复** | **渲染闪烁修复：移除多余 setState** | **—** | **not_applicable** | **pending** | **pending** | **F068: 终端输出只走 Terminal/RenderTerminal 通知链，不重建外层 widget tree** |
+| **终端 P0 修复** | **移动端键盘 resize 隔离** | **—** | **not_applicable** | **pending** | **pending** | **F069: 移动端软键盘不得把本地 viewport 变化升级为全局 PTY resize（对应不变量 #35）** |
+| **终端 P0 修复** | **终端切换白屏修复** | **—** | **not_applicable** | **pending** | **pending** | **F070: TerminalSessionManager 缓存 Terminal 实例，切换复用 buffer/state，登出时清空缓存** |
+| **终端交互架构重构** | **架构基线：单 Transport + 单 Coordinator + 单权威恢复源** | **CONTRACT-039** | **pending** | **pending** | **pending** | **S071: 四层职责边界、状态源矩阵、switch/reconnect/recover 状态机** |
+| **终端交互架构重构** | **恢复语义与模式基线** | **CONTRACT-039, CONTRACT-042** | **pending** | **pending** | **pending** | **S072: snapshot/local cache/live output 边界 + attach/recovery epoch + exclusive/shared mode** |
+| **终端交互架构重构** | **协议兼容迁移与灰度切换** | **CONTRACT-042** | **pending** | **pending** | **pending** | **S073: 新旧恢复协议双栈窗口、发布顺序、回退与灰度验证点** |
+| **终端交互架构重构** | **Server 状态中心收瘦** | **CONTRACT-040** | **pending** | **not_applicable** | **pending** | **B071: Server 只维护 metadata / ownership / pty / routing 真相，history 不再做主恢复源** |
+| **终端交互架构重构** | **Agent 主权威恢复源** | **CONTRACT-041** | **pending** | **not_applicable** | **pending** | **B072: Agent 维护 per-terminal authoritative snapshot，attach 恢复优先走 agent** |
+| **终端交互架构重构** | **恢复协议升级** | **CONTRACT-042** | **pending** | **pending** | **pending** | **B073: snapshot / snapshot_complete / live output 边界明确** |
+| **终端交互架构重构** | **Client Transport 收瘦** | **CONTRACT-042** | **not_applicable** | **completed** | **completed** | **F071: WebSocketService 收口为纯 transport events；eventStream 标准化输出；epoch 丢弃；旧 stream deprecated** |
+| **终端交互架构重构** | **Client Coordinator 状态机** | **CONTRACT-039, CONTRACT-042** | **not_applicable** | **completed** | **completed** | **F072: TerminalSessionState 枚举 + 状态机入口 + activeTerminalKey + 60/60 测试** |
+| **终端交互架构重构** | **Renderer 隔离** | **CONTRACT-039** | **not_applicable** | **pending** | **pending** | **F073: xterm renderer handle 下沉，UI 不再直接操纵恢复语义** |
+| **终端交互架构重构** | **UI 瘦身迁移** | **CONTRACT-039** | **not_applicable** | **pending** | **pending** | **F074: TerminalScreen / Workspace 只负责展示、焦点、快捷键、IME** |
+| **终端交互架构重构** | **桌面端 Agent 断连恢复编排** | **CONTRACT-040, CONTRACT-041, CONTRACT-042** | **pending** | **pending** | **pending** | **F075: agent 断连 recoverable/TTL/重启恢复 与 app lifecycle 编排统一** |
+| **终端交互架构重构** | **客户端生命周期恢复编排** | **CONTRACT-039, CONTRACT-042** | **not_applicable** | **pending** | **pending** | **F076: foreground/cold start/network restore 统一恢复状态机** |

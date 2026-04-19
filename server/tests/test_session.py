@@ -21,6 +21,8 @@ from app.session import (
     bulk_update_session_terminals,
     is_terminal_recoverable,
     update_session_terminal_metadata,
+    update_session_terminal_pty,
+    update_session_terminal_views,
     append_history,
     get_history,
     get_history_count,
@@ -29,7 +31,7 @@ from app.session import (
     _normalize_session_data,
     _default_device_state,
     _close_expired_detached_terminals,
-    _reconcile_terminal_attachment_states,
+    _backfill_terminal_views,
     redis_conn,
 )
 from fastapi import HTTPException
@@ -171,6 +173,31 @@ class TestDeviceState:
         assert normalized["device"]["max_terminals"] == 3
         assert normalized["views"] == {"mobile": 0, "desktop": 0}
 
+    def test_normalize_legacy_terminal_adds_terminal_pty(self):
+        """旧 terminal 自动继承 session 级 PTY。"""
+        legacy = {
+            "status": "pending",
+            "created_at": "2026-03-26T10:00:00Z",
+            "agent_online": False,
+            "pty": {"rows": 42, "cols": 120},
+            "terminals": [
+                {
+                    "terminal_id": "term-1",
+                    "title": "Claude / one",
+                    "cwd": "/tmp/one",
+                    "command": "claude code",
+                    "env": {},
+                    "status": "detached",
+                    "created_at": "2026-03-26T10:00:00Z",
+                    "updated_at": "2026-03-26T10:00:00Z",
+                }
+            ],
+        }
+
+        normalized = _normalize_session_data("legacy-session", legacy)
+
+        assert normalized["terminals"][0]["pty"] == {"rows": 42, "cols": 120}
+
     @pytest.mark.asyncio
     async def test_get_session_persists_normalized_device_state(self):
         """读取旧 session 时会回写兼容后的 device 字段"""
@@ -288,7 +315,7 @@ class TestTerminalState:
     """terminal 状态与上限测试"""
 
     def test_reconcile_attached_terminal_without_views(self):
-        """无活跃视图的 attached terminal 会回落成 detached。"""
+        """read-path 不再根据陈旧 views 推断 attached/detached。"""
         now = datetime.now(timezone.utc)
         terminals = [
             {
@@ -305,11 +332,35 @@ class TestTerminalState:
             },
         ]
 
-        changed = _reconcile_terminal_attachment_states(terminals, now)
+        changed = _backfill_terminal_views(terminals)
 
-        assert changed == 1
-        assert terminals[0]["status"] == "detached"
+        assert changed == 0
+        assert terminals[0]["status"] == "attached"
         assert terminals[1]["status"] == "attached"
+
+    def test_normalize_invalid_geometry_owner_view_to_none(self):
+        legacy = {
+            "status": "pending",
+            "created_at": "2026-03-26T10:00:00Z",
+            "agent_online": False,
+            "terminals": [
+                {
+                    "terminal_id": "term-1",
+                    "title": "Claude / one",
+                    "cwd": "/tmp/one",
+                    "command": "claude code",
+                    "env": {},
+                    "status": "detached",
+                    "geometry_owner_view": "tablet",
+                    "created_at": "2026-03-26T10:00:00Z",
+                    "updated_at": "2026-03-26T10:00:00Z",
+                }
+            ],
+        }
+
+        normalized = _normalize_session_data("legacy-session", legacy)
+
+        assert normalized["terminals"][0]["geometry_owner_view"] is None
 
     def test_close_expired_detached_terminals(self):
         """超出 grace period 的 detached terminal 会被关闭。"""
@@ -317,14 +368,14 @@ class TestTerminalState:
         terminals = [
             {
                 "terminal_id": "term-expired",
-                "status": "detached",
+                "status": "detached_recoverable",
                 "disconnect_reason": "network_lost",
                 "grace_expires_at": (now - timedelta(seconds=1)).isoformat(),
                 "updated_at": now.isoformat(),
             },
             {
                 "terminal_id": "term-active",
-                "status": "detached",
+                "status": "detached_recoverable",
                 "disconnect_reason": "network_lost",
                 "grace_expires_at": (now + timedelta(seconds=30)).isoformat(),
                 "updated_at": now.isoformat(),
@@ -337,7 +388,7 @@ class TestTerminalState:
         assert terminals[0]["status"] == "closed"
         assert terminals[0]["disconnect_reason"] == "network_lost"
         assert terminals[0]["grace_expires_at"] is None
-        assert terminals[1]["status"] == "detached"
+        assert terminals[1]["status"] == "detached_recoverable"
 
     @pytest.mark.asyncio
     async def test_create_multiple_terminals_on_same_device(self):
@@ -546,8 +597,82 @@ class TestTerminalState:
             )
 
         assert closed["views"] == {"mobile": 0, "desktop": 0}
+        assert closed["geometry_owner_view"] is None
         saved = json.loads(mock_redis.set.await_args.args[1])
         assert saved["terminals"][0]["views"] == {"mobile": 0, "desktop": 0}
+
+    @pytest.mark.asyncio
+    async def test_update_terminal_views_prefers_first_attached_owner(self):
+        existing_data = json.dumps({
+            "status": "online",
+            "created_at": "2026-03-26T10:00:00Z",
+            "device": _default_device_state("session-1"),
+            "terminals": [
+                {
+                    "terminal_id": "term-1",
+                    "title": "Claude / one",
+                    "cwd": "/tmp/one",
+                    "command": "claude code",
+                    "env": {},
+                    "status": "attached",
+                    "disconnect_reason": None,
+                    "views": {"mobile": 1, "desktop": 0},
+                    "geometry_owner_view": "mobile",
+                    "created_at": "2026-03-26T10:00:00Z",
+                    "updated_at": "2026-03-26T10:00:00Z",
+                }
+            ],
+        })
+
+        mock_redis = AsyncMock()
+        mock_redis.get = AsyncMock(return_value=existing_data)
+        mock_redis.set = AsyncMock(return_value=True)
+
+        with patch.object(redis_conn, '_redis', mock_redis):
+            updated = await update_session_terminal_views(
+                "session-1",
+                "term-1",
+                views={"mobile": 1, "desktop": 1},
+                preferred_owner_view="desktop",
+            )
+
+        assert updated["geometry_owner_view"] == "mobile"
+
+    @pytest.mark.asyncio
+    async def test_update_terminal_views_assigns_new_owner_when_previous_owner_left(self):
+        existing_data = json.dumps({
+            "status": "online",
+            "created_at": "2026-03-26T10:00:00Z",
+            "device": _default_device_state("session-1"),
+            "terminals": [
+                {
+                    "terminal_id": "term-1",
+                    "title": "Claude / one",
+                    "cwd": "/tmp/one",
+                    "command": "claude code",
+                    "env": {},
+                    "status": "attached",
+                    "disconnect_reason": None,
+                    "views": {"mobile": 1, "desktop": 1},
+                    "geometry_owner_view": "mobile",
+                    "created_at": "2026-03-26T10:00:00Z",
+                    "updated_at": "2026-03-26T10:00:00Z",
+                }
+            ],
+        })
+
+        mock_redis = AsyncMock()
+        mock_redis.get = AsyncMock(return_value=existing_data)
+        mock_redis.set = AsyncMock(return_value=True)
+
+        with patch.object(redis_conn, '_redis', mock_redis):
+            updated = await update_session_terminal_views(
+                "session-1",
+                "term-1",
+                views={"mobile": 0, "desktop": 1},
+            )
+
+        assert updated["geometry_owner_view"] == "desktop"
 
     @pytest.mark.asyncio
     async def test_expired_detached_terminal_releases_capacity(self):
@@ -567,7 +692,7 @@ class TestTerminalState:
                     "cwd": "/tmp/one",
                     "command": "claude code",
                     "env": {},
-                    "status": "detached",
+            "status": "detached_recoverable",
                     "disconnect_reason": "network_lost",
                     "grace_expires_at": (now - timedelta(seconds=1)).isoformat(),
                     "views": {"mobile": 0, "desktop": 0},
@@ -609,7 +734,7 @@ class TestTerminalState:
                     "cwd": "/tmp/one",
                     "command": "claude code",
                     "env": {},
-                    "status": "attached",
+                    "status": "live",
                     "disconnect_reason": None,
                     "views": {"mobile": 0, "desktop": 0},
                     "created_at": "2026-03-26T10:00:00Z",
@@ -642,7 +767,7 @@ class TestTerminalState:
                     "cwd": "/tmp/one",
                     "command": "claude code",
                     "env": {},
-                    "status": "detached",
+                    "status": "detached_recoverable",
                     "disconnect_reason": "network_lost",
                     "grace_expires_at": (now - timedelta(seconds=1)).isoformat(),
                     "views": {"mobile": 0, "desktop": 0},
@@ -663,8 +788,8 @@ class TestTerminalState:
         mock_redis.set.assert_awaited()
 
     @pytest.mark.asyncio
-    async def test_list_session_terminals_reconciles_stale_attached(self):
-        """列 terminal 时会自动对齐 stale attached -> detached。"""
+    async def test_list_session_terminals_keeps_attached_status_until_ws_cleanup(self):
+        """列 terminal 时不再凭陈旧 views 把 live 改成 detached_recoverable。"""
         now = datetime.now(timezone.utc)
         existing_data = json.dumps({
             "status": "online",
@@ -676,7 +801,7 @@ class TestTerminalState:
                     "cwd": "/tmp/one",
                     "command": "claude code",
                     "env": {},
-                    "status": "attached",
+                    "status": "live",
                     "disconnect_reason": None,
                     "grace_expires_at": None,
                     "views": {"mobile": 0, "desktop": 0},
@@ -693,8 +818,84 @@ class TestTerminalState:
         with patch.object(redis_conn, '_redis', mock_redis):
             terminals = await list_session_terminals("session-1")
 
-        assert terminals[0]["status"] == "detached"
+        assert terminals[0]["status"] == "live"
         mock_redis.set.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_update_session_terminal_views_syncs_status(self):
+        """terminal views 同步时会收敛 live/detached_recoverable。"""
+        existing_data = json.dumps({
+            "status": "online",
+            "created_at": "2026-03-26T10:00:00Z",
+            "terminals": [
+                {
+                    "terminal_id": "term-1",
+                    "title": "Claude / one",
+                    "cwd": "/tmp/one",
+                    "command": "claude code",
+                    "env": {},
+                    "status": "detached_recoverable",
+                    "disconnect_reason": None,
+                    "grace_expires_at": None,
+                    "views": {"mobile": 0, "desktop": 0},
+                    "created_at": "2026-03-26T10:00:00Z",
+                    "updated_at": "2026-03-26T10:00:00Z",
+                }
+            ],
+        })
+
+        mock_redis = AsyncMock()
+        mock_redis.get = AsyncMock(return_value=existing_data)
+        mock_redis.set = AsyncMock(return_value=True)
+
+        with patch.object(redis_conn, '_redis', mock_redis):
+            terminal = await update_session_terminal_views(
+                "session-1",
+                "term-1",
+                views={"mobile": 1, "desktop": 0},
+            )
+
+        assert terminal["status"] == "live"
+        assert terminal["views"] == {"mobile": 1, "desktop": 0}
+
+    @pytest.mark.asyncio
+    async def test_update_session_terminal_pty_syncs_terminal_geometry(self):
+        """terminal PTY 尺寸更新会落到 terminal 记录。"""
+        existing_data = json.dumps({
+            "status": "online",
+            "created_at": "2026-03-26T10:00:00Z",
+            "pty": {"rows": 24, "cols": 80},
+            "terminals": [
+                {
+                    "terminal_id": "term-1",
+                    "title": "Claude / one",
+                    "cwd": "/tmp/one",
+                    "command": "claude code",
+                    "env": {},
+                    "pty": {"rows": 24, "cols": 80},
+                    "status": "detached",
+                    "disconnect_reason": None,
+                    "grace_expires_at": None,
+                    "views": {"mobile": 0, "desktop": 0},
+                    "created_at": "2026-03-26T10:00:00Z",
+                    "updated_at": "2026-03-26T10:00:00Z",
+                }
+            ],
+        })
+
+        mock_redis = AsyncMock()
+        mock_redis.get = AsyncMock(return_value=existing_data)
+        mock_redis.set = AsyncMock(return_value=True)
+
+        with patch.object(redis_conn, '_redis', mock_redis):
+            terminal = await update_session_terminal_pty(
+                "session-1",
+                "term-1",
+                rows=40,
+                cols=120,
+            )
+
+        assert terminal["pty"] == {"rows": 40, "cols": 120}
 
     @pytest.mark.asyncio
     async def test_list_session_terminals_trims_to_recent_five_records(self):
@@ -749,7 +950,7 @@ class TestTerminalState:
 
     @pytest.mark.asyncio
     async def test_list_recoverable_session_terminals_filters_by_grace(self):
-        """只返回 grace period 内仍可恢复的 detached terminal。"""
+        """只返回 grace period 内仍可恢复的 detached_recoverable terminal。"""
         now = datetime.now(timezone.utc)
         existing_data = json.dumps({
             "status": "online",
@@ -761,7 +962,7 @@ class TestTerminalState:
                     "cwd": "/tmp/one",
                     "command": "claude code",
                     "env": {},
-                    "status": "detached",
+                    "status": "detached_recoverable",
                     "disconnect_reason": "network_lost",
                     "grace_expires_at": (now + timedelta(seconds=30)).isoformat(),
                     "views": {"mobile": 0, "desktop": 0},
@@ -774,7 +975,7 @@ class TestTerminalState:
                     "cwd": "/tmp/two",
                     "command": "/bin/bash",
                     "env": {},
-                    "status": "detached",
+                    "status": "detached_recoverable",
                     "disconnect_reason": "network_lost",
                     "grace_expires_at": (now - timedelta(seconds=1)).isoformat(),
                     "views": {"mobile": 0, "desktop": 0},
@@ -819,7 +1020,7 @@ class TestTerminalState:
                     "cwd": "/tmp/one",
                     "command": "claude code",
                     "env": {},
-                    "status": "attached",
+                    "status": "live",
                     "disconnect_reason": None,
                     "views": {"mobile": 1, "desktop": 0},
                     "created_at": "2026-03-26T10:00:00Z",
@@ -835,14 +1036,14 @@ class TestTerminalState:
         with patch.object(redis_conn, '_redis', mock_redis):
             result = await bulk_update_session_terminals(
                 "session-1",
-                from_statuses={"attached"},
-                to_status="detached",
+                from_statuses={"live"},
+                to_status="detached_recoverable",
                 disconnect_reason="network_lost",
                 grace_seconds=60,
             )
 
         assert result["changed"] == 1
-        assert result["terminals"][0]["status"] == "detached"
+        assert result["terminals"][0]["status"] == "detached_recoverable"
         assert result["terminals"][0]["disconnect_reason"] == "network_lost"
         assert result["terminals"][0]["grace_expires_at"] is not None
 
@@ -876,7 +1077,7 @@ class TestTerminalState:
         with patch.object(redis_conn, '_redis', mock_redis):
             result = await bulk_update_session_terminals(
                 "session-1",
-                from_statuses={"detached"},
+                from_statuses={"detached_recoverable"},
                 to_status="closed",
                 disconnect_reason="device_offline",
             )
@@ -891,7 +1092,7 @@ class TestTerminalState:
         """grace period 内允许恢复"""
         now = datetime.now(timezone.utc)
         terminal = {
-            "status": "detached",
+            "status": "detached_recoverable",
             "grace_expires_at": (now + timedelta(seconds=30)).isoformat(),
         }
 
@@ -901,7 +1102,7 @@ class TestTerminalState:
         """grace period 过后不可恢复"""
         now = datetime.now(timezone.utc)
         terminal = {
-            "status": "detached",
+            "status": "detached_recoverable",
             "grace_expires_at": (now - timedelta(seconds=1)).isoformat(),
         }
 
@@ -959,6 +1160,30 @@ class TestHistoryOperations:
 
         assert "timestamp" in result
         assert "index" in result
+
+    @pytest.mark.asyncio
+    async def test_get_history_filters_by_terminal_and_direction(self):
+        """terminal 级历史过滤只返回对应 terminal 的 output。"""
+        mock_redis = AsyncMock()
+        mock_redis.exists = AsyncMock(return_value=True)
+        mock_redis.llen = AsyncMock(return_value=4)
+        mock_redis.lrange = AsyncMock(return_value=[
+            json.dumps({"timestamp": "2026-03-26T10:00:00Z", "direction": "output", "terminal_id": "term-1", "data": "a"}),
+            json.dumps({"timestamp": "2026-03-26T10:00:01Z", "direction": "input", "terminal_id": "term-1", "data": "ignored-input"}),
+            json.dumps({"timestamp": "2026-03-26T10:00:02Z", "direction": "output", "terminal_id": "term-2", "data": "ignored-other-terminal"}),
+            json.dumps({"timestamp": "2026-03-26T10:00:03Z", "direction": "output", "terminal_id": "term-1", "data": "b"}),
+        ])
+
+        with patch.object(redis_conn, '_redis', mock_redis):
+            result = await get_history(
+                "session-1",
+                offset=0,
+                limit=10,
+                terminal_id="term-1",
+                direction="output",
+            )
+
+        assert [item["data"] for item in result] == ["a", "b"]
 
     @pytest.mark.asyncio
     async def test_pagination(self):

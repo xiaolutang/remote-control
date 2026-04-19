@@ -1,13 +1,13 @@
 """
 用户认证 REST API
 """
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, status, Depends, Request as FastAPIRequest
 from pydantic import BaseModel
 from typing import Optional
 import hashlib
 from datetime import datetime, timezone, timedelta
 
-from app.session import get_redis, create_session, get_session, verify_session_ownership, get_session_by_name
+from app.session import get_redis, create_session, get_session, verify_session_ownership, get_session_by_name, cleanup_user_sessions
 from app.auth import (
     create_token_response,
     generate_refresh_token,
@@ -23,21 +23,24 @@ from app.auth import (
     REFRESH_TOKEN_EXPIRATION_DAYS,
     get_current_user_id,
 )
-from app.database import get_user, save_user, get_user_devices, add_user_device
+from app.database import get_user, save_user, get_user_devices, add_user_device, update_password_hash
+from app.rate_limit import check_rate_limit
 
 router = APIRouter()
 
 
 class UserRegister(BaseModel):
     username: str
-    password: str
+    password: Optional[str] = None
+    password_encrypted: Optional[str] = None
     device_name: Optional[str] = None
     view: Optional[str] = None
 
 
 class UserLogin(BaseModel):
     username: str
-    password: str
+    password: Optional[str] = None  # 明文密码（兼容旧客户端）
+    password_encrypted: Optional[str] = None  # RSA 加密后的密码（base64）
     view: Optional[str] = None
 
 
@@ -85,8 +88,39 @@ class SessionStateResponse(BaseModel):
 
 
 def hash_password(password: str) -> str:
-    """密码哈希"""
-    return hashlib.sha256(password.encode()).hexdigest()
+    """密码哈希（bcrypt）"""
+    import bcrypt
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    """验证密码（支持 bcrypt 和旧 SHA-256）"""
+    import bcrypt
+
+    # bcrypt 哈希以 $2b$ 开头
+    if password_hash.startswith("$2b$"):
+        return bcrypt.checkpw(password.encode(), password_hash.encode())
+
+    # 旧 SHA-256 格式（64 hex 字符）
+    legacy_hash = hashlib.sha256(password.encode()).hexdigest()
+    return legacy_hash == password_hash
+
+
+def is_legacy_hash(password_hash: str) -> bool:
+    """判断是否为旧 SHA-256 哈希"""
+    return len(password_hash) == 64 and all(c in "0123456789abcdef" for c in password_hash)
+
+
+async def _rate_limit_dependency(request: FastAPIRequest):
+    """速率限制依赖：检查客户端 IP，超限返回 429。"""
+    client_ip = request.client.host if request.client else "unknown"
+    retry_after = await check_rate_limit(client_ip)
+    if retry_after is not None:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="请求过于频繁，请稍后重试",
+            headers={"Retry-After": str(retry_after)},
+        )
 
 
 # Refresh Token Redis 管理函数
@@ -112,16 +146,38 @@ async def delete_refresh_token(session_id: str):
     await redis.delete(key)
 
 
+def _resolve_password(password: Optional[str], password_encrypted: Optional[str]) -> str:
+    """从明文或 RSA 加密字段解析出真实密码"""
+    if password_encrypted:
+        from app.crypto import get_crypto_manager
+        return get_crypto_manager().rsa_decrypt(password_encrypted).decode("utf-8")
+    if password:
+        return password
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="password 或 password_encrypted 必须提供一项",
+    )
+
+
+@router.get("/public-key")
+async def get_public_key():
+    """获取服务器 RSA 公钥（供客户端加密密码和 AES 密钥交换）"""
+    from app.crypto import get_crypto_manager
+    return get_crypto_manager().get_public_key_info()
+
+
 @router.post("/register", response_model=LoginResponse)
-async def register(user: UserRegister):
+async def register(user: UserRegister, _rl=Depends(_rate_limit_dependency)):
     """注册新用户"""
+    raw_password = _resolve_password(user.password, user.password_encrypted)
+
     if len(user.username) < 3 or len(user.username) > 32:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="用户名长度需要 3-32 个字符",
         )
 
-    if len(user.password) < 6:
+    if len(raw_password) < 6:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="密码长度至少 6 个字符",
@@ -136,7 +192,7 @@ async def register(user: UserRegister):
         )
 
     # 创建用户
-    password_hash = hash_password(user.password)
+    password_hash = hash_password(raw_password)
     await save_user(user.username, password_hash)
 
     # 自动登录，生成 token
@@ -177,8 +233,10 @@ async def register(user: UserRegister):
 
 
 @router.post("/login", response_model=LoginResponse)
-async def login(user: UserLogin):
+async def login(user: UserLogin, _rl=Depends(_rate_limit_dependency)):
     """用户登录"""
+    raw_password = _resolve_password(user.password, user.password_encrypted)
+
     # 验证用户
     stored_user = await get_user(user.username)
     if not stored_user:
@@ -187,20 +245,31 @@ async def login(user: UserLogin):
             detail="用户名或密码错误",
         )
 
-    password_hash = hash_password(user.password)
-    if stored_user["password_hash"] != password_hash:
+    stored_hash = stored_user["password_hash"]
+
+    if not verify_password(raw_password, stored_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户名或密码错误",
         )
 
+    # 旧 SHA-256 哈希自动迁移为 bcrypt
+    if is_legacy_hash(stored_hash):
+        new_hash = hash_password(raw_password)
+        await update_password_hash(user.username, new_hash)
+
     # 检查是否已有该用户的 session（实现同用户多设备共享 session）
     existing_session = await get_session_by_name(f"{user.username}_session")
 
     if existing_session:
+        # 清理该用户的其他旧 session，只保留当前找到的
+        await cleanup_user_sessions(user.username, keep_session_id=existing_session["id"])
         # 使用现有 session，生成新 token
         token_response = create_token_with_session(existing_session["id"])
     else:
+        # 清理该用户的旧 session，防止 stale session 残留
+        await cleanup_user_sessions(user.username)
+
         # 生成新 token 和 session
         token_response = create_token_response()
         # 创建 session 记录（WebSocket 连接需要），绑定用户

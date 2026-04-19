@@ -6,7 +6,12 @@ import json
 
 import pytest
 
-from app.websocket_client import WebSocketClient, TerminalRuntimeManager, TerminalSpec
+from app.websocket_client import (
+    AgentSnapshotManager,
+    TerminalRuntimeManager,
+    TerminalSpec,
+    WebSocketClient,
+)
 
 
 class TestForwarding:
@@ -68,7 +73,7 @@ class TestForwarding:
         assert client.token == "test-token"
         assert client.command == "/bin/bash"
         assert client.auto_reconnect == True
-        assert client.max_retries == 5
+        assert client.max_retries == 60
         assert client.runtime_manager is not None
 
 
@@ -137,3 +142,76 @@ class TestTerminalRuntimeManager:
         assert event["type"] == "terminal_created"
         assert event["terminal_id"] == "term-1"
         assert event["cwd"] == "./"
+
+class TestAgentSnapshotManager:
+    def test_snapshot_payload_tracks_recent_output(self):
+        manager = AgentSnapshotManager(snapshot_limit_bytes=8)
+        spec = TerminalSpec(
+            terminal_id="term-1",
+            command="/bin/bash",
+            title="shell",
+        )
+        manager.create_terminal(spec)
+
+        manager.append_output("term-1", b"hello")
+        manager.append_output("term-1", b" world")
+
+        payload = manager.get_snapshot_payload("term-1")
+        assert payload is not None
+        assert base64.b64decode(payload) == b"lo world"
+
+    def test_close_terminal_clears_snapshot_payload(self):
+        manager = AgentSnapshotManager()
+        spec = TerminalSpec(
+            terminal_id="term-1",
+            command="/bin/bash",
+            title="shell",
+        )
+        manager.create_terminal(spec)
+        manager.append_output("term-1", b"hello")
+
+        manager.close_terminal("term-1")
+
+        assert manager.get_snapshot_payload("term-1") is None
+
+    def test_multiple_terminals_keep_isolated_snapshots(self):
+        manager = AgentSnapshotManager()
+        manager.create_terminal(TerminalSpec(terminal_id="term-1", command="/bin/bash", title="one"))
+        manager.create_terminal(TerminalSpec(terminal_id="term-2", command="/bin/bash", title="two"))
+
+        manager.append_output("term-1", b"alpha")
+        manager.append_output("term-2", b"beta")
+
+        assert base64.b64decode(manager.get_snapshot_payload("term-1")) == b"alpha"
+        assert base64.b64decode(manager.get_snapshot_payload("term-2")) == b"beta"
+
+    def test_recreate_terminal_does_not_inherit_old_snapshot(self):
+        manager = AgentSnapshotManager()
+        spec = TerminalSpec(terminal_id="term-1", command="/bin/bash", title="shell")
+        manager.create_terminal(spec)
+        manager.append_output("term-1", b"old-state")
+        manager.close_terminal("term-1")
+
+        manager.create_terminal(spec)
+
+        assert manager.get_snapshot_payload("term-1") is None
+
+    def test_snapshot_metadata_tracks_pty_and_active_buffer(self):
+        manager = AgentSnapshotManager()
+        spec = TerminalSpec(
+            terminal_id="term-1",
+            command="/bin/bash",
+            title="shell",
+            rows=24,
+            cols=80,
+        )
+        manager.create_terminal(spec)
+
+        manager.update_terminal_pty("term-1", 40, 120)
+        manager.append_output("term-1", b"\x1b[?1049hhello")
+        metadata = manager.get_snapshot_metadata("term-1")
+
+        assert metadata == {
+            "pty": {"rows": 40, "cols": 120},
+            "active_buffer": "alt",
+        }

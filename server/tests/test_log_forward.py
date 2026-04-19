@@ -24,8 +24,13 @@ def client():
 
 @pytest.fixture
 def auth_headers():
-    token = generate_token("test-session-fwd")
+    token = generate_token("test-session-fwd", token_version=1, view_type="mobile")
     return {"Authorization": f"Bearer {token}"}
+
+
+def _with_auth_mock():
+    """公共 mock：get_token_version 返回匹配值"""
+    return patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=1)
 
 
 class TestLogForwarding:
@@ -33,43 +38,44 @@ class TestLogForwarding:
 
     def test_upload_logs_stores_and_forwards(self, client, auth_headers):
         """[happy] Client 上报日志 → Redis 存储成功 + 转发到 log-service"""
-        with patch("app.log_api._forward_to_log_service", new_callable=AsyncMock) as mock_fwd:
-            with patch("app.log_api.append_logs_batch", new_callable=AsyncMock, return_value={"received": 2}):
+        with _with_auth_mock(), \
+             patch("app.log_api._forward_to_log_service", new_callable=AsyncMock) as mock_fwd, \
+             patch("app.log_api.append_logs_batch", new_callable=AsyncMock, return_value={"received": 2}):
+            resp = client.post(
+                "/api/logs",
+                json={
+                    "session_id": "test-session-fwd",
+                    "logs": [
+                        {"level": "info", "message": "test log 1"},
+                        {"level": "error", "message": "test log 2"},
+                    ],
+                },
+                headers=auth_headers,
+            )
+            assert resp.status_code == 200
+            assert resp.json()["received"] == 2
+            mock_fwd.assert_called_once()
+
+    def test_upload_logs_redis_ok_forward_fails(self, client, auth_headers, caplog):
+        """[fail] log-service 不可达 → Redis 正常存储，API 正常响应"""
+        with _with_auth_mock(), \
+             patch("app.log_api.append_logs_batch", new_callable=AsyncMock, return_value={"received": 1}), \
+             patch("app.log_api.get_shared_http_client") as mock_client:
+            mock_http = AsyncMock()
+            mock_http.post = AsyncMock(side_effect=ConnectionError("log-service unreachable"))
+            mock_client.return_value = mock_http
+
+            with caplog.at_level(logging.WARNING, logger="app.log_api"):
                 resp = client.post(
                     "/api/logs",
                     json={
                         "session_id": "test-session-fwd",
-                        "logs": [
-                            {"level": "info", "message": "test log 1"},
-                            {"level": "error", "message": "test log 2"},
-                        ],
+                        "logs": [{"level": "info", "message": "test"}],
                     },
                     headers=auth_headers,
                 )
                 assert resp.status_code == 200
-                assert resp.json()["received"] == 2
-                # 转发函数应被调用
-                mock_fwd.assert_called_once()
-
-    def test_upload_logs_redis_ok_forward_fails(self, client, auth_headers, caplog):
-        """[fail] log-service 不可达 → Redis 正常存储，API 正常响应"""
-        with patch("app.log_api.append_logs_batch", new_callable=AsyncMock, return_value={"received": 1}):
-            with patch("app.log_api.get_shared_http_client") as mock_client:
-                mock_http = AsyncMock()
-                mock_http.post = AsyncMock(side_effect=ConnectionError("log-service unreachable"))
-                mock_client.return_value = mock_http
-
-                with caplog.at_level(logging.WARNING, logger="app.log_api"):
-                    resp = client.post(
-                        "/api/logs",
-                        json={
-                            "session_id": "test-session-fwd",
-                            "logs": [{"level": "info", "message": "test"}],
-                        },
-                        headers=auth_headers,
-                    )
-                    assert resp.status_code == 200
-                    assert resp.json()["received"] == 1
+                assert resp.json()["received"] == 1
 
         # 应有 warning 日志
         warning_logs = [r for r in caplog.records if r.name == "app.log_api" and r.levelno >= logging.WARNING and "best-effort" in r.message]
@@ -79,20 +85,26 @@ class TestLogForwarding:
         """[boundary] 批量上报（10+ 条）时转发正常"""
         logs = [{"level": "info", "message": f"log {i}"} for i in range(15)]
 
-        with patch("app.log_api._forward_to_log_service", new_callable=AsyncMock) as mock_fwd:
-            with patch("app.log_api.append_logs_batch", new_callable=AsyncMock, return_value={"received": 15}):
-                resp = client.post(
-                    "/api/logs",
-                    json={"session_id": "test-session-fwd", "logs": logs},
-                    headers=auth_headers,
-                )
-                assert resp.status_code == 200
-                assert resp.json()["received"] == 15
-                mock_fwd.assert_called_once()
+        with _with_auth_mock(), \
+             patch("app.log_api._forward_to_log_service", new_callable=AsyncMock) as mock_fwd, \
+             patch("app.log_api.append_logs_batch", new_callable=AsyncMock, return_value={"received": 15}):
+            resp = client.post(
+                "/api/logs",
+                json={"session_id": "test-session-fwd", "logs": logs},
+                headers=auth_headers,
+            )
+            assert resp.status_code == 200
+            assert resp.json()["received"] == 15
+            mock_fwd.assert_called_once()
 
     def test_get_logs_unaffected(self, client, auth_headers):
         """[happy] GET /api/logs Redis 查询正常返回"""
-        with patch("app.log_api.get_logs", new_callable=AsyncMock, return_value={
+        with _with_auth_mock(), \
+             patch("app.session.get_session", new_callable=AsyncMock, return_value={
+                 "id": "test-session-fwd", "user_id": "test-session-fwd", "owner": "test-session-fwd",
+             }), \
+             patch("app.log_api._verify_session_ownership", new_callable=AsyncMock), \
+             patch("app.log_api.get_logs", new_callable=AsyncMock, return_value={
             "session_id": "test-session-fwd",
             "total": 0,
             "offset": 0,

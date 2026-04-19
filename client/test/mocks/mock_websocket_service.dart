@@ -4,28 +4,56 @@ import 'package:rc_client/services/websocket_service.dart';
 
 /// Mock WebSocketService 用于测试
 class MockWebSocketService extends ChangeNotifier implements WebSocketService {
+  MockWebSocketService({
+    String? deviceId = 'device-1',
+    String? terminalId = 'term-1',
+    this.viewType = ViewType.mobile,
+  })  : _deviceId = deviceId,
+        _terminalId = terminalId;
+
   final List<String> sentMessages = [];
   int connectCallCount = 0;
-  final StreamController<String> _outputController = StreamController<String>.broadcast();
-  final StreamController<Map<String, int>> _presenceController = StreamController<Map<String, int>>.broadcast();
+
+  /// 控制 connect() 行为：true=成功连接，false=临时失败（设为 reconnecting）
+  bool connectSucceeds = true;
+
+  /// 控制 connect() 是否抛异常
+  bool connectThrows = false;
+  final StreamController<String> _outputController =
+      StreamController<String>.broadcast();
+  final StreamController<TerminalOutputFrame> _outputFrameController =
+      StreamController<TerminalOutputFrame>.broadcast();
+  final StreamController<TerminalPtySize> _ptySizeController =
+      StreamController<TerminalPtySize>.broadcast();
+  final StreamController<Map<String, int>> _presenceController =
+      StreamController<Map<String, int>>.broadcast();
   final StreamController<Map<String, dynamic>> _terminalsChangedController =
       StreamController<Map<String, dynamic>>.broadcast();
   final StreamController<void> _deviceKickedController =
       StreamController<void>.broadcast();
   final StreamController<void> _tokenInvalidController =
       StreamController<void>.broadcast();
+  final StreamController<TerminalProtocolEvent> _eventController =
+      StreamController<TerminalProtocolEvent>.broadcast();
+  final StreamController<void> _terminalConnectedController =
+      StreamController<void>.broadcast();
 
   ConnectionStatus _status = ConnectionStatus.disconnected;
   String? _errorMessage;
   bool _agentOnline = false;
   final String _sessionId = 'test-session-123';
-  final String? _deviceId = 'device-1';
-  final String? _terminalId = 'term-1';
+  final String? _deviceId;
+  final String? _terminalId;
   bool _deviceOnline = true;
   String? _terminalStatus = 'attached';
   Map<String, int> _views = {'mobile': 0, 'desktop': 0};
+  String? _geometryOwnerView;
   int? _lastCloseCode;
   String? _lastCloseReason;
+  int? _ptyRows;
+  int? _ptyCols;
+  int? _attachEpoch;
+  int? _recoveryEpoch;
 
   @override
   final String serverUrl = 'ws://localhost:8765';
@@ -34,7 +62,7 @@ class MockWebSocketService extends ChangeNotifier implements WebSocketService {
   final String token = 'test-token';
 
   @override
-  final ViewType viewType = ViewType.mobile;
+  final ViewType viewType;
 
   @override
   final bool autoReconnect = true;
@@ -79,13 +107,35 @@ class MockWebSocketService extends ChangeNotifier implements WebSocketService {
   Map<String, int> get views => _views;
 
   @override
+  String? get geometryOwnerView => _geometryOwnerView;
+
+  @override
+  bool get isGeometryOwner =>
+      _geometryOwnerView == (viewType == ViewType.desktop ? 'desktop' : 'mobile');
+
+  @override
   Stream<String> get outputStream => _outputController.stream;
+
+  @override
+  Stream<TerminalOutputFrame> get outputFrameStream =>
+      _outputFrameController.stream;
+
+  @override
+  Stream<TerminalPtySize> get ptySizeStream => _ptySizeController.stream;
+
+  @override
+  Stream<TerminalProtocolEvent> get eventStream => _eventController.stream;
+
+  @override
+  Stream<void> get terminalConnectedStream =>
+      _terminalConnectedController.stream;
 
   @override
   Stream<Map<String, int>> get presenceStream => _presenceController.stream;
 
   @override
-  Stream<Map<String, dynamic>> get terminalsChangedStream => _terminalsChangedController.stream;
+  Stream<Map<String, dynamic>> get terminalsChangedStream =>
+      _terminalsChangedController.stream;
 
   @override
   Stream<void> get deviceKickedStream => _deviceKickedController.stream;
@@ -98,6 +148,18 @@ class MockWebSocketService extends ChangeNotifier implements WebSocketService {
 
   @override
   String? get lastCloseReason => _lastCloseReason;
+
+  @override
+  int? get ptyRows => _ptyRows;
+
+  @override
+  int? get ptyCols => _ptyCols;
+
+  @override
+  int? get attachEpoch => _attachEpoch;
+
+  @override
+  int? get recoveryEpoch => _recoveryEpoch;
 
   @override
   bool get isAuthFailed => _lastCloseCode == 4001 || _lastCloseCode == 4011;
@@ -130,15 +192,56 @@ class MockWebSocketService extends ChangeNotifier implements WebSocketService {
     notifyListeners();
   }
 
+  /// 模拟认证失败（closeCode=4001）
+  void simulateAuthFailed() {
+    _lastCloseCode = 4001;
+    _status = ConnectionStatus.disconnected;
+    notifyListeners();
+  }
+
+  /// 模拟终端被服务端关闭
+  void simulateTerminalClosed() {
+    _terminalStatus = 'closed';
+    _status = ConnectionStatus.disconnected;
+    notifyListeners();
+  }
+
   /// 模拟接收终端输出
   void simulateOutput(String data) {
+    _outputFrameController.add(
+      TerminalOutputFrame(
+        kind: TerminalOutputKind.data,
+        payload: data,
+      ),
+    );
     _outputController.add(data);
+  }
+
+  void simulateSnapshot(String data) {
+    _outputFrameController.add(
+      TerminalOutputFrame(
+        kind: TerminalOutputKind.snapshot,
+        payload: data,
+      ),
+    );
+    _outputController.add(data);
+  }
+
+  void simulatePtySize({required int rows, required int cols}) {
+    _ptyRows = rows;
+    _ptyCols = cols;
+    _ptySizeController.add(TerminalPtySize(rows: rows, cols: cols));
   }
 
   /// 模拟 presence 更新
   void simulatePresence(Map<String, int> views) {
     _views = views;
     _presenceController.add(views);
+  }
+
+  void simulateGeometryOwner(String? geometryOwnerView) {
+    _geometryOwnerView = geometryOwnerView;
+    notifyListeners();
   }
 
   /// 获取已发送的消息列表
@@ -152,6 +255,14 @@ class MockWebSocketService extends ChangeNotifier implements WebSocketService {
   @override
   Future<bool> connect() async {
     connectCallCount++;
+    if (connectThrows) {
+      throw Exception('Connection failed');
+    }
+    if (!connectSucceeds) {
+      _status = ConnectionStatus.reconnecting;
+      notifyListeners();
+      return false;
+    }
     _status = ConnectionStatus.connecting;
     await Future.delayed(const Duration(milliseconds: 100));
     simulateConnect();
@@ -193,12 +304,21 @@ class MockWebSocketService extends ChangeNotifier implements WebSocketService {
   }
 
   @override
+  void debugHandleMessage(String message) {
+    // Tests can opt into the real parser later; most widget tests only need a stub.
+  }
+
+  @override
   void dispose() {
     _outputController.close();
+    _outputFrameController.close();
+    _ptySizeController.close();
     _presenceController.close();
     _terminalsChangedController.close();
     _deviceKickedController.close();
     _tokenInvalidController.close();
+    _eventController.close();
+    _terminalConnectedController.close();
     super.dispose();
   }
 }

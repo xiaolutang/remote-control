@@ -45,7 +45,18 @@ void main() {
         sessionId: 'session-1',
       );
 
+      // ignore: deprecated_member_use_from_same_package
       expect(service.outputStream, isNotNull);
+    });
+
+    test('output frame stream exists', () {
+      final service = WebSocketService(
+        serverUrl: 'ws://localhost:8888',
+        token: 'test-token',
+        sessionId: 'session-1',
+      );
+
+      expect(service.outputFrameStream, isNotNull);
     });
 
     test('presence stream exists', () {
@@ -103,7 +114,8 @@ void main() {
   });
 
   group('WebSocketService terminalsChangedStream', () {
-    test('terminalsChangedStream emits data on terminals_changed message', () async {
+    test('terminalsChangedStream emits data on terminals_changed message',
+        () async {
       final service = WebSocketService(
         serverUrl: 'ws://localhost:8888',
         token: 'test-token',
@@ -122,6 +134,18 @@ void main() {
 
       // 清理
       await subscription.cancel();
+      service.dispose();
+    });
+
+    test('protocol event stream exists', () {
+      final service = WebSocketService(
+        serverUrl: 'ws://localhost:8888',
+        token: 'test-token',
+        sessionId: 'session-1',
+      );
+
+      expect(service.eventStream, isNotNull);
+
       service.dispose();
     });
 
@@ -163,27 +187,619 @@ void main() {
       await subscription.cancel();
     });
 
-    test('multiple listeners can subscribe to terminalsChangedStream', () async {
+    test('multiple listeners can subscribe to terminalsChangedStream',
+        () async {
       final service = WebSocketService(
         serverUrl: 'ws://localhost:8888',
         token: 'test-token',
         sessionId: 'session-1',
       );
 
-      var listener1Called = false;
-      var listener2Called = false;
-
-      final sub1 = service.terminalsChangedStream.listen((_) {
-        listener1Called = true;
-      });
-      final sub2 = service.terminalsChangedStream.listen((_) {
-        listener2Called = true;
-      });
+      final sub1 = service.terminalsChangedStream.listen((_) {});
+      final sub2 = service.terminalsChangedStream.listen((_) {});
 
       expect(sub1, isNotNull);
       expect(sub2, isNotNull);
 
       // 先取消订阅，再 dispose
+      await sub1.cancel();
+      await sub2.cancel();
+      service.dispose();
+    });
+  });
+
+  group('WebSocketService snapshots', () {
+    test('snapshot messages are decoded into output stream', () async {
+      final service = WebSocketService(
+        serverUrl: 'ws://localhost:8888',
+        token: 'test-token',
+        sessionId: 'session-1',
+      );
+
+      final outputs = <String>[];
+      // ignore: deprecated_member_use_from_same_package
+      final sub = service.outputStream.listen(outputs.add);
+
+      service.debugHandleMessage(jsonEncode({
+        'type': 'snapshot',
+        'payload': base64Encode(utf8.encode('hello snapshot')),
+      }));
+
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(outputs, contains('hello snapshot'));
+
+      await sub.cancel();
+      service.dispose();
+    });
+
+    test('snapshot messages are tagged in output frame stream', () async {
+      final service = WebSocketService(
+        serverUrl: 'ws://localhost:8888',
+        token: 'test-token',
+        sessionId: 'session-1',
+      );
+
+      final frames = <TerminalOutputFrame>[];
+      final sub = service.outputFrameStream.listen(frames.add);
+
+      service.debugHandleMessage(jsonEncode({
+        'type': 'snapshot',
+        'payload': base64Encode(utf8.encode('hello snapshot')),
+      }));
+
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(frames, isNotEmpty);
+      expect(frames.single.kind, TerminalOutputKind.snapshot);
+      expect(frames.single.payload, 'hello snapshot');
+
+      await sub.cancel();
+      service.dispose();
+    });
+
+    test('snapshot_chunk messages are decoded into snapshot frames', () async {
+      final service = WebSocketService(
+        serverUrl: 'ws://localhost:8888',
+        token: 'test-token',
+        sessionId: 'session-1',
+      );
+
+      final frames = <TerminalOutputFrame>[];
+      final sub = service.outputFrameStream.listen(frames.add);
+
+      service.debugHandleMessage(jsonEncode({
+        'type': 'snapshot_chunk',
+        'payload': base64Encode(utf8.encode('hello chunk')),
+        'attach_epoch': 3,
+        'recovery_epoch': 7,
+      }));
+
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(frames, hasLength(1));
+      expect(frames.single.kind, TerminalOutputKind.snapshot);
+      expect(frames.single.payload, 'hello chunk');
+      expect(frames.single.attachEpoch, 3);
+      expect(frames.single.recoveryEpoch, 7);
+
+      await sub.cancel();
+      service.dispose();
+    });
+
+    test('output messages are decoded into live data frames', () async {
+      final service = WebSocketService(
+        serverUrl: 'ws://localhost:8888',
+        token: 'test-token',
+        sessionId: 'session-1',
+      );
+
+      final frames = <TerminalOutputFrame>[];
+      final sub = service.outputFrameStream.listen(frames.add);
+
+      service.debugHandleMessage(jsonEncode({
+        'type': 'output',
+        'payload': base64Encode(utf8.encode('live output')),
+        'attach_epoch': 4,
+      }));
+
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(frames, hasLength(1));
+      expect(frames.single.kind, TerminalOutputKind.data);
+      expect(frames.single.payload, 'live output');
+      expect(frames.single.attachEpoch, 4);
+
+      await sub.cancel();
+      service.dispose();
+    });
+
+    test('connected messages emit protocol connected event', () async {
+      final service = WebSocketService(
+        serverUrl: 'ws://localhost:8888',
+        token: 'test-token',
+        sessionId: 'session-1',
+      );
+
+      final events = <TerminalProtocolEvent>[];
+      final sub = service.eventStream.listen(events.add);
+
+      service.debugHandleMessage(jsonEncode({
+        'type': 'connected',
+        'terminal_id': 'term-1',
+        'pty': {'rows': 40, 'cols': 120},
+        'geometry_owner_view': 'desktop',
+        'attach_epoch': 2,
+        'recovery_epoch': 5,
+        'views': {'mobile': 0, 'desktop': 1},
+      }));
+
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(events, isNotEmpty);
+      expect(events.single.kind, TerminalProtocolEventKind.connected);
+      expect(events.single.attachEpoch, 2);
+      expect(events.single.recoveryEpoch, 5);
+      expect(events.single.ptySize?.rows, 40);
+      expect(events.single.ptySize?.cols, 120);
+
+      await sub.cancel();
+      service.dispose();
+    });
+
+    test('snapshot_complete emits protocol snapshotComplete event', () async {
+      final service = WebSocketService(
+        serverUrl: 'ws://localhost:8888',
+        token: 'test-token',
+        sessionId: 'session-1',
+      );
+
+      final events = <TerminalProtocolEvent>[];
+      final sub = service.eventStream.listen(events.add);
+
+      service.debugHandleMessage(jsonEncode({
+        'type': 'snapshot_complete',
+        'attach_epoch': 3,
+        'recovery_epoch': 9,
+      }));
+
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(events, hasLength(1));
+      expect(events.single.kind, TerminalProtocolEventKind.snapshotComplete);
+      expect(events.single.attachEpoch, 3);
+      expect(events.single.recoveryEpoch, 9);
+
+      await sub.cancel();
+      service.dispose();
+    });
+
+    test('resize messages update pty size stream', () async {
+      final service = WebSocketService(
+        serverUrl: 'ws://localhost:8888',
+        token: 'test-token',
+        sessionId: 'session-1',
+      );
+
+      final sizes = <TerminalPtySize>[];
+      final sub = service.ptySizeStream.listen(sizes.add);
+
+      service.debugHandleMessage(jsonEncode({
+        'type': 'resize',
+        'rows': 40,
+        'cols': 120,
+      }));
+
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(service.ptyRows, 40);
+      expect(service.ptyCols, 120);
+      expect(sizes.single.rows, 40);
+      expect(sizes.single.cols, 120);
+
+      await sub.cancel();
+      service.dispose();
+    });
+
+    test('connected messages apply initial pty size', () async {
+      final service = WebSocketService(
+        serverUrl: 'ws://localhost:8888',
+        token: 'test-token',
+        sessionId: 'session-1',
+      );
+
+      service.debugHandleMessage(jsonEncode({
+        'type': 'connected',
+        'agent_online': true,
+        'device_online': true,
+        'owner': 'user-1',
+        'terminal_status': 'attached',
+        'pty': {
+          'rows': 32,
+          'cols': 96,
+        },
+      }));
+
+      expect(service.status, ConnectionStatus.connected);
+      expect(service.ptyRows, 32);
+      expect(service.ptyCols, 96);
+    });
+
+    test('connected and presence messages apply geometry owner view',
+        () async {
+      final service = WebSocketService(
+        serverUrl: 'ws://localhost:8888',
+        token: 'test-token',
+        sessionId: 'session-1',
+        viewType: ViewType.mobile,
+      );
+
+      service.debugHandleMessage(jsonEncode({
+        'type': 'connected',
+        'agent_online': true,
+        'device_online': true,
+        'owner': 'user-1',
+        'terminal_status': 'attached',
+        'geometry_owner_view': 'mobile',
+        'views': {
+          'mobile': 1,
+          'desktop': 0,
+        },
+        'pty': {
+          'rows': 32,
+          'cols': 96,
+        },
+      }));
+
+      expect(service.geometryOwnerView, 'mobile');
+      expect(service.isGeometryOwner, isTrue);
+
+      service.debugHandleMessage(jsonEncode({
+        'type': 'presence',
+        'geometry_owner_view': 'desktop',
+        'views': {
+          'mobile': 1,
+          'desktop': 1,
+        },
+      }));
+
+      expect(service.geometryOwnerView, 'desktop');
+      expect(service.isGeometryOwner, isFalse);
+      expect(service.views, {'mobile': 1, 'desktop': 1});
+    });
+  });
+
+  group('eventStream events', () {
+    test('resize message emits TerminalProtocolEventKind.resize with ptySize',
+        () async {
+      final service = WebSocketService(
+        serverUrl: 'ws://localhost:8888',
+        token: 'test-token',
+        sessionId: 'session-1',
+      );
+
+      final events = <TerminalProtocolEvent>[];
+      final sub = service.eventStream.listen(events.add);
+
+      service.debugHandleMessage(jsonEncode({
+        'type': 'resize',
+        'rows': 24,
+        'cols': 80,
+      }));
+
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(events, hasLength(1));
+      expect(events.single.kind, TerminalProtocolEventKind.resize);
+      expect(events.single.ptySize, isNotNull);
+      expect(events.single.ptySize!.rows, 24);
+      expect(events.single.ptySize!.cols, 80);
+
+      await sub.cancel();
+      service.dispose();
+    });
+
+    test('output message emits TerminalProtocolEventKind.output with payload',
+        () async {
+      final service = WebSocketService(
+        serverUrl: 'ws://localhost:8888',
+        token: 'test-token',
+        sessionId: 'session-1',
+      );
+
+      final events = <TerminalProtocolEvent>[];
+      final sub = service.eventStream.listen(events.add);
+
+      service.debugHandleMessage(jsonEncode({
+        'type': 'output',
+        'payload': base64Encode(utf8.encode('live data')),
+      }));
+
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(events, hasLength(1));
+      expect(events.single.kind, TerminalProtocolEventKind.output);
+      expect(events.single.payload, 'live data');
+
+      await sub.cancel();
+      service.dispose();
+    });
+
+    test(
+        'snapshot message emits TerminalProtocolEventKind.snapshot with payload',
+        () async {
+      final service = WebSocketService(
+        serverUrl: 'ws://localhost:8888',
+        token: 'test-token',
+        sessionId: 'session-1',
+      );
+
+      final events = <TerminalProtocolEvent>[];
+      final sub = service.eventStream.listen(events.add);
+
+      service.debugHandleMessage(jsonEncode({
+        'type': 'snapshot',
+        'payload': base64Encode(utf8.encode('snap data')),
+      }));
+
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(events, hasLength(1));
+      expect(events.single.kind, TerminalProtocolEventKind.snapshot);
+      expect(events.single.payload, 'snap data');
+
+      await sub.cancel();
+      service.dispose();
+    });
+
+    test(
+        'presence message emits TerminalProtocolEventKind.presence with views',
+        () async {
+      final service = WebSocketService(
+        serverUrl: 'ws://localhost:8888',
+        token: 'test-token',
+        sessionId: 'session-1',
+      );
+
+      // 先 connected 以设置初始 views
+      service.debugHandleMessage(jsonEncode({
+        'type': 'connected',
+        'agent_online': true,
+        'views': {'mobile': 0, 'desktop': 0},
+      }));
+
+      final events = <TerminalProtocolEvent>[];
+      final sub = service.eventStream.listen(events.add);
+
+      service.debugHandleMessage(jsonEncode({
+        'type': 'presence',
+        'views': {'mobile': 1, 'desktop': 1},
+        'geometry_owner_view': 'mobile',
+      }));
+
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      // events[0] 是 connected 事件之后的 presence 事件
+      final presenceEvent = events.where((e) =>
+          e.kind == TerminalProtocolEventKind.presence).toList();
+      expect(presenceEvent, hasLength(1));
+      expect(presenceEvent.single.views, {'mobile': 1, 'desktop': 1});
+
+      await sub.cancel();
+      service.dispose();
+    });
+
+    test(
+        'terminal_closed message emits TerminalProtocolEventKind.closed event',
+        () async {
+      final service = WebSocketService(
+        serverUrl: 'ws://localhost:8888',
+        token: 'test-token',
+        sessionId: 'session-1',
+        autoReconnect: false,
+      );
+
+      // 先 connected
+      service.debugHandleMessage(jsonEncode({
+        'type': 'connected',
+        'agent_online': true,
+      }));
+
+      final events = <TerminalProtocolEvent>[];
+      final sub = service.eventStream.listen(events.add);
+
+      service.debugHandleMessage(jsonEncode({
+        'type': 'terminal_closed',
+      }));
+
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      final closedEvent = events.where(
+          (e) => e.kind == TerminalProtocolEventKind.closed).toList();
+      expect(closedEvent, hasLength(1));
+      expect(closedEvent.single.terminalStatus, 'closed');
+
+      await sub.cancel();
+      service.dispose();
+    });
+  });
+
+  group('boundary tests', () {
+    test('old attach_epoch messages are silently discarded', () async {
+      final service = WebSocketService(
+        serverUrl: 'ws://localhost:8888',
+        token: 'test-token',
+        sessionId: 'session-1',
+      );
+
+      // 先发 connected 设置 attach_epoch=5
+      service.debugHandleMessage(jsonEncode({
+        'type': 'connected',
+        'attach_epoch': 5,
+        'agent_online': true,
+      }));
+
+      final events = <TerminalProtocolEvent>[];
+      final frames = <TerminalOutputFrame>[];
+      final sub1 = service.eventStream.listen(events.add);
+      final sub2 = service.outputFrameStream.listen(frames.add);
+
+      // 发旧 epoch output (attach_epoch=3 < 5)
+      service.debugHandleMessage(jsonEncode({
+        'type': 'output',
+        'payload': base64Encode(utf8.encode('stale data')),
+        'attach_epoch': 3,
+      }));
+
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      // eventStream 不应收到 output 事件
+      final outputEvents = events.where(
+          (e) => e.kind == TerminalProtocolEventKind.output).toList();
+      expect(outputEvents, isEmpty);
+      // outputFrameStream 也不应收到
+      expect(frames, isEmpty);
+
+      await sub1.cancel();
+      await sub2.cancel();
+      service.dispose();
+    });
+
+    test('same attach_epoch messages are processed normally', () async {
+      final service = WebSocketService(
+        serverUrl: 'ws://localhost:8888',
+        token: 'test-token',
+        sessionId: 'session-1',
+      );
+
+      // connected 设置 attach_epoch=5
+      service.debugHandleMessage(jsonEncode({
+        'type': 'connected',
+        'attach_epoch': 5,
+        'agent_online': true,
+      }));
+
+      final events = <TerminalProtocolEvent>[];
+      final sub = service.eventStream.listen(events.add);
+
+      // 发同 epoch output (attach_epoch=5 == 5)
+      service.debugHandleMessage(jsonEncode({
+        'type': 'output',
+        'payload': base64Encode(utf8.encode('current data')),
+        'attach_epoch': 5,
+      }));
+
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      final outputEvents = events.where(
+          (e) => e.kind == TerminalProtocolEventKind.output).toList();
+      expect(outputEvents, hasLength(1));
+      expect(outputEvents.single.payload, 'current data');
+
+      await sub.cancel();
+      service.dispose();
+    });
+
+    test('old attach_epoch snapshot_complete messages are silently discarded',
+        () async {
+      final service = WebSocketService(
+        serverUrl: 'ws://localhost:8888',
+        token: 'test-token',
+        sessionId: 'session-1',
+      );
+
+      // connected 设置 attach_epoch=5
+      service.debugHandleMessage(jsonEncode({
+        'type': 'connected',
+        'attach_epoch': 5,
+        'agent_online': true,
+      }));
+
+      final events = <TerminalProtocolEvent>[];
+      final frames = <TerminalOutputFrame>[];
+      final sub1 = service.eventStream.listen(events.add);
+      final sub2 = service.outputFrameStream.listen(frames.add);
+
+      // 发旧 epoch snapshot_complete (attach_epoch=3 < 5)
+      service.debugHandleMessage(jsonEncode({
+        'type': 'snapshot_complete',
+        'attach_epoch': 3,
+        'recovery_epoch': 7,
+      }));
+
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      // eventStream 不应收到 snapshotComplete 事件
+      final scEvents = events.where(
+          (e) => e.kind == TerminalProtocolEventKind.snapshotComplete).toList();
+      expect(scEvents, isEmpty);
+      // outputFrameStream 也不应收到
+      final scFrames = frames.where(
+          (f) => f.kind == TerminalOutputKind.snapshotComplete).toList();
+      expect(scFrames, isEmpty);
+
+      await sub1.cancel();
+      await sub2.cancel();
+      service.dispose();
+    });
+
+    test('unknown type message does not crash', () async {
+      final service = WebSocketService(
+        serverUrl: 'ws://localhost:8888',
+        token: 'test-token',
+        sessionId: 'session-1',
+      );
+
+      final events = <TerminalProtocolEvent>[];
+      final sub = service.eventStream.listen(events.add);
+
+      // 发未知 type，不应崩溃
+      service.debugHandleMessage(jsonEncode({
+        'type': 'unknown_foo',
+      }));
+
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      // eventStream 不应收到任何事件
+      expect(events, isEmpty);
+      // service 不应崩溃，状态仍为 disconnected
+      expect(service.status, ConnectionStatus.disconnected);
+
+      await sub.cancel();
+      service.dispose();
+    });
+
+    test(
+        'outputStream and eventStream receive consistent payload for output messages',
+        () async {
+      final service = WebSocketService(
+        serverUrl: 'ws://localhost:8888',
+        token: 'test-token',
+        sessionId: 'session-1',
+      );
+
+      // ignore: deprecated_member_use_from_same_package
+      final rawOutputs = <String>[];
+      final events = <TerminalProtocolEvent>[];
+      // ignore: deprecated_member_use_from_same_package
+      final sub1 = service.outputStream.listen(rawOutputs.add);
+      final sub2 = service.eventStream.listen(events.add);
+
+      service.debugHandleMessage(jsonEncode({
+        'type': 'output',
+        'payload': base64Encode(utf8.encode('consistent data')),
+      }));
+
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(rawOutputs, hasLength(1));
+      expect(rawOutputs.single, 'consistent data');
+
+      final outputEvents = events.where(
+          (e) => e.kind == TerminalProtocolEventKind.output).toList();
+      expect(outputEvents, hasLength(1));
+      expect(outputEvents.single.payload, 'consistent data');
+
       await sub1.cancel();
       await sub2.cancel();
       service.dispose();

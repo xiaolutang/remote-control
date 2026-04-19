@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -100,7 +101,8 @@ class DesktopAgentSupervisor {
     final devices = await runtimeService.listDevices(token);
     final current = _findDevice(devices, deviceId);
     final managedPid = await _loadManagedAgentPid();
-    final managedRunning = managedPid != null && await _isProcessRunning(managedPid);
+    final managedRunning =
+        managedPid != null && await _isProcessRunning(managedPid);
     if (managedPid != null && !managedRunning) {
       await _clearManagedAgentPid();
     }
@@ -131,7 +133,8 @@ class DesktopAgentSupervisor {
     final runtimeService =
         _runtimeService ?? RuntimeDeviceService(serverUrl: serverUrl);
 
-    final before = _findDevice(await runtimeService.listDevices(token), deviceId);
+    final before =
+        _findDevice(await runtimeService.listDevices(token), deviceId);
     _logDesktopAgent(
       'ensureAgentOnline before agentOnline=${before?.agentOnline ?? false}',
     );
@@ -145,7 +148,8 @@ class DesktopAgentSupervisor {
     _logDesktopAgent('ensureAgentOnline managedPid=${managedPid ?? -1}');
     if (managedPid != null) {
       if (await _isProcessRunning(managedPid)) {
-        _logDesktopAgent('ensureAgentOnline waiting existing managed pid=$managedPid');
+        _logDesktopAgent(
+            'ensureAgentOnline waiting existing managed pid=$managedPid');
         final recovered = await _waitForAgentOnline(
           runtimeService: runtimeService,
           token: token,
@@ -203,11 +207,11 @@ class DesktopAgentSupervisor {
           'run',
         ],
         workingDirectory: workdir.path,
-        environment: agentConfigPath == null || agentConfigPath.isEmpty
-            ? null
-            : <String, String>{
-                'RC_AGENT_CONFIG_DIR': File(agentConfigPath).parent.path,
-              },
+        environment: <String, String>{
+          if (agentConfigPath != null && agentConfigPath.isNotEmpty)
+            'RC_AGENT_CONFIG_DIR': File(agentConfigPath).parent.path,
+          if (kDebugMode) 'RC_SSL_INSECURE': '1',
+        },
         mode: ProcessStartMode.detachedWithStdio,
       );
       await _saveManagedAgentPid(process.pid);
@@ -302,7 +306,8 @@ class DesktopAgentSupervisor {
     final deadline = DateTime.now().add(timeout);
     while (DateTime.now().isBefore(deadline)) {
       await Future<void>.delayed(const Duration(milliseconds: 400));
-      final refreshed = _findDevice(await runtimeService.listDevices(token), deviceId);
+      final refreshed =
+          _findDevice(await runtimeService.listDevices(token), deviceId);
       if (!(refreshed?.agentOnline ?? false)) {
         await _clearManagedAgentPid();
         return true;
@@ -326,7 +331,8 @@ class DesktopAgentSupervisor {
       }
 
       final graceTimeout = timeout.inSeconds.clamp(1, 10);
-      final stopSent = await client.sendStop(status.port, graceTimeout: graceTimeout);
+      final stopSent =
+          await client.sendStop(status.port, graceTimeout: graceTimeout);
       if (!stopSent) {
         return false;
       }
@@ -393,7 +399,13 @@ class DesktopAgentSupervisor {
 
     try {
       final prefs = await SharedPreferences.getInstance();
-      final refreshToken = prefs.getString('rc_refresh_token');
+      // refresh_token 从 SecureStorage 读取（与 AuthService 使用一致配置）
+      const secureStorage = FlutterSecureStorage(
+        aOptions: AndroidOptions(encryptedSharedPreferences: true),
+        iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
+        mOptions: MacOsOptions(useDataProtectionKeyChain: false),
+      );
+      final refreshToken = await secureStorage.read(key: 'rc_refresh_token');
       final username = prefs.getString('rc_username');
 
       final managedConfigFile = File(
@@ -409,8 +421,8 @@ class DesktopAgentSupervisor {
         'command': '/bin/bash',
         'shell_mode': false,
         'auto_reconnect': true,
-        'max_retries': 5,
-        'reconnect_max_attempts': 10,
+        'max_retries': 60,
+        'reconnect_max_attempts': 60,
         'reconnect_base_delay': 1.0,
         'heartbeat_interval': 30.0,
       };
@@ -476,7 +488,8 @@ class DesktopAgentSupervisor {
     final deadline = DateTime.now().add(timeout);
     while (DateTime.now().isBefore(deadline)) {
       await Future<void>.delayed(const Duration(milliseconds: 600));
-      final refreshed = _findDevice(await runtimeService.listDevices(token), deviceId);
+      final refreshed =
+          _findDevice(await runtimeService.listDevices(token), deviceId);
       if (refreshed?.agentOnline ?? false) {
         return true;
       }
@@ -595,10 +608,13 @@ class DesktopAgentSupervisor {
   }
 
   Directory? _resolveAgentWorkdir({String? preferredWorkdir}) {
-    _logDesktopAgent('_resolveAgentWorkdir: preferredWorkdir=$preferredWorkdir');
-    for (final candidate in _candidateAgentDirs(preferredWorkdir: preferredWorkdir)) {
+    _logDesktopAgent(
+        '_resolveAgentWorkdir: preferredWorkdir=$preferredWorkdir');
+    for (final candidate
+        in _candidateAgentDirs(preferredWorkdir: preferredWorkdir)) {
       final looksLike = _looksLikeAgentDir(candidate);
-      _logDesktopAgent('_resolveAgentWorkdir: checking ${candidate.path}, looksLike=$looksLike');
+      _logDesktopAgent(
+          '_resolveAgentWorkdir: checking ${candidate.path}, looksLike=$looksLike');
       if (looksLike) {
         _logDesktopAgent('_resolveAgentWorkdir: resolved ${candidate.path}');
         return candidate;
@@ -611,7 +627,8 @@ class DesktopAgentSupervisor {
   Iterable<Directory> _candidateAgentDirs({String? preferredWorkdir}) sync* {
     _logDesktopAgent('_candidateAgentDirs: preferredWorkdir=$preferredWorkdir');
     _logDesktopAgent('_candidateAgentDirs: current=${Directory.current.path}');
-    _logDesktopAgent('_candidateAgentDirs: resolvedExecutable=${Platform.resolvedExecutable}');
+    _logDesktopAgent(
+        '_candidateAgentDirs: resolvedExecutable=${Platform.resolvedExecutable}');
 
     if (preferredWorkdir != null && preferredWorkdir.isNotEmpty) {
       yield Directory(preferredWorkdir);
@@ -623,7 +640,8 @@ class DesktopAgentSupervisor {
     }
 
     final executableDir = _resolveExecutableDirectory();
-    _logDesktopAgent('_candidateAgentDirs: executableDir=${executableDir?.path}');
+    _logDesktopAgent(
+        '_candidateAgentDirs: executableDir=${executableDir?.path}');
     if (executableDir != null) {
       yield* _searchAgentDirsFrom(executableDir);
     }
@@ -657,6 +675,7 @@ class DesktopAgentSupervisor {
   }
 
   bool _looksLikeAgentDir(Directory dir) {
-    return dir.existsSync() && File(p.join(dir.path, 'app', 'cli.py')).existsSync();
+    return dir.existsSync() &&
+        File(p.join(dir.path, 'app', 'cli.py')).existsSync();
   }
 }

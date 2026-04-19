@@ -3,10 +3,24 @@ WebSocket 路由测试
 """
 import pytest
 import asyncio
+import base64
+import json
 from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, patch, MagicMock
 
 from fastapi import HTTPException
+
+
+def _make_auth_msg(token: str) -> str:
+    """构造 WS auth 首条消息"""
+    return json.dumps({"type": "auth", "token": token})
+
+
+async def _cancelled_iter_text():
+    """空迭代器，立即抛 CancelledError（模拟正常断开）"""
+    if False:
+        yield ""
+    raise asyncio.CancelledError
 
 
 class TestAgentConnection:
@@ -72,24 +86,31 @@ class TestWebSocketHandler:
         # 清理
         active_agents.clear()
 
-        async def cancelled_iter_json():
+        async def cancelled_iter_text():
             if False:
-                yield {}
+                yield ""
             raise asyncio.CancelledError
 
         mock_ws = AsyncMock()
-        mock_ws.iter_json = MagicMock(return_value=cancelled_iter_json())
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
+        mock_ws.iter_text = MagicMock(return_value=cancelled_iter_text())
+        mock_ws.headers = {"x-forwarded-proto": "https"}
+        mock_ws.headers = {"x-forwarded-proto": "https"}
+        mock_ws.headers = {"x-forwarded-proto": "https"}
+        mock_ws.headers = {"x-forwarded-proto": "https"}
 
-        with patch('app.ws_agent.async_verify_token', return_value={"session_id": "session-1", "sub": "user1"}):
+        with patch('app.ws_agent.wait_for_ws_auth', new=AsyncMock(return_value=(
+            {"session_id": "session-1", "sub": "user1"},
+            {"type": "auth", "token": "valid-token"},
+        ))):
             with patch('app.ws_agent.get_session', return_value={"session_id": "session-1", "owner": "user1"}):
                 with patch('app.ws_agent.set_session_online', new_callable=AsyncMock):
                     with patch('app.ws_agent.update_session_device_heartbeat', new_callable=AsyncMock):
                         with patch('app.ws_client.get_view_counts', return_value={"mobile": 0, "desktop": 0}):
                             with patch('app.ws_agent.list_recoverable_session_terminals', new=AsyncMock(return_value=[])):
-                                # 由于 iter_json 会抛出异常，处理器会退出
                                 try:
                                     from app.ws_agent import agent_websocket_handler
-                                    await agent_websocket_handler(mock_ws, "valid-token")
+                                    await agent_websocket_handler(mock_ws)
                                 except asyncio.CancelledError:
                                     pass
 
@@ -111,24 +132,34 @@ class TestWebSocketHandler:
     @pytest.mark.asyncio
     async def test_terminal_attach_uses_live_agent_connection_not_session_flag(self):
         """terminal 级 attach 只看当前活跃 agent 连接，不看 Redis 历史标记。"""
-        async def cancelled_iter_json():
+        async def cancelled_iter_text():
             if False:
-                yield {}
+                yield ""
             raise asyncio.CancelledError
 
         mock_ws = AsyncMock()
-        mock_ws.iter_json = MagicMock(return_value=cancelled_iter_json())
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
+        mock_ws.iter_text = MagicMock(return_value=cancelled_iter_text())
+        mock_ws.headers = {"x-forwarded-proto": "https"}
 
-        with patch('app.ws_client.async_verify_token', return_value={"session_id": "session-1", "sub": "user1"}):
+        with patch('app.ws_client.wait_for_ws_auth', new=AsyncMock(return_value=(
+            {"session_id": "session-1", "sub": "user1"},
+            {"type": "auth", "token": "valid-token"},
+        ))):
             with patch('app.ws_client.get_session_by_device_id', new=AsyncMock(return_value={"session_id": "session-1", "owner": "user1", "agent_online": False, "device": {"device_id": "mbp-01"}})):
                 with patch('app.ws_client.get_session_terminal', new=AsyncMock(return_value={"terminal_id": "term-1", "status": "detached"})):
                     with patch('app.ws_client.is_agent_connected', return_value=True):
                         with patch('app.ws_client.update_session_view_count', new_callable=AsyncMock):
-                            with patch('app.ws_client.update_session_terminal_status', new_callable=AsyncMock):
+                            with patch('app.ws_client.update_session_terminal_views', new=AsyncMock(return_value={
+                                "terminal_id": "term-1",
+                                "status": "live",
+                                "views": {"mobile": 0, "desktop": 0},
+                                "geometry_owner_view": None,
+                            })):
                                 with patch('app.ws_client._broadcast_presence', new_callable=AsyncMock):
                                     try:
                                         from app.ws_client import client_websocket_handler
-                                        await client_websocket_handler(mock_ws, "session-1", "valid-token", view="desktop", device_id="mbp-01", terminal_id="term-1")
+                                        await client_websocket_handler(mock_ws, "session-1", view="desktop", device_id="mbp-01", terminal_id="term-1")
                                     except asyncio.CancelledError:
                                         pass
 
@@ -143,13 +174,15 @@ class TestWebSocketHandler:
 
         active_agents.clear()
 
-        async def cancelled_iter_json():
+        async def cancelled_iter_text():
             if False:
-                yield {}
+                yield ""
             raise asyncio.CancelledError
 
         mock_ws = AsyncMock()
-        mock_ws.iter_json = MagicMock(return_value=cancelled_iter_json())
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
+        mock_ws.iter_text = MagicMock(return_value=cancelled_iter_text())
+        mock_ws.headers = {"x-forwarded-proto": "https"}
         recoverable = [{
             "terminal_id": "term-1",
             "title": "Claude / one",
@@ -158,16 +191,18 @@ class TestWebSocketHandler:
             "env": {"TERM": "xterm-256color"},
         }]
 
-        with patch('app.ws_agent.async_verify_token', return_value={"session_id": "session-1", "sub": "user1"}):
+        with patch('app.ws_agent.wait_for_ws_auth', new=AsyncMock(return_value=(
+            {"session_id": "session-1", "sub": "user1"},
+            {"type": "auth", "token": "valid-token"},
+        ))):
             with patch('app.ws_agent.get_session', return_value={"session_id": "session-1", "owner": "user1"}):
                 with patch('app.ws_agent.set_session_online', new_callable=AsyncMock):
                     with patch('app.ws_agent.update_session_device_heartbeat', new_callable=AsyncMock):
                         with patch('app.ws_client.get_view_counts', return_value={"mobile": 0, "desktop": 0}):
                             with patch('app.ws_agent.list_recoverable_session_terminals', new=AsyncMock(return_value=recoverable)):
-                                # 由于 iter_json 会抛出异常，处理器会退出
                                 try:
                                     from app.ws_agent import agent_websocket_handler
-                                    await agent_websocket_handler(mock_ws, "valid-token")
+                                    await agent_websocket_handler(mock_ws)
                                 except asyncio.CancelledError:
                                         pass
 
@@ -181,14 +216,15 @@ class TestWebSocketHandler:
     async def test_invalid_token_rejected(self):
         """无效 token 拒绝测试"""
         mock_ws = AsyncMock()
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "invalid-token"}))
+        mock_ws.headers = {"x-forwarded-proto": "https"}
 
-        with patch('app.ws_agent.async_verify_token') as mock_verify:
-            mock_verify.side_effect = HTTPException(status_code=401, detail="Invalid token")
+        with patch('app.ws_agent.wait_for_ws_auth', new=AsyncMock(side_effect=HTTPException(status_code=401, detail="Invalid token"))):
 
             from app.ws_agent import agent_websocket_handler
-            await agent_websocket_handler(mock_ws, "invalid-token")
+            await agent_websocket_handler(mock_ws)
 
-        mock_ws.close.assert_called()
+        mock_ws.close.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_client_without_agent(self):
@@ -197,23 +233,27 @@ class TestWebSocketHandler:
 
         active_clients.clear()
 
-        async def cancelled_iter_json():
+        async def cancelled_iter_text():
             if False:
-                yield {}
+                yield ""
             raise asyncio.CancelledError
 
         mock_ws = AsyncMock()
-        mock_ws.iter_json = MagicMock(return_value=cancelled_iter_json())
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
+        mock_ws.iter_text = MagicMock(return_value=cancelled_iter_text())
+        mock_ws.headers = {"x-forwarded-proto": "https"}
 
-        with patch('app.ws_client.async_verify_token', return_value={"session_id": "session-1", "sub": "user1"}):
+        with patch('app.ws_client.wait_for_ws_auth', new=AsyncMock(return_value=(
+            {"session_id": "session-1", "sub": "user1"},
+            {"type": "auth", "token": "valid-token"},
+        ))):
             with patch('app.ws_client.get_session', return_value={"session_id": "session-1", "owner": "user1"}):
                 with patch('app.ws_client.is_agent_connected', return_value=False):
                     with patch('app.ws_client.update_session_view_count', new_callable=AsyncMock):
                         with patch('app.ws_client._broadcast_presence', new_callable=AsyncMock):
-                            # 现在客户端可以先连接，即使 Agent 未连接
                             try:
                                 from app.ws_client import client_websocket_handler
-                                await client_websocket_handler(mock_ws, "session-1", "valid-token")
+                                await client_websocket_handler(mock_ws, "session-1")
                             except asyncio.CancelledError:
                                 pass
 
@@ -264,7 +304,7 @@ class TestBroadcast:
             ClientConnection("session-1", mock_ws2, "desktop", terminal_id="term-2"),
         ]
 
-        await broadcast_to_clients("session-1", {"type": "data"}, terminal_id="term-1")
+        await broadcast_to_clients("session-1", {"type": "output"}, terminal_id="term-1")
 
         mock_ws1.send_json.assert_called_once()
         mock_ws2.send_json.assert_not_called()
@@ -356,6 +396,189 @@ class TestConnectionManagement:
         assert call_args["terminal_id"] == "term-1"
 
     @pytest.mark.asyncio
+    async def test_mobile_resize_is_ignored_when_desktop_attached(self):
+        """非 owner 视图的 resize 不应改全局 PTY。"""
+        from app.ws_agent import active_agents, AgentConnection
+        from app.ws_client import _handle_client_message
+
+        active_agents.clear()
+
+        mock_agent_ws = AsyncMock()
+        active_agents["session-1"] = AgentConnection("session-1", mock_agent_ws, "test-user")
+
+        with patch("app.ws_client.get_session_terminal", new=AsyncMock(return_value={
+            "terminal_id": "term-1",
+            "geometry_owner_view": "desktop",
+            "pty": {"rows": 30, "cols": 90},
+        })):
+            await _handle_client_message(
+                AsyncMock(),
+                "session-1",
+                {"type": "resize", "rows": 20, "cols": 40},
+                view="mobile",
+                terminal_id="term-1",
+            )
+
+        mock_agent_ws.send_json.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_desktop_resize_updates_terminal_pty_and_broadcasts(self):
+        """desktop resize 会更新 terminal PTY 并广播给同 terminal 的其他客户端。"""
+        from app.ws_agent import active_agents, AgentConnection
+        from app.ws_client import _handle_client_message
+
+        active_agents.clear()
+
+        mock_agent_ws = AsyncMock()
+        active_agents["session-1"] = AgentConnection("session-1", mock_agent_ws, "test-user")
+
+        with patch("app.ws_client.update_session_pty_size", new=AsyncMock()) as update_session_pty:
+            with patch("app.ws_client.update_session_terminal_pty", new=AsyncMock()) as update_terminal_pty:
+                with patch("app.ws_client.broadcast_to_clients", new=AsyncMock()) as broadcast:
+                    with patch("app.ws_client.get_session_terminal", new=AsyncMock(return_value={
+                        "terminal_id": "term-1",
+                        "geometry_owner_view": "desktop",
+                        "pty": {"rows": 30, "cols": 90},
+                    })):
+                        await _handle_client_message(
+                            AsyncMock(),
+                            "session-1",
+                            {"type": "resize", "rows": 30, "cols": 90},
+                            view="desktop",
+                            terminal_id="term-1",
+                        )
+
+        update_session_pty.assert_awaited_once_with("session-1", rows=30, cols=90)
+        update_terminal_pty.assert_awaited_once_with(
+            "session-1",
+            "term-1",
+            rows=30,
+            cols=90,
+        )
+        mock_agent_ws.send_json.assert_called_once()
+        forwarded = mock_agent_ws.send_json.call_args[0][0]
+        assert forwarded["type"] == "resize"
+        assert forwarded["rows"] == 30
+        assert forwarded["cols"] == 90
+        broadcast.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_terminal_client_receives_snapshot_after_connected(self):
+        """terminal attach 后服务端先发 connected，再回放 snapshot。"""
+        async def cancelled_iter_text():
+            if False:
+                yield ""
+            raise asyncio.CancelledError
+
+        mock_ws = AsyncMock()
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
+        mock_ws.iter_text = MagicMock(return_value=cancelled_iter_text())
+        mock_ws.headers = {"x-forwarded-proto": "https"}
+
+        with patch('app.ws_client.wait_for_ws_auth', new=AsyncMock(return_value=(
+            {"session_id": "session-1", "sub": "user1"},
+            {"type": "auth", "token": "valid-token"},
+        ))):
+            with patch('app.ws_client.get_session_by_device_id', new=AsyncMock(return_value={"session_id": "session-1", "owner": "user1", "device": {"device_id": "mbp-01"}})):
+                with patch('app.ws_client.get_session_terminal', new=AsyncMock(return_value={"terminal_id": "term-1", "status": "detached_recoverable", "pty": {"rows": 42, "cols": 120}, "attach_epoch": 3, "recovery_epoch": 5})):
+                    with patch('app.ws_client.get_terminal_output_history', new=AsyncMock(return_value=[
+                        {"data": "\u001b[?1049hhello"},
+                        {"data": " world"},
+                    ])):
+                        with patch('app.ws_client.request_agent_terminal_snapshot', new=AsyncMock(return_value=None)):
+                            with patch('app.ws_client.is_agent_connected', return_value=True):
+                                with patch('app.ws_client.update_session_view_count', new_callable=AsyncMock):
+                                    with patch('app.ws_client.update_session_terminal_views', new=AsyncMock(return_value={
+                                        "terminal_id": "term-1",
+                                        "status": "live",
+                                        "pty": {"rows": 42, "cols": 120},
+                                        "views": {"mobile": 0, "desktop": 1},
+                                        "geometry_owner_view": "desktop",
+                                        "attach_epoch": 3,
+                                        "recovery_epoch": 5,
+                                    })):
+                                        with patch('app.ws_client._broadcast_presence', new_callable=AsyncMock):
+                                            try:
+                                                from app.ws_client import client_websocket_handler
+                                                await client_websocket_handler(
+                                                    mock_ws,
+                                                    "session-1",
+                                                    view="desktop",
+                                                    device_id="mbp-01",
+                                                    terminal_id="term-1",
+                                                )
+                                            except asyncio.CancelledError:
+                                                pass
+
+        sent_messages = [call.args[0] for call in mock_ws.send_json.call_args_list]
+        assert sent_messages[0]["type"] == "connected"
+        assert sent_messages[0]["pty"] == {"rows": 42, "cols": 120}
+        assert sent_messages[0]["geometry_owner_view"] == "desktop"
+        assert sent_messages[0]["views"] == {"mobile": 0, "desktop": 1}
+        assert sent_messages[1]["type"] == "snapshot_start"
+        assert sent_messages[1]["attach_epoch"] == 3
+        assert sent_messages[1]["recovery_epoch"] == 5
+        assert sent_messages[2]["type"] == "snapshot_chunk"
+        assert sent_messages[3]["type"] == "snapshot_complete"
+
+    @pytest.mark.asyncio
+    async def test_terminal_client_falls_back_to_agent_snapshot_when_history_empty(self):
+        """terminal 历史为空时，服务端会向 agent 请求 live snapshot。"""
+        async def cancelled_iter_text():
+            if False:
+                yield ""
+            raise asyncio.CancelledError
+
+        mock_ws = AsyncMock()
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
+        mock_ws.iter_text = MagicMock(return_value=cancelled_iter_text())
+        mock_ws.headers = {"x-forwarded-proto": "https"}
+
+        with patch('app.ws_client.wait_for_ws_auth', new=AsyncMock(return_value=(
+            {"session_id": "session-1", "sub": "user1"},
+            {"type": "auth", "token": "valid-token"},
+        ))):
+            with patch('app.ws_client.get_session_by_device_id', new=AsyncMock(return_value={"session_id": "session-1", "owner": "user1", "device": {"device_id": "mbp-01"}})):
+                with patch('app.ws_client.get_session_terminal', new=AsyncMock(return_value={"terminal_id": "term-1", "status": "detached_recoverable", "pty": {"rows": 24, "cols": 80}, "attach_epoch": 4, "recovery_epoch": 8})):
+                    with patch('app.ws_client.get_terminal_output_history', new=AsyncMock(return_value=[])):
+                        with patch('app.ws_client.request_agent_terminal_snapshot', new=AsyncMock(return_value={
+                            "payload": base64.b64encode(b'live snapshot').decode(),
+                            "pty": {"rows": 24, "cols": 80},
+                            "active_buffer": "main",
+                        })):
+                            with patch('app.ws_client.is_agent_connected', return_value=True):
+                                with patch('app.ws_client.update_session_view_count', new_callable=AsyncMock):
+                                    with patch('app.ws_client.update_session_terminal_views', new=AsyncMock(return_value={
+                                        "terminal_id": "term-1",
+                                        "status": "live",
+                                        "pty": {"rows": 24, "cols": 80},
+                                        "views": {"mobile": 0, "desktop": 1},
+                                        "geometry_owner_view": "desktop",
+                                        "attach_epoch": 4,
+                                        "recovery_epoch": 8,
+                                    })):
+                                        with patch('app.ws_client._broadcast_presence', new_callable=AsyncMock):
+                                            try:
+                                                from app.ws_client import client_websocket_handler
+                                                await client_websocket_handler(
+                                                    mock_ws,
+                                                    "session-1",
+                                                    view="desktop",
+                                                    device_id="mbp-01",
+                                                    terminal_id="term-1",
+                                                )
+                                            except asyncio.CancelledError:
+                                                pass
+
+        sent_messages = [call.args[0] for call in mock_ws.send_json.call_args_list]
+        assert sent_messages[0]["type"] == "connected"
+        assert sent_messages[0]["pty"] == {"rows": 24, "cols": 80}
+        assert sent_messages[0]["geometry_owner_view"] == "desktop"
+        assert sent_messages[1]["type"] == "snapshot_start"
+        assert sent_messages[2]["type"] == "snapshot_chunk"
+        assert sent_messages[3]["type"] == "snapshot_complete"
+
+    @pytest.mark.asyncio
     async def test_cleanup_does_not_override_closed_terminal(self):
         """terminal 已关闭时，client cleanup 不应回写 detached。"""
         from app.ws_client import _cleanup_client, ClientConnection, active_clients
@@ -370,10 +593,7 @@ class TestConnectionManagement:
                     "terminal_id": "term-1",
                     "status": "closed",
                 })):
-                    with patch("app.ws_client.update_session_terminal_status", new=AsyncMock()) as update_terminal:
-                        await _cleanup_client("session-1", conn, "mobile", terminal_id="term-1")
-
-        update_terminal.assert_not_called()
+                    await _cleanup_client("session-1", conn, "mobile", terminal_id="term-1")
 
     @pytest.mark.asyncio
     async def test_request_agent_create_terminal_sends_command(self):
@@ -406,12 +626,16 @@ class TestConnectionManagement:
                 title="Claude",
                 cwd="/tmp",
                 command="/bin/bash",
+                rows=36,
+                cols=100,
             )
 
         await task
         call_args = mock_ws.send_json.call_args[0][0]
         assert call_args["type"] == "create_terminal"
         assert call_args["terminal_id"] == "term-1"
+        assert call_args["rows"] == 36
+        assert call_args["cols"] == 100
         assert result["terminal_id"] == "term-1"
 
     @pytest.mark.asyncio
@@ -843,3 +1067,40 @@ class TestTerminalsChangedBroadcast:
 
         # 应该从 pending 字典中移除
         assert ("session-1", "term-1") not in pending_terminal_closes
+
+    @pytest.mark.asyncio
+    async def test_agent_output_broadcasts_output_with_epochs(self):
+        """agent 输出转 client 时应使用 output 事件并附带 epoch。"""
+        from app.ws_agent import _handle_agent_message, active_agents, AgentConnection
+
+        active_agents.clear()
+
+        mock_agent_ws = AsyncMock()
+        active_agents["session-1"] = AgentConnection("session-1", mock_agent_ws, "user1")
+
+        with patch("app.ws_agent.get_session_terminal", new=AsyncMock(return_value={
+            "terminal_id": "term-1",
+            "attach_epoch": 4,
+            "recovery_epoch": 9,
+        })):
+            with patch("app.ws_agent.append_history", new=AsyncMock()):
+                with patch("app.ws_client.broadcast_to_clients", new=AsyncMock()) as broadcast:
+                    await _handle_agent_message(
+                        mock_agent_ws,
+                        "session-1",
+                        {
+                            "type": "data",
+                            "terminal_id": "term-1",
+                            "payload": "dGVzdA==",
+                            "direction": "output",
+                        },
+                    )
+
+        broadcast.assert_awaited_once()
+        call = broadcast.await_args
+        assert call.args[0] == "session-1"
+        assert call.kwargs["terminal_id"] == "term-1"
+        message = call.args[1]
+        assert message["type"] == "output"
+        assert message["attach_epoch"] == 4
+        assert message["recovery_epoch"] == 9

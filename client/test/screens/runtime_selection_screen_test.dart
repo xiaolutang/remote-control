@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:rc_client/models/runtime_device.dart';
 import 'package:rc_client/models/runtime_terminal.dart';
 import 'package:rc_client/screens/runtime_selection_screen.dart';
+import 'package:rc_client/services/environment_service.dart';
 import 'package:rc_client/services/runtime_device_service.dart';
 import 'package:rc_client/services/runtime_selection_controller.dart';
 import 'package:rc_client/services/terminal_session_manager.dart';
@@ -78,6 +79,9 @@ class _TestRuntimeDeviceService extends RuntimeDeviceService {
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+    EnvironmentService.setInstance(
+      EnvironmentService(debugModeProvider: () => true),
+    );
   });
 
   testWidgets('shows devices and terminals in selection screen', (tester) async {

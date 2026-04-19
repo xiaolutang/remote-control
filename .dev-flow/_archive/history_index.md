@@ -33,6 +33,12 @@
 | S030 | 2026-04-10 16:00 | 用户反馈问题功能 | feature | 设置入口反馈 + 自动采集平台信息 + 自动关联日志 |
 | S031 | 2026-04-11 14:00 | SDK 解耦与部署标准化 | infrastructure | log-service-sdk 改为 GitHub pip 安装 + deploy-lib.sh 共享部署库 |
 | S032 | 2026-04-12 14:00 | 用户信息 + 反馈修复 | bugfix | 反馈 user_id 修复 + 用户信息页面 + 菜单去重收口 |
+| S033 | 2026-04-13 15:30 | 安全加固规划 | planning | 15 个安全问题拆解为 10 个交付任务 |
+| S034 | 2026-04-13 16:00 | 安全加固执行 | security | Server/Agent/Client 三端安全加固，10/10 完成 |
+| S035 | 2026-04-14 10:00 | 安全加固集成验证 + Session 治理 | security | 三端 E2E 验证 + Session TTL + Stale 清理 + SSL 分层 |
+| S036 | 2026-04-15 | IP 直连 + RSA/AES 加密 | feature | 分两期：Phase1 IP 直连（紧急）+ Phase2 RSA+AES 加密（后续） |
+| S037 | 2026-04-16 | 终端 P0 稳定性修复规划 | bugfix | 4 个终端体验 P0 任务拆解完成；workflow 收口为 local/local/local；规划审核通过 |
+| S039 | 2026-04-17 | 终端交互架构重构规划 | planning | 从终端补丁修复升级为整体交互重构；Agent 主恢复源 + 四层客户端模型 + Desktop 恢复链纳入统一状态机 |
 
 ## 已沉淀到 architecture.md 的决策
 
@@ -47,3 +53,7 @@
 - S023: 移动端后台断开 WebSocket
 - S024: 同端设备在线数限制 + 冲突解决协议
 - S032: 反馈 user_id 修复（session_id → 真实用户名）+ 菜单去重收口
+- S033: 安全加固 10 任务拆解（JWT/bcrypt/CORS/WS鉴权/速率限制/Agent加固/Client加固/Redis密码/Docker非root）
+- S034: bcrypt 密码哈希迁移、CORS 环境变量、WebSocket auth 首条消息鉴权、日志归属校验
+- S035: Session TTL 24h + 登录清理 stale session + 设备列表在线优先排序 + SSL debug/release 分层
+- S039: Agent 主恢复源、Server 会话时序真相、Client 四层终端模型、exclusive/shared terminal mode、Desktop Agent 恢复链统一状态机

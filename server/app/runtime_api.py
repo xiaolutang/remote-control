@@ -121,6 +121,9 @@ async def list_runtime_devices(
             active_terminals=active_terminals,
         ))
 
+    # 排序：online 优先，然后按最近活跃时间降序
+    devices.sort(key=lambda d: (not d.agent_online, d.last_heartbeat_at or ""), reverse=False)
+
     return RuntimeDeviceListResponse(devices=devices)
 
 
@@ -221,6 +224,8 @@ async def create_runtime_terminal(
             cwd=request.cwd,
             command=request.command,
             env=request.env,
+            rows=(terminal.get("pty") or {}).get("rows", 24),
+            cols=(terminal.get("pty") or {}).get("cols", 80),
         )
     except HTTPException as exc:
         reason = "create_failed"

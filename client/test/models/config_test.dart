@@ -7,9 +7,8 @@ void main() {
   group('AppConfig', () {
     test('default values', () {
       const config = AppConfig();
-      // 默认服务器地址格式正确（ws:// 开头，含 /rc 路径）
-      expect(config.serverUrl, startsWith('ws://'));
-      expect(config.serverUrl, contains('/rc'));
+      // serverUrl 默认为空，由 EnvironmentService 动态提供
+      expect(config.serverUrl, isEmpty);
       expect(config.sessionId, '');
       expect(config.token, isNull);
       expect(config.autoReconnect, isTrue);
@@ -84,7 +83,8 @@ void main() {
       );
 
       final json = config.toJson();
-      expect(json['serverUrl'], 'ws://localhost:8080');
+      // serverUrl 不再参与持久化
+      expect(json.containsKey('serverUrl'), isFalse);
       expect(json['sessionId'], 'session-123');
       expect(json['token'], 'token-abc');
       expect(json['autoReconnect'], false);
@@ -103,7 +103,7 @@ void main() {
         1,
       );
 
-      final restored = AppConfig.fromJson(json);
+      final restored = AppConfig.fromJson(json, serverUrl: config.serverUrl);
       expect(restored.serverUrl, config.serverUrl);
       expect(restored.sessionId, config.sessionId);
       expect(restored.token, config.token);
@@ -123,9 +123,8 @@ void main() {
     test('fromJson handles missing fields', () {
       final json = <String, dynamic>{};
       final config = AppConfig.fromJson(json);
-      // 默认服务器地址格式正确
-      expect(config.serverUrl, startsWith('ws://'));
-      expect(config.serverUrl, contains('/rc'));
+      // serverUrl 默认为空，由 EnvironmentService 动态提供
+      expect(config.serverUrl, isEmpty);
       expect(config.sessionId, '');
       expect(config.token, isNull);
       expect(config.autoReconnect, isTrue);

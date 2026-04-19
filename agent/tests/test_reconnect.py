@@ -18,7 +18,7 @@ class TestReconnect:
         )
 
         assert client.auto_reconnect == True
-        assert client.max_retries == 5
+        assert client.max_retries == 60
         assert client.retry_delay == 1.0
 
     def test_custom_reconnect_settings(self):

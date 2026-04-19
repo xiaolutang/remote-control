@@ -29,6 +29,7 @@ class ShortcutItem {
     this.useCount = 0,
     this.lastUsedAt,
     this.scope = ShortcutItemScope.global,
+    this.description,
   });
 
   final String id;
@@ -42,6 +43,7 @@ class ShortcutItem {
   final int useCount;
   final DateTime? lastUsedAt;
   final ShortcutItemScope scope;
+  final String? description;
 
   bool get isCore => section == ShortcutItemSection.core;
 
@@ -58,6 +60,8 @@ class ShortcutItem {
     DateTime? lastUsedAt,
     bool clearLastUsedAt = false,
     ShortcutItemScope? scope,
+    String? description,
+    bool clearDescription = false,
   }) {
     return ShortcutItem(
       id: id ?? this.id,
@@ -71,6 +75,7 @@ class ShortcutItem {
       useCount: useCount ?? this.useCount,
       lastUsedAt: clearLastUsedAt ? null : (lastUsedAt ?? this.lastUsedAt),
       scope: scope ?? this.scope,
+      description: clearDescription ? null : (description ?? this.description),
     );
   }
 
@@ -94,6 +99,7 @@ class ShortcutItem {
       'useCount': useCount,
       'lastUsedAt': lastUsedAt?.toUtc().toIso8601String(),
       'scope': scope.name,
+      if (description != null) 'description': description,
     };
   }
 
@@ -120,6 +126,7 @@ class ShortcutItem {
       scope: ShortcutItemScope.values.byName(
         json['scope'] as String? ?? ShortcutItemScope.global.name,
       ),
+      description: json['description'] as String?,
     );
   }
 

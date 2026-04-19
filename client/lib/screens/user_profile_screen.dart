@@ -191,8 +191,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
     await logoutAndNavigate(
       context: context,
-      serverUrl: widget.serverUrl,
-      destinationBuilder: (_) => LoginScreen(serverUrl: widget.serverUrl),
+      destinationBuilder: (_) => const LoginScreen(),
     );
   }
 }

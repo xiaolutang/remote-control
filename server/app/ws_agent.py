@@ -6,9 +6,11 @@ import json
 import base64
 from datetime import datetime, timezone, timedelta
 from typing import Optional
+from uuid import uuid4
 from fastapi import WebSocketDisconnect, HTTPException, status
 
-from app.auth import async_verify_token, TokenVerificationError
+from app.crypto import get_crypto_manager, encrypt_message, decrypt_message, should_encrypt
+from app.ws_auth import wait_for_ws_auth, http_to_ws_code, MAX_WS_MESSAGE_SIZE
 import logging
 
 logger = logging.getLogger(__name__)
@@ -16,6 +18,7 @@ from app.session import (
     get_session,
     set_session_online,
     set_session_offline,
+    set_session_offline_recoverable,
     update_session_device_metadata,
     update_session_device_heartbeat,
     append_history,
@@ -28,6 +31,7 @@ from app.session import (
 active_agents: dict[str, "AgentConnection"] = {}  # session_id -> connection
 pending_terminal_creates: dict[tuple[str, str], asyncio.Future] = {}
 pending_terminal_closes: dict[tuple[str, str], asyncio.Future] = {}
+pending_terminal_snapshots: dict[tuple[str, str], asyncio.Future] = {}
 
 # Stale Agent 追踪（TTL 机制）
 # session_id -> 过期时间（datetime）
@@ -50,9 +54,13 @@ class AgentConnection:
         self.owner = owner
         self.last_heartbeat = datetime.now(timezone.utc)
         self.connected_at = datetime.now(timezone.utc)
+        self.aes_key: bytes | None = None  # 该连接的 AES 会话密钥
 
     async def send(self, message: dict):
-        """发送消息到 Agent"""
+        """发送消息到 Agent（自动加密）"""
+        msg_type = message.get("type", "")
+        if self.aes_key and should_encrypt(msg_type):
+            message = encrypt_message(self.aes_key, message)
         await self.websocket.send_json(message)
 
     def update_heartbeat(self):
@@ -65,51 +73,22 @@ class AgentConnection:
         return elapsed < HEARTBEAT_TIMEOUT
 
 
-def _http_to_ws_code(http_code: int) -> int:
-    """将 HTTP 状态码映射为有效的 WebSocket 关闭码"""
-    # WebSocket 关闭码必须在 1000-4999 范围内
-    # 使用 4000+ 作为自定义错误码
-    mapping = {
-        401: 4001,  # Unauthorized
-        403: 4003,  # Forbidden
-        404: 4004,  # Not Found
-        409: 4009,  # Conflict
-        500: 4500,  # Internal Server Error
-        503: 4503,  # Service Unavailable
-    }
-    return mapping.get(http_code, 4500)
-
-
 async def agent_websocket_handler(
     websocket,
-    token: str,
 ):
     """
     Agent WebSocket 连接处理器
 
     Args:
         websocket: WebSocket 连接
-        token: JWT Token
     """
     # 先 accept 连接
     await websocket.accept()
 
-    # 验证 Token
+    # 等待首条 auth 消息并验证 token
     try:
-        payload = await async_verify_token(token)
-    except TokenVerificationError as e:
-        # TokenVerificationError 携带 error_code，优先使用
-        reason = e.error_code if e.error_code else e.detail
-        logger.warning(f"Token verification failed: {reason}")
-        await websocket.close(code=_http_to_ws_code(e.status_code), reason=reason)
-        return
-    except HTTPException as e:
-        logger.warning(f"Token verification failed: {e.detail}")
-        await websocket.close(code=_http_to_ws_code(e.status_code), reason=e.detail)
-        return
-    except Exception as e:
-        logger.warning(f"Token verification error: {type(e).__name__}: {e}")
-        await websocket.close(code=4500, reason=str(e))
+        payload, auth_msg = await wait_for_ws_auth(websocket)
+    except (WebSocketDisconnect, Exception):
         return
 
     session_id = payload["session_id"]
@@ -128,7 +107,7 @@ async def agent_websocket_handler(
     try:
         session = await get_session(session_id)
     except HTTPException as e:
-        await websocket.close(code=_http_to_ws_code(e.status_code), reason=e.detail)
+        await websocket.close(code=http_to_ws_code(e.status_code), reason=e.detail)
         return
 
     owner = session.get("owner", payload.get("sub", ""))
@@ -136,6 +115,23 @@ async def agent_websocket_handler(
 
     # 创建连接对象
     agent_conn = AgentConnection(session_id, websocket, owner)
+
+    # 解密 AES 会话密钥（从 auth 原始消息中提取，不在 JWT payload 里）
+    encrypted_aes_key = auth_msg.pop("encrypted_aes_key", None)
+    if encrypted_aes_key:
+        try:
+            agent_conn.aes_key = get_crypto_manager().rsa_decrypt(encrypted_aes_key)
+            logger.info("Agent AES key established: session_id=%s", session_id)
+        except Exception as e:
+            logger.info("Failed to decrypt Agent AES key: session_id=%s error=%s", session_id, e)
+
+    # 不变量 #27 服务端守卫：非 TLS 连接（ws://）必须携带 AES 密钥
+    forwarded_proto = dict(websocket.headers).get("x-forwarded-proto", "")
+    if forwarded_proto != "https" and not agent_conn.aes_key:
+        logger.warning("ws:// connection rejected: no AES key, session_id=%s", session_id)
+        await websocket.close(code=4003, reason="ws:// requires encrypted_aes_key")
+        return
+
     active_agents[session_id] = agent_conn
     logger.info(
         "Agent connected: session_id=%s owner=%s",
@@ -177,6 +173,9 @@ async def agent_websocket_handler(
             if not raw_text or not raw_text.strip():
                 logger.debug("Agent sent empty message: session_id=%s", session_id)
                 continue
+            if len(raw_text) > MAX_WS_MESSAGE_SIZE:
+                logger.warning("Agent message too large: session_id=%s len=%d", session_id, len(raw_text))
+                continue
             try:
                 message = json.loads(raw_text)
             except json.JSONDecodeError as je:
@@ -185,6 +184,21 @@ async def agent_websocket_handler(
                     session_id, je, len(raw_text),
                 )
                 continue
+
+            # 解密 AES 加密消息
+            if message.get("encrypted") and agent_conn.aes_key:
+                try:
+                    message = decrypt_message(agent_conn.aes_key, message)
+                except Exception as e:
+                    logger.info(
+                        "Agent decrypt FAIL: session_id=%s iv_len=%s data_len=%s error=%s",
+                        session_id,
+                        len(message.get("iv", "")),
+                        len(message.get("data", "")),
+                        e,
+                    )
+                    continue
+
             await _handle_agent_message(websocket, session_id, message)
 
     except WebSocketDisconnect:
@@ -233,6 +247,13 @@ async def _handle_agent_message(websocket, session_id: str, message: dict):
         payload = message.get("payload", "")
         direction = message.get("direction", "output")
         terminal_id = message.get("terminal_id")
+        terminal = (
+            await get_session_terminal(session_id, terminal_id)
+            if terminal_id
+            else None
+        )
+        attach_epoch = int((terminal or {}).get("attach_epoch", 0) or 0)
+        recovery_epoch = int((terminal or {}).get("recovery_epoch", 0) or 0)
 
         # 追加到历史记录
         try:
@@ -242,15 +263,22 @@ async def _handle_agent_message(websocket, session_id: str, message: dict):
             except Exception:
                 decoded_data = payload
 
-            await append_history(session_id, decoded_data, direction)
+            await append_history(
+                session_id,
+                decoded_data,
+                direction,
+                terminal_id=terminal_id,
+            )
         except Exception as e:
             logger.error("Failed to append history: session_id=%s error=%s", session_id, e)
 
         # 转发给所有 Client
         await broadcast_to_clients(session_id, {
-            "type": "data",
+            "type": "output",
             "terminal_id": terminal_id,
             "payload": payload,
+            "attach_epoch": attach_epoch,
+            "recovery_epoch": recovery_epoch,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }, terminal_id=terminal_id)
 
@@ -271,7 +299,7 @@ async def _handle_agent_message(websocket, session_id: str, message: dict):
             terminal = await update_session_terminal_status(
                 session_id,
                 terminal_id,
-                terminal_status="detached",
+                terminal_status="recovering",
             )
             future = pending_terminal_creates.pop((session_id, terminal_id), None)
             if future and not future.done():
@@ -310,6 +338,19 @@ async def _handle_agent_message(websocket, session_id: str, message: dict):
                 "reason": reason,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }, terminal_id=None)
+
+    elif msg_type == "snapshot_data":
+        terminal_id = message.get("terminal_id")
+        request_id = message.get("request_id")
+        if terminal_id and request_id:
+            future = pending_terminal_snapshots.pop((session_id, request_id), None)
+            if future and not future.done():
+                future.set_result({
+                    "terminal_id": terminal_id,
+                    "payload": message.get("payload", ""),
+                    "pty": message.get("pty"),
+                    "active_buffer": message.get("active_buffer"),
+                })
 
     elif msg_type == "agent_metadata":
         platform_name = (message.get("platform") or "").strip()
@@ -382,8 +423,19 @@ async def _cleanup_agent(session_id: str, reason: str = "agent_shutdown"):
 
     _cleanup_pending_futures(pending_terminal_creates, session_id, reason)
     _cleanup_pending_futures(pending_terminal_closes, session_id, reason)
+    _cleanup_pending_futures(pending_terminal_snapshots, session_id, reason)
 
-    # 将 Agent 标记为 stale（等待 TTL 过期后再真正 offline）
+    # 先进入 recoverable offline，再等待 TTL 过期
+    try:
+        await set_session_offline_recoverable(
+            session_id,
+            reason=reason,
+            grace_seconds=STALE_TTL_SECONDS,
+        )
+    except Exception as exc:
+        logger.error("Failed to mark session offline_recoverable: session_id=%s error=%s", session_id, exc)
+
+    # 将 Agent 标记为 stale（等待 TTL 过期后再真正 offline_expired）
     _mark_agent_stale(session_id)
 
 
@@ -437,7 +489,7 @@ async def _expire_stale_agent(session_id: str):
     # 原子更新：status=offline + agent_online=False + bulk close terminals
     try:
         await set_session_offline(session_id, reason="device_offline")
-        logger.info("Agent expired from stale to offline: session_id=%s", session_id)
+        logger.info("Agent expired from stale to offline_expired: session_id=%s", session_id)
     except Exception as e:
         logger.error("Failed to expire stale agent: session_id=%s error=%s", session_id, e)
 
@@ -496,6 +548,8 @@ async def _restore_recoverable_terminals(session_id: str, agent_conn: AgentConne
             "cwd": terminal.get("cwd", ""),
             "command": terminal.get("command", "/bin/bash"),
             "env": terminal.get("env", {}) or {},
+            "rows": (terminal.get("pty") or {}).get("rows", 24),
+            "cols": (terminal.get("pty") or {}).get("cols", 80),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         })
 
@@ -534,6 +588,8 @@ async def request_agent_create_terminal(
     cwd: str,
     command: str,
     env: Optional[dict] = None,
+    rows: int = 24,
+    cols: int = 80,
     timeout: float = 5.0,
 ) -> dict:
     """请求在线 agent 创建 terminal，并等待创建确认。"""
@@ -559,6 +615,8 @@ async def request_agent_create_terminal(
         "cwd": cwd,
         "command": command,
         "env": env or {},
+        "rows": rows,
+        "cols": cols,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     })
 
@@ -663,3 +721,45 @@ async def request_agent_close_terminal_with_ack(
         ) from exc
 
     return {"terminal_id": terminal_id, "reason": reason}
+
+
+async def request_agent_terminal_snapshot(
+    session_id: str,
+    terminal_id: str,
+    *,
+    timeout: float = 1.5,
+) -> Optional[dict]:
+    """请求在线 agent 返回 terminal 最近输出快照。"""
+    agent_conn = get_agent_connection(session_id)
+    if not agent_conn:
+        return None
+
+    request_id = uuid4().hex
+    future_key = (session_id, request_id)
+    loop = asyncio.get_running_loop()
+    future: asyncio.Future = loop.create_future()
+    pending_terminal_snapshots[future_key] = future
+
+    await agent_conn.send({
+        "type": "snapshot_request",
+        "terminal_id": terminal_id,
+        "request_id": request_id,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+
+    try:
+        result = await asyncio.wait_for(future, timeout=timeout)
+    except Exception:
+        pending_terminal_snapshots.pop(future_key, None)
+        return None
+
+    if not isinstance(result, dict):
+        return None
+    payload = result.get("payload")
+    if not payload:
+        return None
+    return {
+        "payload": str(payload),
+        "pty": result.get("pty"),
+        "active_buffer": result.get("active_buffer"),
+    }

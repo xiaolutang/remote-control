@@ -3,9 +3,30 @@
 """
 import json
 import os
+import ssl
 from pathlib import Path
 from typing import Optional
 from pydantic import BaseModel, ConfigDict
+
+
+def is_ssl_insecure() -> bool:
+    """是否跳过 SSL 证书验证（仅开发环境，由 Client 通过 RC_SSL_INSECURE=1 传入）"""
+    return os.environ.get('RC_SSL_INSECURE') == '1'
+
+
+def ssl_context_for_aiohttp():
+    """aiohttp 的 SSL 参数： insecure 时返回 False，否则返回 None 走默认验证"""
+    return False if is_ssl_insecure() else None
+
+
+def ssl_context_for_websockets():
+    """websockets 的 SSL 参数：insecure 时返回不验证的 SSLContext，否则返回 None"""
+    if not is_ssl_insecure():
+        return None
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
 
 
 class Config(BaseModel):
@@ -25,7 +46,7 @@ class Config(BaseModel):
     shell_mode: bool = False
     # 连接配置
     auto_reconnect: bool = True
-    max_retries: int = 5
+    max_retries: int = 60
     reconnect_max_attempts: int = 10
     reconnect_base_delay: float = 1.0
     heartbeat_interval: float = 30.0

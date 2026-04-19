@@ -10,11 +10,11 @@ services:
     restart: unless-stopped
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-changeme}
     networks:
       - rc-network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-changeme}", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -24,10 +24,13 @@ services:
     image: remote-control-server:latest
     container_name: rc-server
     restart: unless-stopped
+    ports:
+      - "${RC_DIRECT_PORT:-8880}:8000"
     expose:
       - "8000"
     environment:
       - REDIS_URL=redis://redis:6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-changeme}
       - JWT_SECRET=${JWT_SECRET:?请在 .env 或环境变量中设置 JWT_SECRET}
       - JWT_EXPIRY_HOURS=${JWT_EXPIRY_HOURS:-24}
       - LOG_SERVICE_URL=http://log-service:8001
@@ -44,10 +47,10 @@ services:
       - rc-network
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.rc.rule=PathPrefix(`/rc/`)"
+      - "traefik.http.routers.rc.rule=Host(`rc.xiaolutang.top`) && PathPrefix(`/rc/`)"
       - "traefik.http.routers.rc.entrypoints=websecure"
       - "traefik.http.routers.rc.tls=true"
-      - "traefik.http.routers.rc.tls.certresolver=le"
+      - "traefik.http.routers.rc.tls.certresolver=ali"
       - "traefik.http.routers.rc.middlewares=rc-strip"
       - "traefik.http.middlewares.rc-strip.stripprefix.prefixes=/rc"
       - "traefik.http.routers.rc.service=rc-server"

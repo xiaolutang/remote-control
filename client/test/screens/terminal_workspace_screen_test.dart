@@ -10,6 +10,7 @@ import 'package:rc_client/screens/terminal_workspace_screen.dart';
 import 'package:rc_client/services/desktop_agent_bootstrap_service.dart';
 import 'package:rc_client/services/desktop_agent_manager.dart';
 import 'package:rc_client/services/desktop_agent_supervisor.dart';
+import 'package:rc_client/services/environment_service.dart';
 import 'package:rc_client/services/runtime_device_service.dart';
 import 'package:rc_client/services/runtime_selection_controller.dart';
 import 'package:rc_client/services/terminal_session_manager.dart';
@@ -54,7 +55,8 @@ class _FakeWorkspaceController extends RuntimeSelectionController {
   List<RuntimeTerminal> get terminals => List.unmodifiable(_terminals);
 
   @override
-  String? get selectedDeviceId => _devices.isEmpty ? null : _devices.first.deviceId;
+  String? get selectedDeviceId =>
+      _devices.isEmpty ? null : _devices.first.deviceId;
 
   @override
   RuntimeDevice? get selectedDevice => _devices.isEmpty ? null : _devices.first;
@@ -99,7 +101,8 @@ class _FakeWorkspaceController extends RuntimeSelectionController {
 
   @override
   Future<RuntimeTerminal?> closeTerminal(String terminalId) async {
-    final index = _terminals.indexWhere((item) => item.terminalId == terminalId);
+    final index =
+        _terminals.indexWhere((item) => item.terminalId == terminalId);
     if (index >= 0) {
       _terminals[index] = _terminals[index].copyWith(status: 'closed');
       notifyListeners();
@@ -109,8 +112,10 @@ class _FakeWorkspaceController extends RuntimeSelectionController {
   }
 
   @override
-  Future<RuntimeTerminal?> renameTerminal(String terminalId, String title) async {
-    final index = _terminals.indexWhere((item) => item.terminalId == terminalId);
+  Future<RuntimeTerminal?> renameTerminal(
+      String terminalId, String title) async {
+    final index =
+        _terminals.indexWhere((item) => item.terminalId == terminalId);
     if (index >= 0) {
       _terminals[index] = _terminals[index].copyWith(title: title);
       notifyListeners();
@@ -244,6 +249,9 @@ class _FakeDesktopAgentBootstrapService extends DesktopAgentBootstrapService {
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+    EnvironmentService.setInstance(
+      EnvironmentService(debugModeProvider: () => true),
+    );
   });
 
   Widget wrapWithApp(
@@ -260,8 +268,7 @@ void main() {
           serverUrl: 'ws://localhost:8888',
           token: 'token',
           controller: controller,
-          agentBootstrapService:
-              agentBootstrapService ??
+          agentBootstrapService: agentBootstrapService ??
               _FakeDesktopAgentBootstrapService(
                 result: true,
                 status: DesktopAgentStatus(
@@ -275,7 +282,8 @@ void main() {
     );
   }
 
-  testWidgets('shows workspace empty state when no terminals exist', (tester) async {
+  testWidgets('shows workspace empty state when no terminals exist',
+      (tester) async {
     final controller = _FakeWorkspaceController(
       devices: const [
         RuntimeDevice(
@@ -294,12 +302,63 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('创建第一个终端'), findsOneWidget);
-    expect(find.byKey(const Key('workspace-open-terminal-menu')), findsOneWidget);
+    expect(
+        find.byKey(const Key('workspace-open-terminal-menu')), findsOneWidget);
+  });
+
+  testWidgets('mobile workspace scaffold disables resizeToAvoidBottomInset',
+      (tester) async {
+    final controller = _FakeWorkspaceController(
+      devices: const [
+        RuntimeDevice(
+          deviceId: 'mbp-01',
+          name: 'mac-phone',
+          owner: 'user1',
+          agentOnline: true,
+          maxTerminals: 3,
+          activeTerminals: 0,
+        ),
+      ],
+      terminals: [],
+      isDesktop: false,
+    );
+
+    await tester.pumpWidget(wrapWithApp(controller));
+    await tester.pumpAndSettle();
+
+    final scaffold = tester.widget<Scaffold>(find.byType(Scaffold).first);
+    expect(scaffold.resizeToAvoidBottomInset, isFalse);
+  });
+
+  testWidgets(
+      'desktop workspace scaffold keeps resizeToAvoidBottomInset enabled',
+      (tester) async {
+    final controller = _FakeWorkspaceController(
+      devices: const [
+        RuntimeDevice(
+          deviceId: 'mbp-01',
+          name: 'mac-phone',
+          owner: 'user1',
+          agentOnline: true,
+          maxTerminals: 3,
+          activeTerminals: 0,
+        ),
+      ],
+      terminals: [],
+      isDesktop: true,
+    );
+
+    await tester.pumpWidget(wrapWithApp(controller));
+    await tester.pumpAndSettle();
+
+    final scaffold = tester.widget<Scaffold>(find.byType(Scaffold).first);
+    expect(scaffold.resizeToAvoidBottomInset, isTrue);
   });
 
   // F035: 移除了自动 bootstrap 逻辑，Agent 由全局 AgentLifecycleManager 在 App 启动时管理
   // 页面现在只负责 UI 展示和状态消费，不再自动启动 Agent
-  testWidgets('shows create-first state with agent hint when device offline', (tester) async {
+  testWidgets('shows create-first state with agent hint when device offline',
+      (tester) async {
     final controller = _FakeWorkspaceController(
       devices: const [
         RuntimeDevice(
@@ -330,7 +389,8 @@ void main() {
 
   // F035: 移除自动 bootstrap 后，关闭的终端历史视为空工作台
   // 不再自动启动 Agent，显示创建第一个终端状态
-  testWidgets('desktop treats closed terminal history as empty workspace', (tester) async {
+  testWidgets('desktop treats closed terminal history as empty workspace',
+      (tester) async {
     final controller = _FakeWorkspaceController(
       devices: const [
         RuntimeDevice(
@@ -371,7 +431,8 @@ void main() {
 
   // F035: 移除自动 bootstrap 后，不再有自动启动 loading 状态
   // 用户点击"启动并创建终端"按钮后才会启动 Agent
-  testWidgets('shows create-first state without auto bootstrap loading', (tester) async {
+  testWidgets('shows create-first state without auto bootstrap loading',
+      (tester) async {
     final controller = _FakeWorkspaceController(
       devices: const [
         RuntimeDevice(
@@ -404,7 +465,9 @@ void main() {
 
   // F035: 移除自动 bootstrap 后，不再有自动启动失败状态
   // 用户点击"启动并创建终端"按钮后才会启动 Agent
-  testWidgets('shows create-first state when device offline without auto bootstrap', (tester) async {
+  testWidgets(
+      'shows create-first state when device offline without auto bootstrap',
+      (tester) async {
     final controller = _FakeWorkspaceController(
       devices: const [
         RuntimeDevice(
@@ -436,7 +499,8 @@ void main() {
   });
 
   // F035: 点击"启动并创建终端"按钮会触发 bootstrap
-  testWidgets('click create button triggers bootstrap and create', (tester) async {
+  testWidgets('click create button triggers bootstrap and create',
+      (tester) async {
     var startCalls = 0;
     final controller = _FakeWorkspaceController(
       devices: const [
@@ -479,7 +543,8 @@ void main() {
   });
 
   // F035: 点击"启动并创建终端"后显示 bootstrapping 状态
-  testWidgets('click create shows bootstrapping state while start is in flight', (tester) async {
+  testWidgets('click create shows bootstrapping state while start is in flight',
+      (tester) async {
     final completer = Completer<bool>();
     final controller = _FakeWorkspaceController(
       devices: const [
@@ -521,7 +586,8 @@ void main() {
     completer.complete(true);
   });
 
-  testWidgets('shows terminal menu entry and embedded terminal body', (tester) async {
+  testWidgets('shows terminal menu entry and embedded terminal body',
+      (tester) async {
     final controller = _FakeWorkspaceController(
       devices: const [
         RuntimeDevice(
@@ -556,12 +622,14 @@ void main() {
     await tester.pumpWidget(wrapWithApp(controller));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('workspace-open-terminal-menu')), findsOneWidget);
+    expect(
+        find.byKey(const Key('workspace-open-terminal-menu')), findsOneWidget);
     expect(find.textContaining('Claude / ai_rules'), findsWidgets);
     expect(find.byKey(const Key('terminal-touch-layer')), findsOneWidget);
   });
 
-  testWidgets('creates terminal from workspace menu and shows new terminal', (tester) async {
+  testWidgets('creates terminal from workspace menu and shows new terminal',
+      (tester) async {
     final controller = _FakeWorkspaceController(
       devices: const [
         RuntimeDevice(
@@ -603,7 +671,9 @@ void main() {
   });
 
   // F035: 创建第一个终端时，如果 Agent 不在线会先启动 Agent
-  testWidgets('create-first flow bootstraps agent and creates terminal when offline', (tester) async {
+  testWidgets(
+      'create-first flow bootstraps agent and creates terminal when offline',
+      (tester) async {
     var startCalls = 0;
     late _FakeWorkspaceController controller;
     controller = _FakeWorkspaceController(
@@ -729,7 +799,8 @@ void main() {
     // doesn't render items in test environment
   }, skip: true);
 
-  testWidgets('workspace device edit dialog only shows rename input', (tester) async {
+  testWidgets('workspace device edit dialog only shows rename input',
+      (tester) async {
     final controller = _FakeWorkspaceController(
       devices: const [
         RuntimeDevice(
@@ -764,11 +835,14 @@ void main() {
     await tester.tap(find.byKey(const Key('workspace-menu-rename-device')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('workspace-rename-device-input')), findsOneWidget);
-    expect(find.byKey(const Key('workspace-device-max-terminals-input')), findsNothing);
+    expect(
+        find.byKey(const Key('workspace-rename-device-input')), findsOneWidget);
+    expect(find.byKey(const Key('workspace-device-max-terminals-input')),
+        findsNothing);
   });
 
-  testWidgets('offline workspace menu does not show switchable terminals', (tester) async {
+  testWidgets('offline workspace menu does not show switchable terminals',
+      (tester) async {
     final controller = _FakeWorkspaceController(
       devices: const [
         RuntimeDevice(
@@ -796,16 +870,20 @@ void main() {
     await tester.pumpAndSettle();
 
     // 验证菜单按钮存在
-    expect(find.byKey(const Key('workspace-open-terminal-menu')), findsOneWidget);
+    expect(
+        find.byKey(const Key('workspace-open-terminal-menu')), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('workspace-open-terminal-menu')));
     await tester.pumpAndSettle();
 
     // 验证 closed 终端不在可切换列表中
-    expect(find.byKey(const Key('workspace-menu-terminal-term-closed')), findsNothing);
+    expect(find.byKey(const Key('workspace-menu-terminal-term-closed')),
+        findsNothing);
   });
 
-  testWidgets('closing the last terminal returns desktop workspace to create-first state', (tester) async {
+  testWidgets(
+      'closing the last terminal returns desktop workspace to create-first state',
+      (tester) async {
     final controller = _FakeWorkspaceController(
       devices: const [
         RuntimeDevice(
@@ -862,7 +940,8 @@ void main() {
   //   ... see git history for test body ...
   // });
 
-  testWidgets('desktop menu can expose managed stop action state', (tester) async {
+  testWidgets('desktop menu can expose managed stop action state',
+      (tester) async {
     final controller = _FakeWorkspaceController(
       devices: const [
         RuntimeDevice(
@@ -905,11 +984,13 @@ void main() {
     await tester.tap(find.byKey(const Key('workspace-open-terminal-menu')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('workspace-menu-agent-action')), findsOneWidget);
+    expect(
+        find.byKey(const Key('workspace-menu-agent-action')), findsOneWidget);
     expect(find.text('停止本机 Agent'), findsOneWidget);
   });
 
-  testWidgets('desktop menu shows external agent hint and stop action disabled', (tester) async {
+  testWidgets('desktop menu shows external agent hint and stop action disabled',
+      (tester) async {
     final controller = _FakeWorkspaceController(
       devices: const [
         RuntimeDevice(
@@ -952,7 +1033,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('当前 Agent 由外部方式启动，桌面端不会误杀'), findsOneWidget);
-    final tile = tester.widget<ListTile>(find.byKey(const Key('workspace-menu-agent-action')));
+    final tile = tester
+        .widget<ListTile>(find.byKey(const Key('workspace-menu-agent-action')));
     expect(tile.enabled, isFalse);
   });
 
@@ -974,14 +1056,19 @@ void main() {
 
       // 验证：检查代码中是否还存在 _onServiceStateChanged 相关逻辑
       // 这是一个静态验证，确保架构原则被遵守
-      final sourceFile = await File('lib/screens/terminal_workspace_screen.dart').readAsString();
+      final sourceFile =
+          await File('lib/screens/terminal_workspace_screen.dart')
+              .readAsString();
 
       // 验证：不应该存在 _onServiceStateChanged 监听器
-      expect(sourceFile.contains('service.addListener(_onServiceStateChanged'), isFalse,
+      expect(sourceFile.contains('service.addListener(_onServiceStateChanged'),
+          isFalse,
           reason: '_onServiceStateChanged 监听器已删除，设备状态不应该从 WebSocket 同步');
 
       // 验证：updateDeviceOnlineStatus 方法已从 controller 中删除
-      final controllerSource = await File('lib/services/runtime_selection_controller.dart').readAsString();
+      final controllerSource =
+          await File('lib/services/runtime_selection_controller.dart')
+              .readAsString();
       expect(controllerSource.contains('updateDeviceOnlineStatus'), isFalse,
           reason: 'updateDeviceOnlineStatus 应已删除，设备在线状态由 Server API 唯一维护');
     });
@@ -994,19 +1081,24 @@ void main() {
       //   AuthService 用可选构造参数接收 AgentLifecycleManager，
       //   但 _handleLogout 中从未传入，导致 Agent 关闭链路断裂。
       // 修复：抽取共享 performLogout() helper，统一 logout 编排
-      final sourceFile = await File('lib/screens/terminal_workspace_screen.dart').readAsString();
+      final sourceFile =
+          await File('lib/screens/terminal_workspace_screen.dart')
+              .readAsString();
 
       // 验证：_handleLogout 使用共享 logout helper
       expect(sourceFile.contains('logoutAndNavigate('), isTrue,
-          reason: '_handleLogout 必须通过 logoutAndNavigate 关闭 Agent 后再清除 token 并跳转');
+          reason:
+              '_handleLogout 必须通过 logoutAndNavigate 关闭 Agent 后再清除 token 并跳转');
 
       // 验证：logout helper 正确编排了 Agent 关闭
-      final helperSource = await File('lib/services/logout_helper.dart').readAsString();
+      final helperSource =
+          await File('lib/services/logout_helper.dart').readAsString();
       expect(helperSource.contains('agentManager.onLogout()'), isTrue,
           reason: 'logout helper 必须调用 AgentLifecycleManager.onLogout()');
 
       // 验证：AuthService.logout() 不再包含 Agent 关闭逻辑
-      final authServiceSource = await File('lib/services/auth_service.dart').readAsString();
+      final authServiceSource =
+          await File('lib/services/auth_service.dart').readAsString();
       expect(authServiceSource.contains('agentLifecycleManager'), isFalse,
           reason: 'AuthService 不应包含 AgentLifecycleManager 依赖，职责应分离');
     });
@@ -1014,21 +1106,18 @@ void main() {
     test('all screen files use logoutAndNavigate for logout', () async {
       // 架构原则：所有退出登录必须通过共享 logoutAndNavigate 编排
       // 确保不会出现某些 screen 绕过 Agent 关闭的情况
+      // 注意：runtime_selection_screen 和 login_screen 没有 logout 功能，不需要检查
       final screenFiles = [
         'lib/screens/terminal_workspace_screen.dart',
         'lib/screens/terminal_screen.dart',
-        'lib/screens/runtime_selection_screen.dart',
-        'lib/screens/login_screen.dart',
+        'lib/screens/user_profile_screen.dart',
       ];
 
       for (final path in screenFiles) {
         final source = await File(path).readAsString();
-        final hasLogout = source.contains('logoutAndNavigate(') ||
-            source.contains('logout_helper');
-        // login_screen 没有 logout 功能是正常的
-        if (path.contains('login_screen')) continue;
+        final hasLogout = source.contains('logoutAndNavigate(');
         expect(hasLogout, isTrue,
-            reason: '$path 必须使用 logoutAndNavigate 或 logout_helper 进行退出登录');
+            reason: '$path 必须调用 logoutAndNavigate 进行退出登录');
       }
     });
 
@@ -1053,11 +1142,14 @@ void main() {
     test('desktop_workspace_controller uses _refreshDevicesAndSync', () async {
       // 架构原则：refresh/stopLocalAgent 等主流程通过 _refreshDevicesAndSync 统一刷新
       // _refreshDevicesAndSync = loadDevices() + _refreshDesktopState()
-      final source = await File('lib/services/desktop_workspace_controller.dart').readAsString();
+      final source =
+          await File('lib/services/desktop_workspace_controller.dart')
+              .readAsString();
 
       // 验证：_refreshDevicesAndSync 方法存在
       expect(source.contains('Future<void> _refreshDevicesAndSync'), isTrue,
-          reason: 'desktop_workspace_controller 必须包含 _refreshDevicesAndSync 统一刷新方法');
+          reason:
+              'desktop_workspace_controller 必须包含 _refreshDevicesAndSync 统一刷新方法');
 
       // 验证：refresh() 使用 _refreshDevicesAndSync
       expect(source.contains('await _refreshDevicesAndSync(runtime)'), isTrue,
@@ -1075,7 +1167,8 @@ void main() {
     });
   });
 
-  testWidgets('terminal title is displayed in workspace header', (tester) async {
+  testWidgets('terminal title is displayed in workspace header',
+      (tester) async {
     // 测试场景：终端标题应该正确显示在 UI 中
     final controller = _FakeWorkspaceController(
       devices: const [

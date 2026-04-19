@@ -10,6 +10,7 @@
 """
 import pytest
 import asyncio
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime, timezone
 from fastapi.testclient import TestClient
@@ -24,9 +25,9 @@ async def _mock_user_id():
     return "user1"
 
 
-async def _cancelled_iter_json():
+async def _cancelled_iter_text():
     if False:
-        yield {}
+        yield ""
     raise asyncio.CancelledError
 
 
@@ -42,19 +43,21 @@ class TestIntegrationAgentConnection:
         # 清理
         active_agents.clear()
 
-        # 创建测试 token
-        test_token = generate_token(session_id="test-session-1")
+        # 创建测试 token（含 token_version + view_type，符合 B062 校验）
+        test_token = generate_token(session_id="test-session-1", token_version=1, view_type="mobile")
 
         mock_ws = AsyncMock()
-        mock_ws.iter_json = MagicMock(return_value=_cancelled_iter_json())
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": test_token}))
+        mock_ws.iter_text = MagicMock(return_value=_cancelled_iter_text())
         mock_ws.accept = AsyncMock()
 
         with patch('app.ws_agent.get_session', return_value={"session_id": "test-session-1", "owner": "test-user"}):
             with patch('app.ws_agent.set_session_online', new_callable=AsyncMock):
                 with patch('app.ws_client.get_view_counts', return_value={"mobile": 0, "desktop": 0}):
+                    with patch('app.auth.get_token_version', new_callable=AsyncMock, return_value=1):
                         try:
                             from app.ws_agent import agent_websocket_handler
-                            await agent_websocket_handler(mock_ws, test_token)
+                            await agent_websocket_handler(mock_ws)
                         except asyncio.CancelledError:
                             pass
 
@@ -79,21 +82,23 @@ class TestIntegrationClientConnection:
         # 清理
         active_clients.clear()
 
-        # 创建测试 token
-        test_token = generate_token(session_id="test-session-2")
+        # 创建测试 token（含 token_version + view_type，符合 B062 校验）
+        test_token = generate_token(session_id="test-session-2", token_version=1, view_type="mobile")
 
         mock_ws = AsyncMock()
-        mock_ws.iter_json = MagicMock(return_value=_cancelled_iter_json())
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": test_token}))
+        mock_ws.iter_text = MagicMock(return_value=_cancelled_iter_text())
         mock_ws.accept = AsyncMock()
 
         with patch('app.ws_client.get_session', return_value={"session_id": "test-session-2", "owner": "test-user"}):
             with patch('app.ws_client.update_session_view_count', new_callable=AsyncMock):
                 with patch('app.ws_client._broadcast_presence', new_callable=AsyncMock):
-                    try:
-                        from app.ws_client import client_websocket_handler
-                        await client_websocket_handler(mock_ws, "test-session-2", test_token, view="mobile")
-                    except asyncio.CancelledError:
-                        pass
+                    with patch('app.auth.get_token_version', new_callable=AsyncMock, return_value=1):
+                        try:
+                            from app.ws_client import client_websocket_handler
+                            await client_websocket_handler(mock_ws, "test-session-2", view="mobile")
+                        except asyncio.CancelledError:
+                            pass
 
         # 验证 connected 消息被发送
         mock_ws.send_json.assert_called()
@@ -112,21 +117,23 @@ class TestIntegrationClientConnection:
         # 清理
         active_clients.clear()
 
-        # 创建测试 token
-        test_token = generate_token(session_id="test-session-3")
+        # 创建测试 token（含 token_version + view_type，符合 B062 校验）
+        test_token = generate_token(session_id="test-session-3", token_version=1, view_type="desktop")
 
         mock_ws = AsyncMock()
-        mock_ws.iter_json = MagicMock(return_value=_cancelled_iter_json())
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": test_token}))
+        mock_ws.iter_text = MagicMock(return_value=_cancelled_iter_text())
         mock_ws.accept = AsyncMock()
 
         with patch('app.ws_client.get_session', return_value={"session_id": "test-session-3", "owner": "test-user"}):
             with patch('app.ws_client.update_session_view_count', new_callable=AsyncMock):
                 with patch('app.ws_client._broadcast_presence', new_callable=AsyncMock):
-                    try:
-                        from app.ws_client import client_websocket_handler
-                        await client_websocket_handler(mock_ws, "test-session-3", test_token, view="desktop")
-                    except asyncio.CancelledError:
-                        pass
+                    with patch('app.auth.get_token_version', new_callable=AsyncMock, return_value=1):
+                        try:
+                            from app.ws_client import client_websocket_handler
+                            await client_websocket_handler(mock_ws, "test-session-3", view="desktop")
+                        except asyncio.CancelledError:
+                            pass
 
         # 验证 view 类型为 desktop
         call_args = mock_ws.send_json.call_args[0][0]
@@ -750,18 +757,20 @@ class TestIntegrationContracts:
         from app.auth import generate_token
 
         active_agents.clear()
-        test_token = generate_token(session_id="contract-test-1")
+        test_token = generate_token(session_id="contract-test-1", token_version=1, view_type="mobile")
 
         mock_ws = AsyncMock()
-        mock_ws.iter_json = MagicMock(return_value=_cancelled_iter_json())
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": test_token}))
+        mock_ws.iter_text = MagicMock(return_value=_cancelled_iter_text())
         mock_ws.accept = AsyncMock()
 
         with patch('app.ws_agent.get_session', return_value={"session_id": "contract-test-1", "owner": "owner-1"}):
             with patch('app.ws_agent.set_session_online', new_callable=AsyncMock):
                 with patch('app.ws_client.get_view_counts', return_value={"mobile": 1, "desktop": 0}):
+                    with patch('app.auth.get_token_version', new_callable=AsyncMock, return_value=1):
                         try:
                             from app.ws_agent import agent_websocket_handler
-                            await agent_websocket_handler(mock_ws, test_token)
+                            await agent_websocket_handler(mock_ws)
                         except asyncio.CancelledError:
                             pass
 
@@ -780,20 +789,22 @@ class TestIntegrationContracts:
         from app.auth import generate_token
 
         active_clients.clear()
-        test_token = generate_token(session_id="contract-test-2")
+        test_token = generate_token(session_id="contract-test-2", token_version=1, view_type="mobile")
 
         mock_ws = AsyncMock()
-        mock_ws.iter_json = MagicMock(return_value=_cancelled_iter_json())
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": test_token}))
+        mock_ws.iter_text = MagicMock(return_value=_cancelled_iter_text())
         mock_ws.accept = AsyncMock()
 
         with patch('app.ws_client.get_session', return_value={"session_id": "contract-test-2", "owner": "owner-2"}):
             with patch('app.ws_client.update_session_view_count', new_callable=AsyncMock):
                 with patch('app.ws_client._broadcast_presence', new_callable=AsyncMock):
-                    try:
-                        from app.ws_client import client_websocket_handler
-                        await client_websocket_handler(mock_ws, "contract-test-2", test_token, view="mobile")
-                    except asyncio.CancelledError:
-                        pass
+                    with patch('app.auth.get_token_version', new_callable=AsyncMock, return_value=1):
+                        try:
+                            from app.ws_client import client_websocket_handler
+                            await client_websocket_handler(mock_ws, "contract-test-2", view="mobile")
+                        except asyncio.CancelledError:
+                            pass
 
         # 验证消息格式符合 CONTRACT-003
         call_args = mock_ws.send_json.call_args[0][0]

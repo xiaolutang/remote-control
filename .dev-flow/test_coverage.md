@@ -1,8 +1,8 @@
 # 测试覆盖清单
 
 > 项目：remote-control
-> 更新时间：2026-04-12
-> 状态：deploy-standardization + feedback-to-issues 阶段已完成
+> 更新时间：2026-04-17
+> 状态：terminal-p0-fixes 执行中；terminal-interaction-refactor 已规划
 
 ## 测试统计
 
@@ -28,6 +28,10 @@
 | **Agent 生命周期管理 (Phase 15)** | unit, integration, manual | 待开始 | 🔶 |
 | **用户信息 (user-info)** | unit, e2e | 已完成 | ✅ |
 | **部署标准化 (deploy-standardization)** | manual, L3 | 已完成 | ✅ |
+| **安全加固 (security-hardening)** | unit, integration, manual | 待开始 | 🔶 |
+| **环境选择 (env-selector)** | unit | 24 passed | ✅ |
+| **终端 P0 修复 (terminal-p0-fixes)** | unit, widget, integration, smoke | 已规划 | 🔶 |
+| **终端交互架构重构 (terminal-interaction-refactor)** | design, unit, integration, widget, smoke | 已规划 | 🔶 |
 
 ## 模块覆盖详情
 
@@ -144,6 +148,36 @@
 | 真实重启流程 | 重启 App 后 Agent 恢复 | ⬜ |
 | 真实关闭流程（开关=false） | 关闭 App 后 Agent 进程不存在 | ⬜ |
 | 真实关闭流程（开关=true） | 关闭 App 后 Agent 进程仍存在 | ⬜ |
+
+### 终端交互架构重构（terminal-interaction-refactor phase）
+
+| Module | Task IDs | Test Type | Required Scenarios | Status |
+|--------|----------|-----------|--------------------|--------|
+| 终端交互架构基线 | S071 | design | 四层职责边界；状态源矩阵；switch/reconnect/recover 状态机 | 🔶 |
+| 恢复语义与模式基线 | S072 | design | snapshot/local cache/live output 边界；attach/recovery epoch；exclusive/shared mode | 🔶 |
+| 协议兼容迁移与灰度切换 | S073 | design | 新旧恢复协议共存窗口；发布顺序；回退策略；灰度验证点 | 🔶 |
+| Server 状态中心收瘦 | B071 | integration | metadata/ownership/pty/routing 真相；history 不再做 attach 主恢复源 | 🔶 |
+| Agent 主权威恢复源 | B072 | unit,integration | per-terminal snapshot 生命周期；close/recreate 不污染旧 snapshot | 🔶 |
+| 恢复协议升级 | B073 | integration,smoke | connected -> snapshot_start/chunk/complete -> live；空 snapshot 边界 | 🔶 |
+| Client Transport 收瘦 | F071 | unit | transport events 标准化；不再承载恢复策略 | ✅ 33/33 |
+| Client Coordinator 状态机 | F072 | unit,integration,smoke | switch/reconnect/recover 分离；单 active transport；Codex/Claude 切换恢复 | ✅ 60/60 (smoke 待 F074 集成) |
+| Renderer 隔离 | F073 | unit | RendererAdapter；snapshot/live apply 路径统一 | 🔶 |
+| UI 瘦身迁移 | F074 | widget,smoke | 页面只做展示/焦点/快捷键/IME；不再直接管 recover | 🔶 |
+| 桌面端 Agent 断连恢复编排 | F075 | integration,smoke | agent 断连 TTL 恢复；app 前后台；app 重启；agent 重启与 terminal 恢复 | 🔶 |
+| 客户端生命周期恢复编排 | F076 | integration,smoke | foreground/cold start/network restore 统一恢复链 | 🔶 |
+
+#### 终端交互重构关键场景
+
+- [ ] switch terminal 不触发 recover，不覆盖 local renderer cache
+- [ ] reconnect 必须生成新的 `attach_epoch`
+- [ ] `snapshot_complete` 前 live output 只缓冲
+- [ ] 旧 `attach_epoch/recovery_epoch` 的迟到消息被丢弃
+- [ ] 兼容迁移窗口内新旧 client/desktop 与 server/agent 有明确降级路径
+- [ ] `Codex` 在 exclusive 模式下切换/刷新不再丢内容
+- [ ] `Claude` 在 shared 模式下双端 attach 后布局与恢复一致
+- [ ] app 从后台回前台后 active terminal 正确 recover
+- [ ] app 被杀后重启，通过 Agent 权威 snapshot 恢复 terminal
+- [ ] agent 与 server 断连后进入 recoverable，不立刻 closed；TTL 超时后再 closed
 
 ### CONTRACT-002: Agent Connected 消息
 - [x] 消息包含 type, session_id, owner, views, timestamp
@@ -294,3 +328,106 @@
   - [x] SIGTERM 被忽略时 SIGKILL 能强制终止
   - [x] 网络断开触发的终端关闭流程
   - [x] Agent 断开后的终端清理
+
+### 安全加固（security-hardening phase）
+
+| Module | Task IDs | Test Type | Required Scenarios | Status |
+|--------|----------|-----------|--------------------|--------|
+| JWT Secret 加固 | B062 | unit | JWT_SECRET 未设置→启动抛异常；无 token_version→401；匹配 Redis→通过；不匹配→401 TOKEN_REPLACED | ⬜ |
+| 密码哈希迁移 | B063 | unit | 新注册→bcrypt；旧 SHA-256 登录→自动迁移；并发迁移不报错 | ⬜ |
+| CORS 收紧 | B064 | unit | CORS_ORIGINS 空→拒绝；配置域名→通过；非配置域名→拒绝 | ⬜ |
+| WebSocket 鉴权重构 | B065 | unit,integration | auth 消息→成功；无效 token→关闭；超时→关闭；超大消息→关闭；auth 格式错误→关闭；URL query token→不验证 | ⬜ |
+| 日志归属校验 + 错误脱敏 | B066 | unit | 查自己日志→成功；查他人→403；JWT 错误→脱敏信息 | ⬜ |
+| 速率限制 | B067 | unit | 10次内→成功；第11次→429；限流 Redis 失败→不限速；认证 Redis 失败→503 | ⬜ |
+| Agent 安全加固 | B068 | unit,integration | WS auth 适配；命令/cwd/env 校验；本地 HTTP 认证；配置文件生成/损坏恢复 | ⬜ |
+| Client 安全加固 | F058 | unit,integration | WS auth 适配；密码迁移到 flutter_secure_storage；旧 SharedPreferences 清理；自动登录失败回退 | ⬜ |
+| Redis 密码 + Docker 非 root | B070 | integration,manual | Redis 密码认证；非 root 运行；REDIS_PASSWORD 缺失→报错；volume 权限 | ⬜ |
+| 安全加固集成验证 | S038 | integration,manual | 全链路注册→登录→WS→terminal→关闭；bcrypt 验证；速率限制；WS auth；脱敏；Redis 密码；非 root；CORS | ⬜ |
+
+### 环境选择（env-selector phase）
+
+| Module | Task IDs | Test Type | Required Scenarios | Status |
+|--------|----------|-----------|--------------------|--------|
+| 环境模型与选择服务 | F059 | unit | 默认环境、serverUrl 生成、持久化、首次安装/损坏数据、输入校验(host/port)、无副作用依赖 | ✅ |
+
+### IP 直连绕过 TLS（ip-direct phase）
+
+| Module | Task IDs | Test Type | Required Scenarios | Status |
+|--------|----------|-----------|--------------------|--------|
+| 本地 URL 修复 + 直连端口 | S063 | unit, integration | URL 格式修正(ws://)；端口映射配置；RSA+AES 加密链路；HTTP URL 转换 | ✅ |
+| 直连端口部署验证 | S064 | integration, manual | 线上端口可达；真机直连登录；Agent 注册；TLS 环境不受影响 | ⬜ |
+
+#### IP 直连关键测试场景
+
+##### S063 失败分支
+- [x] RC_DIRECT_PORT 未注入时使用默认 8880
+- [x] RC_DIRECT_PORT 指定已被占用端口时 Server 启动失败
+- [x] ws:// 连接超时（防火墙未开放）客户端提示明确
+- [x] ws:// → http:// URL 转换异常处理
+- [x] 环境切换（local→direct→production）时旧 WS 连接正确断开
+
+##### S064 线上 smoke
+- [ ] 真机直连 IP:8880 → 登录成功 → 终端收发
+- [ ] 桌面端直连 IP:8880 → 登录成功 → 终端收发
+- [ ] Agent 注册正常 → 设备在线
+- [ ] TLS 线上环境同时可用
+
+### 终端 P0 修复（terminal-p0-fixes phase）
+
+| Module | Task IDs | Test Type | Required Scenarios | Status |
+|--------|----------|-----------|--------------------|--------|
+| CPR 坐标修复 | F067 | unit,smoke | CSI 6n 响应严格 1-based；Codex/Claude Code TUI 不退化；vim/top 回归 | ⬜ |
+| 渲染闪烁修复 | F068 | unit,integration | 移除多余 setState；高频输出无闪烁；输入输出链路不回归 | ⬜ |
+| 移动端键盘 resize 隔离 | F069 | unit,integration,smoke | 移动端弹收键盘不触发全局 PTY resize；桌面端布局不受影响；提示符仍可见 | ⬜ |
+| 终端切换白屏修复 | F070 | unit,integration,smoke | Terminal 实例缓存复用；切换无白屏；登出/换用户缓存清空 | ⬜ |
+
+#### 终端 P0 关键测试场景
+
+##### F067 协议兼容
+- [ ] `cursorPosition(0, 0) -> ESC[1;1R`
+- [ ] `cursorPosition(5, 3) -> ESC[6;4R`
+- [ ] 连续 CSI 6n 响应保持 1-based，无状态泄漏
+- [ ] Codex/Claude Code/vim/top 不出现单行重绘退化
+
+##### F069 首次使用与状态同步
+- [ ] 手机弹键盘时不发送 resize 到远端 PTY
+- [ ] 手机收键盘时不发送 resize 到远端 PTY
+- [ ] 手机连续弹收键盘 3 次，桌面端布局保持稳定
+- [ ] 移动端输入仍可用，底部提示符不被键盘永久遮挡
+
+##### F070 缓存生命周期
+- [ ] terminal A -> B -> A 快速切换 3 次无白屏
+- [ ] 切回 A 时 scrollback 仍在
+- [ ] disconnectAll/logout/session reset 后 Terminal 缓存清空
+- [ ] 切换到断开终端时展示明确状态，不展示空白页
+
+### 终端交互架构重构（terminal-interaction-refactor phase）
+
+| Module | Task IDs | Test Type | Required Scenarios | Status |
+|--------|----------|-----------|--------------------|--------|
+| 架构基线与状态机 | S071 | design | 四层职责边界；状态源矩阵；switch/reconnect/recover 状态机 | ⬜ |
+| Server 状态中心收瘦 | B071 | integration | metadata/ownership/pty 真相；history 降级为诊断用途 | ⬜ |
+| Agent 主权威恢复源 | B072 | unit,integration | per-terminal snapshot 生命周期；snapshot_request 主路径 | ⬜ |
+| 恢复协议升级 | B073 | integration,smoke | snapshot/snapshot_complete/live 边界；刷新后一致性 | ⬜ |
+| Client Transport 收瘦 | F071 | unit | protocol events only；不承载 renderer/recovery 语义 | ⬜ |
+| Client Coordinator 状态机 | F072 | unit,integration,smoke | 单 active transport；switch/reconnect/recover 分离 | ⬜ |
+| Renderer 隔离 | F073 | unit | xterm handle 收口；snapshot/live apply 路径统一 | ⬜ |
+| UI 瘦身迁移 | F074 | widget,manual | TerminalScreen/Workspace 只做展示与交互 | ⬜ |
+
+#### 终端交互架构重构关键测试场景
+
+##### S071 设计验收
+- [ ] 输出四层职责图（UI / Coordinator / Transport / Renderer）
+- [ ] 输出状态源矩阵（PTY / metadata / local renderer）
+- [ ] 输出 switch / reconnect / recover 状态机
+
+##### B073 恢复协议
+- [ ] `connected -> snapshot* -> snapshot_complete -> live output` 顺序明确
+- [ ] 空 snapshot 时仍发送 `snapshot_complete`
+- [ ] 刷新后桌面端与移动端内容不再长期偏离
+
+##### F072 Coordinator
+- [ ] 同一 client view 同时只有一个 active terminal transport
+- [ ] switch terminal 不触发 snapshot 覆盖已有 renderer
+- [ ] reconnect 才进入 recovering
+- [ ] Codex 高频刷新与切换场景内容不再明显丢失

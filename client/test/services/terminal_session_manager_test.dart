@@ -1,10 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rc_client/services/terminal_session_manager.dart';
 import 'package:rc_client/services/websocket_service.dart';
+import 'package:xterm/xterm.dart';
 
 /// 测试用 Mock WebSocketService
 /// 不发起真实连接，但可以追踪方法调用
@@ -14,10 +15,14 @@ class MockWebSocketService extends WebSocketService {
   bool _mockConnected = false;
   ConnectionStatus _mockStatus = ConnectionStatus.disconnected;
   int? _mockLastCloseCode;
+  String? _mockTerminalStatus;
 
   /// 控制 connect() 是否抛异常
   bool connectShouldThrow = false;
   String connectErrorMessage = 'Connection failed';
+
+  /// 控制 connect() 是否成功（false = 临时失败，设为 reconnecting）
+  bool connectSucceeds = true;
 
   MockWebSocketService({
     super.serverUrl = 'ws://localhost:8888',
@@ -25,6 +30,7 @@ class MockWebSocketService extends WebSocketService {
     super.sessionId = '',
     super.deviceId = 'dev-1',
     super.terminalId = 'term-1',
+    super.viewType = ViewType.mobile,
   });
 
   void setMockConnected(bool value) {
@@ -42,6 +48,26 @@ class MockWebSocketService extends WebSocketService {
     _mockLastCloseCode = code;
   }
 
+  void setMockTerminalStatus(String? status) {
+    _mockTerminalStatus = status;
+  }
+
+  /// 模拟认证失败（closeCode=4001 + disconnected + notifyListeners）
+  void simulateAuthFailed() {
+    _mockLastCloseCode = 4001;
+    _mockConnected = false;
+    _mockStatus = ConnectionStatus.disconnected;
+    notifyListeners();
+  }
+
+  /// 模拟终端被服务端关闭（terminalStatus=closed + disconnected + notifyListeners）
+  void simulateTerminalClosed() {
+    _mockTerminalStatus = 'closed';
+    _mockConnected = false;
+    _mockStatus = ConnectionStatus.disconnected;
+    notifyListeners();
+  }
+
   @override
   ConnectionStatus get status => _mockStatus;
 
@@ -49,7 +75,11 @@ class MockWebSocketService extends WebSocketService {
   int? get lastCloseCode => _mockLastCloseCode;
 
   @override
-  bool get isAuthFailed => _mockLastCloseCode == 4001 || _mockLastCloseCode == 4011;
+  String? get terminalStatus => _mockTerminalStatus;
+
+  @override
+  bool get isAuthFailed =>
+      _mockLastCloseCode == 4001 || _mockLastCloseCode == 4011;
 
   @override
   bool get isConnected => _mockConnected;
@@ -66,6 +96,11 @@ class MockWebSocketService extends WebSocketService {
     connectCallCount++;
     if (connectShouldThrow) {
       throw Exception(connectErrorMessage);
+    }
+    if (!connectSucceeds) {
+      _mockStatus = ConnectionStatus.reconnecting;
+      notifyListeners();
+      return false;
     }
     _mockConnected = true;
     _mockStatus = ConnectionStatus.connected;
@@ -100,6 +135,132 @@ void main() {
 
       manager.disconnectAll();
     });
+
+    test('reuses existing Terminal instance for same device and terminal', () {
+      final manager = TerminalSessionManager();
+      var createCount = 0;
+
+      Terminal build() {
+        createCount += 1;
+        return Terminal(maxLines: 10000);
+      }
+
+      final first = manager.getOrCreateTerminal('mbp-01', 'term-1', build);
+      first.write('hello');
+      final second = manager.getOrCreateTerminal('mbp-01', 'term-1', build);
+
+      expect(identical(first, second), isTrue);
+      expect(createCount, 1);
+      expect(second.buffer.lines[0].toString(), contains('hello'));
+    });
+
+    test(
+        'replaces cached terminal buffer when snapshot arrives after reconnect',
+        () async {
+      final manager = TerminalSessionManager();
+      final firstService = MockWebSocketService(
+        sessionId: 'session-1',
+        deviceId: 'mbp-01',
+        terminalId: 'term-1',
+      );
+
+      final terminal = manager.getOrCreateTerminal(
+        'mbp-01',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: firstService,
+      );
+
+      firstService.debugHandleMessage(jsonEncode({
+        'type': 'data',
+        'payload': base64Encode(utf8.encode('stale frame')),
+      }));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(terminal.buffer.lines[0].toString(), contains('stale frame'));
+
+      final reconnectedService = MockWebSocketService(
+        sessionId: 'session-1',
+        deviceId: 'mbp-01',
+        terminalId: 'term-1',
+      );
+      manager.bindTerminalOutput('mbp-01', 'term-1', reconnectedService);
+
+      reconnectedService.debugHandleMessage(jsonEncode({
+        'type': 'snapshot',
+        'payload': base64Encode(utf8.encode('fresh snapshot')),
+      }));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(
+          terminal.buffer.lines[0].toString(), isNot(contains('stale frame')));
+      expect(terminal.buffer.lines[0].toString(), contains('fresh snapshot'));
+    });
+
+    test('does not let later snapshot clobber existing live terminal buffer',
+        () async {
+      final manager = TerminalSessionManager();
+      final service = MockWebSocketService(
+        sessionId: 'session-1',
+        deviceId: 'mbp-01',
+        terminalId: 'term-1',
+      );
+
+      final terminal = manager.getOrCreateTerminal(
+        'mbp-01',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: service,
+      );
+
+      service.debugHandleMessage(jsonEncode({
+        'type': 'data',
+        'payload': base64Encode(utf8.encode('codex live frame')),
+      }));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(terminal.buffer.lines[0].toString(), contains('codex live frame'));
+
+      service.debugHandleMessage(jsonEncode({
+        'type': 'snapshot',
+        'payload': base64Encode(utf8.encode('truncated snapshot')),
+      }));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(
+        terminal.buffer.lines[0].toString(),
+        contains('codex live frame'),
+      );
+      expect(
+        terminal.buffer.lines[0].toString(),
+        isNot(contains('truncated snapshot')),
+      );
+    });
+
+    test('applies authoritative remote pty resize to cached terminal',
+        () async {
+      final manager = TerminalSessionManager();
+      final service = MockWebSocketService(
+        sessionId: 'session-1',
+        deviceId: 'mbp-01',
+        terminalId: 'term-1',
+      );
+
+      final terminal = manager.getOrCreateTerminal(
+        'mbp-01',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: service,
+      );
+
+      service.debugHandleMessage(jsonEncode({
+        'type': 'resize',
+        'rows': 36,
+        'cols': 110,
+      }));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(terminal.viewHeight, 36);
+      expect(terminal.viewWidth, 110);
+    });
   });
 
   group('TerminalSessionManager lifecycle - 正常路径', () {
@@ -108,10 +269,12 @@ void main() {
     MockWebSocketService buildMock({
       String deviceId = 'dev-1',
       String terminalId = 'term-1',
+      ViewType viewType = ViewType.mobile,
     }) {
       return MockWebSocketService(
         deviceId: deviceId,
         terminalId: terminalId,
+        viewType: viewType,
       );
     }
 
@@ -152,6 +315,11 @@ void main() {
     test('resumeAll 重连暂停前已连接的 service', () async {
       final mock = buildMock();
       manager.getOrCreate('dev-1', 'term-1', () => mock);
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
 
       mock.setMockConnected(true);
       manager.pauseAll();
@@ -174,6 +342,21 @@ void main() {
       expect(mock.connectCallCount, 0);
     });
 
+    test('disconnectTerminal 同时清理 cached Terminal', () async {
+      final mock = buildMock();
+      manager.getOrCreate('dev-1', 'term-1', () => mock);
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
+
+      await manager.disconnectTerminal('dev-1', 'term-1');
+
+      expect(manager.get('dev-1', 'term-1'), isNull);
+      expect(manager.getTerminal('dev-1', 'term-1'), isNull);
+    });
+
     test('pause 后新增的 service 不被 resumeAll 影响', () async {
       manager.pauseAll();
 
@@ -187,6 +370,11 @@ void main() {
     test('连续 pause-resume 不导致重复连接', () async {
       final mock = buildMock();
       manager.getOrCreate('dev-1', 'term-1', () => mock);
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
 
       // 第一轮
       mock.setMockConnected(true);
@@ -207,6 +395,11 @@ void main() {
 
       manager.getOrCreate('dev-1', 'term-1', () => connected);
       manager.getOrCreate('dev-2', 'term-2', () => disconnected);
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
 
       connected.setMockConnected(true);
 
@@ -227,10 +420,12 @@ void main() {
     MockWebSocketService buildMock({
       String deviceId = 'dev-1',
       String terminalId = 'term-1',
+      ViewType viewType = ViewType.mobile,
     }) {
       return MockWebSocketService(
         deviceId: deviceId,
         terminalId: terminalId,
+        viewType: viewType,
       );
     }
 
@@ -313,12 +508,18 @@ void main() {
       final mock = buildMock();
       manager.getOrCreate('dev-1', 'term-1', () => mock);
       mock.setMockConnected(true);
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
 
       await manager.disconnectAll();
 
       // disconnectAll 清空了所有状态
       expect(() => manager.pauseAll(), returnsNormally);
       await expectLater(manager.resumeAll(), completes);
+      expect(manager.getTerminal('dev-1', 'term-1'), isNull);
     });
 
     test('桌面端 pauseAll/resumeAll 安全调用', () async {
@@ -340,10 +541,12 @@ void main() {
     MockWebSocketService buildMock({
       String deviceId = 'dev-1',
       String terminalId = 'term-1',
+      ViewType viewType = ViewType.mobile,
     }) {
       return MockWebSocketService(
         deviceId: deviceId,
         terminalId: terminalId,
+        viewType: viewType,
       );
     }
 
@@ -364,6 +567,16 @@ void main() {
 
       manager.getOrCreate('dev-1', 'term-1', () => failMock);
       manager.getOrCreate('dev-2', 'term-2', () => okMock);
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
+      manager.getOrCreateTerminal(
+        'dev-2',
+        'term-2',
+        () => Terminal(maxLines: 10000),
+      );
 
       failMock.setMockConnected(true);
       okMock.setMockConnected(true);
@@ -373,8 +586,8 @@ void main() {
       // resumeAll 应该继续处理后续 service，即使第一个失败
       await manager.resumeAll();
 
-      // failMock 尝试了 connect 但失败
-      expect(failMock.connectCallCount, 1);
+      // failMock 尝试了 connect 但失败（recoverWithRetry 重试 3 次）
+      expect(failMock.connectCallCount, 3);
       // okMock 仍然成功重连
       expect(okMock.connectCallCount, 1);
     });
@@ -384,13 +597,18 @@ void main() {
       mock.connectShouldThrow = true;
 
       manager.getOrCreate('dev-1', 'term-1', () => mock);
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
       mock.setMockConnected(true);
 
       manager.pauseAll();
 
-      // 即使全部失败也不应抛出未捕获的异常
+      // 即使全部失败也不应抛出未捕获的异常（recoverWithRetry 重试 3 次）
       await expectLater(manager.resumeAll(), completes);
-      expect(mock.connectCallCount, 1);
+      expect(mock.connectCallCount, 3);
     });
 
     // 注意：pauseAll 中 disconnect() 是 fire-and-forget（不 await），
@@ -405,10 +623,12 @@ void main() {
     MockWebSocketService buildMock({
       String deviceId = 'dev-1',
       String terminalId = 'term-1',
+      ViewType viewType = ViewType.mobile,
     }) {
       return MockWebSocketService(
         deviceId: deviceId,
         terminalId: terminalId,
+        viewType: viewType,
       );
     }
 
@@ -435,12 +655,24 @@ void main() {
       final first = manager.getOrCreate('dev-1', 'term-1', build);
       expect(identical(first, mock1), isTrue);
       expect(createCount, 1);
+      final firstTerminal = manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
 
-      // 第二次调用：mock1 的 lastCloseCode=4001，应被淘汰并重建
+      // 第二次调用：mock1 的 lastCloseCode=4001，应被淘汰并重建，
+      // 但 cached terminal 应保留，避免 terminal 切换后内容丢失。
       final second = manager.getOrCreate('dev-1', 'term-1', build);
       expect(identical(second, mock1), isFalse);
       expect(createCount, 2);
       expect(mock1.disconnectCallCount, 1);
+      final secondTerminal = manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
+      expect(identical(firstTerminal, secondTerminal), isTrue);
     });
 
     test('getOrCreate 自动淘汰 closeCode=4011 的缓存服务', () {
@@ -510,7 +742,8 @@ void main() {
       mock1.setMockLastCloseCode(4001);
 
       // getOrCreate 应淘汰并清理 _pausedKeys
-      final newService = manager.getOrCreate('dev-1', 'term-1', () => buildMock());
+      final newService =
+          manager.getOrCreate('dev-1', 'term-1', () => buildMock());
       expect(identical(newService, mock1), isFalse);
 
       // resumeAll 不应尝试重连已被淘汰的 mock1
@@ -530,6 +763,34 @@ void main() {
       // 新服务可正常连接
       mock2.setMockConnected(true);
       expect(service.isConnected, isTrue);
+    });
+
+    test('切换 terminal 前主动断开同 device 同 view 的其他 service', () async {
+      final current = buildMock(deviceId: 'dev-1', terminalId: 'term-1');
+      final next = buildMock(deviceId: 'dev-1', terminalId: 'term-2');
+      final desktop = buildMock(
+        deviceId: 'dev-1',
+        terminalId: 'term-3',
+        viewType: ViewType.desktop,
+      );
+      final otherDevice = buildMock(deviceId: 'dev-2', terminalId: 'term-4');
+
+      manager.getOrCreate('dev-1', 'term-1', () => current);
+      manager.getOrCreate('dev-1', 'term-2', () => next);
+      manager.getOrCreate('dev-1', 'term-3', () => desktop);
+      manager.getOrCreate('dev-2', 'term-4', () => otherDevice);
+
+      current.setMockConnected(true);
+      next.setMockConnected(true);
+      desktop.setMockConnected(true);
+      otherDevice.setMockConnected(true);
+
+      await manager.deactivateConflictingTerminalSessions(next);
+
+      expect(current.disconnectCallCount, 1);
+      expect(next.disconnectCallCount, 0);
+      expect(desktop.disconnectCallCount, 0);
+      expect(otherDevice.disconnectCallCount, 0);
     });
   });
 
@@ -576,9 +837,15 @@ void main() {
       expect(mock.disconnectCallCount, 1);
     });
 
-    test('didChangeAppLifecycleState(resumed) 触发 resumeAll（通过直接调用验证）', () async {
+    test('didChangeAppLifecycleState(resumed) 触发 resumeAll（通过直接调用验证）',
+        () async {
       final mock = buildMock();
       manager.getOrCreate('dev-1', 'term-1', () => mock);
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
       mock.setMockConnected(true);
 
       // 先通过 lifecycle 回调暂停
@@ -597,6 +864,16 @@ void main() {
 
       manager.getOrCreate('dev-1', 'term-1', () => mock1);
       manager.getOrCreate('dev-2', 'term-2', () => mock2);
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
+      manager.getOrCreateTerminal(
+        'dev-2',
+        'term-2',
+        () => Terminal(maxLines: 10000),
+      );
 
       mock1.setMockConnected(true);
       mock2.setMockConnected(true);
@@ -646,6 +923,11 @@ void main() {
     test('多次 pause-resume 周期稳定性', () async {
       final mock = buildMock();
       manager.getOrCreate('dev-1', 'term-1', () => mock);
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
 
       for (int i = 0; i < 5; i++) {
         mock.setMockConnected(true);
@@ -657,6 +939,846 @@ void main() {
       // 每轮 pause 断开一次，每轮 resume 重连一次
       expect(mock.disconnectCallCount, 5);
       expect(mock.connectCallCount, 5);
+    });
+  });
+
+  // ─── F072: Coordinator 状态机测试 ─────────────────────────────
+
+  group('Coordinator 状态机', () {
+    late TerminalSessionManager manager;
+
+    MockWebSocketService buildMock({
+      String deviceId = 'dev-1',
+      String terminalId = 'term-1',
+    }) {
+      return MockWebSocketService(
+        deviceId: deviceId,
+        terminalId: terminalId,
+      );
+    }
+
+    setUp(() {
+      manager = TerminalSessionManager();
+    });
+
+    tearDown(() {
+      manager.disconnectAll();
+    });
+
+    test('idle -> connecting -> recovering -> live 完整路径', () async {
+      final mock = buildMock();
+      manager.getOrCreate('dev-1', 'term-1', () => mock);
+
+      final terminal = manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: mock,
+      );
+      expect(terminal, isNotNull);
+
+      // 初始状态为 idle
+      expect(manager.getTerminalState('dev-1', 'term-1'),
+          TerminalSessionState.idle);
+
+      // connectTerminal: idle -> connecting
+      await manager.connectTerminal('dev-1', 'term-1');
+      expect(manager.getTerminalState('dev-1', 'term-1'),
+          TerminalSessionState.connecting);
+
+      // 模拟 connected 事件：connecting -> recovering
+      mock.debugHandleMessage(jsonEncode({'type': 'connected'}));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(manager.getTerminalState('dev-1', 'term-1'),
+          TerminalSessionState.recovering);
+
+      // 模拟 snapshot
+      mock.debugHandleMessage(jsonEncode({
+        'type': 'snapshot',
+        'payload': base64Encode(utf8.encode('snapshot data')),
+      }));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      // 仍然是 recovering
+      expect(manager.getTerminalState('dev-1', 'term-1'),
+          TerminalSessionState.recovering);
+
+      // snapshot_complete: recovering -> live
+      mock.debugHandleMessage(jsonEncode({'type': 'snapshot_complete'}));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(manager.getTerminalState('dev-1', 'term-1'),
+          TerminalSessionState.live);
+    });
+
+    test('switch 只切 active，不改变 sessionState', () async {
+      final mock1 = buildMock(deviceId: 'dev-1', terminalId: 'term-1');
+      final mock2 = buildMock(deviceId: 'dev-1', terminalId: 'term-2');
+
+      manager.getOrCreate('dev-1', 'term-1', () => mock1);
+      manager.getOrCreate('dev-1', 'term-2', () => mock2);
+
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-2',
+        () => Terminal(maxLines: 10000),
+      );
+
+      // 手动将 term-1 推进到 connecting 状态
+      await manager.connectTerminal('dev-1', 'term-1');
+      final term1State = manager.getTerminalState('dev-1', 'term-1');
+      expect(term1State, TerminalSessionState.connecting);
+
+      // switch 到 term-2
+      manager.switchTerminal('dev-1', 'term-2');
+      expect(manager.activeTerminalKeyForTest, 'dev-1::term-2');
+
+      // term-1 的状态不变
+      expect(manager.getTerminalState('dev-1', 'term-1'),
+          TerminalSessionState.connecting);
+      // term-2 仍是 idle
+      expect(manager.getTerminalState('dev-1', 'term-2'),
+          TerminalSessionState.idle);
+    });
+
+    test('reconnect 进入 recovering 再到 live', () async {
+      final mock = buildMock();
+      manager.getOrCreate('dev-1', 'term-1', () => mock);
+
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: mock,
+      );
+
+      // 先走到 live
+      await manager.connectTerminal('dev-1', 'term-1');
+      mock.debugHandleMessage(jsonEncode({'type': 'connected'}));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      mock.debugHandleMessage(jsonEncode({'type': 'snapshot_complete'}));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(manager.getTerminalState('dev-1', 'term-1'),
+          TerminalSessionState.live);
+
+      // recoverTerminal: live -> reconnecting -> recovering
+      manager.recoverTerminal('dev-1', 'term-1');
+      expect(manager.getTerminalState('dev-1', 'term-1'),
+          TerminalSessionState.recovering);
+
+      // snapshot_complete: recovering -> live
+      mock.debugHandleMessage(jsonEncode({'type': 'snapshot_complete'}));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(manager.getTerminalState('dev-1', 'term-1'),
+          TerminalSessionState.live);
+    });
+
+    test('snapshot_complete 前的 live output 缓冲不直接写入', () async {
+      final mock = buildMock();
+      manager.getOrCreate('dev-1', 'term-1', () => mock);
+
+      final terminal = manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: mock,
+      );
+
+      // 先将状态推到 connecting
+      await manager.connectTerminal('dev-1', 'term-1');
+      expect(manager.getTerminalState('dev-1', 'term-1'),
+          TerminalSessionState.connecting);
+
+      // connected 事件触发 beginRecovery：connecting -> recovering
+      mock.debugHandleMessage(jsonEncode({'type': 'connected'}));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(manager.getTerminalState('dev-1', 'term-1'),
+          TerminalSessionState.recovering);
+
+      // 在 recovering 期间收到 live data，应被缓冲而非直接写入
+      mock.debugHandleMessage(jsonEncode({
+        'type': 'data',
+        'payload': base64Encode(utf8.encode('live data during recovery')),
+      }));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      // snapshot_complete 后，缓冲数据应该被 flush
+      mock.debugHandleMessage(jsonEncode({'type': 'snapshot_complete'}));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(manager.getTerminalState('dev-1', 'term-1'),
+          TerminalSessionState.live);
+      // 缓冲的 live data 应该在 finishRecovery 后写入 terminal
+      expect(
+        terminal.buffer.lines[0].toString(),
+        contains('live data during recovery'),
+      );
+    });
+
+    test('create 失败时 coordinator 进入 error 状态', () async {
+      // 不创建 session，connectTerminal 应进入 error
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
+
+      // 没有 session，connectTerminal 应将状态设为 error
+      await manager.connectTerminal('dev-1', 'term-1');
+      expect(manager.getTerminalState('dev-1', 'term-1'),
+          TerminalSessionState.error);
+    });
+
+    test('connect 抛异常时 coordinator 进入 error 状态', () async {
+      final mock = buildMock();
+      mock.connectShouldThrow = true;
+      manager.getOrCreate('dev-1', 'term-1', () => mock);
+
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
+
+      await manager.connectTerminal('dev-1', 'term-1');
+      expect(manager.getTerminalState('dev-1', 'term-1'),
+          TerminalSessionState.error);
+    });
+
+    test('获取 terminal 状态和监听状态变化', () async {
+      final mock = buildMock();
+      manager.getOrCreate('dev-1', 'term-1', () => mock);
+
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
+
+      // 初始状态
+      expect(manager.getTerminalState('dev-1', 'term-1'),
+          TerminalSessionState.idle);
+
+      // 不存在的 terminal 返回 idle
+      expect(manager.getTerminalState('dev-1', 'term-999'),
+          TerminalSessionState.idle);
+
+      // 获取 listenable 并监听变化
+      final listenable =
+          manager.getTerminalStateListenable('dev-1', 'term-1');
+      expect(listenable, isNotNull);
+
+      final states = <TerminalSessionState>[];
+      listenable!.addListener(() {
+        states.add(listenable.value);
+      });
+
+      // connectTerminal 触发状态变化
+      await manager.connectTerminal('dev-1', 'term-1');
+      expect(states, contains(TerminalSessionState.connecting));
+    });
+
+    test('不存在的 terminal 调用 connectTerminal 不报错', () async {
+      // 不应该抛异常
+      await expectLater(
+        manager.connectTerminal('dev-999', 'term-999'),
+        completes,
+      );
+    });
+
+    test('不存在的 terminal 调用 recoverTerminal 不报错', () {
+      expect(
+        () => manager.recoverTerminal('dev-999', 'term-999'),
+        returnsNormally,
+      );
+    });
+
+    test('不存在的 terminal 调用 switchTerminal 不报错', () {
+      expect(
+        () => manager.switchTerminal('dev-999', 'term-999'),
+        returnsNormally,
+      );
+    });
+
+    test('不存在的 terminal 的 listenable 为 null', () {
+      expect(
+        manager.getTerminalStateListenable('dev-999', 'term-999'),
+        isNull,
+      );
+    });
+
+    // ─── F072: 状态机转换缺口修复测试 ───────────────────────────
+
+    test('idle bind 已连接 service 进入 recovering', () async {
+      final mock = buildMock();
+      mock.setMockConnected(true);
+      manager.getOrCreate('dev-1', 'term-1', () => mock);
+
+      // 初始状态为 idle
+      expect(manager.getTerminalState('dev-1', 'term-1'),
+          TerminalSessionState.idle);
+
+      // getOrCreateTerminal 传入已连接的 service 触发 bindTerminalOutput
+      // bindTerminalOutput 在 existing == null && service.connected 时调用 beginRecovery
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: mock,
+      );
+
+      // idle -> recovering
+      expect(manager.getTerminalState('dev-1', 'term-1'),
+          TerminalSessionState.recovering);
+    });
+
+    test('live rebind 进入 recovering', () async {
+      final mock = buildMock();
+      manager.getOrCreate('dev-1', 'term-1', () => mock);
+
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: mock,
+      );
+
+      // 先完成一次完整的 connect -> live 周期
+      await manager.connectTerminal('dev-1', 'term-1');
+      mock.debugHandleMessage(jsonEncode({'type': 'connected'}));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      mock.debugHandleMessage(jsonEncode({'type': 'snapshot_complete'}));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(manager.getTerminalState('dev-1', 'term-1'),
+          TerminalSessionState.live);
+
+      // 用一个新的 service 进行 rebind
+      final newMock = buildMock();
+      newMock.setMockConnected(true);
+      manager.bindTerminalOutput('dev-1', 'term-1', newMock);
+
+      // live -> recovering (via prepareForRebind -> beginRecovery)
+      expect(manager.getTerminalState('dev-1', 'term-1'),
+          TerminalSessionState.recovering);
+    });
+
+    test('idle bind 已连接 service + snapshot_complete 进入 live', () async {
+      final mock = buildMock();
+      mock.setMockConnected(true);
+      manager.getOrCreate('dev-1', 'term-1', () => mock);
+
+      final terminal = manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: mock,
+      );
+
+      // idle -> recovering
+      expect(manager.getTerminalState('dev-1', 'term-1'),
+          TerminalSessionState.recovering);
+
+      // 发送 snapshot
+      mock.debugHandleMessage(jsonEncode({
+        'type': 'snapshot',
+        'payload': base64Encode(utf8.encode('recovery snapshot')),
+      }));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      // 仍然是 recovering
+      expect(manager.getTerminalState('dev-1', 'term-1'),
+          TerminalSessionState.recovering);
+
+      // snapshot_complete: recovering -> live
+      mock.debugHandleMessage(jsonEncode({'type': 'snapshot_complete'}));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(manager.getTerminalState('dev-1', 'term-1'),
+          TerminalSessionState.live);
+      expect(
+        terminal.buffer.lines[0].toString(),
+        contains('recovery snapshot'),
+      );
+    });
+
+    // ─── F074: statusListener + connect() 永久失败区分 ────────
+
+    test('connect 临时失败不设 error（autoReconnect 可恢复）', () async {
+      final mock = buildMock();
+      mock.connectSucceeds = false; // connect 返回 false，状态为 reconnecting
+      manager.getOrCreate('dev-1', 'term-1', () => mock);
+
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: mock,
+      );
+
+      await manager.connectTerminal('dev-1', 'term-1');
+
+      // 临时失败：不应设为 error
+      final state = manager.getTerminalState('dev-1', 'term-1');
+      expect(state, isNot(equals(TerminalSessionState.error)));
+    });
+
+    test('connect auth_failed 时 statusListener 收敛到 error', () async {
+      final mock = buildMock();
+      manager.getOrCreate('dev-1', 'term-1', () => mock);
+
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: mock,
+      );
+
+      // 先连接成功 + connected 事件进入 recovering
+      await manager.connectTerminal('dev-1', 'term-1');
+      mock.debugHandleMessage(jsonEncode({'type': 'connected'}));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(
+        manager.getTerminalState('dev-1', 'term-1'),
+        TerminalSessionState.recovering,
+      );
+
+      // 模拟 auth_failed 断线
+      mock.simulateAuthFailed();
+
+      // statusListener 应将 recovering 收敛到 error
+      expect(
+        manager.getTerminalState('dev-1', 'term-1'),
+        TerminalSessionState.error,
+      );
+    });
+
+    test('terminal_closed 时 statusListener 收敛到 error', () async {
+      final mock = buildMock();
+      manager.getOrCreate('dev-1', 'term-1', () => mock);
+
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: mock,
+      );
+
+      // 先连接成功 + connected 事件进入 recovering
+      await manager.connectTerminal('dev-1', 'term-1');
+      mock.debugHandleMessage(jsonEncode({'type': 'connected'}));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      // 模拟终端被关闭
+      mock.simulateTerminalClosed();
+
+      // statusListener 应收敛到 error
+      expect(
+        manager.getTerminalState('dev-1', 'term-1'),
+        TerminalSessionState.error,
+      );
+    });
+
+    test('error 状态下新 service 的 connected 可推进到 recovering', () async {
+      final mock = buildMock();
+      manager.getOrCreate('dev-1', 'term-1', () => mock);
+
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: mock,
+      );
+
+      // 先连接成功 + connected 事件进入 recovering
+      await manager.connectTerminal('dev-1', 'term-1');
+      mock.debugHandleMessage(jsonEncode({'type': 'connected'}));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      // 模拟 auth_failed 进入 error（旧 service 不可复用）
+      mock.simulateAuthFailed();
+      expect(
+        manager.getTerminalState('dev-1', 'term-1'),
+        TerminalSessionState.error,
+      );
+
+      // 生产路径：用新 service 替换旧的 auth_failed service
+      final newMock = buildMock();
+      manager.getOrCreate('dev-1', 'term-1', () => newMock);
+      manager.bindTerminalOutput('dev-1', 'term-1', newMock);
+
+      // 新 service connected 事件推进到 recovering
+      newMock.debugHandleMessage(jsonEncode({'type': 'connected'}));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      // error → recovering 应该合法
+      expect(
+        manager.getTerminalState('dev-1', 'term-1'),
+        TerminalSessionState.recovering,
+      );
+    });
+
+    test('connecting 状态下 auth_failed 时 statusListener 收敛到 error',
+        () async {
+      final mock = buildMock();
+      manager.getOrCreate('dev-1', 'term-1', () => mock);
+
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: mock,
+      );
+
+      // connectTerminal 进入 connecting（尚未收到 connected 事件）
+      await manager.connectTerminal('dev-1', 'term-1');
+      expect(
+        manager.getTerminalState('dev-1', 'term-1'),
+        TerminalSessionState.connecting,
+      );
+
+      // 在 connected 事件到达前，直接发生 auth_failed
+      mock.simulateAuthFailed();
+
+      // connecting → error 应该通过 statusListener 收敛
+      expect(
+        manager.getTerminalState('dev-1', 'term-1'),
+        TerminalSessionState.error,
+      );
+    });
+  });
+
+  // ─── F073: RendererAdapter 测试 ────────────────────────────────
+
+  group('RendererAdapter', () {
+    test('applySnapshot 清空旧 buffer 并写入新数据', () {
+      final terminal = Terminal(maxLines: 10000);
+      final adapter = RendererAdapter(terminal);
+
+      // 先写入一些旧数据
+      adapter.applyLiveOutput('old data line 1\nold data line 2');
+      expect(terminal.buffer.lines[0].toString(), contains('old data line 1'));
+
+      // applySnapshot 应清空旧 buffer 并写入新数据
+      adapter.applySnapshot('new snapshot data');
+      expect(
+        terminal.buffer.lines[0].toString(),
+        contains('new snapshot data'),
+      );
+      expect(
+        terminal.buffer.lines[0].toString(),
+        isNot(contains('old data')),
+      );
+      // outputText 也应只包含新数据
+      expect(adapter.outputText.value, contains('new snapshot data'));
+      expect(adapter.outputText.value, isNot(contains('old data')));
+    });
+
+    test('applyLiveOutput 追加数据不清空', () {
+      final terminal = Terminal(maxLines: 10000);
+      final adapter = RendererAdapter(terminal);
+
+      adapter.applyLiveOutput('first line\n');
+      adapter.applyLiveOutput('second line\n');
+
+      expect(adapter.outputText.value, contains('first line'));
+      expect(adapter.outputText.value, contains('second line'));
+    });
+
+    test('resize 调整 terminal 尺寸', () {
+      final terminal = Terminal(maxLines: 10000);
+      final adapter = RendererAdapter(terminal);
+
+      adapter.resize(120, 40);
+      expect(terminal.viewWidth, 120);
+      expect(terminal.viewHeight, 40);
+    });
+
+    test('resize 忽略无效尺寸', () {
+      final terminal = Terminal(maxLines: 10000);
+      final adapter = RendererAdapter(terminal);
+
+      adapter.resize(120, 40);
+      expect(terminal.viewWidth, 120);
+      expect(terminal.viewHeight, 40);
+
+      // 零值不应改变尺寸
+      adapter.resize(0, 0);
+      expect(terminal.viewWidth, 120);
+      expect(terminal.viewHeight, 40);
+
+      // 负值不应改变尺寸
+      adapter.resize(-1, -1);
+      expect(terminal.viewWidth, 120);
+      expect(terminal.viewHeight, 40);
+    });
+
+    test('resize 不触发 onResize 回调', () {
+      final terminal = Terminal(maxLines: 10000);
+      final adapter = RendererAdapter(terminal);
+
+      var resizeCallbackCount = 0;
+      terminal.onResize = (cols, rows, pixelWidth, pixelHeight) {
+        resizeCallbackCount++;
+      };
+
+      adapter.resize(120, 40);
+      expect(resizeCallbackCount, 0);
+    });
+
+    test('reset 清空所有 buffer', () {
+      final terminal = Terminal(maxLines: 10000);
+      final adapter = RendererAdapter(terminal);
+
+      adapter.applyLiveOutput('some data that will be cleared');
+      expect(adapter.outputText.value, isNotEmpty);
+
+      adapter.reset();
+      expect(adapter.outputText.value, isEmpty);
+    });
+
+    test('dispose 后 outputText 不再更新', () {
+      final terminal = Terminal(maxLines: 10000);
+      final adapter = RendererAdapter(terminal);
+
+      adapter.applyLiveOutput('before dispose');
+      expect(adapter.outputText.value, contains('before dispose'));
+
+      // 记录 terminal 当前内容
+      final bufferContentBefore = terminal.buffer.lines[0].toString();
+
+      adapter.dispose();
+      expect(adapter.isDisposed, true);
+
+      // F073 fix: dispose 后 applyLiveOutput 静默返回，不操作 terminal
+      adapter.applyLiveOutput('after dispose');
+      // terminal buffer 不应被 post-dispose 调用修改
+      expect(
+        terminal.buffer.lines[0].toString(),
+        equals(bufferContentBefore),
+      );
+    });
+
+    test('outputText 不超过 maxBufferLines', () {
+      final terminal = Terminal(maxLines: 10000);
+      final adapter = RendererAdapter(terminal);
+
+      // 写入超过 50 行（_maxBufferLines）
+      for (int i = 0; i < 60; i++) {
+        adapter.applyLiveOutput('line $i\n');
+      }
+
+      final lines = adapter.outputText.value.split('\n');
+      // 应只保留最后 50 行
+      expect(lines.length, lessThanOrEqualTo(50));
+      // 最早的行已被淘汰
+      expect(adapter.outputText.value, isNot(contains('line 0')));
+      // 最新的行保留
+      expect(adapter.outputText.value, contains('line 59'));
+    });
+  });
+
+  // ─── F073: getRendererAdapter 集成测试 ────────────────────────
+
+  group('getRendererAdapter', () {
+    late TerminalSessionManager manager;
+
+    setUp(() {
+      manager = TerminalSessionManager();
+    });
+
+    tearDown(() {
+      manager.disconnectAll();
+    });
+
+    test('返回已创建 terminal 的 RendererAdapter', () {
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
+
+      final adapter = manager.getRendererAdapter('dev-1', 'term-1');
+      expect(adapter, isNotNull);
+    });
+
+    test('不存在的 terminal 返回 null', () {
+      final adapter = manager.getRendererAdapter('dev-1', 'term-999');
+      expect(adapter, isNull);
+    });
+
+    test('通过 adapter 写入数据反映到 outputText', () {
+      // ignore: deprecated_member_use
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
+
+      final adapter = manager.getRendererAdapter('dev-1', 'term-1');
+      adapter!.applyLiveOutput('via adapter\n');
+
+      // 通过 RendererAdapter 的 outputText 验证（不依赖 terminal.buffer）
+      expect(adapter.outputText.value, contains('via adapter'));
+    });
+  });
+
+  // ─── F072: 多 terminal active transport 测试 ──────────────────
+
+  group('多 terminal active transport', () {
+    late TerminalSessionManager manager;
+
+    MockWebSocketService buildMock({
+      String deviceId = 'dev-1',
+      String terminalId = 'term-1',
+    }) {
+      return MockWebSocketService(
+        deviceId: deviceId,
+        terminalId: terminalId,
+      );
+    }
+
+    setUp(() {
+      manager = TerminalSessionManager();
+    });
+
+    tearDown(() {
+      manager.disconnectAll();
+    });
+
+    test('创建新 terminal 后 active transport 切到新 terminal', () async {
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
+      expect(manager.activeTerminalKeyForTest, 'dev-1::term-1');
+
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-2',
+        () => Terminal(maxLines: 10000),
+      );
+      expect(manager.activeTerminalKeyForTest, 'dev-1::term-2');
+    });
+
+    test('同时只有一个 active terminal', () async {
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-2',
+        () => Terminal(maxLines: 10000),
+      );
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-3',
+        () => Terminal(maxLines: 10000),
+      );
+
+      // 最后一个创建的 terminal 是 active
+      expect(manager.activeTerminalKeyForTest, 'dev-1::term-3');
+
+      // switch 到 term-1
+      manager.switchTerminal('dev-1', 'term-1');
+      expect(manager.activeTerminalKeyForTest, 'dev-1::term-1');
+    });
+
+    test('切回旧 terminal 时 terminal 实例和 buffer 保留', () async {
+      final mock1 = buildMock(deviceId: 'dev-1', terminalId: 'term-1');
+      final mock2 = buildMock(deviceId: 'dev-1', terminalId: 'term-2');
+
+      manager.getOrCreate('dev-1', 'term-1', () => mock1);
+      manager.getOrCreate('dev-1', 'term-2', () => mock2);
+
+      final term1 = manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: mock1,
+      );
+
+      // 写入数据到 term-1
+      term1.write('hello term-1');
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      // 切到 term-2
+      final term2 = manager.getOrCreateTerminal(
+        'dev-1',
+        'term-2',
+        () => Terminal(maxLines: 10000),
+        service: mock2,
+      );
+      expect(manager.activeTerminalKeyForTest, 'dev-1::term-2');
+
+      // 切回 term-1
+      manager.switchTerminal('dev-1', 'term-1');
+      expect(manager.activeTerminalKeyForTest, 'dev-1::term-1');
+
+      // term-1 的实例和数据应该保留
+      final term1Again = manager.getTerminal('dev-1', 'term-1');
+      expect(identical(term1, term1Again), isTrue);
+      expect(term1Again!.buffer.lines[0].toString(), contains('hello term-1'));
+    });
+
+    test('disconnect active terminal 后 activeTerminalKey 清空', () async {
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
+      expect(manager.activeTerminalKeyForTest, 'dev-1::term-1');
+
+      await manager.disconnectTerminal('dev-1', 'term-1');
+      expect(manager.activeTerminalKeyForTest, isNull);
+    });
+
+    test('disconnect 非活跃终端不影响 activeTerminalKey', () async {
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-2',
+        () => Terminal(maxLines: 10000),
+      );
+      expect(manager.activeTerminalKeyForTest, 'dev-1::term-2');
+
+      await manager.disconnectTerminal('dev-1', 'term-1');
+      expect(manager.activeTerminalKeyForTest, 'dev-1::term-2');
+    });
+
+    test('disconnectAll 清空 activeTerminalKey', () async {
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
+      expect(manager.activeTerminalKeyForTest, 'dev-1::term-1');
+
+      await manager.disconnectAll();
+      expect(manager.activeTerminalKeyForTest, isNull);
+    });
+
+    test('switchTerminal 不存在的 terminal 不改变 active', () async {
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+      );
+      expect(manager.activeTerminalKeyForTest, 'dev-1::term-1');
+
+      // 尝试 switch 到不存在的 terminal
+      manager.switchTerminal('dev-1', 'term-999');
+      expect(manager.activeTerminalKeyForTest, 'dev-1::term-1');
     });
   });
 }

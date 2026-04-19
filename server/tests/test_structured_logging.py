@@ -10,6 +10,7 @@ B045 测试: Server 关键业务模块结构化日志
 - [fail] session TTL 过期时产生含 session_id 的 info 日志
 """
 import logging
+import json
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
 from fastapi import FastAPI
@@ -30,6 +31,7 @@ class TestAgentStructuredLogging:
                 yield ""
 
         mock_ws = AsyncMock()
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
         mock_ws.iter_text = MagicMock(return_value=mock_iter())
 
         with caplog.at_level(logging.INFO, logger="app.ws_agent"):
@@ -39,7 +41,7 @@ class TestAgentStructuredLogging:
                         with patch("app.ws_agent.update_session_device_heartbeat", new_callable=AsyncMock):
                             with patch("app.ws_client.get_view_counts", return_value={"mobile": 0, "desktop": 0}):
                                 with patch("app.ws_agent.list_recoverable_session_terminals", new=AsyncMock(return_value=[])):
-                                    await agent_websocket_handler(mock_ws, "valid-token")
+                                    await agent_websocket_handler(mock_ws)
 
         info_logs = [r for r in caplog.records if r.name == "app.ws_agent" and r.levelno == logging.INFO]
         connect_logs = [r for r in info_logs if "Agent connected" in r.message]
@@ -58,6 +60,7 @@ class TestAgentStructuredLogging:
             raise RuntimeError("unexpected connection failure")
 
         mock_ws = AsyncMock()
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
         mock_ws.iter_text = MagicMock(return_value=error_iter())
 
         with caplog.at_level(logging.ERROR, logger="app.ws_agent"):
@@ -67,7 +70,7 @@ class TestAgentStructuredLogging:
                         with patch("app.ws_agent.update_session_device_heartbeat", new_callable=AsyncMock):
                             with patch("app.ws_client.get_view_counts", return_value={"mobile": 0, "desktop": 0}):
                                 with patch("app.ws_agent.list_recoverable_session_terminals", new=AsyncMock(return_value=[])):
-                                    await agent_websocket_handler(mock_ws, "valid-token")
+                                    await agent_websocket_handler(mock_ws)
 
         error_logs = [r for r in caplog.records if r.name == "app.ws_agent" and r.levelno >= logging.ERROR]
         assert len(error_logs) >= 1, "Expected error log for agent connection failure"

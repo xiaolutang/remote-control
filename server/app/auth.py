@@ -1,6 +1,7 @@
 """
 JWT 认证服务
 """
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -26,11 +27,10 @@ class TokenVerificationError(HTTPException):
 
 # 配置
 # 兼容历史环境变量，避免 docker / 本地脚本配置错位导致 token 不一致。
-JWT_SECRET_KEY = (
-    os.getenv("JWT_SECRET_KEY")
-    or os.getenv("JWT_SECRET")
-    or secrets.token_hex(32)
-)
+_jwt_secret = os.getenv("JWT_SECRET_KEY") or os.getenv("JWT_SECRET")
+if not _jwt_secret:
+    raise RuntimeError("JWT_SECRET or JWT_SECRET_KEY environment variable is required")
+JWT_SECRET_KEY = _jwt_secret
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = int(
     os.getenv("JWT_EXPIRATION_HOURS")
@@ -206,7 +206,7 @@ def verify_token(token: str) -> dict:
             )
         else:
             raise TokenVerificationError(
-                detail=f"Token 无效: {e}",
+                detail="Token 无效",
                 error_code="TOKEN_INVALID",
                 status_code=status.HTTP_401_UNAUTHORIZED,
             )
@@ -218,10 +218,9 @@ async def async_verify_token(token: str) -> dict:
 
     用于受保护 API 的依赖注入。流程：
     1. 调用 verify_token 做 JWT 基础校验
-    2. 如果 JWT 含 token_version，与 Redis 当前版本比对
-    3. 旧 token（无 token_version）直接放行（向后兼容）
+    2. 无 token_version 的 JWT → 拒绝（TOKEN_INVALID）
+    3. 有 token_version 时与 Redis 当前版本比对
     """
-    import logging
     _logger = logging.getLogger("auth.verify")
 
     # 先做基础 JWT 校验
@@ -234,33 +233,43 @@ async def async_verify_token(token: str) -> dict:
         )
         raise
 
-    # 如果 JWT 中携带 token_version，与 Redis 比对
+    # token_version 为必填字段，无 token_version 的旧 token 直接拒绝
     token_version = payload.get("token_version")
     view_type = payload.get("view_type")
-    if token_version is not None and view_type is not None:
-        try:
-            current_version = await get_token_version(payload["session_id"], view_type)
-        except Exception as redis_err:
-            _logger.error(
-                "Redis GET failed for session=%s view=%s: %s",
-                payload["session_id"], view_type, redis_err,
-            )
-            # Redis GET 失败 → fail-closed: 携带 token_version 的 token 返回 503
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Token 验证服务暂不可用",
-            )
+    if token_version is None or view_type is None:
+        _logger.warning(
+            "Token rejected: missing token_version or view_type, session=%s",
+            payload["session_id"],
+        )
+        raise TokenVerificationError(
+            detail="Token 无效",
+            error_code="TOKEN_INVALID",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
 
-        if current_version is None or current_version != token_version:
-            _logger.warning(
-                "Token version mismatch: session=%s view=%s jwt_version=%s redis_version=%s",
-                payload["session_id"], view_type, token_version, current_version,
-            )
-            raise TokenVerificationError(
-                detail="Token 已在其他设备登录",
-                error_code="TOKEN_REPLACED",
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            )
+    try:
+        current_version = await get_token_version(payload["session_id"], view_type)
+    except Exception as redis_err:
+        _logger.error(
+            "Redis GET failed for session=%s view=%s: %s",
+            payload["session_id"], view_type, redis_err,
+        )
+        # Redis GET 失败 → fail-closed: 携带 token_version 的 token 返回 503
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Token 验证服务暂不可用",
+        )
+
+    if current_version is None or current_version != token_version:
+        _logger.warning(
+            "Token version mismatch: session=%s view=%s jwt_version=%s redis_version=%s",
+            payload["session_id"], view_type, token_version, current_version,
+        )
+        raise TokenVerificationError(
+            detail="Token 已在其他设备登录",
+            error_code="TOKEN_REPLACED",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
 
     return payload
 
@@ -404,7 +413,7 @@ def verify_refresh_token(token: str) -> dict:
         else:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"Refresh Token 无效: {e}",
+                detail="Refresh Token 无效",
             )
 
 

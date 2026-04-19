@@ -243,12 +243,13 @@ class TestAgentCreationIntegration:
 
         # 模拟第二个 Agent 尝试连接
         mock_ws2 = AsyncMock()
+        mock_ws2.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
 
         with patch("app.ws_agent.async_verify_token", return_value={
             "session_id": session_id, "sub": "test-user"
         }):
             from app.ws_agent import agent_websocket_handler
-            await agent_websocket_handler(mock_ws2, "valid-token")
+            await agent_websocket_handler(mock_ws2)
 
         # 第二个 Agent 应该被 4009 拒绝
         mock_ws2.close.assert_called_once_with(

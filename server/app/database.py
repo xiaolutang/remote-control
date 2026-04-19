@@ -81,6 +81,15 @@ class Database:
             )
             await db.commit()
 
+    async def update_password_hash(self, username: str, password_hash: str) -> None:
+        """更新用户密码哈希（用于旧哈希迁移）。"""
+        async with self._connect() as db:
+            await db.execute(
+                "UPDATE users SET password_hash = ? WHERE username = ?",
+                (password_hash, username),
+            )
+            await db.commit()
+
     async def get_user_devices(self, username: str) -> List[Dict[str, Any]]:
         """获取用户绑定的设备列表。"""
         async with self._connect() as db:
@@ -137,6 +146,10 @@ async def get_user(username: str) -> Optional[Dict[str, Any]]:
 
 async def save_user(username: str, password_hash: str) -> None:
     await _get_db().save_user(username, password_hash)
+
+
+async def update_password_hash(username: str, password_hash: str) -> None:
+    await _get_db().update_password_hash(username, password_hash)
 
 
 async def get_user_devices(username: str) -> List[Dict[str, Any]]:

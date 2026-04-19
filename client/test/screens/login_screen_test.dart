@@ -7,6 +7,7 @@ import 'package:rc_client/screens/login_screen.dart';
 import 'package:rc_client/services/desktop_agent_manager.dart';
 import 'package:rc_client/services/auth_service.dart';
 import 'package:rc_client/services/desktop_agent_supervisor.dart';
+import 'package:rc_client/services/environment_service.dart';
 import 'package:rc_client/services/theme_controller.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -62,10 +63,24 @@ class MockAuthService extends AuthService {
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+    EnvironmentService.setInstance(
+      EnvironmentService(debugModeProvider: () => true),
+    );
   });
 
+  // LoginScreen 现在包含环境选择 + host/port 编辑区，需要更大的视口
+  Future<void> setLargeViewport(WidgetTester tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+  }
+
+  // LoginScreen 本地环境下有 host/port 输入框，需要偏移索引
+  // host=0, port=1, username=2, password=3, confirm=4(注册模式)
+  final usernameField = find.byType(TextFormField).at(2);
+  final passwordField = find.byType(TextFormField).at(3);
+  final confirmPasswordField = find.byType(TextFormField).at(4);
+
   Widget wrapWithApp({
-    required String serverUrl,
     DesktopAgentManager? agentManager,
   }) {
     // 使用 mobile platform mock（supported=false），LoginScreen 不需要真实 Agent
@@ -79,15 +94,16 @@ void main() {
           ),
         ),
       ],
-      child: MaterialApp(
-        home: LoginScreen(serverUrl: serverUrl),
+      child: const MaterialApp(
+        home: LoginScreen(),
       ),
     );
   }
 
   group('LoginScreen - 正常场景 (Normal Scenarios)', () {
     testWidgets('shows login form by default', (tester) async {
-      await tester.pumpWidget(wrapWithApp(serverUrl: 'ws://localhost:8888'));
+      await setLargeViewport(tester);
+      await tester.pumpWidget(wrapWithApp());
       await tester.pumpAndSettle();
 
       expect(find.text('Remote Control'), findsOneWidget);
@@ -97,7 +113,8 @@ void main() {
     });
 
     testWidgets('toggle to register mode shows confirm password field', (tester) async {
-      await tester.pumpWidget(wrapWithApp(serverUrl: 'ws://localhost:8888'));
+      await setLargeViewport(tester);
+      await tester.pumpWidget(wrapWithApp());
       await tester.pumpAndSettle();
 
       // 初始是登录模式
@@ -115,7 +132,8 @@ void main() {
     });
 
     testWidgets('toggle back to login mode hides confirm password', (tester) async {
-      await tester.pumpWidget(wrapWithApp(serverUrl: 'ws://localhost:8888'));
+      await setLargeViewport(tester);
+      await tester.pumpWidget(wrapWithApp());
       await tester.pumpAndSettle();
 
       // 切换到注册模式
@@ -131,7 +149,8 @@ void main() {
     });
 
     testWidgets('shows theme picker button', (tester) async {
-      await tester.pumpWidget(wrapWithApp(serverUrl: 'ws://localhost:8888'));
+      await setLargeViewport(tester);
+      await tester.pumpWidget(wrapWithApp());
       await tester.pumpAndSettle();
 
       expect(find.byIcon(Icons.palette_outlined), findsOneWidget);
@@ -141,7 +160,8 @@ void main() {
   group('LoginScreen - 边界场景 (Boundary Scenarios)', () {
     group('form validation - 表单验证', () {
       testWidgets('shows error when username is empty', (tester) async {
-        await tester.pumpWidget(wrapWithApp(serverUrl: 'ws://localhost:8888'));
+        await setLargeViewport(tester);
+      await tester.pumpWidget(wrapWithApp());
         await tester.pumpAndSettle();
 
         await tester.tap(find.text('登录'));
@@ -152,10 +172,11 @@ void main() {
       });
 
       testWidgets('shows error when username is too short', (tester) async {
-        await tester.pumpWidget(wrapWithApp(serverUrl: 'ws://localhost:8888'));
+        await setLargeViewport(tester);
+      await tester.pumpWidget(wrapWithApp());
         await tester.pumpAndSettle();
 
-        await tester.enterText(find.byType(TextFormField).first, 'ab');
+        await tester.enterText(usernameField, 'ab');
         await tester.tap(find.text('登录'));
         await tester.pumpAndSettle();
 
@@ -163,11 +184,12 @@ void main() {
       });
 
       testWidgets('shows error when username is too long', (tester) async {
-        await tester.pumpWidget(wrapWithApp(serverUrl: 'ws://localhost:8888'));
+        await setLargeViewport(tester);
+      await tester.pumpWidget(wrapWithApp());
         await tester.pumpAndSettle();
 
         await tester.enterText(
-          find.byType(TextFormField).first,
+          usernameField,
           'a' * 33,
         );
         await tester.tap(find.text('登录'));
@@ -177,10 +199,11 @@ void main() {
       });
 
       testWidgets('shows error when password is empty', (tester) async {
-        await tester.pumpWidget(wrapWithApp(serverUrl: 'ws://localhost:8888'));
+        await setLargeViewport(tester);
+      await tester.pumpWidget(wrapWithApp());
         await tester.pumpAndSettle();
 
-        await tester.enterText(find.byType(TextFormField).first, 'testuser');
+        await tester.enterText(usernameField, 'testuser');
         await tester.tap(find.text('登录'));
         await tester.pumpAndSettle();
 
@@ -189,11 +212,12 @@ void main() {
       });
 
       testWidgets('shows error when password is too short', (tester) async {
-        await tester.pumpWidget(wrapWithApp(serverUrl: 'ws://localhost:8888'));
+        await setLargeViewport(tester);
+      await tester.pumpWidget(wrapWithApp());
         await tester.pumpAndSettle();
 
-        await tester.enterText(find.byType(TextFormField).first, 'testuser');
-        await tester.enterText(find.byType(TextFormField).at(1), '12345');
+        await tester.enterText(usernameField, 'testuser');
+        await tester.enterText(passwordField, '12345');
         await tester.tap(find.text('登录'));
         await tester.pumpAndSettle();
 
@@ -201,15 +225,16 @@ void main() {
       });
 
       testWidgets('shows error when confirm password is empty (register mode)', (tester) async {
-        await tester.pumpWidget(wrapWithApp(serverUrl: 'ws://localhost:8888'));
+        await setLargeViewport(tester);
+      await tester.pumpWidget(wrapWithApp());
         await tester.pumpAndSettle();
 
         // 切换到注册模式
         await tester.tap(find.text('立即注册'));
         await tester.pumpAndSettle();
 
-        await tester.enterText(find.byType(TextFormField).first, 'testuser');
-        await tester.enterText(find.byType(TextFormField).at(1), 'password123');
+        await tester.enterText(usernameField, 'testuser');
+        await tester.enterText(passwordField, 'password123');
         await tester.tap(find.text('注册'));
         await tester.pumpAndSettle();
 
@@ -217,16 +242,17 @@ void main() {
       });
 
       testWidgets('shows error when passwords do not match (register mode)', (tester) async {
-        await tester.pumpWidget(wrapWithApp(serverUrl: 'ws://localhost:8888'));
+        await setLargeViewport(tester);
+      await tester.pumpWidget(wrapWithApp());
         await tester.pumpAndSettle();
 
         // 切换到注册模式
         await tester.tap(find.text('立即注册'));
         await tester.pumpAndSettle();
 
-        await tester.enterText(find.byType(TextFormField).first, 'testuser');
-        await tester.enterText(find.byType(TextFormField).at(1), 'password123');
-        await tester.enterText(find.byType(TextFormField).at(2), 'password456');
+        await tester.enterText(usernameField, 'testuser');
+        await tester.enterText(passwordField, 'password123');
+        await tester.enterText(confirmPasswordField, 'password456');
         await tester.tap(find.text('注册'));
         await tester.pumpAndSettle();
 
@@ -236,13 +262,14 @@ void main() {
 
     group('password visibility - 密码可见性', () {
       testWidgets('toggles password visibility', (tester) async {
-        await tester.pumpWidget(wrapWithApp(serverUrl: 'ws://localhost:8888'));
+        await setLargeViewport(tester);
+      await tester.pumpWidget(wrapWithApp());
         await tester.pumpAndSettle();
 
         // 找到密码输入框对应的 TextField
         final passwordTextField = tester.widget<TextField>(
           find.descendant(
-            of: find.byType(TextFormField).at(1),
+            of: passwordField,
             matching: find.byType(TextField),
           ),
         );
@@ -254,7 +281,7 @@ void main() {
 
         final passwordTextFieldVisible = tester.widget<TextField>(
           find.descendant(
-            of: find.byType(TextFormField).at(1),
+            of: passwordField,
             matching: find.byType(TextField),
           ),
         );
@@ -262,7 +289,8 @@ void main() {
       });
 
       testWidgets('toggles confirm password visibility (register mode)', (tester) async {
-        await tester.pumpWidget(wrapWithApp(serverUrl: 'ws://localhost:8888'));
+        await setLargeViewport(tester);
+      await tester.pumpWidget(wrapWithApp());
         await tester.pumpAndSettle();
 
         // 切换到注册模式
@@ -272,7 +300,7 @@ void main() {
         // 确认密码默认隐藏
         final confirmTextField = tester.widget<TextField>(
           find.descendant(
-            of: find.byType(TextFormField).at(2),
+            of: confirmPasswordField,
             matching: find.byType(TextField),
           ),
         );
@@ -284,7 +312,7 @@ void main() {
 
         final confirmTextFieldVisible = tester.widget<TextField>(
           find.descendant(
-            of: find.byType(TextFormField).at(2),
+            of: confirmPasswordField,
             matching: find.byType(TextField),
           ),
         );
@@ -297,11 +325,12 @@ void main() {
     testWidgets('shows error message when login request fails', (tester) async {
       // LoginScreen 内部创建 AuthService，无法注入 mock。
       // 测试环境下 HTTP 请求返回 400，会触发 catch 分支显示错误。
-      await tester.pumpWidget(wrapWithApp(serverUrl: 'ws://localhost:8888'));
+      await setLargeViewport(tester);
+      await tester.pumpWidget(wrapWithApp());
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.byType(TextFormField).first, 'testuser');
-      await tester.enterText(find.byType(TextFormField).at(1), 'password123');
+      await tester.enterText(usernameField, 'testuser');
+      await tester.enterText(passwordField, 'password123');
       await tester.tap(find.text('登录'));
       await tester.pumpAndSettle();
 
@@ -312,7 +341,8 @@ void main() {
 
   group('LoginScreen - 主题切换 (Theme Toggle)', () {
     testWidgets('opens theme picker bottom sheet', (tester) async {
-      await tester.pumpWidget(wrapWithApp(serverUrl: 'ws://localhost:8888'));
+      await setLargeViewport(tester);
+      await tester.pumpWidget(wrapWithApp());
       await tester.pumpAndSettle();
 
       await tester.tap(find.byIcon(Icons.palette_outlined));
@@ -325,7 +355,8 @@ void main() {
     });
 
     testWidgets('selects light theme', (tester) async {
-      await tester.pumpWidget(wrapWithApp(serverUrl: 'ws://localhost:8888'));
+      await setLargeViewport(tester);
+      await tester.pumpWidget(wrapWithApp());
       await tester.pumpAndSettle();
 
       await tester.tap(find.byIcon(Icons.palette_outlined));
@@ -341,7 +372,8 @@ void main() {
 
   group('LoginScreen - 边界条件 (Edge Cases)', () {
     testWidgets('clears confirm password when switching modes', (tester) async {
-      await tester.pumpWidget(wrapWithApp(serverUrl: 'ws://localhost:8888'));
+      await setLargeViewport(tester);
+      await tester.pumpWidget(wrapWithApp());
       await tester.pumpAndSettle();
 
       // 切换到注册模式
@@ -349,7 +381,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // 输入确认密码
-      await tester.enterText(find.byType(TextFormField).at(2), 'password123');
+      await tester.enterText(confirmPasswordField, 'password123');
 
       // 切换回登录模式
       await tester.tap(find.text('立即登录'));
@@ -360,13 +392,14 @@ void main() {
       await tester.pumpAndSettle();
 
       final confirmField = tester.widget<TextFormField>(
-        find.byType(TextFormField).at(2),
+        confirmPasswordField,
       );
       expect((confirmField.controller as TextEditingController).text, isEmpty);
     });
 
     testWidgets('clears error message when toggling modes', (tester) async {
-      await tester.pumpWidget(wrapWithApp(serverUrl: 'ws://localhost:8888'));
+      await setLargeViewport(tester);
+      await tester.pumpWidget(wrapWithApp());
       await tester.pumpAndSettle();
 
       // 触发一个错误 - 输入空用户名
@@ -391,8 +424,8 @@ void main() {
       final supervisor = _MobileFakeSupervisor();
       final agentManager = DesktopAgentManager(supervisor: supervisor);
 
+      await setLargeViewport(tester);
       await tester.pumpWidget(wrapWithApp(
-        serverUrl: 'ws://localhost:8888',
         agentManager: agentManager,
       ));
       await tester.pumpAndSettle();
@@ -401,8 +434,8 @@ void main() {
       expect(agentManager.agentState.kind, DesktopAgentStateKind.unconfigured);
 
       // 填写表单并提交（测试环境下网络请求会失败，但不影响 Agent 状态验证）
-      await tester.enterText(find.byType(TextFormField).first, 'testuser');
-      await tester.enterText(find.byType(TextFormField).at(1), 'password123');
+      await tester.enterText(usernameField, 'testuser');
+      await tester.enterText(passwordField, 'password123');
       await tester.tap(find.text('登录'));
       await tester.pumpAndSettle();
 

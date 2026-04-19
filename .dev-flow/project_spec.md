@@ -1,7 +1,7 @@
 # 项目说明
 
 > 项目：remote-control
-> 版本：2.13.0-plan
+> 版本：2.13.1-plan
 
 ## 目标
 - 将当前 remote-control 从”单 PTY、多终端视图、双端共控”升级为”单设备单 Agent、多 terminal、多视图共控”的本地 Claude Code Remote Control。
@@ -16,6 +16,8 @@
 - **新增：桌面端与手机端行为模式明确区分**，桌面端管理本地 Agent，手机端只是远程查看器。
 - **新增：Agent 本地 HTTP Supervisor**，提供控制面 API，处理端口发现与冲突。
 - **新增：跨平台状态文件路径**，使用平台标准目录，处理权限和沙盒问题。
+- **新增：终端 P0 稳定性修复**，优先收敛 CPR 坐标、渲染闪烁、移动端键盘 resize 干扰和多 terminal 切换白屏。
+- **新增：终端交互架构重构**，把 terminal 交互收口为 UI / Coordinator / Transport / Renderer 四层，统一 switch / reconnect / recover 语义，并让 Agent 成为 terminal 内容恢复主权威源。
 
 ## 范围
 - 包含：
@@ -51,6 +53,8 @@
   - 设备离线后 terminal 统一收口为不可用/关闭状态
   - 桌面端 AgentSupervisor、本机 Agent 状态探测与后台运行开关
   - 本地 Docker 验收与云端发布清单
+  - 终端 P0 稳定性修复：CPR 兼容、渲染闪烁、移动端键盘 resize 隔离、终端切换白屏
+  - 终端交互架构重构：恢复语义、epoch、exclusive/shared 模式、client lifecycle recovery、desktop agent 恢复链
 - 不包含：
   - 远程桌面 / 屏幕采集 / 视频流
   - 多个独立 Agent 实例调度
@@ -75,6 +79,10 @@
 15. 桌面端退出时是否保留本机 Agent 继续后台运行，由本地配置决定；只有桌面端自己拉起的 Agent 才能被其退出流程主动停止。
 16. 桌面端工作台页面只消费统一的 `WorkspaceState`；Agent 发现、启动、停止、所有权与退出语义由独立的 Agent 管理子系统统一提供。
 17. 当最后一个可用 terminal 被关闭后，工作台必须重新判断 `AgentState + usableTerminalCount`，回到 `readyToCreateFirstTerminal / bootstrappingAgent / createFailed` 之一，不能延续历史失败标记。
+18. 在 terminal 中运行 Codex、Claude Code、vim、top 等 TUI 程序时，终端协议行为必须保持兼容，不得因 CPR 或本地重绘问题退化。
+19. 移动端软键盘弹起/收起只影响本地视图，不得改变共享 PTY 的全局尺寸，也不得干扰桌面端正在查看的同一 terminal。
+20. 多 terminal 切换必须保留各自 buffer/scrollback，切回已存在 terminal 时不得出现白屏等待远端重新推流。
+21. app 从后台回前台、app 被杀后重启、网络异常恢复、agent 与 server 断连恢复必须走统一 terminal recovery 状态机，不再依赖页面层或临时刷新补偿。
 
 ## 技术约束
 - 后端与 Agent：Python + FastAPI + WebSocket + PTY

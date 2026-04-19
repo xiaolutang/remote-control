@@ -6,6 +6,7 @@ B041/B042: Token 统一校验 + 直接踢出机制单元测试
 - B042: 移除冲突弹窗，简化为新设备直接踢出旧设备
 """
 import asyncio
+import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -23,6 +24,7 @@ class TestWSClientTokenReplaced:
     @pytest.mark.asyncio
     async def test_replaced_token_rejected(self):
         mock_ws = AsyncMock()
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "old-token"}))
 
         with patch('app.ws_client.async_verify_token') as mock_verify:
             mock_verify.side_effect = TokenVerificationError(
@@ -31,7 +33,7 @@ class TestWSClientTokenReplaced:
                 error_code="TOKEN_REPLACED",
             )
             await client_websocket_handler(
-                mock_ws, "session-1", "old-token", view="mobile"
+                mock_ws, "session-1", view="mobile"
             )
 
         mock_ws.close.assert_called_once()
@@ -47,6 +49,7 @@ class TestWSClientTokenExpired:
     @pytest.mark.asyncio
     async def test_expired_token_rejected(self):
         mock_ws = AsyncMock()
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "expired-token"}))
 
         with patch('app.ws_client.async_verify_token') as mock_verify:
             mock_verify.side_effect = TokenVerificationError(
@@ -55,7 +58,7 @@ class TestWSClientTokenExpired:
                 error_code="TOKEN_EXPIRED",
             )
             await client_websocket_handler(
-                mock_ws, "session-1", "expired-token", view="mobile"
+                mock_ws, "session-1", view="mobile"
             )
 
         mock_ws.close.assert_called_once()
@@ -71,6 +74,7 @@ class TestWSClientTokenInvalid:
     @pytest.mark.asyncio
     async def test_invalid_token_rejected(self):
         mock_ws = AsyncMock()
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "bad-token"}))
 
         with patch('app.ws_client.async_verify_token') as mock_verify:
             mock_verify.side_effect = TokenVerificationError(
@@ -79,7 +83,7 @@ class TestWSClientTokenInvalid:
                 error_code="TOKEN_INVALID",
             )
             await client_websocket_handler(
-                mock_ws, "session-1", "bad-token", view="mobile"
+                mock_ws, "session-1", view="mobile"
             )
 
         mock_ws.close.assert_called_once()
@@ -98,6 +102,7 @@ class TestWSClientRedisUnavailable:
         from fastapi import HTTPException
 
         mock_ws = AsyncMock()
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "token-with-version"}))
 
         with patch('app.ws_client.async_verify_token') as mock_verify:
             mock_verify.side_effect = HTTPException(
@@ -105,7 +110,7 @@ class TestWSClientRedisUnavailable:
                 detail="Token 验证服务暂不可用",
             )
             await client_websocket_handler(
-                mock_ws, "session-1", "token-with-version", view="mobile"
+                mock_ws, "session-1", view="mobile"
             )
 
         mock_ws.close.assert_called_once()
@@ -116,13 +121,14 @@ class TestWSClientRedisUnavailable:
     async def test_redis_down_without_token_version(self):
         """无 token_version → 正常放行（Redis 不参与）"""
 
-        async def cancelled_iter_json():
+        async def cancelled_iter_text():
             if False:
-                yield {}
+                yield ""
             raise asyncio.CancelledError
 
         mock_ws = AsyncMock()
-        mock_ws.iter_json = MagicMock(return_value=cancelled_iter_json())
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "old-token-no-version"}))
+        mock_ws.iter_text = MagicMock(return_value=cancelled_iter_text())
 
         with patch('app.ws_client.async_verify_token', return_value={
             "session_id": "session-1", "sub": "user1"
@@ -135,7 +141,7 @@ class TestWSClientRedisUnavailable:
                         with patch('app.ws_client._broadcast_presence', new_callable=AsyncMock):
                             try:
                                 await client_websocket_handler(
-                                    mock_ws, "session-1", "old-token-no-version",
+                                    mock_ws, "session-1",
                                     view="mobile"
                                 )
                             except asyncio.CancelledError:
@@ -153,13 +159,14 @@ class TestWSClientCurrentTokenAccepted:
     @pytest.mark.asyncio
     async def test_valid_token_connects(self):
 
-        async def cancelled_iter_json():
+        async def cancelled_iter_text():
             if False:
-                yield {}
+                yield ""
             raise asyncio.CancelledError
 
         mock_ws = AsyncMock()
-        mock_ws.iter_json = MagicMock(return_value=cancelled_iter_json())
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
+        mock_ws.iter_text = MagicMock(return_value=cancelled_iter_text())
 
         with patch('app.ws_client.async_verify_token', return_value={
             "session_id": "session-1",
@@ -175,7 +182,7 @@ class TestWSClientCurrentTokenAccepted:
                         with patch('app.ws_client._broadcast_presence', new_callable=AsyncMock):
                             try:
                                 await client_websocket_handler(
-                                    mock_ws, "session-1", "valid-token",
+                                    mock_ws, "session-1",
                                     view="mobile"
                                 )
                             except asyncio.CancelledError:
@@ -196,6 +203,7 @@ class TestWSAgentTokenReplaced:
     @pytest.mark.asyncio
     async def test_replaced_token_rejected(self):
         mock_ws = AsyncMock()
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "old-token"}))
 
         with patch('app.ws_agent.async_verify_token') as mock_verify:
             mock_verify.side_effect = TokenVerificationError(
@@ -203,7 +211,7 @@ class TestWSAgentTokenReplaced:
                 detail="Token 已在其他设备登录",
                 error_code="TOKEN_REPLACED",
             )
-            await agent_websocket_handler(mock_ws, "old-token")
+            await agent_websocket_handler(mock_ws)
 
         mock_ws.close.assert_called_once()
         call = mock_ws.close.call_args
@@ -218,6 +226,7 @@ class TestWSAgentTokenExpired:
     @pytest.mark.asyncio
     async def test_expired_token_rejected(self):
         mock_ws = AsyncMock()
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "expired-token"}))
 
         with patch('app.ws_agent.async_verify_token') as mock_verify:
             mock_verify.side_effect = TokenVerificationError(
@@ -225,7 +234,7 @@ class TestWSAgentTokenExpired:
                 detail="Token 已过期",
                 error_code="TOKEN_EXPIRED",
             )
-            await agent_websocket_handler(mock_ws, "expired-token")
+            await agent_websocket_handler(mock_ws)
 
         mock_ws.close.assert_called_once()
         call = mock_ws.close.call_args
@@ -240,6 +249,7 @@ class TestWSAgentTokenInvalid:
     @pytest.mark.asyncio
     async def test_invalid_token_rejected(self):
         mock_ws = AsyncMock()
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "bad-token"}))
 
         with patch('app.ws_agent.async_verify_token') as mock_verify:
             mock_verify.side_effect = TokenVerificationError(
@@ -247,7 +257,7 @@ class TestWSAgentTokenInvalid:
                 detail="Token 无效: bad signature",
                 error_code="TOKEN_INVALID",
             )
-            await agent_websocket_handler(mock_ws, "bad-token")
+            await agent_websocket_handler(mock_ws)
 
         mock_ws.close.assert_called_once()
         call = mock_ws.close.call_args
@@ -263,13 +273,14 @@ class TestWSAgentRedisUnavailable:
         from fastapi import HTTPException
 
         mock_ws = AsyncMock()
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "token-with-version"}))
 
         with patch('app.ws_agent.async_verify_token') as mock_verify:
             mock_verify.side_effect = HTTPException(
                 status_code=503,
                 detail="Token 验证服务暂不可用",
             )
-            await agent_websocket_handler(mock_ws, "token-with-version")
+            await agent_websocket_handler(mock_ws)
 
         mock_ws.close.assert_called_once()
         call = mock_ws.close.call_args
@@ -282,13 +293,14 @@ class TestWSAgentOldTokenAccepted:
     @pytest.mark.asyncio
     async def test_old_token_accepted(self):
 
-        async def cancelled_iter_json():
+        async def cancelled_iter_text():
             if False:
-                yield {}
+                yield ""
             raise asyncio.CancelledError
 
         mock_ws = AsyncMock()
-        mock_ws.iter_json = MagicMock(return_value=cancelled_iter_json())
+        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "old-token"}))
+        mock_ws.iter_text = MagicMock(return_value=cancelled_iter_text())
 
         with patch('app.ws_agent.async_verify_token', return_value={
             "session_id": "session-1", "sub": "user1"
@@ -301,7 +313,7 @@ class TestWSAgentOldTokenAccepted:
                         with patch('app.ws_agent._restore_recoverable_terminals', new_callable=AsyncMock):
                             with patch('app.ws_client.get_view_counts', return_value={"mobile": 0, "desktop": 0}):
                                 try:
-                                    await agent_websocket_handler(mock_ws, "old-token")
+                                    await agent_websocket_handler(mock_ws)
                                 except asyncio.CancelledError:
                                     pass
 
@@ -345,6 +357,7 @@ class TestDF20260409Regression:
         → WS 返回 4001 → A 无法重连 → B 不受影响（不再互踢乒乓）。
         """
         mock_ws_a = AsyncMock()
+        mock_ws_a.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "ios-old-token"}))
 
         with patch('app.ws_client.async_verify_token') as mock_verify:
             mock_verify.side_effect = TokenVerificationError(
@@ -353,7 +366,7 @@ class TestDF20260409Regression:
                 error_code="TOKEN_REPLACED",
             )
             await client_websocket_handler(
-                mock_ws_a, "session-1", "ios-old-token", view="mobile"
+                mock_ws_a, "session-1", view="mobile"
             )
 
         # A 被拒绝，close code 4001 + reason TOKEN_REPLACED
@@ -373,6 +386,7 @@ class TestDF20260409Regression:
 
         # A 用旧 token 重连 → 在 async_verify_token 阶段被拒
         mock_ws_a = AsyncMock()
+        mock_ws_a.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "ios-old-token"}))
         with patch('app.ws_client.async_verify_token') as mock_verify:
             mock_verify.side_effect = TokenVerificationError(
                 status_code=401,
@@ -380,7 +394,7 @@ class TestDF20260409Regression:
                 error_code="TOKEN_REPLACED",
             )
             await client_websocket_handler(
-                mock_ws_a, "session-1", "ios-old-token", view="mobile"
+                mock_ws_a, "session-1", view="mobile"
             )
 
         # A 被拒绝
@@ -414,6 +428,7 @@ class TestCrossViewNoKick:
 
         # mobile 旧 token 重连 → 被拒
         mock_ws_mobile = AsyncMock()
+        mock_ws_mobile.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "mobile-old-token"}))
         with patch('app.ws_client.async_verify_token') as mock_verify:
             mock_verify.side_effect = TokenVerificationError(
                 status_code=401,
@@ -421,7 +436,7 @@ class TestCrossViewNoKick:
                 error_code="TOKEN_REPLACED",
             )
             await client_websocket_handler(
-                mock_ws_mobile, "session-1", "mobile-old-token", view="mobile"
+                mock_ws_mobile, "session-1", view="mobile"
             )
 
         # mobile 被拒
@@ -453,13 +468,14 @@ class TestDirectKick:
         active_clients["session-1"] = [client_a]
 
         # 新设备 B 连接（需要完整的 mock 链路）
-        async def cancelled_iter_json():
+        async def cancelled_iter_text():
             if False:
-                yield {}
+                yield ""
             raise asyncio.CancelledError
 
         mock_ws_b = AsyncMock()
-        mock_ws_b.iter_json = MagicMock(return_value=cancelled_iter_json())
+        mock_ws_b.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "new-device-token"}))
+        mock_ws_b.iter_text = MagicMock(return_value=cancelled_iter_text())
 
         with patch('app.ws_client.async_verify_token', return_value={
             "session_id": "session-1", "sub": "user1",
@@ -473,7 +489,7 @@ class TestDirectKick:
                         with patch('app.ws_client._broadcast_presence', new_callable=AsyncMock):
                             try:
                                 await client_websocket_handler(
-                                    mock_ws_b, "session-1", "new-device-token",
+                                    mock_ws_b, "session-1",
                                     view="mobile"
                                 )
                             except asyncio.CancelledError:
@@ -507,13 +523,14 @@ class TestDirectKick:
         active_clients["session-1"] = [desktop_client]
 
         # mobile 新设备连接
-        async def cancelled_iter_json():
+        async def cancelled_iter_text():
             if False:
-                yield {}
+                yield ""
             raise asyncio.CancelledError
 
         mock_ws_mobile = AsyncMock()
-        mock_ws_mobile.iter_json = MagicMock(return_value=cancelled_iter_json())
+        mock_ws_mobile.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "mobile-token"}))
+        mock_ws_mobile.iter_text = MagicMock(return_value=cancelled_iter_text())
 
         with patch('app.ws_client.async_verify_token', return_value={
             "session_id": "session-1", "sub": "user1",
@@ -526,7 +543,7 @@ class TestDirectKick:
                         with patch('app.ws_client._broadcast_presence', new_callable=AsyncMock):
                             try:
                                 await client_websocket_handler(
-                                    mock_ws_mobile, "session-1", "mobile-token",
+                                    mock_ws_mobile, "session-1",
                                     view="mobile"
                                 )
                             except asyncio.CancelledError:
@@ -563,13 +580,14 @@ class TestDirectKick:
         active_clients["session-1"] = [client_a]
 
         # 新设备 B 连接
-        async def cancelled_iter_json():
+        async def cancelled_iter_text():
             if False:
-                yield {}
+                yield ""
             raise asyncio.CancelledError
 
         mock_ws_b = AsyncMock()
-        mock_ws_b.iter_json = MagicMock(return_value=cancelled_iter_json())
+        mock_ws_b.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "new-device-token"}))
+        mock_ws_b.iter_text = MagicMock(return_value=cancelled_iter_text())
 
         with patch('app.ws_client.async_verify_token', return_value={
             "session_id": "session-1", "sub": "user1",
@@ -582,7 +600,7 @@ class TestDirectKick:
                         with patch('app.ws_client._broadcast_presence', new_callable=AsyncMock):
                             try:
                                 await client_websocket_handler(
-                                    mock_ws_b, "session-1", "new-device-token",
+                                    mock_ws_b, "session-1",
                                     view="mobile"
                                 )
                             except asyncio.CancelledError:
@@ -611,6 +629,7 @@ class TestConcurrentReconnect:
         # A 用旧 token 重连 → 被拒
         async def old_device_connect():
             mock_ws_a = AsyncMock()
+            mock_ws_a.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "ios-old-token"}))
             with patch('app.ws_client.async_verify_token') as mock_verify:
                 mock_verify.side_effect = TokenVerificationError(
                     status_code=401,
@@ -618,7 +637,7 @@ class TestConcurrentReconnect:
                     error_code="TOKEN_REPLACED",
                 )
                 await client_websocket_handler(
-                    mock_ws_a, "session-1", "ios-old-token", view="mobile"
+                    mock_ws_a, "session-1", view="mobile"
                 )
             return mock_ws_a
 

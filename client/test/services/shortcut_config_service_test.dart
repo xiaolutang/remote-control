@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:rc_client/models/shortcut_item.dart';
 import 'package:rc_client/models/terminal_shortcut.dart';
 import 'package:rc_client/services/config_service.dart';
+import 'package:rc_client/services/environment_service.dart';
 import 'package:rc_client/services/shortcut_config_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -11,8 +12,11 @@ void main() {
 
     setUp(() {
       SharedPreferences.setMockInitialValues({});
+      EnvironmentService.setInstance(
+        EnvironmentService(debugModeProvider: () => true),
+      );
       service = ShortcutConfigService(
-        configService: ConfigService(useDebugDefaults: false),
+        configService: ConfigService(),
       );
     });
 

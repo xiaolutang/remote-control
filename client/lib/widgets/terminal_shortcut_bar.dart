@@ -22,10 +22,13 @@ class TerminalShortcutBar extends StatelessWidget {
 
     final colorScheme = Theme.of(context).colorScheme;
     final mediaQuery = MediaQuery.of(context);
-    final bottomInset = mediaQuery.padding.bottom >
-            mediaQuery.systemGestureInsets.bottom
-        ? mediaQuery.padding.bottom
-        : mediaQuery.systemGestureInsets.bottom;
+    final safeBottomInset =
+        mediaQuery.padding.bottom > mediaQuery.systemGestureInsets.bottom
+            ? mediaQuery.padding.bottom
+            : mediaQuery.systemGestureInsets.bottom;
+    final bottomInset = mediaQuery.viewInsets.bottom > 0
+        ? mediaQuery.viewInsets.bottom
+        : safeBottomInset;
 
     return Container(
       color: colorScheme.surfaceContainerHigh,

@@ -4,6 +4,7 @@ import 'package:rc_client/models/runtime_terminal.dart';
 import 'package:rc_client/services/desktop_agent_bootstrap_service.dart';
 import 'package:rc_client/services/desktop_agent_manager.dart';
 import 'package:rc_client/services/desktop_workspace_controller.dart';
+import 'package:rc_client/services/environment_service.dart';
 import 'package:rc_client/services/runtime_device_service.dart';
 import 'package:rc_client/services/runtime_selection_controller.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -160,6 +161,9 @@ class _FakeBootstrapService extends DesktopAgentBootstrapService {
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+    EnvironmentService.setInstance(
+      EnvironmentService(debugModeProvider: () => true),
+    );
   });
 
   test('startLocalAgent delegates to bootstrap service and exposes createFailed on failure', () async {
