@@ -188,6 +188,14 @@ class DesktopAgentManager extends ChangeNotifier {
 
   /// Agent 重连成功后由上层调用
   void onAgentReconnected() {
+    // expired/recoveryFailed 是终态，不再接受重连回调
+    if (_state.recoveryState == DesktopAgentRecoveryState.expired ||
+        _state.recoveryState == DesktopAgentRecoveryState.recoveryFailed) {
+      _logDesktopAgentManager(
+        'onAgentReconnected: ignored in terminal state ${_state.recoveryState}',
+      );
+      return;
+    }
     _logDesktopAgentManager('onAgentReconnected: recovery restored');
     _recoveryEpoch++;
     _recoveryTimer?.cancel();

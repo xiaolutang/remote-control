@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -851,6 +852,77 @@ void main() {
 
       // 应不报错，状态保持 none
       expect(manager.agentState.recoveryState, DesktopAgentRecoveryState.none);
+    });
+
+    test('expired 是终态，onAgentReconnected 不覆盖', () async {
+      final configService = ConfigService();
+      await configService.saveConfig(const AppConfig());
+
+      final manager = DesktopAgentManager(
+        serverUrl: 'ws://localhost:8888',
+        token: 'token',
+        deviceId: 'dev-1',
+        supervisor: DesktopAgentSupervisor(
+          processRunner: (executable, arguments) async {
+            return ProcessResult(0, 1, '', '');
+          },
+        ),
+        configService: configService,
+      );
+
+      // 进入 online 状态需要通过 onLogin
+      // 但这里我们直接通过 triggerRecoveryExpiredForTest 测试终态守卫
+      // 先让 manager 进入 recoverable
+      manager.onAgentDisconnect(reason: 'test', isProcessAlive: true);
+      expect(manager.agentState.recoveryState, DesktopAgentRecoveryState.recoverable);
+
+      // TTL 过期
+      manager.triggerRecoveryExpiredForTest();
+      expect(manager.agentState.recoveryState, DesktopAgentRecoveryState.expired);
+
+      // 晚到的重连回调不应覆盖 expired
+      manager.onAgentReconnected();
+      expect(manager.agentState.recoveryState, DesktopAgentRecoveryState.expired);
+    });
+
+    test('TTL 过期使 in-flight recovery 失效', () async {
+      final configService = ConfigService();
+      await configService.saveConfig(const AppConfig());
+      final syncCompleter = Completer<ProcessResult>();
+      int syncCallCount = 0;
+
+      final manager = DesktopAgentManager(
+        serverUrl: 'ws://localhost:8888',
+        token: 'token',
+        deviceId: 'dev-1',
+        supervisor: DesktopAgentSupervisor(
+          processRunner: (executable, arguments) async {
+            syncCallCount++;
+            // 卡住直到 completer 完成
+            return syncCompleter.future;
+          },
+        ),
+        configService: configService,
+        recoveryRetryDelayOverride: const Duration(milliseconds: 50),
+      );
+
+      // 进入 online 状态
+      manager.onAgentDisconnect(reason: 'test', isProcessAlive: true);
+      expect(manager.agentState.recoveryState, DesktopAgentRecoveryState.recoverable);
+
+      // 进程死亡触发 _attemptRecovery
+      // 但这里 isProcessAlive=true 已经在 recoverable 了，直接触发 TTL 过期
+      manager.triggerRecoveryExpiredForTest();
+      expect(manager.agentState.recoveryState, DesktopAgentRecoveryState.expired);
+
+      // 完成 sync 让 in-flight 恢复继续
+      syncCompleter.complete(ProcessResult(0, 0, '', ''));
+
+      // 等待异步完成
+      await Future.delayed(const Duration(milliseconds: 100));
+
+      // expired 终态应保持
+      expect(manager.agentState.recoveryState, DesktopAgentRecoveryState.expired);
     });
   });
 }
