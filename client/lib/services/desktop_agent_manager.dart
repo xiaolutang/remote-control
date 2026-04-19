@@ -64,8 +64,9 @@ class DesktopAgentState {
   final DesktopAgentRecoveryState recoveryState;
 
   bool get online =>
-      kind == DesktopAgentStateKind.managedOnline ||
-      kind == DesktopAgentStateKind.externalOnline;
+      (kind == DesktopAgentStateKind.managedOnline ||
+          kind == DesktopAgentStateKind.externalOnline) &&
+      recoveryState == DesktopAgentRecoveryState.none;
 
   bool get managed => kind == DesktopAgentStateKind.managedOnline;
 
@@ -153,6 +154,7 @@ class DesktopAgentManager extends ChangeNotifier {
 
   Timer? _recoveryTimer;
   int _recoveryAttempts = 0;
+  int _recoveryEpoch = 0; // 用于取消 in-flight 的异步恢复操作
 
   /// 当 WebSocketService / 上层检测到 agent 断连时调用
   ///
@@ -187,6 +189,7 @@ class DesktopAgentManager extends ChangeNotifier {
   /// Agent 重连成功后由上层调用
   void onAgentReconnected() {
     _logDesktopAgentManager('onAgentReconnected: recovery restored');
+    _recoveryEpoch++;
     _recoveryTimer?.cancel();
     _recoveryTimer = null;
     _recoveryAttempts = 0;
@@ -198,6 +201,7 @@ class DesktopAgentManager extends ChangeNotifier {
 
   /// 取消恢复状态机（登出 / 手动停止时调用）
   void cancelRecovery() {
+    _recoveryEpoch++;
     _recoveryTimer?.cancel();
     _recoveryTimer = null;
     _recoveryAttempts = 0;
@@ -226,6 +230,8 @@ class DesktopAgentManager extends ChangeNotifier {
       _logDesktopAgentManager(
         '_attemptRecovery: max attempts ($maxRecoveryAttempts) reached',
       );
+      _recoveryTimer?.cancel();
+      _recoveryTimer = null;
       _updateState(_state.copyWith(
         recoveryState: DesktopAgentRecoveryState.recoveryFailed,
         message: 'Agent 恢复失败（已重试 $maxRecoveryAttempts 次）',
@@ -240,6 +246,7 @@ class DesktopAgentManager extends ChangeNotifier {
       return;
     }
 
+    final epoch = _recoveryEpoch;
     _recoveryAttempts++;
     _logDesktopAgentManager(
       '_attemptRecovery: attempt $_recoveryAttempts/$maxRecoveryAttempts',
@@ -254,12 +261,18 @@ class DesktopAgentManager extends ChangeNotifier {
       final config = await _configService.loadConfig();
       final workdir = _resolveConfiguredWorkdir(config);
 
+      // epoch 守卫：如果 recovery 已被取消，不再继续
+      if (_recoveryEpoch != epoch) return;
+
       final online = await _supervisor.syncAndEnsureOnline(
         serverUrl: _serverUrl,
         accessToken: _token,
         deviceId: _deviceId,
         agentWorkdir: workdir,
       );
+
+      // epoch 守卫：异步操作后再次检查
+      if (_recoveryEpoch != epoch) return;
 
       if (online) {
         _logDesktopAgentManager('_attemptRecovery: agent online');
@@ -282,10 +295,15 @@ class DesktopAgentManager extends ChangeNotifier {
         await Future<void>.delayed(
           _recoveryRetryDelayOverride ?? recoveryRetryDelay,
         );
+        // epoch 守卫：delay 后再次检查
+        if (_recoveryEpoch != epoch) return;
         _attemptRecovery();
       }
     } catch (e) {
+      if (_recoveryEpoch != epoch) return;
       _logDesktopAgentManager('_attemptRecovery: exception - $e');
+      _recoveryTimer?.cancel();
+      _recoveryTimer = null;
       _updateState(_state.copyWith(
         recoveryState: DesktopAgentRecoveryState.recoveryFailed,
         message: 'Agent 恢复失败: $e',
