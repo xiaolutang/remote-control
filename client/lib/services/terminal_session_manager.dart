@@ -232,6 +232,7 @@ class _TerminalBinding {
     required this.connectedSubscription,
     required this.outputSubscription,
     required this.ptySubscription,
+    required this.statusListener,
   });
 
   final WebSocketService service;
@@ -239,11 +240,13 @@ class _TerminalBinding {
   final StreamSubscription<void> connectedSubscription;
   final StreamSubscription<TerminalOutputFrame> outputSubscription;
   final StreamSubscription<TerminalPtySize> ptySubscription;
+  final void Function() statusListener;
 
   Future<void> cancel() async {
     await connectedSubscription.cancel();
     await outputSubscription.cancel();
     await ptySubscription.cancel();
+    service.removeListener(statusListener);
   }
 }
 
@@ -462,7 +465,21 @@ class TerminalSessionManager extends ChangeNotifier
         if (_bindingGenerations[key] != generation) return;
         state.applyRemotePtySize(pty.rows, pty.cols);
       }),
+      statusListener: () {
+        if (_bindingGenerations[key] != generation) return;
+        final status = service.status;
+        // live/recovering/reconnecting 状态下 service 断线 → 收敛到 error（可重试）
+        if (status == ConnectionStatus.disconnected ||
+            status == ConnectionStatus.error) {
+          if (state.sessionState == TerminalSessionState.live ||
+              state.sessionState == TerminalSessionState.recovering ||
+              state.sessionState == TerminalSessionState.reconnecting) {
+            state._setSessionState(TerminalSessionState.error);
+          }
+        }
+      },
     );
+    service.addListener(_terminalBindings[key]!.statusListener);
   }
 
   Future<void> deactivateConflictingTerminalSessions(
@@ -572,6 +589,11 @@ class TerminalSessionManager extends ChangeNotifier
 
     try {
       await service.connect();
+      // connect 返回后检查是否真正连接成功
+      if (service.status != ConnectionStatus.connected) {
+        state._setSessionState(TerminalSessionState.error);
+        return;
+      }
       // connect 成功后，bindTerminalOutput 中的 connectedSubscription
       // 会触发 beginRecovery，推动 recovering -> live
     } catch (e) {
@@ -610,6 +632,11 @@ class TerminalSessionManager extends ChangeNotifier
 
     try {
       await service.connect();
+      // connect 返回后检查是否真正连接成功
+      if (service.status != ConnectionStatus.connected) {
+        state._setSessionState(TerminalSessionState.error);
+        return;
+      }
       // connect 成功后，bindTerminalOutput 的 connectedSubscription
       // 会触发 beginRecovery，推动 recovering -> live
     } catch (e) {
