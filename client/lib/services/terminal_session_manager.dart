@@ -297,7 +297,6 @@ class TerminalSessionManager extends ChangeNotifier
   /// 仅对 status == connected 的 service 调用 disconnect()。
   /// 单个 service disconnect 失败不阻塞其他 service。
   void pauseAll() {
-    _pausedKeys = {};
     for (final entry in _sessions.entries) {
       if (entry.value.status == ConnectionStatus.connected) {
         _pausedKeys.add(entry.key);
