@@ -448,6 +448,11 @@ class TerminalSessionManager extends ChangeNotifier
       generation: generation,
       connectedSubscription: service.terminalConnectedStream.listen((_) {
         if (_bindingGenerations[key] != generation) return;
+        // 防止排队中的 connected 事件覆盖永久失败状态
+        if (service.isAuthFailed || service.terminalStatus == 'closed') {
+          return;
+        }
+        if (service.status != ConnectionStatus.connected) return;
         state.beginRecovery();
       }),
       outputSubscription: service.outputFrameStream.listen((frame) {
@@ -479,7 +484,8 @@ class TerminalSessionManager extends ChangeNotifier
           if (service.isAuthFailed || service.terminalStatus == 'closed') {
             if (state.sessionState == TerminalSessionState.live ||
                 state.sessionState == TerminalSessionState.recovering ||
-                state.sessionState == TerminalSessionState.reconnecting) {
+                state.sessionState == TerminalSessionState.reconnecting ||
+                state.sessionState == TerminalSessionState.connecting) {
               state._setSessionState(TerminalSessionState.error);
             }
           }

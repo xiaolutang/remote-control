@@ -1405,7 +1405,8 @@ void main() {
         TerminalSessionState.error,
       );
 
-      // 模拟重连成功（connected 事件）
+      // 模拟重连成功（先清除 auth_failed 状态，再发 connected 事件）
+      mock.setMockLastCloseCode(null);
       mock.setMockConnected(true);
       mock.debugHandleMessage(jsonEncode({'type': 'connected'}));
       await Future<void>.delayed(const Duration(milliseconds: 10));
