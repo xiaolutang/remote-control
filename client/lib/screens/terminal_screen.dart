@@ -132,7 +132,16 @@ class _TerminalScreenState extends State<TerminalScreen> {
       if (adapter != null) {
         _terminal = adapter.terminalForView;
         _terminalOutputText = adapter.outputText;
-        // F074: 注册 input/output 回调到 coordinator
+        // F074: rebind 当前 service 到已有 terminal（处理 service 替换场景）
+        sessionManager.bindTerminalOutput(
+          service.deviceId,
+          terminalId,
+          sessionManager.getOrCreate(
+            service.deviceId,
+            terminalId,
+            () => service,
+          ),
+        );
         _configureTerminalCallbacks(service, adapter);
       } else {
         // 首次创建：通过 deprecated API 创建 terminal（coordinator 会自动绑定）
@@ -434,11 +443,10 @@ class _TerminalScreenState extends State<TerminalScreen> {
     final service = _activeService;
     final terminalId = service.terminalId;
     if ((terminalId ?? '').isNotEmpty) {
-      // F074: 通过 coordinator 恢复连接
-      context
+      // F074: 通过 coordinator 单入口重连
+      await context
           .read<TerminalSessionManager>()
-          .recoverTerminal(service.deviceId, terminalId!);
-      await service.connect();
+          .reconnectTerminal(service.deviceId, terminalId!);
     } else {
       await service.connect();
     }

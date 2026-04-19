@@ -589,6 +589,34 @@ class TerminalSessionManager extends ChangeNotifier
     _activeTerminalKey = key;
   }
 
+  /// F074: 重连 terminal（状态推进 + connect 统一入口）。
+  /// 状态路径：error/idle -> reconnecting -> (connect) -> recovering -> live
+  /// UI 不应再直接调用 service.connect()，应通过此方法。
+  Future<void> reconnectTerminal(String? deviceId, String terminalId) async {
+    final key = _key(deviceId, terminalId);
+    final state = _terminals[key];
+    final service = _sessions[key];
+    if (state == null || service == null) return;
+
+    final current = state.sessionState;
+    // 从 error 或 idle 允许 reconnect
+    if (current != TerminalSessionState.error &&
+        current != TerminalSessionState.idle) {
+      return;
+    }
+
+    state._setSessionState(TerminalSessionState.reconnecting);
+    _activeTerminalKey = key;
+
+    try {
+      await service.connect();
+      // connect 成功后，bindTerminalOutput 的 connectedSubscription
+      // 会触发 beginRecovery，推动 recovering -> live
+    } catch (e) {
+      state._setSessionState(TerminalSessionState.error);
+    }
+  }
+
   /// 触发恢复（reconnect 或 follower re-enter 后调用）。
   /// 状态路径：live/reconnecting -> recovering -> live
   void recoverTerminal(String? deviceId, String terminalId) {
