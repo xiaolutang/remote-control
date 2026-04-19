@@ -527,6 +527,12 @@ class TerminalSessionManager extends ChangeNotifier
     for (final entry in conflictingEntries) {
       _pausedKeys.remove(entry.key);
       await entry.value.disconnect(notify: false);
+      // 被主动断开的终端必须重置为 idle，
+      // 否则切回时 connectTerminal 会因状态为 live 而拒绝重连
+      final state = _terminals[entry.key];
+      if (state != null && state.sessionState != TerminalSessionState.idle) {
+        state._setSessionState(TerminalSessionState.idle);
+      }
     }
   }
 
