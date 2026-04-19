@@ -1382,7 +1382,7 @@ void main() {
       );
     });
 
-    test('error 状态下 connected 事件可推进到 recovering', () async {
+    test('error 状态下新 service 的 connected 可推进到 recovering', () async {
       final mock = buildMock();
       manager.getOrCreate('dev-1', 'term-1', () => mock);
 
@@ -1398,23 +1398,55 @@ void main() {
       mock.debugHandleMessage(jsonEncode({'type': 'connected'}));
       await Future<void>.delayed(const Duration(milliseconds: 10));
 
-      // 模拟 auth_failed 进入 error
+      // 模拟 auth_failed 进入 error（旧 service 不可复用）
       mock.simulateAuthFailed();
       expect(
         manager.getTerminalState('dev-1', 'term-1'),
         TerminalSessionState.error,
       );
 
-      // 模拟重连成功（先清除 auth_failed 状态，再发 connected 事件）
-      mock.setMockLastCloseCode(null);
-      mock.setMockConnected(true);
-      mock.debugHandleMessage(jsonEncode({'type': 'connected'}));
+      // 生产路径：用新 service 替换旧的 auth_failed service
+      final newMock = buildMock();
+      manager.getOrCreate('dev-1', 'term-1', () => newMock);
+      manager.bindTerminalOutput('dev-1', 'term-1', newMock);
+
+      // 新 service connected 事件推进到 recovering
+      newMock.debugHandleMessage(jsonEncode({'type': 'connected'}));
       await Future<void>.delayed(const Duration(milliseconds: 10));
 
       // error → recovering 应该合法
       expect(
         manager.getTerminalState('dev-1', 'term-1'),
         TerminalSessionState.recovering,
+      );
+    });
+
+    test('connecting 状态下 auth_failed 时 statusListener 收敛到 error',
+        () async {
+      final mock = buildMock();
+      manager.getOrCreate('dev-1', 'term-1', () => mock);
+
+      manager.getOrCreateTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: mock,
+      );
+
+      // connectTerminal 进入 connecting（尚未收到 connected 事件）
+      await manager.connectTerminal('dev-1', 'term-1');
+      expect(
+        manager.getTerminalState('dev-1', 'term-1'),
+        TerminalSessionState.connecting,
+      );
+
+      // 在 connected 事件到达前，直接发生 auth_failed
+      mock.simulateAuthFailed();
+
+      // connecting → error 应该通过 statusListener 收敛
+      expect(
+        manager.getTerminalState('dev-1', 'term-1'),
+        TerminalSessionState.error,
       );
     });
   });
