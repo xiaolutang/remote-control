@@ -6,6 +6,10 @@ import 'package:xterm/xterm.dart';
 
 import 'websocket_service.dart';
 
+/// Recovery 超时时间：如果 snapshot_complete 未在此时间内到达，
+/// 自动 finishRecovery 以防止终端永久卡在 recovering 状态。
+const Duration _recoveryTimeout = Duration(seconds: 5);
+
 /// Terminal session 状态机枚举（F072）
 enum TerminalSessionState {
   idle,
@@ -109,6 +113,7 @@ class _TerminalState {
   final List<String> _pendingRecoveryFrames = [];
   bool _hasLiveOutput = false;
   bool _recovering = false;
+  Timer? _recoveryTimeoutTimer;
 
   // F072: 显式状态机追踪
   TerminalSessionState _sessionState = TerminalSessionState.idle;
@@ -182,6 +187,16 @@ class _TerminalState {
     _recovering = true;
     _hasLiveOutput = false;
     _pendingRecoveryFrames.clear();
+    // 安全网：如果 snapshot_complete 未在超时内到达，自动完成恢复
+    _recoveryTimeoutTimer?.cancel();
+    _recoveryTimeoutTimer = Timer(_recoveryTimeout, () {
+      if (_recovering) {
+        debugPrint(
+          '[TerminalSessionState] recovery timeout — auto-finishing recovery',
+        );
+        finishRecovery();
+      }
+    });
     // F072: 合法转换 connecting/reconnecting/idle/live -> recovering
     _setSessionState(TerminalSessionState.recovering);
   }
@@ -213,6 +228,8 @@ class _TerminalState {
       return;
     }
     _recovering = false;
+    _recoveryTimeoutTimer?.cancel();
+    _recoveryTimeoutTimer = null;
     for (final frame in _pendingRecoveryFrames) {
       renderer.applyLiveOutput(frame);
     }
@@ -222,6 +239,8 @@ class _TerminalState {
   }
 
   void dispose() {
+    _recoveryTimeoutTimer?.cancel();
+    _recoveryTimeoutTimer = null;
     renderer.dispose();
     _stateNotifier.dispose();
   }

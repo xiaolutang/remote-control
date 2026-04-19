@@ -491,6 +491,7 @@ class WebSocketService extends ChangeNotifier {
           _applyConnectedMessage(data);
           break;
         case 'snapshot':
+        case 'snapshot_start':
         case 'snapshot_chunk':
         case 'data':
         case 'output':
