@@ -274,10 +274,7 @@ void main() {
       // 通过 connect() 然后模拟关闭来测试
       // 由于 _handleDisconnect 和 _lastCloseCode 是私有的，
       // 我们使用 tokenInvalidStream 的存在性验证 + close code 边界检查
-      bool streamFired = false;
-      final subscription = service.tokenInvalidStream.listen((_) {
-        streamFired = true;
-      });
+      final subscription = service.tokenInvalidStream.listen((_) {});
 
       // 验证 stream 是广播且已订阅
       expect(service.tokenInvalidStream.isBroadcast, isTrue);

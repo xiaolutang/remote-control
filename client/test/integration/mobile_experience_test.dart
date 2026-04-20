@@ -117,8 +117,6 @@ void main() {
 
     group('双端共控场景测试', () {
       testWidgets('桌面端输入时移动端实时显示', (tester) async {
-        final outputs = <String>[];
-
         await tester.pumpWidget(
           MaterialApp(
             home: ChangeNotifierProvider<WebSocketService>.value(
@@ -127,7 +125,9 @@ void main() {
                 body: ListenableBuilder(
                   listenable: mockService,
                   builder: (context, _) {
-                    return Text(mockService.agentOnline ? 'Agent Online' : 'Agent Offline');
+                    return Text(mockService.agentOnline
+                        ? 'Agent Online'
+                        : 'Agent Offline');
                   },
                 ),
               ),

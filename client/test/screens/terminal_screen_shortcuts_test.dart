@@ -124,7 +124,9 @@ void main() {
       mockService.simulateOutput('hello from cached terminal\n');
       await tester.pumpAndSettle();
 
-      final cachedTerminal = sessionManager.getTerminal('device-1', 'term-1');
+      final cachedTerminal = sessionManager
+          .getRendererAdapter('device-1', 'term-1')
+          ?.terminalForView;
       expect(cachedTerminal, isNotNull);
       expect(cachedTerminal!.buffer.lines[0].toString(), contains('hello'));
 
@@ -139,7 +141,9 @@ void main() {
         sessionManager: sessionManager,
       );
 
-      final reusedTerminal = sessionManager.getTerminal('device-1', 'term-1');
+      final reusedTerminal = sessionManager
+          .getRendererAdapter('device-1', 'term-1')
+          ?.terminalForView;
       expect(identical(reusedTerminal, cachedTerminal), isTrue);
       expect(reusedTerminal!.buffer.lines[0].toString(), contains('hello'));
     });
@@ -195,7 +199,9 @@ void main() {
       serviceB.simulateOutput('term-2 visible\n');
       await tester.pumpAndSettle();
 
-      final terminalA = sessionManager.getTerminal('device-1', 'term-1');
+      final terminalA = sessionManager
+          .getRendererAdapter('device-1', 'term-1')
+          ?.terminalForView;
       expect(terminalA, isNotNull);
 
       final terminalAText = List.generate(
@@ -693,7 +699,9 @@ void main() {
 
       await tester.pump(const Duration(milliseconds: 150));
 
-      final terminal = sessionManager.getTerminal('device-1', 'term-1');
+      final terminal = sessionManager
+          .getRendererAdapter('device-1', 'term-1')
+          ?.terminalForView;
       expect(terminal, isNotNull);
 
       terminal!.onResize?.call(120, 40, 0, 0);
@@ -705,7 +713,6 @@ void main() {
 
 class _PreconnectedWebSocketService extends MockWebSocketService {
   _PreconnectedWebSocketService({
-    super.deviceId,
     super.terminalId,
     super.viewType,
   });

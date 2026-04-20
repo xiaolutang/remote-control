@@ -110,7 +110,6 @@ class DesktopAgentManager extends ChangeNotifier {
   String _serverUrl;
   String _token;
   String _deviceId;
-  String? _username;
   final DesktopAgentSupervisor _supervisor;
   final ConfigService _configService;
   final Duration? _recoveryRetryDelayOverride;
@@ -334,7 +333,6 @@ class DesktopAgentManager extends ChangeNotifier {
     _serverUrl = serverUrl;
     _token = token;
     _deviceId = deviceId;
-    _username = username;
 
     if (!isPlatformSupported) {
       _updateState(
@@ -345,8 +343,7 @@ class DesktopAgentManager extends ChangeNotifier {
     _logDesktopAgentManager(
       'onLogin: starting agent for user=$username device=$deviceId',
     );
-    _updateState(
-        const DesktopAgentState(kind: DesktopAgentStateKind.starting));
+    _updateState(const DesktopAgentState(kind: DesktopAgentStateKind.starting));
 
     try {
       final config = await _configService.loadConfig();
@@ -379,7 +376,8 @@ class DesktopAgentManager extends ChangeNotifier {
         kind: DesktopAgentStateKind.startFailed,
         message: '本机 Agent 启动失败',
       ));
-      _logDesktopAgentManager('onLogin: agent start failed with exception - $e');
+      _logDesktopAgentManager(
+          'onLogin: agent start failed with exception - $e');
     }
   }
 
@@ -407,7 +405,6 @@ class DesktopAgentManager extends ChangeNotifier {
       _serverUrl = '';
       _token = '';
       _deviceId = '';
-      _username = null;
       _updateState(
           const DesktopAgentState(kind: DesktopAgentStateKind.offline));
     }
@@ -429,7 +426,6 @@ class DesktopAgentManager extends ChangeNotifier {
     _serverUrl = serverUrl;
     _token = token;
     _deviceId = deviceId;
-    _username = username;
 
     _logDesktopAgentManager(
       'onAppStart: user=$username device=$deviceId',
@@ -544,7 +540,10 @@ class DesktopAgentManager extends ChangeNotifier {
     }
 
     // Agent 离线且有有效凭证 → 触发自愈（syncAndEnsureOnline 会 kill 僵尸 + 重启）
-    if (autoHeal && _serverUrl.isNotEmpty && _token.isNotEmpty && _deviceId.isNotEmpty) {
+    if (autoHeal &&
+        _serverUrl.isNotEmpty &&
+        _token.isNotEmpty &&
+        _deviceId.isNotEmpty) {
       _logDesktopAgentManager('loadState: agent offline, triggering self-heal');
       try {
         final healed = await _supervisor.syncAndEnsureOnline(

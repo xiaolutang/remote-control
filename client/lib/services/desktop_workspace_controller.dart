@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
-import '../models/runtime_device.dart';
 import '../models/runtime_terminal.dart';
 import 'config_service.dart';
 import 'desktop_agent_manager.dart';
@@ -62,8 +61,6 @@ class DesktopWorkspaceController extends ChangeNotifier {
   String? _lastKnownDeviceId;
   bool _lastWasDesktopPlatform = false;
   bool? _lastKnownAgentOnline; // 手机端缓存上次的在线状态
-  bool _awaitingUserBootstrapAction = false;
-
   bool get keepAgentRunningInBackground => _keepAgentRunningInBackground;
   bool get desktopActionInFlight => _desktopActionInFlight;
   DesktopAgentState? get desktopAgentState => _desktopAgentState;
@@ -121,15 +118,13 @@ class DesktopWorkspaceController extends ChangeNotifier {
     final runtime = _runtimeController;
     final device = runtime?.selectedDevice;
     if (runtime == null || device == null) {
-      _logWorkspaceAction(
-          'startLocalAgent skipped runtime_or_device_null');
+      _logWorkspaceAction('startLocalAgent skipped runtime_or_device_null');
       return;
     }
     _logWorkspaceAction(
       'startLocalAgent device=${device.deviceId} state=${state.kind.name}',
     );
     _desktopActionInFlight = true;
-    _awaitingUserBootstrapAction = false;
     _desktopAgentState = DesktopAgentState(
       kind: DesktopAgentStateKind.starting,
       workdir: _desktopAgentState?.workdir,
@@ -141,7 +136,7 @@ class DesktopWorkspaceController extends ChangeNotifier {
       deviceId: device.deviceId,
     );
     _logWorkspaceAction(
-      'startLocalAgent result=${_desktopAgentState}',
+      'startLocalAgent result=$_desktopAgentState',
     );
     // 如果启动失败，保留失败状态，不刷新（避免覆盖失败状态）
     if (_desktopAgentState?.kind != DesktopAgentStateKind.startFailed) {
@@ -178,8 +173,7 @@ class DesktopWorkspaceController extends ChangeNotifier {
     final runtime = _runtimeController;
     final device = runtime?.selectedDevice;
     if (runtime == null || device == null) {
-      _logWorkspaceAction(
-          'createTerminal skipped runtime_or_device_null');
+      _logWorkspaceAction('createTerminal skipped runtime_or_device_null');
       return null;
     }
 
@@ -191,7 +185,6 @@ class DesktopWorkspaceController extends ChangeNotifier {
     if (stateBeforeCreate.kind ==
         WorkspaceStateKind.readyToCreateFirstTerminal) {
       if (!stateBeforeCreate.deviceReady) {
-        _awaitingUserBootstrapAction = false;
         _desktopActionInFlight = true;
         _desktopAgentState = DesktopAgentState(
           kind: DesktopAgentStateKind.starting,
@@ -269,7 +262,6 @@ class DesktopWorkspaceController extends ChangeNotifier {
         runtime.terminals.any((terminal) => !terminal.isClosed);
     if (!hasUsableTerminal) {
       // 关闭最后一个终端后，重置状态以允许用户重新创建
-      _awaitingUserBootstrapAction = true;
       // 清除历史 bootstrap 失败状态，允许用户重新尝试
       if (_desktopAgentState?.kind == DesktopAgentStateKind.startFailed) {
         _desktopAgentState = null;
@@ -309,7 +301,8 @@ class DesktopWorkspaceController extends ChangeNotifier {
       // 手机端：当设备状态变化时，通知 UI 更新
       // 虽然 _desktopAgentState 为 null，但 device?.agentOnline 可能已更新
       final agentOnline = device?.agentOnline;
-      final deviceChanged = device != null && _lastKnownDeviceId != device.deviceId;
+      final deviceChanged =
+          device != null && _lastKnownDeviceId != device.deviceId;
       final onlineChanged = agentOnline != _lastKnownAgentOnline;
       if (deviceChanged || onlineChanged) {
         _lastKnownDeviceId = device?.deviceId;

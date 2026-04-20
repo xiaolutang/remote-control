@@ -296,7 +296,7 @@ packages:
     source: hosted
     version: "1.0.0"
   path:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: path
       sha256: "087ce49c3f0dc39180befefc60fdb4acd8f8620e5682fe2476afd0b3688bb4af"
@@ -599,8 +599,8 @@ packages:
   xterm:
     dependency: "direct main"
     description:
-      path: "/Users/tangxiaolu/project/xterm.dart"
-      relative: false
+      path: "third_party/xterm"
+      relative: true
     source: path
     version: "4.0.0"
   zmodem:

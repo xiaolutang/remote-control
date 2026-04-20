@@ -19,11 +19,12 @@ class _FakeRuntimeSelectionController extends RuntimeSelectionController {
         super(
           serverUrl: 'ws://localhost:8888',
           token: 'token',
-          runtimeService: RuntimeDeviceService(serverUrl: 'ws://localhost:8888'),
+          runtimeService:
+              RuntimeDeviceService(serverUrl: 'ws://localhost:8888'),
         );
 
-  List<RuntimeDevice> _devices;
-  List<RuntimeTerminal> _terminals;
+  final List<RuntimeDevice> _devices;
+  final List<RuntimeTerminal> _terminals;
   final bool isDesktopPlatformOverride;
 
   @override
@@ -166,7 +167,9 @@ void main() {
     );
   });
 
-  test('startLocalAgent delegates to bootstrap service and exposes createFailed on failure', () async {
+  test(
+      'startLocalAgent delegates to bootstrap service and exposes createFailed on failure',
+      () async {
     final bootstrap = _FakeBootstrapService(
       resultState: const DesktopAgentState(
         kind: DesktopAgentStateKind.startFailed,
@@ -200,7 +203,9 @@ void main() {
     expect(controller.state.kind, WorkspaceStateKind.createFailed);
   });
 
-  test('startLocalAgent exposes readyToCreateFirstTerminal when bootstrap succeeds', () async {
+  test(
+      'startLocalAgent exposes readyToCreateFirstTerminal when bootstrap succeeds',
+      () async {
     final bootstrap = _FakeBootstrapService(
       resultState: const DesktopAgentState(
         kind: DesktopAgentStateKind.managedOnline,
@@ -215,7 +220,7 @@ void main() {
         deviceId: 'mbp-01',
         name: 'mac-phone',
         owner: 'user1',
-        agentOnline: true,  // Agent 启动成功后，服务端应该返回在线
+        agentOnline: true, // Agent 启动成功后，服务端应该返回在线
         maxTerminals: 3,
         activeTerminals: 0,
       ),
@@ -234,11 +239,14 @@ void main() {
     await controller.startLocalAgent();
 
     expect(bootstrap.startCalls, 1);
-    expect(controller.state.kind, WorkspaceStateKind.readyToCreateFirstTerminal);
+    expect(
+        controller.state.kind, WorkspaceStateKind.readyToCreateFirstTerminal);
     expect(controller.state.deviceReady, true);
   });
 
-  test('handleViewDispose calls handleDesktopExit when keepAgentRunningInBackground is false', () async {
+  test(
+      'handleViewDispose calls handleDesktopExit when keepAgentRunningInBackground is false',
+      () async {
     final bootstrap = _FakeBootstrapService(
       resultState: const DesktopAgentState(
         kind: DesktopAgentStateKind.managedOnline,
@@ -274,7 +282,9 @@ void main() {
     expect(bootstrap.lastKeepRunningValue, false);
   });
 
-  test('handleViewDispose does not call handleDesktopExit when keepAgentRunningInBackground is true', () async {
+  test(
+      'handleViewDispose does not call handleDesktopExit when keepAgentRunningInBackground is true',
+      () async {
     final bootstrap = _FakeBootstrapService(
       resultState: const DesktopAgentState(
         kind: DesktopAgentStateKind.managedOnline,
@@ -310,7 +320,8 @@ void main() {
   });
 
   // F028: 关闭最后一个 terminal 后的桌面工作台状态归一化
-  test('onTerminalClosed resets startFailed state when last terminal is closed', () async {
+  test('onTerminalClosed resets startFailed state when last terminal is closed',
+      () async {
     final bootstrap = _FakeBootstrapService(
       resultState: const DesktopAgentState(
         kind: DesktopAgentStateKind.startFailed,
@@ -359,12 +370,15 @@ void main() {
     await controller.onTerminalClosed('term-1');
 
     // 状态应该归一化为 readyToCreateFirstTerminal，而不是继续显示 createFailed
-    expect(controller.state.kind, WorkspaceStateKind.readyToCreateFirstTerminal);
+    expect(
+        controller.state.kind, WorkspaceStateKind.readyToCreateFirstTerminal);
     expect(controller.state.hasUsableTerminal, false);
   });
 
   // 回归测试：确保缓存状态与 API 状态不一致时能够刷新
-  test('_syncDesktopState refreshes cache when API state differs from cached state', () async {
+  test(
+      '_syncDesktopState refreshes cache when API state differs from cached state',
+      () async {
     // 场景：缓存显示在线，但 API 返回离线
     // 预期：应该刷新缓存以保持一致性
 
@@ -379,7 +393,7 @@ void main() {
         deviceId: 'mbp-01',
         name: 'mac-phone',
         owner: 'user1',
-        agentOnline: true,  // 初始：在线
+        agentOnline: true, // 初始：在线
         maxTerminals: 3,
         activeTerminals: 1,
       ),
@@ -430,7 +444,7 @@ void main() {
       deviceId: 'mbp-01',
       name: 'mac-phone',
       owner: 'user1',
-      agentOnline: false,  // API 返回：离线
+      agentOnline: false, // API 返回：离线
       maxTerminals: 3,
       activeTerminals: 1,
     );
@@ -494,7 +508,8 @@ void main() {
     await controller.onTerminalClosed('term-1');
 
     // 用户应该可以重新尝试创建 terminal
-    expect(controller.state.kind, WorkspaceStateKind.readyToCreateFirstTerminal);
+    expect(
+        controller.state.kind, WorkspaceStateKind.readyToCreateFirstTerminal);
 
     // 重新尝试启动
     await controller.startLocalAgent();
@@ -502,7 +517,9 @@ void main() {
   });
 
   group('mobile deviceOffline', () {
-    test('mobile shows deviceOffline when agent goes offline with selected terminal', () {
+    test(
+        'mobile shows deviceOffline when agent goes offline with selected terminal',
+        () {
       final runtime = _FakeRuntimeSelectionController(
         devices: const [
           RuntimeDevice(
@@ -530,7 +547,8 @@ void main() {
         serverUrl: 'ws://localhost:8888',
         token: 'token',
         agentBootstrapService: _FakeBootstrapService(
-          resultState: const DesktopAgentState(kind: DesktopAgentStateKind.offline),
+          resultState:
+              const DesktopAgentState(kind: DesktopAgentStateKind.offline),
         ),
       );
 
@@ -541,7 +559,8 @@ void main() {
       expect(controller.state.deviceReady, false);
     });
 
-    test('mobile shows deviceOffline when agent goes offline without terminal', () {
+    test('mobile shows deviceOffline when agent goes offline without terminal',
+        () {
       final runtime = _FakeRuntimeSelectionController(
         devices: const [
           RuntimeDevice(
@@ -560,7 +579,8 @@ void main() {
         serverUrl: 'ws://localhost:8888',
         token: 'token',
         agentBootstrapService: _FakeBootstrapService(
-          resultState: const DesktopAgentState(kind: DesktopAgentStateKind.offline),
+          resultState:
+              const DesktopAgentState(kind: DesktopAgentStateKind.offline),
         ),
       );
 
@@ -570,7 +590,9 @@ void main() {
       expect(controller.state.deviceReady, false);
     });
 
-    test('desktop shows readyWithTerminal when agent offline but terminal selected', () {
+    test(
+        'desktop shows readyWithTerminal when agent offline but terminal selected',
+        () {
       final runtime = _FakeRuntimeSelectionController(
         devices: const [
           RuntimeDevice(
@@ -598,7 +620,8 @@ void main() {
         serverUrl: 'ws://localhost:8888',
         token: 'token',
         agentBootstrapService: _FakeBootstrapService(
-          resultState: const DesktopAgentState(kind: DesktopAgentStateKind.offline),
+          resultState:
+              const DesktopAgentState(kind: DesktopAgentStateKind.offline),
         ),
       );
 

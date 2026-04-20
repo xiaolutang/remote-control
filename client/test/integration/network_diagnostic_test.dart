@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/io_client.dart';
 import 'package:http/http.dart' as http;
@@ -41,16 +42,16 @@ void main() {
     test('1. DNS 解析对比', () async {
       final domainResult = await InternetAddress.lookup(domainHost);
       for (final addr in domainResult) {
-        print('$domainHost → ${addr.address} (${addr.type.name})');
+        debugPrint('$domainHost → ${addr.address} (${addr.type.name})');
       }
 
       try {
         final localhost = await InternetAddress.lookup('localhost');
         for (final addr in localhost) {
-          print('localhost → ${addr.address} (${addr.type.name})');
+          debugPrint('localhost → ${addr.address} (${addr.type.name})');
         }
       } catch (e) {
-        print('localhost lookup FAILED: $e');
+        debugPrint('localhost lookup FAILED: $e');
       }
     });
 
@@ -60,11 +61,11 @@ void main() {
       try {
         final r = await trustAllClient
             .get(Uri.parse('https://$domainHost/rc/health'));
-        print('域名 health: ${r.statusCode} ${r.body}');
+        debugPrint('域名 health: ${r.statusCode} ${r.body}');
         expect(r.statusCode, 200);
       } catch (e) {
-        print('域名 health FAILED: $e（预期：DNS 污染）');
-        print(
+        debugPrint('域名 health FAILED: $e（预期：DNS 污染）');
+        debugPrint(
             '  → DNS 解析到 ${(await InternetAddress.lookup(domainHost)).first.address}');
       }
     });
@@ -80,11 +81,11 @@ void main() {
             'view': 'mobile',
           }),
         );
-        print('域名 login: ${r.statusCode} ${r.body}');
+        debugPrint('域名 login: ${r.statusCode} ${r.body}');
         expect(r.statusCode, 200);
       } catch (e) {
-        print('域名 login FAILED: $e（预期：DNS 污染）');
-        print(
+        debugPrint('域名 login FAILED: $e（预期：DNS 污染）');
+        debugPrint(
             '  → DNS 解析到 ${(await InternetAddress.lookup(domainHost)).first.address}');
       }
     });
@@ -92,9 +93,9 @@ void main() {
     // ─── IP + Host 头 HTTPS（当前唯一可用路径）───
 
     test('4. IP HTTPS 无 Host 头 → 404（Traefik 不匹配）', () async {
-      final r = await trustAllClient
-          .get(Uri.parse('https://$serverIp/rc/health'));
-      print('IP health (无Host头): ${r.statusCode} ${r.body}');
+      final r =
+          await trustAllClient.get(Uri.parse('https://$serverIp/rc/health'));
+      debugPrint('IP health (无Host头): ${r.statusCode} ${r.body}');
       expect(r.statusCode, 404);
     });
 
@@ -103,7 +104,7 @@ void main() {
         Uri.parse('https://$serverIp/rc/health'),
         headers: {'Host': domainHost},
       );
-      print('IP health (Host=$domainHost): ${r.statusCode} ${r.body}');
+      debugPrint('IP health (Host=$domainHost): ${r.statusCode} ${r.body}');
       expect(r.statusCode, 200);
     });
 
@@ -120,7 +121,7 @@ void main() {
           'view': 'mobile',
         }),
       );
-      print(
+      debugPrint(
           'IP login (Host=$domainHost): ${r.statusCode} body前100=${r.body.substring(0, r.body.length > 100 ? 100 : r.body.length)}');
       expect(r.statusCode, 200);
     });
@@ -133,10 +134,10 @@ void main() {
       try {
         final r = await trustAllClient
             .get(Uri.parse('http://$serverIp:$directPort/health'));
-        print('ws:// 直连 health: ${r.statusCode} ${r.body}');
+        debugPrint('ws:// 直连 health: ${r.statusCode} ${r.body}');
         expect(r.statusCode, 200);
       } catch (e) {
-        print('ws:// 直连 health FAILED: $e（S064 尚未部署或端口未映射）');
+        debugPrint('ws:// 直连 health FAILED: $e（S064 尚未部署或端口未映射）');
       }
     });
 
@@ -151,14 +152,14 @@ void main() {
             'view': 'mobile',
           }),
         );
-        print(
+        debugPrint(
             'ws:// 直连 login: ${r.statusCode} body前100=${r.body.substring(0, r.body.length > 100 ? 100 : r.body.length)}');
         expect(r.statusCode, 200);
         final data = jsonDecode(r.body) as Map<String, dynamic>;
         expect(data['success'], true);
         expect(data['token'], isNotNull);
       } catch (e) {
-        print('ws:// 直连 login FAILED: $e（S064 尚未部署或端口未映射）');
+        debugPrint('ws:// 直连 login FAILED: $e（S064 尚未部署或端口未映射）');
       }
     });
 
@@ -166,13 +167,13 @@ void main() {
       try {
         final r = await trustAllClient
             .get(Uri.parse('http://$serverIp:$directPort/api/public-key'));
-        print(
+        debugPrint(
             'ws:// 直连 public-key: ${r.statusCode} body前100=${r.body.substring(0, r.body.length > 100 ? 100 : r.body.length)}');
         expect(r.statusCode, 200);
         final data = jsonDecode(r.body) as Map<String, dynamic>;
         expect(data['public_key_pem'], isNotNull);
       } catch (e) {
-        print('ws:// 直连 public-key FAILED: $e（S064 尚未部署或端口未映射）');
+        debugPrint('ws:// 直连 public-key FAILED: $e（S064 尚未部署或端口未映射）');
       }
     });
 
@@ -191,10 +192,10 @@ void main() {
         }));
 
         final first = await socket.first.timeout(const Duration(seconds: 5));
-        print('ws:// 直连 WS first=$first');
+        debugPrint('ws:// 直连 WS first=$first');
         await socket.close();
       } catch (e) {
-        print('ws:// 直连 WS FAILED: $e（S064 尚未部署或端口未映射）');
+        debugPrint('ws:// 直连 WS FAILED: $e（S064 尚未部署或端口未映射）');
       } finally {
         wsClient.close(force: true);
       }

@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -88,8 +87,11 @@ void main() {
               ],
             ]),
             processStarter: (executable, arguments,
-                    {workingDirectory, environment, mode = ProcessStartMode.normal}) async =>
-                Process.start('sleep', const ['1'], mode: ProcessStartMode.detached),
+                    {workingDirectory,
+                    environment,
+                    mode = ProcessStartMode.normal}) async =>
+                Process.start('sleep', const ['1'],
+                    mode: ProcessStartMode.detached),
             processRunner: (executable, arguments) async =>
                 ProcessResult(0, 0, 'python3 -m app.cli run', ''),
           ),
@@ -158,8 +160,11 @@ void main() {
               ],
             ]),
             processStarter: (executable, arguments,
-                    {workingDirectory, environment, mode = ProcessStartMode.normal}) async =>
-                Process.start('sleep', const ['1'], mode: ProcessStartMode.detached),
+                    {workingDirectory,
+                    environment,
+                    mode = ProcessStartMode.normal}) async =>
+                Process.start('sleep', const ['1'],
+                    mode: ProcessStartMode.detached),
             processRunner: (executable, arguments) async {
               if (executable == 'ps') {
                 return ProcessResult(0, 0, 'python3 -m app.cli run', '');
@@ -252,8 +257,11 @@ void main() {
               ],
             ]),
             processStarter: (executable, arguments,
-                    {workingDirectory, environment, mode = ProcessStartMode.normal}) async =>
-                Process.start('sleep', const ['1'], mode: ProcessStartMode.detached),
+                    {workingDirectory,
+                    environment,
+                    mode = ProcessStartMode.normal}) async =>
+                Process.start('sleep', const ['1'],
+                    mode: ProcessStartMode.detached),
             processRunner: (executable, arguments) async =>
                 ProcessResult(0, 0, 'python3 -m app.cli run', ''),
           ),
@@ -302,8 +310,11 @@ void main() {
               ],
             ]),
             processStarter: (executable, arguments,
-                    {workingDirectory, environment, mode = ProcessStartMode.normal}) async =>
-                Process.start('sleep', const ['1'], mode: ProcessStartMode.detached),
+                    {workingDirectory,
+                    environment,
+                    mode = ProcessStartMode.normal}) async =>
+                Process.start('sleep', const ['1'],
+                    mode: ProcessStartMode.detached),
             processRunner: (executable, arguments) async =>
                 ProcessResult(0, 0, 'python3 -m app.cli run', ''),
           ),
@@ -371,8 +382,11 @@ void main() {
               ],
             ]),
             processStarter: (executable, arguments,
-                    {workingDirectory, environment, mode = ProcessStartMode.normal}) async =>
-                Process.start('sleep', const ['1'], mode: ProcessStartMode.detached),
+                    {workingDirectory,
+                    environment,
+                    mode = ProcessStartMode.normal}) async =>
+                Process.start('sleep', const ['1'],
+                    mode: ProcessStartMode.detached),
             processRunner: (executable, arguments) async {
               if (executable == 'ps') {
                 return ProcessResult(0, 0, 'python3 -m app.cli run', '');

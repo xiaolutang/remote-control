@@ -1,6 +1,3 @@
-import 'dart:async';
-import 'dart:convert';
-
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:rc_client/services/desktop_agent_http_client.dart';
@@ -14,7 +11,8 @@ void main() {
     setUp(() {
       client = DesktopAgentHttpClient(
         timeout: const Duration(seconds: 2),
-        homeDirectory: '/tmp/test_home_${DateTime.now().millisecondsSinceEpoch}',
+        homeDirectory:
+            '/tmp/test_home_${DateTime.now().millisecondsSinceEpoch}',
       );
     });
 
@@ -49,7 +47,8 @@ void main() {
     });
 
     test('updateConfig returns false for unreachable port', () async {
-      final result = await client.updateConfig(19999, keepRunningInBackground: false);
+      final result =
+          await client.updateConfig(19999, keepRunningInBackground: false);
       expect(result, isFalse);
     });
 

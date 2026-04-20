@@ -75,7 +75,6 @@ class MobileInputDelegateState extends State<MobileInputDelegate> {
   }
 
   /// 组合状态标志，仅用于测试模拟
-  @visibleForTesting
   bool _isComposing = false;
 
   void _syncCommittedText(TextEditingValue value) {

@@ -127,8 +127,6 @@ void main() {
       await tester.pump();
 
       // 组合中不应发送输入
-      final inputCountDuringCompose = inputs.length;
-
       // 模拟 IME 组合结束
       state.onComposeEnd();
 

@@ -38,17 +38,6 @@ void main() {
       expect(service.isConnected, isFalse);
     });
 
-    test('output stream exists', () {
-      final service = WebSocketService(
-        serverUrl: 'ws://localhost:8888',
-        token: 'test-token',
-        sessionId: 'session-1',
-      );
-
-      // ignore: deprecated_member_use_from_same_package
-      expect(service.outputStream, isNotNull);
-    });
-
     test('output frame stream exists', () {
       final service = WebSocketService(
         serverUrl: 'ws://localhost:8888',
@@ -59,14 +48,14 @@ void main() {
       expect(service.outputFrameStream, isNotNull);
     });
 
-    test('presence stream exists', () {
+    test('protocol event stream exists', () {
       final service = WebSocketService(
         serverUrl: 'ws://localhost:8888',
         token: 'test-token',
         sessionId: 'session-1',
       );
 
-      expect(service.presenceStream, isNotNull);
+      expect(service.eventStream, isNotNull);
     });
 
     test('terminals changed stream exists', () {
@@ -209,16 +198,15 @@ void main() {
   });
 
   group('WebSocketService snapshots', () {
-    test('snapshot messages are decoded into output stream', () async {
+    test('snapshot messages are decoded into event stream', () async {
       final service = WebSocketService(
         serverUrl: 'ws://localhost:8888',
         token: 'test-token',
         sessionId: 'session-1',
       );
 
-      final outputs = <String>[];
-      // ignore: deprecated_member_use_from_same_package
-      final sub = service.outputStream.listen(outputs.add);
+      final events = <TerminalProtocolEvent>[];
+      final sub = service.eventStream.listen(events.add);
 
       service.debugHandleMessage(jsonEncode({
         'type': 'snapshot',
@@ -227,7 +215,11 @@ void main() {
 
       await Future<void>.delayed(const Duration(milliseconds: 10));
 
-      expect(outputs, contains('hello snapshot'));
+      final snapshotEvents = events.where(
+        (event) => event.kind == TerminalProtocolEventKind.snapshot,
+      );
+      expect(snapshotEvents, hasLength(1));
+      expect(snapshotEvents.single.payload, 'hello snapshot');
 
       await sub.cancel();
       service.dispose();
@@ -284,6 +276,39 @@ void main() {
       expect(frames.single.recoveryEpoch, 7);
 
       await sub.cancel();
+      service.dispose();
+    });
+
+    test('snapshot_chunk messages preserve active_buffer metadata', () async {
+      final service = WebSocketService(
+        serverUrl: 'ws://localhost:8888',
+        token: 'test-token',
+        sessionId: 'session-1',
+      );
+
+      final frames = <TerminalOutputFrame>[];
+      final events = <TerminalProtocolEvent>[];
+      final sub1 = service.outputFrameStream.listen(frames.add);
+      final sub2 = service.eventStream.listen(events.add);
+
+      service.debugHandleMessage(jsonEncode({
+        'type': 'snapshot_chunk',
+        'payload': base64Encode(utf8.encode('alternate snapshot')),
+        'active_buffer': 'alt',
+      }));
+
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(frames, hasLength(1));
+      expect(frames.single.activeBuffer, TerminalBufferKind.alt);
+      final snapshotEvents = events
+          .where((event) => event.kind == TerminalProtocolEventKind.snapshot)
+          .toList();
+      expect(snapshotEvents, hasLength(1));
+      expect(snapshotEvents.single.activeBuffer, TerminalBufferKind.alt);
+
+      await sub1.cancel();
+      await sub2.cancel();
       service.dispose();
     });
 
@@ -425,8 +450,7 @@ void main() {
       expect(service.ptyCols, 96);
     });
 
-    test('connected and presence messages apply geometry owner view',
-        () async {
+    test('connected and presence messages apply geometry owner view', () async {
       final service = WebSocketService(
         serverUrl: 'ws://localhost:8888',
         token: 'test-token',
@@ -552,8 +576,7 @@ void main() {
       service.dispose();
     });
 
-    test(
-        'presence message emits TerminalProtocolEventKind.presence with views',
+    test('presence message emits TerminalProtocolEventKind.presence with views',
         () async {
       final service = WebSocketService(
         serverUrl: 'ws://localhost:8888',
@@ -580,8 +603,9 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 10));
 
       // events[0] 是 connected 事件之后的 presence 事件
-      final presenceEvent = events.where((e) =>
-          e.kind == TerminalProtocolEventKind.presence).toList();
+      final presenceEvent = events
+          .where((e) => e.kind == TerminalProtocolEventKind.presence)
+          .toList();
       expect(presenceEvent, hasLength(1));
       expect(presenceEvent.single.views, {'mobile': 1, 'desktop': 1});
 
@@ -589,8 +613,7 @@ void main() {
       service.dispose();
     });
 
-    test(
-        'terminal_closed message emits TerminalProtocolEventKind.closed event',
+    test('terminal_closed message emits TerminalProtocolEventKind.closed event',
         () async {
       final service = WebSocketService(
         serverUrl: 'ws://localhost:8888',
@@ -614,8 +637,9 @@ void main() {
 
       await Future<void>.delayed(const Duration(milliseconds: 10));
 
-      final closedEvent = events.where(
-          (e) => e.kind == TerminalProtocolEventKind.closed).toList();
+      final closedEvent = events
+          .where((e) => e.kind == TerminalProtocolEventKind.closed)
+          .toList();
       expect(closedEvent, hasLength(1));
       expect(closedEvent.single.terminalStatus, 'closed');
 
@@ -654,8 +678,9 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 10));
 
       // eventStream 不应收到 output 事件
-      final outputEvents = events.where(
-          (e) => e.kind == TerminalProtocolEventKind.output).toList();
+      final outputEvents = events
+          .where((e) => e.kind == TerminalProtocolEventKind.output)
+          .toList();
       expect(outputEvents, isEmpty);
       // outputFrameStream 也不应收到
       expect(frames, isEmpty);
@@ -691,8 +716,9 @@ void main() {
 
       await Future<void>.delayed(const Duration(milliseconds: 10));
 
-      final outputEvents = events.where(
-          (e) => e.kind == TerminalProtocolEventKind.output).toList();
+      final outputEvents = events
+          .where((e) => e.kind == TerminalProtocolEventKind.output)
+          .toList();
       expect(outputEvents, hasLength(1));
       expect(outputEvents.single.payload, 'current data');
 
@@ -730,12 +756,14 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 10));
 
       // eventStream 不应收到 snapshotComplete 事件
-      final scEvents = events.where(
-          (e) => e.kind == TerminalProtocolEventKind.snapshotComplete).toList();
+      final scEvents = events
+          .where((e) => e.kind == TerminalProtocolEventKind.snapshotComplete)
+          .toList();
       expect(scEvents, isEmpty);
       // outputFrameStream 也不应收到
-      final scFrames = frames.where(
-          (f) => f.kind == TerminalOutputKind.snapshotComplete).toList();
+      final scFrames = frames
+          .where((f) => f.kind == TerminalOutputKind.snapshotComplete)
+          .toList();
       expect(scFrames, isEmpty);
 
       await sub1.cancel();
@@ -770,7 +798,7 @@ void main() {
     });
 
     test(
-        'outputStream and eventStream receive consistent payload for output messages',
+        'outputFrameStream and eventStream receive consistent payload for output messages',
         () async {
       final service = WebSocketService(
         serverUrl: 'ws://localhost:8888',
@@ -778,11 +806,9 @@ void main() {
         sessionId: 'session-1',
       );
 
-      // ignore: deprecated_member_use_from_same_package
-      final rawOutputs = <String>[];
+      final frames = <TerminalOutputFrame>[];
       final events = <TerminalProtocolEvent>[];
-      // ignore: deprecated_member_use_from_same_package
-      final sub1 = service.outputStream.listen(rawOutputs.add);
+      final sub1 = service.outputFrameStream.listen(frames.add);
       final sub2 = service.eventStream.listen(events.add);
 
       service.debugHandleMessage(jsonEncode({
@@ -792,11 +818,13 @@ void main() {
 
       await Future<void>.delayed(const Duration(milliseconds: 10));
 
-      expect(rawOutputs, hasLength(1));
-      expect(rawOutputs.single, 'consistent data');
+      expect(frames, hasLength(1));
+      expect(frames.single.kind, TerminalOutputKind.data);
+      expect(frames.single.payload, 'consistent data');
 
-      final outputEvents = events.where(
-          (e) => e.kind == TerminalProtocolEventKind.output).toList();
+      final outputEvents = events
+          .where((e) => e.kind == TerminalProtocolEventKind.output)
+          .toList();
       expect(outputEvents, hasLength(1));
       expect(outputEvents.single.payload, 'consistent data');
 

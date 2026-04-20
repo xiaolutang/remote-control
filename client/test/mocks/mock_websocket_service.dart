@@ -44,7 +44,7 @@ class MockWebSocketService extends ChangeNotifier implements WebSocketService {
   final String _sessionId = 'test-session-123';
   final String? _deviceId;
   final String? _terminalId;
-  bool _deviceOnline = true;
+  final bool _deviceOnline = true;
   String? _terminalStatus = 'attached';
   Map<String, int> _views = {'mobile': 0, 'desktop': 0};
   String? _geometryOwnerView;
@@ -111,7 +111,8 @@ class MockWebSocketService extends ChangeNotifier implements WebSocketService {
 
   @override
   bool get isGeometryOwner =>
-      _geometryOwnerView == (viewType == ViewType.desktop ? 'desktop' : 'mobile');
+      _geometryOwnerView ==
+      (viewType == ViewType.desktop ? 'desktop' : 'mobile');
 
   @override
   Stream<String> get outputStream => _outputController.stream;
@@ -164,6 +165,9 @@ class MockWebSocketService extends ChangeNotifier implements WebSocketService {
   @override
   bool get isAuthFailed => _lastCloseCode == 4001 || _lastCloseCode == 4011;
 
+  @override
+  bool get isPermanentlyFailed => isAuthFailed || _terminalStatus == 'closed';
+
   /// 模拟连接成功
   void simulateConnect({bool agentOnline = true}) {
     _status = ConnectionStatus.connected;
@@ -214,6 +218,12 @@ class MockWebSocketService extends ChangeNotifier implements WebSocketService {
         payload: data,
       ),
     );
+    _eventController.add(
+      TerminalProtocolEvent(
+        kind: TerminalProtocolEventKind.output,
+        payload: data,
+      ),
+    );
     _outputController.add(data);
   }
 
@@ -221,6 +231,12 @@ class MockWebSocketService extends ChangeNotifier implements WebSocketService {
     _outputFrameController.add(
       TerminalOutputFrame(
         kind: TerminalOutputKind.snapshot,
+        payload: data,
+      ),
+    );
+    _eventController.add(
+      TerminalProtocolEvent(
+        kind: TerminalProtocolEventKind.snapshot,
         payload: data,
       ),
     );
@@ -236,6 +252,12 @@ class MockWebSocketService extends ChangeNotifier implements WebSocketService {
   /// 模拟 presence 更新
   void simulatePresence(Map<String, int> views) {
     _views = views;
+    _eventController.add(
+      TerminalProtocolEvent(
+        kind: TerminalProtocolEventKind.presence,
+        views: views,
+      ),
+    );
     _presenceController.add(views);
   }
 

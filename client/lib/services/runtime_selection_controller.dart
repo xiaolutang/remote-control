@@ -41,6 +41,7 @@ class RuntimeSelectionController extends ChangeNotifier {
   bool get loadingTerminals => _loadingTerminals;
   bool get creatingTerminal => _creatingTerminal;
   String? get errorMessage => _errorMessage;
+
   /// 401 认证错误（被踢/过期），UI 层据此弹窗并跳转登录页
   AuthException? get authError => _authError;
   String? get selectedDeviceId => _selectedDeviceId;
@@ -57,7 +58,9 @@ class RuntimeSelectionController extends ChangeNotifier {
   bool get isDesktopPlatform => !(Platform.isAndroid || Platform.isIOS);
 
   bool get isLocalDeviceSelected =>
-      isDesktopPlatform && selectedDevice != null && _matchesLocalDevice(selectedDevice!);
+      isDesktopPlatform &&
+      selectedDevice != null &&
+      _matchesLocalDevice(selectedDevice!);
 
   Future<void> initialize() async {
     final config = await _configService.loadConfig();
@@ -110,12 +113,13 @@ class RuntimeSelectionController extends ChangeNotifier {
   /// [silent] 为 true 时不显示 loading 状态，避免 UI 闪烁
   Future<void> refreshTerminals({bool silent = false}) async {
     final deviceId = selectedDeviceId ?? _resolveInitialDeviceId(_devices);
-    if (deviceId != null && _devices.any((d) => d.deviceId == deviceId)) {
+    if (_devices.any((d) => d.deviceId == deviceId)) {
       await _loadTerminalsForDevice(deviceId, notify: true, silent: silent);
     }
   }
 
-  Future<void> _loadTerminalsForDevice(String deviceId, {bool notify = true, bool silent = false}) async {
+  Future<void> _loadTerminalsForDevice(String deviceId,
+      {bool notify = true, bool silent = false}) async {
     // silent 模式下不设置 loading 状态，避免 UI 闪烁
     if (!silent) {
       _loadingTerminals = true;
@@ -126,7 +130,8 @@ class RuntimeSelectionController extends ChangeNotifier {
     }
 
     try {
-      _terminals = _sortTerminals(await _runtimeService.listTerminals(token, deviceId));
+      _terminals =
+          _sortTerminals(await _runtimeService.listTerminals(token, deviceId));
       _syncSelectedDeviceTerminalCount();
     } catch (error) {
       _terminals = const [];
@@ -206,7 +211,8 @@ class RuntimeSelectionController extends ChangeNotifier {
     _authError = null;
     notifyListeners();
     try {
-      final closed = await _runtimeService.closeTerminal(token, device.deviceId, terminalId);
+      final closed = await _runtimeService.closeTerminal(
+          token, device.deviceId, terminalId);
       _terminals = _sortTerminals([
         for (final item in _terminals)
           if (item.terminalId == terminalId) closed else item,
@@ -259,7 +265,8 @@ class RuntimeSelectionController extends ChangeNotifier {
     }
   }
 
-  Future<RuntimeTerminal?> renameTerminal(String terminalId, String title) async {
+  Future<RuntimeTerminal?> renameTerminal(
+      String terminalId, String title) async {
     final device = selectedDevice;
     if (device == null) {
       _errorMessage = '请先选择设备';
@@ -443,7 +450,4 @@ class RuntimeSelectionController extends ChangeNotifier {
       _errorMessage = error.toString().replaceFirst('Exception: ', '');
     }
   }
-
-
-
 }

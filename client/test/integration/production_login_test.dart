@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/io_client.dart';
 import 'package:http/http.dart' as http;
@@ -49,12 +50,11 @@ void main() {
 
     test('getHttpUrl 转换逻辑', () {
       // wss:// → https://
-      expect(getHttpUrl('wss://$domainHost/rc'),
-          'https://$domainHost/rc');
+      expect(getHttpUrl('wss://$domainHost/rc'), 'https://$domainHost/rc');
 
       // ws:// → http://
-      expect(getHttpUrl('ws://192.168.1.100:8880'),
-          'http://192.168.1.100:8880');
+      expect(
+          getHttpUrl('ws://192.168.1.100:8880'), 'http://192.168.1.100:8880');
 
       // 无协议前缀 → 原样返回
       expect(getHttpUrl('http://localhost:8000'), 'http://localhost:8000');
@@ -78,7 +78,7 @@ void main() {
           }),
         );
 
-        print(
+        debugPrint(
             '域名 TLS login: status=${response.statusCode} body=${response.body}');
         expect(response.statusCode, 200);
 
@@ -87,7 +87,7 @@ void main() {
         expect(data['token'], isNotNull);
         expect(data['session_id'], isNotNull);
       } catch (e) {
-        print('域名 TLS login FAILED: $e（预期：DNS 污染/TLS 问题）');
+        debugPrint('域名 TLS login FAILED: $e（预期：DNS 污染/TLS 问题）');
       }
     });
 
@@ -108,7 +108,7 @@ void main() {
         }),
       );
 
-      print(
+      debugPrint(
           'IP+Host TLS login: status=${response.statusCode} body=${response.body}');
       expect(response.statusCode, 200);
 
@@ -134,7 +134,7 @@ void main() {
         }),
       );
 
-      print(
+      debugPrint(
           'IP+Host TLS register: status=${response.statusCode} body=${response.body}');
       expect(response.statusCode, 200);
 
@@ -147,9 +147,8 @@ void main() {
     // 实际客户端登录时，ws:// 路径会先获取 RSA 公钥，再加密密码（不变量 #27）。
     // 这些诊断测试验证的是端口连通性和 HTTP 端点可用性。
 
-    test('IP 直连: http://$serverIp:$directPort → login（需 S064 部署）',
-        () async {
-      const wsUrl = 'ws://$serverIp:$directPort';
+    test('IP 直连: http://$serverIp:$directPort → login（需 S064 部署）', () async {
+      final wsUrl = 'ws://$serverIp:$directPort';
       final httpUrl = getHttpUrl(wsUrl);
       expect(httpUrl, 'http://$serverIp:$directPort');
 
@@ -164,7 +163,7 @@ void main() {
           }),
         );
 
-        print(
+        debugPrint(
             'IP 直连 login: status=${response.statusCode} body=${response.body}');
         expect(response.statusCode, 200);
 
@@ -173,12 +172,11 @@ void main() {
         expect(data['token'], isNotNull);
         expect(data['session_id'], isNotNull);
       } catch (e) {
-        print('IP 直连 login FAILED: $e（S064 尚未部署或端口未映射）');
+        debugPrint('IP 直连 login FAILED: $e（S064 尚未部署或端口未映射）');
       }
     });
 
-    test('IP 直连: http://$serverIp:$directPort → register（需 S064 部署）',
-        () async {
+    test('IP 直连: http://$serverIp:$directPort → register（需 S064 部署）', () async {
       final timestamp = DateTime.now().millisecondsSinceEpoch;
 
       try {
@@ -192,32 +190,31 @@ void main() {
           }),
         );
 
-        print(
+        debugPrint(
             'IP 直连 register: status=${response.statusCode} body=${response.body}');
         expect(response.statusCode, 200);
 
         final data = jsonDecode(response.body) as Map<String, dynamic>;
         expect(data['success'], true);
       } catch (e) {
-        print('IP 直连 register FAILED: $e（S064 尚未部署或端口未映射）');
+        debugPrint('IP 直连 register FAILED: $e（S064 尚未部署或端口未映射）');
       }
     });
 
-    test('IP 直连: http://$serverIp:$directPort → RSA 公钥（需 S064 部署）',
-        () async {
+    test('IP 直连: http://$serverIp:$directPort → RSA 公钥（需 S064 部署）', () async {
       try {
         final response = await client.get(
           Uri.parse('http://$serverIp:$directPort/api/public-key'),
         );
 
-        print('IP 直连 public-key: status=${response.statusCode}');
+        debugPrint('IP 直连 public-key: status=${response.statusCode}');
         expect(response.statusCode, 200);
 
         final data = jsonDecode(response.body) as Map<String, dynamic>;
         expect(data['public_key_pem'], isNotNull);
         expect(data['public_key_pem'], isNotEmpty);
       } catch (e) {
-        print('IP 直连 public-key FAILED: $e（S064 尚未部署或端口未映射）');
+        debugPrint('IP 直连 public-key FAILED: $e（S064 尚未部署或端口未映射）');
       }
     });
   });

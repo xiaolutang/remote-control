@@ -16,7 +16,8 @@ class _FakeRuntimeDeviceService extends RuntimeDeviceService {
 
   @override
   Future<List<RuntimeDevice>> listDevices(String token) async {
-    final value = responses[_index < responses.length ? _index : responses.length - 1];
+    final value =
+        responses[_index < responses.length ? _index : responses.length - 1];
     _index += 1;
     return value;
   }
@@ -63,7 +64,8 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  test('ensureAgentOnline starts managed agent when device is offline', () async {
+  test('ensureAgentOnline starts managed agent when device is offline',
+      () async {
     var started = false;
     final supervisor = DesktopAgentSupervisor(
       runtimeService: _FakeRuntimeDeviceService([
@@ -127,7 +129,9 @@ void main() {
     expect(status.managedByDesktop, isTrue);
   });
 
-  test('ensureAgentOnline does not start duplicate agent when device already online', () async {
+  test(
+      'ensureAgentOnline does not start duplicate agent when device already online',
+      () async {
     var started = false;
     final supervisor = DesktopAgentSupervisor(
       runtimeService: _FakeRuntimeDeviceService([
@@ -168,7 +172,9 @@ void main() {
     expect(started, isFalse);
   });
 
-  test('ensureAgentOnline does not start duplicate agent when local agent process already exists', () async {
+  test(
+      'ensureAgentOnline does not start duplicate agent when local agent process already exists',
+      () async {
     var started = false;
     final supervisor = DesktopAgentSupervisor(
       runtimeService: _FakeRuntimeDeviceService([
@@ -221,7 +227,8 @@ void main() {
     expect(started, isFalse);
   });
 
-  test('ensureAgentOnline restarts stale managed agent that never comes online', () async {
+  test('ensureAgentOnline restarts stale managed agent that never comes online',
+      () async {
     SharedPreferences.setMockInitialValues({
       'rc_managed_agent_pid': 321,
     });
@@ -404,7 +411,9 @@ void main() {
     expect(stopped, isFalse);
   });
 
-  test('handleDesktopExit keeps managed agent running when background mode is on', () async {
+  test(
+      'handleDesktopExit keeps managed agent running when background mode is on',
+      () async {
     final supervisor = DesktopAgentSupervisor(
       runtimeService: _FakeRuntimeDeviceService([
         const [
@@ -526,7 +535,8 @@ void main() {
     expect(killed, isEmpty);
   });
 
-  test('stopManagedAgent falls back to SIGTERM when HTTP /stop fails', () async {
+  test('stopManagedAgent falls back to SIGTERM when HTTP /stop fails',
+      () async {
     SharedPreferences.setMockInitialValues({
       'rc_managed_agent_pid': 12345,
     });
@@ -587,9 +597,6 @@ void main() {
 
   group('syncAndEnsureOnline', () {
     test('内部按序调用 sync -> ensure（configPath 正确传递）', () async {
-      var syncCalled = false;
-      var ensureConfigPath = 'not-set';
-
       final supervisor = DesktopAgentSupervisor(
         runtimeService: _FakeRuntimeDeviceService([
           const [
@@ -649,12 +656,6 @@ void main() {
 
   group('_isProcessRunning PID 校验', () {
     test('PID 有效且命令行包含 app.cli → 返回 true', () async {
-      final supervisor = DesktopAgentSupervisor(
-        processRunner: (executable, arguments) async {
-          return ProcessResult(0, 0, 'python3 -m app.cli run --port 8080', '');
-        },
-      );
-
       // 通过 ensureAgentOnline 间接测试 _isProcessRunning
       // 预置 managed PID，processRunner 返回包含 app.cli 的输出
       SharedPreferences.setMockInitialValues({'rc_managed_agent_pid': 12345});
@@ -785,7 +786,8 @@ void main() {
       expect(storedPid, isNot(equals(99999)));
     });
 
-    test('DesktopAgentManager.startAgent 改用 syncAndEnsureOnline 后行为不变', () async {
+    test('DesktopAgentManager.startAgent 改用 syncAndEnsureOnline 后行为不变',
+        () async {
       // 此测试验证 syncAndEnsureOnline 路径能正确启动 Agent
       SharedPreferences.setMockInitialValues({});
 

@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -30,7 +28,8 @@ class MockAuthService extends AuthService {
   Duration _simulateDelay = Duration.zero;
 
   void setLoginResult(Map<String, dynamic> result) => _loginResult = result;
-  void setRegisterResult(Map<String, dynamic> result) => _registerResult = result;
+  void setRegisterResult(Map<String, dynamic> result) =>
+      _registerResult = result;
   void setLoginException(Exception e) => _loginException = e;
   void setRegisterException(Exception e) => _registerException = e;
   void setSimulateDelay(Duration duration) => _simulateDelay = duration;
@@ -45,18 +44,27 @@ class MockAuthService extends AuthService {
     }
     if (_loginException != null) throw _loginException!;
     if (_loginResult != null) return _loginResult!;
-    return {'success': true, 'token': 'test-token', 'session_id': 'session-123'};
+    return {
+      'success': true,
+      'token': 'test-token',
+      'session_id': 'session-123'
+    };
   }
 
   @override
-  Future<Map<String, dynamic>> register(String username, String password) async {
+  Future<Map<String, dynamic>> register(
+      String username, String password) async {
     _registerCallCount++;
     if (_simulateDelay != Duration.zero) {
       await Future.delayed(_simulateDelay);
     }
     if (_registerException != null) throw _registerException!;
     if (_registerResult != null) return _registerResult!;
-    return {'success': true, 'token': 'test-token', 'session_id': 'session-123'};
+    return {
+      'success': true,
+      'token': 'test-token',
+      'session_id': 'session-123'
+    };
   }
 }
 
@@ -89,9 +97,11 @@ void main() {
       providers: [
         ChangeNotifierProvider(create: (_) => ThemeController()),
         ChangeNotifierProvider(
-          create: (_) => agentManager ?? DesktopAgentManager(
-            supervisor: supervisor,
-          ),
+          create: (_) =>
+              agentManager ??
+              DesktopAgentManager(
+                supervisor: supervisor,
+              ),
         ),
       ],
       child: const MaterialApp(
@@ -112,7 +122,8 @@ void main() {
       expect(find.text('立即注册'), findsOneWidget);
     });
 
-    testWidgets('toggle to register mode shows confirm password field', (tester) async {
+    testWidgets('toggle to register mode shows confirm password field',
+        (tester) async {
       await setLargeViewport(tester);
       await tester.pumpWidget(wrapWithApp());
       await tester.pumpAndSettle();
@@ -131,7 +142,8 @@ void main() {
       expect(find.text('立即登录'), findsOneWidget);
     });
 
-    testWidgets('toggle back to login mode hides confirm password', (tester) async {
+    testWidgets('toggle back to login mode hides confirm password',
+        (tester) async {
       await setLargeViewport(tester);
       await tester.pumpWidget(wrapWithApp());
       await tester.pumpAndSettle();
@@ -161,7 +173,7 @@ void main() {
     group('form validation - 表单验证', () {
       testWidgets('shows error when username is empty', (tester) async {
         await setLargeViewport(tester);
-      await tester.pumpWidget(wrapWithApp());
+        await tester.pumpWidget(wrapWithApp());
         await tester.pumpAndSettle();
 
         await tester.tap(find.text('登录'));
@@ -173,7 +185,7 @@ void main() {
 
       testWidgets('shows error when username is too short', (tester) async {
         await setLargeViewport(tester);
-      await tester.pumpWidget(wrapWithApp());
+        await tester.pumpWidget(wrapWithApp());
         await tester.pumpAndSettle();
 
         await tester.enterText(usernameField, 'ab');
@@ -185,7 +197,7 @@ void main() {
 
       testWidgets('shows error when username is too long', (tester) async {
         await setLargeViewport(tester);
-      await tester.pumpWidget(wrapWithApp());
+        await tester.pumpWidget(wrapWithApp());
         await tester.pumpAndSettle();
 
         await tester.enterText(
@@ -200,7 +212,7 @@ void main() {
 
       testWidgets('shows error when password is empty', (tester) async {
         await setLargeViewport(tester);
-      await tester.pumpWidget(wrapWithApp());
+        await tester.pumpWidget(wrapWithApp());
         await tester.pumpAndSettle();
 
         await tester.enterText(usernameField, 'testuser');
@@ -213,7 +225,7 @@ void main() {
 
       testWidgets('shows error when password is too short', (tester) async {
         await setLargeViewport(tester);
-      await tester.pumpWidget(wrapWithApp());
+        await tester.pumpWidget(wrapWithApp());
         await tester.pumpAndSettle();
 
         await tester.enterText(usernameField, 'testuser');
@@ -224,9 +236,10 @@ void main() {
         expect(find.text('密码至少 6 个字符'), findsOneWidget);
       });
 
-      testWidgets('shows error when confirm password is empty (register mode)', (tester) async {
+      testWidgets('shows error when confirm password is empty (register mode)',
+          (tester) async {
         await setLargeViewport(tester);
-      await tester.pumpWidget(wrapWithApp());
+        await tester.pumpWidget(wrapWithApp());
         await tester.pumpAndSettle();
 
         // 切换到注册模式
@@ -241,9 +254,10 @@ void main() {
         expect(find.text('请确认密码'), findsOneWidget);
       });
 
-      testWidgets('shows error when passwords do not match (register mode)', (tester) async {
+      testWidgets('shows error when passwords do not match (register mode)',
+          (tester) async {
         await setLargeViewport(tester);
-      await tester.pumpWidget(wrapWithApp());
+        await tester.pumpWidget(wrapWithApp());
         await tester.pumpAndSettle();
 
         // 切换到注册模式
@@ -263,7 +277,7 @@ void main() {
     group('password visibility - 密码可见性', () {
       testWidgets('toggles password visibility', (tester) async {
         await setLargeViewport(tester);
-      await tester.pumpWidget(wrapWithApp());
+        await tester.pumpWidget(wrapWithApp());
         await tester.pumpAndSettle();
 
         // 找到密码输入框对应的 TextField
@@ -288,9 +302,10 @@ void main() {
         expect(passwordTextFieldVisible.obscureText, isFalse);
       });
 
-      testWidgets('toggles confirm password visibility (register mode)', (tester) async {
+      testWidgets('toggles confirm password visibility (register mode)',
+          (tester) async {
         await setLargeViewport(tester);
-      await tester.pumpWidget(wrapWithApp());
+        await tester.pumpWidget(wrapWithApp());
         await tester.pumpAndSettle();
 
         // 切换到注册模式
@@ -417,7 +432,8 @@ void main() {
       expect(find.text('创建新账号'), findsOneWidget);
     });
 
-    testWidgets('mobile mode: DesktopAgentManager does not crash after login', (tester) async {
+    testWidgets('mobile mode: DesktopAgentManager does not crash after login',
+        (tester) async {
       // 验证在移动端（supported=false），登录流程不会导致 DesktopAgentManager 崩溃
       // LoginScreen._submit() 中调用了 agentManager.onLogin()
       // 在移动端它会立即 return，state 变为 unsupported

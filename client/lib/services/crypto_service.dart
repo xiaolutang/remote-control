@@ -31,8 +31,7 @@ class CryptoService {
       client.connectionTimeout = const Duration(seconds: 10);
       final request = await client.getUrl(uri);
       final response = await request.close();
-      final body =
-          await response.transform(utf8.decoder).join();
+      final body = await response.transform(utf8.decoder).join();
       final data = jsonDecode(body) as Map<String, dynamic>;
 
       final pem = data['public_key_pem'] as String;
@@ -90,12 +89,14 @@ class CryptoService {
     final plaintext = utf8.encode(jsonEncode(message));
     final iv = _generateIv();
     final cipher = GCMBlockCipher(AESEngine())
-      ..init(true, AEADParameters(
-        KeyParameter(_aesKey!),
-        128, // tag length in bits
-        iv,
-        Uint8List(0), // no additional data
-      ));
+      ..init(
+          true,
+          AEADParameters(
+            KeyParameter(_aesKey!),
+            128, // tag length in bits
+            iv,
+            Uint8List(0), // no additional data
+          ));
 
     final output = cipher.process(Uint8List.fromList(plaintext));
     return {
@@ -113,12 +114,14 @@ class CryptoService {
     final data = base64Decode(raw['data'] as String);
 
     final cipher = GCMBlockCipher(AESEngine())
-      ..init(false, AEADParameters(
-        KeyParameter(_aesKey!),
-        128,
-        iv,
-        Uint8List(0),
-      ));
+      ..init(
+          false,
+          AEADParameters(
+            KeyParameter(_aesKey!),
+            128,
+            iv,
+            Uint8List(0),
+          ));
 
     final decrypted = cipher.process(data);
     return jsonDecode(utf8.decode(decrypted)) as Map<String, dynamic>;
@@ -181,32 +184,29 @@ class CryptoService {
   RSAPublicKey _parseRsaPublicKeyFromPem(String pem) {
     final lines = pem.split('\n');
     final base64Str = lines
-        .where((line) =>
-            !line.startsWith('-----') && line.trim().isNotEmpty)
+        .where((line) => !line.startsWith('-----') && line.trim().isNotEmpty)
         .join();
 
     final keyBytes = base64Decode(base64Str);
     final asn1Parser = asn1.ASN1Parser(keyBytes);
     final topLevel = asn1Parser.nextObject() as asn1.ASN1Sequence;
 
-    final algorithmSeq = topLevel.elements![0] as asn1.ASN1Sequence;
+    final algorithmSeq = topLevel.elements[0] as asn1.ASN1Sequence;
     final algorithmOid =
-        (algorithmSeq.elements![0] as asn1.ASN1ObjectIdentifier).identifier;
+        (algorithmSeq.elements[0] as asn1.ASN1ObjectIdentifier).identifier;
     if (algorithmOid != '1.2.840.113549.1.1.1') {
       throw FormatException('Not an RSA public key');
     }
 
-    final bitString = topLevel.elements![1] as asn1.ASN1BitString;
+    final bitString = topLevel.elements[1] as asn1.ASN1BitString;
     final innerParser = asn1.ASN1Parser(bitString.contentBytes());
     final rsaSeq = innerParser.nextObject() as asn1.ASN1Sequence;
 
-    final modulus = (rsaSeq.elements![0] as asn1.ASN1Integer).valueAsBigInteger;
-    final exponent =
-        (rsaSeq.elements![1] as asn1.ASN1Integer).valueAsBigInteger;
+    final modulus = (rsaSeq.elements[0] as asn1.ASN1Integer).valueAsBigInteger;
+    final exponent = (rsaSeq.elements[1] as asn1.ASN1Integer).valueAsBigInteger;
 
     return RSAPublicKey(modulus, exponent);
   }
-
 }
 
 class SecurityException implements Exception {

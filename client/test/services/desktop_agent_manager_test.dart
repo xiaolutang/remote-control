@@ -98,7 +98,8 @@ void main() {
     expect(state.kind, DesktopAgentStateKind.externalOnline);
   });
 
-  test('startAgent returns startFailed when supervisor cannot bring agent online',
+  test(
+      'startAgent returns startFailed when supervisor cannot bring agent online',
       () async {
     final tempRoot =
         await Directory.systemTemp.createTemp('desktop-agent-manager');
@@ -436,8 +437,8 @@ void main() {
 
   test('onAppClose respects keepAgentRunningInBackground=false', () async {
     final configService = ConfigService();
-    await configService.saveConfig(
-        const AppConfig(keepAgentRunningInBackground: false));
+    await configService
+        .saveConfig(const AppConfig(keepAgentRunningInBackground: false));
 
     final manager = DesktopAgentManager(
       serverUrl: 'ws://localhost:8888',
@@ -457,8 +458,8 @@ void main() {
 
   test('onAppClose keeps agent running when config is true', () async {
     final configService = ConfigService();
-    await configService.saveConfig(
-        const AppConfig(keepAgentRunningInBackground: true));
+    await configService
+        .saveConfig(const AppConfig(keepAgentRunningInBackground: true));
 
     final manager = DesktopAgentManager(
       supervisor: DesktopAgentSupervisor(
@@ -556,7 +557,8 @@ void main() {
       );
 
       // 状态应变为 recoverable
-      expect(manager.agentState.recoveryState, DesktopAgentRecoveryState.recoverable);
+      expect(manager.agentState.recoveryState,
+          DesktopAgentRecoveryState.recoverable);
       expect(manager.agentState.message, contains('network_lost'));
 
       // 模拟 agent 自动重连成功
@@ -674,12 +676,14 @@ void main() {
         isProcessAlive: true,
       );
 
-      expect(manager.agentState.recoveryState, DesktopAgentRecoveryState.recoverable);
+      expect(manager.agentState.recoveryState,
+          DesktopAgentRecoveryState.recoverable);
 
       // 通过 @visibleForTesting 方法模拟 TTL 超时
       manager.triggerRecoveryExpiredForTest();
 
-      expect(manager.agentState.recoveryState, DesktopAgentRecoveryState.expired);
+      expect(
+          manager.agentState.recoveryState, DesktopAgentRecoveryState.expired);
       expect(manager.agentState.message, contains('超时'));
     });
 
@@ -782,7 +786,8 @@ void main() {
         isProcessAlive: true,
       );
 
-      expect(manager.agentState.recoveryState, DesktopAgentRecoveryState.recoverable);
+      expect(manager.agentState.recoveryState,
+          DesktopAgentRecoveryState.recoverable);
 
       // 登出
       await manager.onLogout();
@@ -817,7 +822,8 @@ void main() {
         isProcessAlive: true,
       );
       final countAfterFirst = notificationCount;
-      expect(manager.agentState.recoveryState, DesktopAgentRecoveryState.recoverable);
+      expect(manager.agentState.recoveryState,
+          DesktopAgentRecoveryState.recoverable);
 
       // 第二次断连（应被忽略，因为 recoveryState != none）
       manager.onAgentDisconnect(
@@ -874,30 +880,30 @@ void main() {
       // 但这里我们直接通过 triggerRecoveryExpiredForTest 测试终态守卫
       // 先让 manager 进入 recoverable
       manager.onAgentDisconnect(reason: 'test', isProcessAlive: true);
-      expect(manager.agentState.recoveryState, DesktopAgentRecoveryState.recoverable);
+      expect(manager.agentState.recoveryState,
+          DesktopAgentRecoveryState.recoverable);
 
       // TTL 过期
       manager.triggerRecoveryExpiredForTest();
-      expect(manager.agentState.recoveryState, DesktopAgentRecoveryState.expired);
+      expect(
+          manager.agentState.recoveryState, DesktopAgentRecoveryState.expired);
 
       // 晚到的重连回调不应覆盖 expired
       manager.onAgentReconnected();
-      expect(manager.agentState.recoveryState, DesktopAgentRecoveryState.expired);
+      expect(
+          manager.agentState.recoveryState, DesktopAgentRecoveryState.expired);
     });
 
     test('TTL 过期使 in-flight recovery 失效', () async {
       final configService = ConfigService();
       await configService.saveConfig(const AppConfig());
       final syncCompleter = Completer<ProcessResult>();
-      int syncCallCount = 0;
-
       final manager = DesktopAgentManager(
         serverUrl: 'ws://localhost:8888',
         token: 'token',
         deviceId: 'dev-1',
         supervisor: DesktopAgentSupervisor(
           processRunner: (executable, arguments) async {
-            syncCallCount++;
             // 卡住直到 completer 完成
             return syncCompleter.future;
           },
@@ -908,12 +914,14 @@ void main() {
 
       // 进入 online 状态
       manager.onAgentDisconnect(reason: 'test', isProcessAlive: true);
-      expect(manager.agentState.recoveryState, DesktopAgentRecoveryState.recoverable);
+      expect(manager.agentState.recoveryState,
+          DesktopAgentRecoveryState.recoverable);
 
       // 进程死亡触发 _attemptRecovery
       // 但这里 isProcessAlive=true 已经在 recoverable 了，直接触发 TTL 过期
       manager.triggerRecoveryExpiredForTest();
-      expect(manager.agentState.recoveryState, DesktopAgentRecoveryState.expired);
+      expect(
+          manager.agentState.recoveryState, DesktopAgentRecoveryState.expired);
 
       // 完成 sync 让 in-flight 恢复继续
       syncCompleter.complete(ProcessResult(0, 0, '', ''));
@@ -922,7 +930,8 @@ void main() {
       await Future.delayed(const Duration(milliseconds: 100));
 
       // expired 终态应保持
-      expect(manager.agentState.recoveryState, DesktopAgentRecoveryState.expired);
+      expect(
+          manager.agentState.recoveryState, DesktopAgentRecoveryState.expired);
     });
   });
 }
@@ -949,4 +958,3 @@ Future<void> _pollUntil(
     );
   }
 }
-
