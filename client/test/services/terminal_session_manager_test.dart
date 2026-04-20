@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/widgets.dart';
@@ -12,6 +11,7 @@ import 'package:xterm/xterm.dart';
 class MockWebSocketService extends WebSocketService {
   int disconnectCallCount = 0;
   int connectCallCount = 0;
+  final List<String> sentMessages = [];
   bool _mockConnected = false;
   ConnectionStatus _mockStatus = ConnectionStatus.disconnected;
   int? _mockLastCloseCode;
@@ -106,6 +106,31 @@ class MockWebSocketService extends WebSocketService {
     _mockStatus = ConnectionStatus.connected;
     return true;
   }
+
+  @override
+  void send(String data) {
+    sentMessages.add(data);
+  }
+}
+
+extension _TerminalSessionManagerTestAccess on TerminalSessionManager {
+  Terminal testEnsureTerminal(
+    String? deviceId,
+    String terminalId,
+    Terminal Function() create, {
+    WebSocketService? service,
+  }) {
+    return ensureRendererAdapter(
+      deviceId,
+      terminalId,
+      create,
+      service: service,
+    ).terminalForView;
+  }
+
+  Terminal? testTerminal(String? deviceId, String terminalId) {
+    return getRendererAdapter(deviceId, terminalId)?.terminalForView;
+  }
 }
 
 void main() {
@@ -145,9 +170,9 @@ void main() {
         return Terminal(maxLines: 10000);
       }
 
-      final first = manager.getOrCreateTerminal('mbp-01', 'term-1', build);
+      final first = manager.testEnsureTerminal('mbp-01', 'term-1', build);
       first.write('hello');
-      final second = manager.getOrCreateTerminal('mbp-01', 'term-1', build);
+      final second = manager.testEnsureTerminal('mbp-01', 'term-1', build);
 
       expect(identical(first, second), isTrue);
       expect(createCount, 1);
@@ -164,7 +189,7 @@ void main() {
         terminalId: 'term-1',
       );
 
-      final terminal = manager.getOrCreateTerminal(
+      final terminal = manager.testEnsureTerminal(
         'mbp-01',
         'term-1',
         () => Terminal(maxLines: 10000),
@@ -205,7 +230,7 @@ void main() {
         terminalId: 'term-1',
       );
 
-      final terminal = manager.getOrCreateTerminal(
+      final terminal = manager.testEnsureTerminal(
         'mbp-01',
         'term-1',
         () => Terminal(maxLines: 10000),
@@ -244,7 +269,7 @@ void main() {
         terminalId: 'term-1',
       );
 
-      final terminal = manager.getOrCreateTerminal(
+      final terminal = manager.testEnsureTerminal(
         'mbp-01',
         'term-1',
         () => Terminal(maxLines: 10000),
@@ -260,6 +285,53 @@ void main() {
 
       expect(terminal.viewHeight, 36);
       expect(terminal.viewWidth, 110);
+    });
+
+    test('restores alternate snapshot without leaking alt content into main',
+        () async {
+      final manager = TerminalSessionManager();
+      final service = MockWebSocketService(
+        sessionId: 'session-1',
+        deviceId: 'mbp-01',
+        terminalId: 'term-1',
+      );
+
+      final terminal = manager.testEnsureTerminal(
+        'mbp-01',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: service,
+      );
+
+      service.debugHandleMessage(jsonEncode({'type': 'connected'}));
+      service.debugHandleMessage(jsonEncode({
+        'type': 'snapshot_chunk',
+        'payload': base64Encode(utf8.encode('alternate snapshot body')),
+        'active_buffer': 'alt',
+      }));
+      service.debugHandleMessage(jsonEncode({'type': 'snapshot_complete'}));
+      service.debugHandleMessage(jsonEncode({
+        'type': 'output',
+        'payload': base64Encode(
+          utf8.encode('\x1b[?1049lrestored shell prompt'),
+        ),
+      }));
+
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(terminal.isUsingAltBuffer, isFalse);
+      expect(
+        terminal.mainBuffer.lines[0].toString(),
+        contains('restored shell prompt'),
+      );
+      expect(
+        terminal.mainBuffer.lines[0].toString(),
+        isNot(contains('alternate snapshot body')),
+      );
+      expect(
+        terminal.altBuffer.lines[0].toString(),
+        contains('alternate snapshot body'),
+      );
     });
   });
 
@@ -315,7 +387,7 @@ void main() {
     test('resumeAll 重连暂停前已连接的 service', () async {
       final mock = buildMock();
       manager.getOrCreate('dev-1', 'term-1', () => mock);
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
@@ -345,7 +417,7 @@ void main() {
     test('disconnectTerminal 同时清理 cached Terminal', () async {
       final mock = buildMock();
       manager.getOrCreate('dev-1', 'term-1', () => mock);
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
@@ -354,7 +426,7 @@ void main() {
       await manager.disconnectTerminal('dev-1', 'term-1');
 
       expect(manager.get('dev-1', 'term-1'), isNull);
-      expect(manager.getTerminal('dev-1', 'term-1'), isNull);
+      expect(manager.testTerminal('dev-1', 'term-1'), isNull);
     });
 
     test('pause 后新增的 service 不被 resumeAll 影响', () async {
@@ -370,7 +442,7 @@ void main() {
     test('连续 pause-resume 不导致重复连接', () async {
       final mock = buildMock();
       manager.getOrCreate('dev-1', 'term-1', () => mock);
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
@@ -395,7 +467,7 @@ void main() {
 
       manager.getOrCreate('dev-1', 'term-1', () => connected);
       manager.getOrCreate('dev-2', 'term-2', () => disconnected);
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
@@ -508,7 +580,7 @@ void main() {
       final mock = buildMock();
       manager.getOrCreate('dev-1', 'term-1', () => mock);
       mock.setMockConnected(true);
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
@@ -519,7 +591,7 @@ void main() {
       // disconnectAll 清空了所有状态
       expect(() => manager.pauseAll(), returnsNormally);
       await expectLater(manager.resumeAll(), completes);
-      expect(manager.getTerminal('dev-1', 'term-1'), isNull);
+      expect(manager.testTerminal('dev-1', 'term-1'), isNull);
     });
 
     test('桌面端 pauseAll/resumeAll 安全调用', () async {
@@ -567,12 +639,12 @@ void main() {
 
       manager.getOrCreate('dev-1', 'term-1', () => failMock);
       manager.getOrCreate('dev-2', 'term-2', () => okMock);
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
       );
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-2',
         'term-2',
         () => Terminal(maxLines: 10000),
@@ -597,7 +669,7 @@ void main() {
       mock.connectShouldThrow = true;
 
       manager.getOrCreate('dev-1', 'term-1', () => mock);
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
@@ -655,7 +727,7 @@ void main() {
       final first = manager.getOrCreate('dev-1', 'term-1', build);
       expect(identical(first, mock1), isTrue);
       expect(createCount, 1);
-      final firstTerminal = manager.getOrCreateTerminal(
+      final firstTerminal = manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
@@ -667,7 +739,7 @@ void main() {
       expect(identical(second, mock1), isFalse);
       expect(createCount, 2);
       expect(mock1.disconnectCallCount, 1);
-      final secondTerminal = manager.getOrCreateTerminal(
+      final secondTerminal = manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
@@ -841,7 +913,7 @@ void main() {
         () async {
       final mock = buildMock();
       manager.getOrCreate('dev-1', 'term-1', () => mock);
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
@@ -864,12 +936,12 @@ void main() {
 
       manager.getOrCreate('dev-1', 'term-1', () => mock1);
       manager.getOrCreate('dev-2', 'term-2', () => mock2);
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
       );
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-2',
         'term-2',
         () => Terminal(maxLines: 10000),
@@ -923,7 +995,7 @@ void main() {
     test('多次 pause-resume 周期稳定性', () async {
       final mock = buildMock();
       manager.getOrCreate('dev-1', 'term-1', () => mock);
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
@@ -969,7 +1041,7 @@ void main() {
       final mock = buildMock();
       manager.getOrCreate('dev-1', 'term-1', () => mock);
 
-      final terminal = manager.getOrCreateTerminal(
+      final terminal = manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
@@ -1017,12 +1089,12 @@ void main() {
       manager.getOrCreate('dev-1', 'term-1', () => mock1);
       manager.getOrCreate('dev-1', 'term-2', () => mock2);
 
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
       );
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-2',
         () => Terminal(maxLines: 10000),
@@ -1049,7 +1121,7 @@ void main() {
       final mock = buildMock();
       manager.getOrCreate('dev-1', 'term-1', () => mock);
 
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
@@ -1081,7 +1153,7 @@ void main() {
       final mock = buildMock();
       manager.getOrCreate('dev-1', 'term-1', () => mock);
 
-      final terminal = manager.getOrCreateTerminal(
+      final terminal = manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
@@ -1121,7 +1193,7 @@ void main() {
 
     test('create 失败时 coordinator 进入 error 状态', () async {
       // 不创建 session，connectTerminal 应进入 error
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
@@ -1138,7 +1210,7 @@ void main() {
       mock.connectShouldThrow = true;
       manager.getOrCreate('dev-1', 'term-1', () => mock);
 
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
@@ -1153,7 +1225,7 @@ void main() {
       final mock = buildMock();
       manager.getOrCreate('dev-1', 'term-1', () => mock);
 
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
@@ -1168,8 +1240,7 @@ void main() {
           TerminalSessionState.idle);
 
       // 获取 listenable 并监听变化
-      final listenable =
-          manager.getTerminalStateListenable('dev-1', 'term-1');
+      final listenable = manager.getTerminalStateListenable('dev-1', 'term-1');
       expect(listenable, isNotNull);
 
       final states = <TerminalSessionState>[];
@@ -1213,7 +1284,7 @@ void main() {
 
     // ─── F072: 状态机转换缺口修复测试 ───────────────────────────
 
-    test('idle bind 已连接 service 进入 recovering', () async {
+    test('idle bind 已连接 service 直接进入 live', () async {
       final mock = buildMock();
       mock.setMockConnected(true);
       manager.getOrCreate('dev-1', 'term-1', () => mock);
@@ -1222,25 +1293,25 @@ void main() {
       expect(manager.getTerminalState('dev-1', 'term-1'),
           TerminalSessionState.idle);
 
-      // getOrCreateTerminal 传入已连接的 service 触发 bindTerminalOutput
-      // bindTerminalOutput 在 existing == null && service.connected 时调用 beginRecovery
-      manager.getOrCreateTerminal(
+      // 已经 connected 的现有 transport 只是晚绑定到 UI/coordinator，
+      // 不应伪造 recovering，否则会无期限等待 snapshot_complete。
+      manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
         service: mock,
       );
 
-      // idle -> recovering
+      // idle -> live
       expect(manager.getTerminalState('dev-1', 'term-1'),
-          TerminalSessionState.recovering);
+          TerminalSessionState.live);
     });
 
-    test('live rebind 进入 recovering', () async {
+    test('live rebind 到已连接新 service 保持 live', () async {
       final mock = buildMock();
       manager.getOrCreate('dev-1', 'term-1', () => mock);
 
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
@@ -1261,47 +1332,152 @@ void main() {
       newMock.setMockConnected(true);
       manager.bindTerminalOutput('dev-1', 'term-1', newMock);
 
-      // live -> recovering (via prepareForRebind -> beginRecovery)
+      // 已经 live 的 replacement service 不应凭空触发 recovering
       expect(manager.getTerminalState('dev-1', 'term-1'),
-          TerminalSessionState.recovering);
+          TerminalSessionState.live);
     });
 
-    test('idle bind 已连接 service + snapshot_complete 进入 live', () async {
+    test('bindTerminalOutput 将 terminal onOutput 路由到当前 service', () {
       final mock = buildMock();
-      mock.setMockConnected(true);
       manager.getOrCreate('dev-1', 'term-1', () => mock);
 
-      final terminal = manager.getOrCreateTerminal(
+      final terminal = manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
         service: mock,
       );
 
-      // idle -> recovering
-      expect(manager.getTerminalState('dev-1', 'term-1'),
-          TerminalSessionState.recovering);
+      terminal.write('\x1b[6n');
 
-      // 发送 snapshot
+      expect(mock.sentMessages, contains('\x1b[1;1R'));
+    });
+
+    test('rebind 后 terminal onOutput 切换到新 service', () {
+      final mock = buildMock();
+      manager.getOrCreate('dev-1', 'term-1', () => mock);
+
+      final terminal = manager.testEnsureTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: mock,
+      );
+
+      terminal.setCursor(1, 1);
+      terminal.write('\x1b[6n');
+      expect(mock.sentMessages, contains('\x1b[2;2R'));
+      mock.sentMessages.clear();
+
+      final newMock = buildMock();
+      newMock.setMockConnected(true);
+      manager.bindTerminalOutput('dev-1', 'term-1', newMock);
+
+      terminal.setCursor(4, 3);
+      terminal.write('\x1b[6n');
+
+      expect(mock.sentMessages, isEmpty);
+      expect(newMock.sentMessages, contains('\x1b[4;5R'));
+    });
+
+    test('Ctrl+C 后 shell prompt 到来时丢弃迟到的终端自动应答', () async {
+      final mock = buildMock();
+      manager.getOrCreate('dev-1', 'term-1', () => mock);
+
+      final terminal = manager.testEnsureTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: mock,
+      );
+
+      terminal.onOutput?.call('\x03');
+      terminal.write('\x1b[c');
+
+      expect(mock.sentMessages, contains('\x03'));
+      expect(mock.sentMessages, isNot(contains('\x1b[?1;2c')));
+
       mock.debugHandleMessage(jsonEncode({
-        'type': 'snapshot',
-        'payload': base64Encode(utf8.encode('recovery snapshot')),
+        'type': 'output',
+        'payload': base64Encode(utf8.encode('bash-3.2\$ ')),
       }));
-      await Future<void>.delayed(const Duration(milliseconds: 10));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
 
-      // 仍然是 recovering
+      expect(mock.sentMessages, isNot(contains('\x1b[?1;2c')));
+    });
+
+    test('Ctrl+C 后若未退出则延迟放行终端自动应答', () async {
+      final mock = buildMock();
+      manager.getOrCreate('dev-1', 'term-1', () => mock);
+
+      final terminal = manager.testEnsureTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: mock,
+      );
+
+      terminal.onOutput?.call('\x03');
+      terminal.write('\x1b[c');
+
+      expect(mock.sentMessages, contains('\x03'));
+      expect(mock.sentMessages, isNot(contains('\x1b[?1;2c')));
+
+      await Future<void>.delayed(const Duration(milliseconds: 450));
+
+      expect(mock.sentMessages, contains('\x1b[?1;2c'));
+    });
+
+    test('recovery 窗口内的终端自动应答被丢弃，不在稍后补发', () async {
+      final mock = buildMock();
+      manager.getOrCreate('dev-1', 'term-1', () => mock);
+
+      final terminal = manager.testEnsureTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: mock,
+      );
+
+      await manager.connectTerminal('dev-1', 'term-1');
+      mock.debugHandleMessage(jsonEncode({'type': 'connected'}));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      terminal.write('\x1b[c');
+      expect(mock.sentMessages, isNot(contains('\x1b[?1;2c')));
+
+      await Future<void>.delayed(const Duration(milliseconds: 2200));
+      expect(mock.sentMessages, isNot(contains('\x1b[?1;2c')));
+    });
+
+    test('idle bind 已连接 service 直接消费 live output', () async {
+      final mock = buildMock();
+      mock.setMockConnected(true);
+      manager.getOrCreate('dev-1', 'term-1', () => mock);
+
+      final terminal = manager.testEnsureTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: mock,
+      );
+
+      // idle -> live
       expect(manager.getTerminalState('dev-1', 'term-1'),
-          TerminalSessionState.recovering);
+          TerminalSessionState.live);
 
-      // snapshot_complete: recovering -> live
-      mock.debugHandleMessage(jsonEncode({'type': 'snapshot_complete'}));
+      // 直接到达 live output，不应被错误缓冲
+      mock.debugHandleMessage(jsonEncode({
+        'type': 'output',
+        'payload': base64Encode(utf8.encode('live output')),
+      }));
       await Future<void>.delayed(const Duration(milliseconds: 10));
 
       expect(manager.getTerminalState('dev-1', 'term-1'),
           TerminalSessionState.live);
       expect(
         terminal.buffer.lines[0].toString(),
-        contains('recovery snapshot'),
+        contains('live output'),
       );
     });
 
@@ -1312,7 +1488,7 @@ void main() {
       mock.connectSucceeds = false; // connect 返回 false，状态为 reconnecting
       manager.getOrCreate('dev-1', 'term-1', () => mock);
 
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
@@ -1330,7 +1506,7 @@ void main() {
       final mock = buildMock();
       manager.getOrCreate('dev-1', 'term-1', () => mock);
 
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
@@ -1360,7 +1536,7 @@ void main() {
       final mock = buildMock();
       manager.getOrCreate('dev-1', 'term-1', () => mock);
 
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
@@ -1386,7 +1562,7 @@ void main() {
       final mock = buildMock();
       manager.getOrCreate('dev-1', 'term-1', () => mock);
 
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
@@ -1421,12 +1597,11 @@ void main() {
       );
     });
 
-    test('connecting 状态下 auth_failed 时 statusListener 收敛到 error',
-        () async {
+    test('connecting 状态下 auth_failed 时 statusListener 收敛到 error', () async {
       final mock = buildMock();
       manager.getOrCreate('dev-1', 'term-1', () => mock);
 
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
@@ -1475,6 +1650,26 @@ void main() {
       // outputText 也应只包含新数据
       expect(adapter.outputText.value, contains('new snapshot data'));
       expect(adapter.outputText.value, isNot(contains('old data')));
+    });
+
+    test('applySnapshot 可按 activeBuffer 恢复到 alternate buffer', () {
+      final terminal = Terminal(maxLines: 10000);
+      final adapter = RendererAdapter(terminal);
+
+      adapter.applyLiveOutput('main buffer data');
+      expect(terminal.mainBuffer.lines[0].toString(), contains('main buffer'));
+
+      adapter.applySnapshot(
+        'alternate snapshot',
+        activeBuffer: TerminalBufferKind.alt,
+      );
+
+      expect(terminal.isUsingAltBuffer, isTrue);
+      expect(terminal.altBuffer.lines[0].toString(), contains('alternate'));
+      expect(
+        terminal.mainBuffer.lines[0].toString(),
+        isNot(contains('alternate')),
+      );
     });
 
     test('applyLiveOutput 追加数据不清空', () {
@@ -1579,6 +1774,189 @@ void main() {
       // 最新的行保留
       expect(adapter.outputText.value, contains('line 59'));
     });
+
+    test('检测到 claude 退出尾巴后清理旧界面，仅保留 resume 和 prompt', () {
+      final terminal = Terminal(maxLines: 10000);
+      final adapter = RendererAdapter(terminal);
+
+      adapter.applyLiveOutput(
+        'old help line 1\r\n'
+        'old help line 2\r\n'
+        'Resume this session with:\r\n'
+        'claude --resume session-123\r\n'
+        'bash-3.2\$ ',
+      );
+
+      final bufferText = terminal.buffer.getText();
+      expect(bufferText, contains('Resume this session with:'));
+      expect(bufferText, contains('claude --resume session-123'));
+      expect(bufferText, contains('bash-3.2\$'));
+      expect(bufferText, isNot(contains('old help line 1')));
+      expect(bufferText, isNot(contains('old help line 2')));
+      expect(adapter.outputText.value, isNot(contains('old help line 1')));
+    });
+
+    test('检测到 prompt 后仍残留旧内容时，继续收敛为 resume 和 prompt', () {
+      final terminal = Terminal(maxLines: 10000);
+      final adapter = RendererAdapter(terminal);
+
+      adapter.applyLiveOutput(
+        'Resume this session with:\r\n'
+        'claude --resume session-456\r\n'
+        'bash-3.2\$ \r\n'
+        'stale claude help line\r\n'
+        'stale claude footer',
+      );
+
+      final bufferText = terminal.buffer.getText();
+      expect(bufferText, contains('Resume this session with:'));
+      expect(bufferText, contains('claude --resume session-456'));
+      expect(bufferText, contains('bash-3.2\$'));
+      expect(bufferText, isNot(contains('stale claude help line')));
+      expect(bufferText, isNot(contains('stale claude footer')));
+      expect(adapter.outputText.value, isNot(contains('stale claude help line')));
+    });
+
+    test('退出清理时保留前面的 shell 历史，不把 prompt 顶到第一行', () {
+      final terminal = Terminal(maxLines: 10000);
+      final adapter = RendererAdapter(terminal);
+
+      adapter.applyLiveOutput(
+        'bash-3.2\$ cd project/ai_rules/\r\n'
+        'bash-3.2\$ claude\r\n'
+        'stale claude help line\r\n'
+        'Resume this session with:\r\n'
+        'claude --resume session-789\r\n'
+        'bash-3.2\$ ',
+      );
+
+      final bufferText = terminal.buffer.getText();
+      expect(bufferText, contains('bash-3.2\$ cd project/ai_rules/'));
+      expect(bufferText, contains('bash-3.2\$ claude'));
+      expect(bufferText, contains('Resume this session with:'));
+      expect(bufferText, contains('claude --resume session-789'));
+      expect(bufferText, contains('bash-3.2\$'));
+      expect(bufferText, isNot(contains('stale claude help line')));
+    });
+
+    test('prompt 已经恢复后，只保留该 prompt 之前的 shell 历史', () {
+      final terminal = Terminal(maxLines: 10000);
+      final adapter = RendererAdapter(terminal);
+
+      adapter.applyLiveOutput(
+        'bash-3.2\$ cd project/ai_rules/\r\n'
+        'bash-3.2\$ \r\n'
+        'Resume this session with:\r\n'
+        'claude --resume session-999\r\n'
+        'Claude Code v2.1.76\r\n'
+        '~/project/ai_rules',
+      );
+
+      final bufferText = terminal.buffer.getText();
+      expect(bufferText, contains('bash-3.2\$ cd project/ai_rules/'));
+      expect(bufferText, contains('bash-3.2\$'));
+      expect(bufferText, isNot(contains('Resume this session with:')));
+      expect(bufferText, isNot(contains('claude --resume session-999')));
+      expect(bufferText, isNot(contains('Claude Code v2.1.76')));
+    });
+
+    test('顶部 prompt + 下方 stale claude block 时，将 prompt 收敛回历史末尾', () {
+      final terminal = Terminal(maxLines: 10000);
+      final adapter = RendererAdapter(terminal);
+
+      adapter.applyLiveOutput(
+        'bash-3.2\$ \r\n'
+        'The default interactive shell is now zsh.\r\n'
+        'To update your account to use zsh, please run `chsh -s /bin/zsh`.\r\n'
+        'bash-3.2\$ pwd\r\n'
+        '/Users/tangxiaolu\r\n'
+        'bash-3.2\$ cd project/ai_rules/\r\n'
+        'bash-3.2\$ pwd\r\n'
+        '/Users/tangxiaolu/project/ai_rules\r\n'
+        'bash-3.2\$ claude\r\n'
+        'Claude Code v2.1.76\r\n'
+        'glm-5.1 · API Usage Billing\r\n'
+        '~/project/ai_rules',
+      );
+
+      final bufferText = terminal.buffer.getText();
+      final trimmedLines = bufferText
+          .split('\n')
+          .map((line) => line.trimRight())
+          .where((line) => line.isNotEmpty)
+          .toList(growable: false);
+
+      expect(trimmedLines.first, 'The default interactive shell is now zsh.');
+      expect(trimmedLines, contains('bash-3.2\$ claude'));
+      expect(trimmedLines.last, 'bash-3.2\$');
+      expect(bufferText, isNot(contains('Claude Code v2.1.76')));
+      expect(bufferText, isNot(contains('glm-5.1 · API Usage Billing')));
+      expect(bufferText, isNot(contains('~/project/ai_rules')));
+    });
+
+    test('检测到 codex 退出尾巴后清理旧界面，并保留前面的 shell 历史', () {
+      final terminal = Terminal(maxLines: 10000);
+      final adapter = RendererAdapter(terminal);
+
+      adapter.applyLiveOutput(
+        'bash-3.2\$ pwd\r\n'
+        '/Users/tangxiaolu/project/remote-control\r\n'
+        'bash-3.2\$ codex\r\n'
+        'stale codex helper line\r\n'
+        'To continue this session, run codex resume abc123\r\n'
+        'bash-3.2\$ ',
+      );
+
+      final bufferText = terminal.buffer.getText();
+      expect(bufferText, contains('bash-3.2\$ pwd'));
+      expect(bufferText, contains('/Users/tangxiaolu/project/remote-control'));
+      expect(bufferText, contains('bash-3.2\$ codex'));
+      expect(
+        bufferText,
+        contains('To continue this session, run codex resume abc123'),
+      );
+      expect(bufferText, contains('bash-3.2\$'));
+      expect(bufferText, isNot(contains('stale codex helper line')));
+    });
+
+    test('顶部 prompt + 下方 stale codex block 时，将 prompt 收敛回历史末尾', () {
+      final terminal = Terminal(maxLines: 10000);
+      final adapter = RendererAdapter(terminal);
+
+      adapter.applyLiveOutput(
+        'bash-3.2\$ \r\n'
+        'bash-3.2\$ pwd\r\n'
+        '/Users/tangxiaolu/project/remote-control\r\n'
+        'bash-3.2\$ codex\r\n'
+        'OpenAI Codex v0.1.0\r\n'
+        'model: gpt-5.4\r\n'
+        '~/project/remote-control',
+      );
+
+      final bufferText = terminal.buffer.getText();
+      final trimmedLines = bufferText
+          .split('\n')
+          .map((line) => line.trimRight())
+          .where((line) => line.isNotEmpty)
+          .toList(growable: false);
+
+      expect(trimmedLines, contains('bash-3.2\$ codex'));
+      expect(trimmedLines.last, 'bash-3.2\$');
+      expect(bufferText, isNot(contains('OpenAI Codex v0.1.0')));
+      expect(bufferText, isNot(contains('model: gpt-5.4')));
+      expect(bufferText, isNot(contains('~/project/remote-control')));
+    });
+
+    test('普通 shell prompt 输出不触发 claude/codex 退出清理', () {
+      final terminal = Terminal(maxLines: 10000);
+      final adapter = RendererAdapter(terminal);
+
+      adapter.applyLiveOutput('regular output\r\nbash-3.2\$ ');
+
+      final bufferText = terminal.buffer.getText();
+      expect(bufferText, contains('regular output'));
+      expect(bufferText, contains('bash-3.2\$'));
+    });
   });
 
   // ─── F073: getRendererAdapter 集成测试 ────────────────────────
@@ -1595,7 +1973,7 @@ void main() {
     });
 
     test('返回已创建 terminal 的 RendererAdapter', () {
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
@@ -1611,8 +1989,7 @@ void main() {
     });
 
     test('通过 adapter 写入数据反映到 outputText', () {
-      // ignore: deprecated_member_use
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
@@ -1650,14 +2027,14 @@ void main() {
     });
 
     test('创建新 terminal 后 active transport 切到新 terminal', () async {
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
       );
       expect(manager.activeTerminalKeyForTest, 'dev-1::term-1');
 
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-2',
         () => Terminal(maxLines: 10000),
@@ -1666,17 +2043,17 @@ void main() {
     });
 
     test('同时只有一个 active terminal', () async {
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
       );
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-2',
         () => Terminal(maxLines: 10000),
       );
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-3',
         () => Terminal(maxLines: 10000),
@@ -1697,7 +2074,7 @@ void main() {
       manager.getOrCreate('dev-1', 'term-1', () => mock1);
       manager.getOrCreate('dev-1', 'term-2', () => mock2);
 
-      final term1 = manager.getOrCreateTerminal(
+      final term1 = manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
@@ -1709,7 +2086,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 10));
 
       // 切到 term-2
-      final term2 = manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-2',
         () => Terminal(maxLines: 10000),
@@ -1722,13 +2099,13 @@ void main() {
       expect(manager.activeTerminalKeyForTest, 'dev-1::term-1');
 
       // term-1 的实例和数据应该保留
-      final term1Again = manager.getTerminal('dev-1', 'term-1');
+      final term1Again = manager.testTerminal('dev-1', 'term-1');
       expect(identical(term1, term1Again), isTrue);
       expect(term1Again!.buffer.lines[0].toString(), contains('hello term-1'));
     });
 
     test('disconnect active terminal 后 activeTerminalKey 清空', () async {
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
@@ -1740,12 +2117,12 @@ void main() {
     });
 
     test('disconnect 非活跃终端不影响 activeTerminalKey', () async {
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
       );
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-2',
         () => Terminal(maxLines: 10000),
@@ -1757,7 +2134,7 @@ void main() {
     });
 
     test('disconnectAll 清空 activeTerminalKey', () async {
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
@@ -1769,7 +2146,7 @@ void main() {
     });
 
     test('switchTerminal 不存在的 terminal 不改变 active', () async {
-      manager.getOrCreateTerminal(
+      manager.testEnsureTerminal(
         'dev-1',
         'term-1',
         () => Terminal(maxLines: 10000),
