@@ -109,6 +109,14 @@ class IndexAwareCircularBuffer<T extends IndexedItem> {
   /// index is out of bounds.
   operator []=(int index, T value) {
     RangeError.checkValueInInterval(index, 0, length - 1, 'index');
+    if (identical(value._owner, this)) {
+      final fromIndex = value.index;
+      if (fromIndex == index) {
+        return;
+      }
+      _moveChild(fromIndex, index);
+      return;
+    }
     _adoptChild(index, value);
   }
 
@@ -188,18 +196,21 @@ class IndexAwareCircularBuffer<T extends IndexedItem> {
       return;
     }
 
+    if (_length >= _array.length) {
+      _dropChild(0);
+      _startIndex = (_startIndex + 1) % _array.length;
+      _absoluteStartIndex += 1;
+      _length--;
+      index--;
+    }
+
     for (var i = _length - 1; i >= index; i--) {
       _moveChild(i, i + 1);
     }
 
     _adoptChild(index, item);
 
-    if (_length >= _array.length) {
-      _startIndex += 1;
-      _absoluteStartIndex += 1;
-    } else {
-      _length++;
-    }
+    _length++;
   }
 
   /// Inserts [items] at [index] in order.
@@ -224,8 +235,12 @@ class IndexAwareCircularBuffer<T extends IndexedItem> {
   /// instead just adjusts the start index and length.
   void trimStart(int count) {
     if (count > _length) count = _length;
+    for (var i = 0; i < count; i++) {
+      _dropChild(i);
+    }
     _startIndex += count;
     _startIndex %= _array.length;
+    _absoluteStartIndex += count;
     _length -= count;
   }
 

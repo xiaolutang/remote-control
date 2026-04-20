@@ -44,8 +44,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
       ValueNotifier<String>('');
   ValueListenable<String>? _terminalOutputText;
 
-  StreamSubscription<String>? _outputSubscription;
-  StreamSubscription<Map<String, int>>? _presenceSubscription;
+  StreamSubscription<TerminalProtocolEvent>? _eventSubscription;
   StreamSubscription<void>? _deviceKickedSubscription;
   StreamSubscription<void>? _tokenInvalidSubscription;
   bool _showErrorBanner = false;
@@ -144,30 +143,27 @@ class _TerminalScreenState extends State<TerminalScreen> {
         );
         _configureTerminalCallbacks(service, adapter.terminalForView);
       } else {
-        // 首次创建：通过 deprecated API 创建 terminal（coordinator 会自动绑定）
-        // ignore: deprecated_member_use
-        _terminal = sessionManager.getOrCreateTerminal(
+        final adapter = sessionManager.ensureRendererAdapter(
           service.deviceId,
           terminalId,
           () => Terminal(maxLines: 10000),
           service: service,
         );
-        _terminalOutputText = sessionManager.getTerminalOutputListenable(
-          service.deviceId,
-          terminalId,
-        );
+        _terminal = adapter.terminalForView;
+        _terminalOutputText = adapter.outputText;
         _configureTerminalCallbacks(service, _activeTerminal);
       }
     } else {
       _terminal ??= Terminal(maxLines: 10000);
       _terminalOutputText = _localTerminalOutputText;
-      _outputSubscription =
-          service.outputStream.listen(_onOutput, onError: _onOutputError);
       _configureTerminalCallbacks(service, _activeTerminal);
     }
 
     service.addListener(_onStatusChanged);
-    _presenceSubscription = service.presenceStream.listen(_onPresence);
+    _eventSubscription = service.eventStream.listen(
+      _onProtocolEvent,
+      onError: _onOutputError,
+    );
     _deviceKickedSubscription =
         service.deviceKickedStream.listen((_) => _onDeviceKicked());
     _tokenInvalidSubscription =
@@ -183,10 +179,6 @@ class _TerminalScreenState extends State<TerminalScreen> {
     WebSocketService service,
     Terminal terminal,
   ) {
-    terminal.onOutput = (data) {
-      if (!mounted) return;
-      service.send(data);
-    };
     terminal.onResize = (width, height, pixelWidth, pixelHeight) {
       if (!mounted) return;
       if (_shouldFollowSharedPty(service)) {
@@ -200,10 +192,8 @@ class _TerminalScreenState extends State<TerminalScreen> {
     if (_webSocketService != null) {
       _webSocketService!.removeListener(_onStatusChanged);
     }
-    _outputSubscription?.cancel();
-    _outputSubscription = null;
-    _presenceSubscription?.cancel();
-    _presenceSubscription = null;
+    _eventSubscription?.cancel();
+    _eventSubscription = null;
     _deviceKickedSubscription?.cancel();
     _deviceKickedSubscription = null;
     _tokenInvalidSubscription?.cancel();
@@ -291,6 +281,29 @@ class _TerminalScreenState extends State<TerminalScreen> {
     setState(() {
       _views = views;
     });
+  }
+
+  void _onProtocolEvent(TerminalProtocolEvent event) {
+    switch (event.kind) {
+      case TerminalProtocolEventKind.presence:
+        final views = event.views;
+        if (views != null) {
+          _onPresence(views);
+        }
+        break;
+      case TerminalProtocolEventKind.output:
+      case TerminalProtocolEventKind.snapshot:
+        if ((_activeService.terminalId ?? '').isEmpty &&
+            event.payload != null) {
+          _onOutput(event.payload!);
+        }
+        break;
+      case TerminalProtocolEventKind.connected:
+      case TerminalProtocolEventKind.snapshotComplete:
+      case TerminalProtocolEventKind.resize:
+      case TerminalProtocolEventKind.closed:
+        break;
+    }
   }
 
   void _onStatusChanged() {

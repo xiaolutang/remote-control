@@ -1,6 +1,8 @@
 import 'package:test/test.dart';
 import 'package:xterm/core.dart';
 
+import '../_fixture/_fixture.dart';
+
 void main() {
   group('Terminal.inputHandler', () {
     test('can be set to null', () {
@@ -47,6 +49,29 @@ void main() {
       );
 
       expect(output, ['\x1B[M +,']);
+    });
+  });
+
+  group('Terminal.sendCursorPosition', () {
+    test('responds to CPR requests using ANSI 1-based origin coordinates', () {
+      final output = <String>[];
+      final terminal = Terminal(onOutput: output.add);
+
+      terminal.setCursor(0, 0);
+      terminal.write('\x1b[6n');
+
+      expect(output, equals(['\x1b[1;1R']));
+    });
+
+    test('responds to CPR requests using ANSI 1-based arbitrary coordinates',
+        () {
+      final output = <String>[];
+      final terminal = Terminal(onOutput: output.add);
+
+      terminal.setCursor(5, 3);
+      terminal.write('\x1b[6n');
+
+      expect(output, equals(['\x1b[4;6R']));
     });
   });
 
@@ -111,6 +136,145 @@ void main() {
         terminal.altBuffer.wordSeparators,
         contains('z'.codeUnitAt(0)),
       );
+    });
+
+    test('restores main buffer cursor after exiting alt buffer with 1049', () {
+      final terminal = Terminal();
+
+      terminal.setCursor(12, 6);
+      terminal.write('\x1b[?1049h');
+      terminal.setCursor(1, 1);
+
+      terminal.write('\x1b[?1049l');
+
+      expect(terminal.buffer, same(terminal.mainBuffer));
+      expect(terminal.buffer.cursorX, 12);
+      expect(terminal.buffer.cursorY, 6);
+    });
+
+    test('enters alt buffer at home position after 1049 enable', () {
+      final terminal = Terminal();
+
+      terminal.setCursor(10, 8);
+      terminal.write('\x1b[?1049h');
+
+      expect(terminal.buffer, same(terminal.altBuffer));
+      expect(terminal.buffer.cursorX, 0);
+      expect(terminal.buffer.cursorY, 0);
+    });
+
+    test('homes cursor when setting scroll margins', () {
+      final terminal = Terminal();
+
+      terminal.setCursor(12, 9);
+      terminal.write('\x1b[3;20r');
+
+      expect(terminal.buffer.marginTop, 2);
+      expect(terminal.buffer.marginBottom, 19);
+      expect(terminal.buffer.cursorX, 0);
+      expect(terminal.buffer.cursorY, 0);
+    });
+
+    test('homes cursor to margin top when enabling origin mode', () {
+      final terminal = Terminal();
+
+      terminal.write('\x1b[3;20r');
+      terminal.setCursor(12, 9);
+      terminal.write('\x1b[?6h');
+
+      expect(terminal.originMode, isTrue);
+      expect(terminal.buffer.cursorX, 0);
+      expect(terminal.buffer.cursorY, 2);
+    });
+
+    test('homes cursor to screen origin when disabling origin mode', () {
+      final terminal = Terminal();
+
+      terminal.write('\x1b[3;20r');
+      terminal.write('\x1b[?6h');
+      terminal.setCursor(5, 5);
+      terminal.write('\x1b[?6l');
+
+      expect(terminal.originMode, isFalse);
+      expect(terminal.buffer.cursorX, 0);
+      expect(terminal.buffer.cursorY, 0);
+    });
+
+    test('restores cursor with ANSI CSI s/u sequences', () {
+      final terminal = Terminal();
+
+      terminal.setCursor(7, 4);
+      terminal.write('\x1b[s');
+      terminal.setCursor(1, 1);
+      terminal.write('\x1b[u');
+
+      expect(terminal.buffer.cursorX, 7);
+      expect(terminal.buffer.cursorY, 4);
+    });
+
+    test('restores cursor to the saved buffer line after scrollback grows', () {
+      final terminal = Terminal();
+      terminal.resize(5, 4);
+
+      terminal.write('a\r\nb\r\nc\r\nd');
+      terminal.setCursor(0, 2);
+      terminal.write('\x1b[s');
+      terminal.setCursor(0, 3);
+
+      terminal.write('\r\ne');
+      terminal.write('\x1b[u');
+
+      expect(terminal.buffer.scrollBack, 1);
+      expect(terminal.buffer.absoluteCursorY, 2);
+      expect(terminal.buffer.cursorX, 0);
+      expect(terminal.buffer.cursorY, 1);
+      expect(terminal.buffer.currentLine.toString(), 'c');
+    });
+
+    test('treats VPA as relative to top margin in origin mode', () {
+      final terminal = Terminal();
+
+      terminal.write('\x1b[3;20r');
+      terminal.write('\x1b[?6h');
+      terminal.setCursor(7, 10);
+      terminal.write('\x1b[5d');
+
+      expect(terminal.buffer.cursorX, 7);
+      expect(terminal.buffer.cursorY, 6);
+    });
+
+    test('clamps relative vertical cursor movement to margins in origin mode',
+        () {
+      final terminal = Terminal();
+
+      terminal.write('\x1b[3;20r');
+      terminal.write('\x1b[?6h');
+      terminal.setCursor(7, 0);
+      terminal.write('\x1b[999B');
+
+      expect(terminal.buffer.cursorX, 7);
+      expect(terminal.buffer.cursorY, 19);
+
+      terminal.write('\x1b[999A');
+
+      expect(terminal.buffer.cursorX, 7);
+      expect(terminal.buffer.cursorY, 2);
+    });
+
+    test('restores origin mode cursor relative to margins', () {
+      final terminal = Terminal();
+
+      terminal.write('\x1b[3;20r');
+      terminal.write('\x1b[?6h');
+      terminal.setCursor(7, 5);
+      terminal.write('\x1b[s');
+      terminal.write('\x1b[?6l');
+      terminal.setCursor(0, 0);
+      terminal.write('\x1b[u');
+
+      expect(terminal.originMode, isTrue);
+      expect(terminal.buffer.cursorX, 7);
+      expect(terminal.buffer.cursorY, 7);
     });
   });
 
@@ -196,6 +360,78 @@ void main() {
       expect(lastData, isNull);
     });
   });
+
+  group('Terminal.shellExitReplay', () {
+    test('replays codex shell exit after ctrl+c back to the shell prompt', () {
+      final terminal = Terminal(maxLines: 10000);
+      terminal.resize(80, 24, 0, 0);
+
+      terminal.write(TestFixtures.codexShellExitAfterCtrlC());
+      final nonEmptyLines = _nonEmptyLines(terminal);
+
+      expect(terminal.isUsingAltBuffer, isFalse);
+      expect(terminal.buffer.currentLine.toString(), TestFixtures.shellPrompt);
+      expect(nonEmptyLines.last, TestFixtures.shellPrompt);
+      expect(nonEmptyLines.first, startsWith('To continue this session'));
+      expect(
+        _lastNonEmptyLineIndex(terminal),
+        terminal.buffer.absoluteCursorY,
+      );
+    });
+
+    test('replays claude shell exit after ctrl+c back to the shell prompt', () {
+      final terminal = Terminal(maxLines: 10000);
+      terminal.resize(80, 24, 0, 0);
+
+      terminal.write(TestFixtures.claudeShellExitAfterCtrlC());
+      final nonEmptyLines = _nonEmptyLines(terminal);
+
+      expect(terminal.isUsingAltBuffer, isFalse);
+      expect(terminal.buffer.currentLine.toString(), TestFixtures.shellPrompt);
+      expect(nonEmptyLines.last, TestFixtures.shellPrompt);
+      expect(
+        _lastNonEmptyLineIndex(terminal),
+        terminal.buffer.absoluteCursorY,
+      );
+    });
+
+    test('replays claude slash-exit real transcript back to the shell prompt',
+        () {
+      final terminal = Terminal(maxLines: 10000);
+      terminal.resize(80, 24, 0, 0);
+
+      terminal.write(TestFixtures.claudeShellExitAfterSlashExitRealTranscript());
+      final nonEmptyLines = _nonEmptyLines(terminal);
+
+      expect(terminal.isUsingAltBuffer, isFalse);
+      expect(terminal.buffer.currentLine.toString(), TestFixtures.shellPrompt);
+      expect(nonEmptyLines.last, TestFixtures.shellPrompt);
+      expect(
+        _lastNonEmptyLineIndex(terminal),
+        terminal.buffer.absoluteCursorY,
+      );
+    });
+  });
+}
+
+List<String> _nonEmptyLines(Terminal terminal) {
+  final lines = <String>[];
+  terminal.buffer.lines.forEach((line) {
+    final text = line.toString();
+    if (text.trim().isNotEmpty) {
+      lines.add(text);
+    }
+  });
+  return lines;
+}
+
+int _lastNonEmptyLineIndex(Terminal terminal) {
+  for (var i = terminal.buffer.lines.length - 1; i >= 0; i--) {
+    if (terminal.buffer.lines[i].toString().trim().isNotEmpty) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 class _TestInputHandler implements TerminalInputHandler {

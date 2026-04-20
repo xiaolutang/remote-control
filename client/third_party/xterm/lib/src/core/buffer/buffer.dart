@@ -47,6 +47,9 @@ class Buffer {
 
   var _savedCursorY = 0;
 
+  var _savedCursorOriginMode = false;
+  int? _savedAbsoluteCursorY;
+
   final _savedCursorStyle = CursorStyle();
 
   final charset = Charset();
@@ -297,6 +300,10 @@ class Buffer {
   }
 
   void moveCursorY(int offset) {
+    if (terminal.originMode) {
+      _cursorY = (_cursorY + offset).clamp(_marginTop, _marginBottom);
+      return;
+    }
     setCursorY(_cursorY + offset);
   }
 
@@ -321,7 +328,9 @@ class Buffer {
   /// Save cursor position, charmap and text attributes.
   void saveCursor() {
     _savedCursorX = _cursorX;
-    _savedCursorY = _cursorY;
+    _savedCursorOriginMode = terminal.originMode;
+    _savedCursorY = terminal.originMode ? _cursorY - _marginTop : _cursorY;
+    _savedAbsoluteCursorY = terminal.originMode ? null : absoluteCursorY;
     _savedCursorStyle.foreground = terminal.cursor.foreground;
     _savedCursorStyle.background = terminal.cursor.background;
     _savedCursorStyle.attrs = terminal.cursor.attrs;
@@ -331,7 +340,12 @@ class Buffer {
   /// Restore cursor position, charmap and text attributes.
   void restoreCursor() {
     _cursorX = _savedCursorX;
-    _cursorY = _savedCursorY;
+    if (_savedCursorOriginMode) {
+      _cursorY = (_savedCursorY + _marginTop).clamp(0, viewHeight - 1);
+    } else {
+      final savedAbsoluteCursorY = _savedAbsoluteCursorY ?? _savedCursorY;
+      _cursorY = (savedAbsoluteCursorY - scrollBack).clamp(0, viewHeight - 1);
+    }
     terminal.cursor.foreground = _savedCursorStyle.foreground;
     terminal.cursor.background = _savedCursorStyle.background;
     terminal.cursor.attrs = _savedCursorStyle.attrs;
@@ -377,6 +391,9 @@ class Buffer {
     for (int i = 0; i < viewHeight; i++) {
       lines.push(_newEmptyLine());
     }
+    _cursorX = 0;
+    _cursorY = 0;
+    resetVerticalMargins();
   }
 
   void insertBlankChars(int count) {

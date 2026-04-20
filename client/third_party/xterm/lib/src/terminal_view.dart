@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:xterm/src/core/buffer/cell_offset.dart';
-
 import 'package:xterm/src/core/input/keys.dart';
 import 'package:xterm/src/terminal.dart';
 import 'package:xterm/src/ui/controller.dart';
@@ -40,10 +39,14 @@ class TerminalView extends StatefulWidget {
     this.onSecondaryTapUp,
     this.mouseCursor = SystemMouseCursors.text,
     this.keyboardType = TextInputType.emailAddress,
+    this.inputAction = TextInputAction.newline,
     this.keyboardAppearance = Brightness.dark,
     this.cursorType = TerminalCursorType.block,
     this.alwaysShowCursor = false,
     this.deleteDetection = false,
+    this.autocorrect = false,
+    this.enableSuggestions = true,
+    this.enableIMEPersonalizedLearning = true,
     this.shortcuts,
     this.onKeyEvent,
     this.readOnly = false,
@@ -103,6 +106,9 @@ class TerminalView extends StatefulWidget {
   /// [TextInputType.emailAddress] by default.
   final TextInputType keyboardType;
 
+  /// The action button shown by the virtual keyboard.
+  final TextInputAction inputAction;
+
   /// The appearance of the keyboard. [Brightness.dark] by default.
   ///
   /// This setting is only honored on iOS devices.
@@ -119,6 +125,15 @@ class TerminalView extends StatefulWidget {
   /// emit hardware delete event. Prefered on mobile platforms. [false] by
   /// default.
   final bool deleteDetection;
+
+  /// Whether the IME should autocorrect text. false by default.
+  final bool autocorrect;
+
+  /// Whether the IME should show suggestions. true by default.
+  final bool enableSuggestions;
+
+  /// Whether the IME may personalize learning from this field. true by default.
+  final bool enableIMEPersonalizedLearning;
 
   /// Shortcuts for this terminal. This has higher priority than input handler
   /// of the terminal If not provided, [defaultTerminalShortcuts] will be used.
@@ -227,7 +242,7 @@ class TerminalViewState extends State<TerminalView> {
           terminal: widget.terminal,
           controller: _controller,
           offset: offset,
-          padding: MediaQuery.of(context).padding,
+          padding: widget.padding ?? EdgeInsets.zero,
           autoResize: widget.autoResize,
           textStyle: widget.textStyle,
           textScaler: widget.textScaler ?? MediaQuery.textScalerOf(context),
@@ -255,8 +270,12 @@ class TerminalViewState extends State<TerminalView> {
         focusNode: _focusNode,
         autofocus: widget.autofocus,
         inputType: widget.keyboardType,
+        inputAction: widget.inputAction,
         keyboardAppearance: widget.keyboardAppearance,
         deleteDetection: widget.deleteDetection,
+        autocorrect: widget.autocorrect,
+        enableSuggestions: widget.enableSuggestions,
+        enableIMEPersonalizedLearning: widget.enableIMEPersonalizedLearning,
         onInsert: _onInsert,
         onDelete: () {
           _scrollToBottom();
@@ -265,7 +284,9 @@ class TerminalViewState extends State<TerminalView> {
         onComposing: _onComposing,
         onAction: (action) {
           _scrollToBottom();
-          if (action == TextInputAction.done) {
+          if (action == TextInputAction.done ||
+              action == TextInputAction.newline ||
+              action == TextInputAction.send) {
             widget.terminal.keyInput(TerminalKey.enter);
           }
         },
@@ -315,7 +336,9 @@ class TerminalViewState extends State<TerminalView> {
     );
 
     child = Container(
-      color: widget.theme.background.withOpacity(widget.backgroundOpacity),
+      color: widget.theme.background.withValues(
+        alpha: widget.backgroundOpacity,
+      ),
       padding: widget.padding,
       child: child,
     );

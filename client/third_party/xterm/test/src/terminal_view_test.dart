@@ -421,6 +421,120 @@ void main() {
   });
 
   group('TerminalView.simulateScroll', () {
+    testWidgets(
+      'keeps the viewport pinned to bottom after alternate buffer exits when main buffer was at bottom',
+      (tester) async {
+        final terminal = Terminal(maxLines: 500);
+        final scrollController = ScrollController();
+
+        await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+            body: SizedBox.expand(
+              child: TerminalView(
+                terminal,
+                scrollController: scrollController,
+              ),
+            ),
+          ),
+        ));
+
+        terminal.write(List.generate(200, (index) => 'line $index\r\n').join());
+        await tester.pump();
+
+        scrollController.jumpTo(scrollController.position.maxScrollExtent);
+        await tester.pump();
+
+        terminal.write('\x1b[?1049halt screen');
+        await tester.pump();
+
+        expect(scrollController.offset, 0);
+
+        terminal.write('\x1b[?1049lrestored shell prompt\r\n');
+        await tester.pump();
+
+        expect(
+          scrollController.offset,
+          closeTo(scrollController.position.maxScrollExtent, 1),
+        );
+      },
+    );
+
+    testWidgets(
+      'treats near-bottom main buffer scroll positions as pinned when alternate buffer exits',
+      (tester) async {
+        final terminal = Terminal(maxLines: 500);
+        final scrollController = ScrollController();
+
+        await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+            body: SizedBox.expand(
+              child: TerminalView(
+                terminal,
+                scrollController: scrollController,
+              ),
+            ),
+          ),
+        ));
+
+        terminal.write(List.generate(200, (index) => 'line $index\r\n').join());
+        await tester.pump();
+
+        final nearBottom = scrollController.position.maxScrollExtent - 0.5;
+        scrollController.jumpTo(nearBottom);
+        await tester.pump();
+
+        terminal.write('\x1b[?1049halt screen');
+        await tester.pump();
+
+        terminal.write('\x1b[?1049lrestored shell prompt\r\n');
+        await tester.pump();
+
+        expect(
+          scrollController.offset,
+          closeTo(scrollController.position.maxScrollExtent, 1),
+        );
+      },
+    );
+
+    testWidgets(
+      'restores the main buffer scroll offset after alternate buffer exits',
+      (tester) async {
+        final terminal = Terminal(maxLines: 500);
+        final scrollController = ScrollController();
+
+        await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+            body: SizedBox.expand(
+              child: TerminalView(
+                terminal,
+                scrollController: scrollController,
+              ),
+            ),
+          ),
+        ));
+
+        terminal.write(List.generate(200, (index) => 'line $index\r\n').join());
+        await tester.pump();
+
+        expect(scrollController.position.maxScrollExtent, greaterThan(0));
+
+        final savedOffset = scrollController.position.maxScrollExtent / 2;
+        scrollController.jumpTo(savedOffset);
+        await tester.pump();
+
+        terminal.write('\x1b[?1049h');
+        terminal.write('alternate screen');
+        await tester.pump();
+
+        expect(scrollController.offset, 0);
+
+        terminal.write('\x1b[?1049l');
+        await tester.pump();
+
+        expect(scrollController.offset, closeTo(savedOffset, 1));
+      },
+    );
+
     testWidgets('works', (tester) async {
       final terminalOutput = <String>[];
       final terminal = Terminal(onOutput: terminalOutput.add);

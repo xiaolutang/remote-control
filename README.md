@@ -147,6 +147,19 @@ cd client
 flutter test
 ```
 
+### 生产链路自测
+```bash
+cd client
+./run_production_e2e.sh --server-ip YOUR_SERVER_IP
+```
+
+也可以复用 `client/.local.env` 里的 `RC_SERVER_IP`，或直接设置：
+
+```bash
+cd client
+RC_TEST_SERVER_IP=YOUR_SERVER_IP dart run tool/production_network_e2e.dart
+```
+
 ## 部署到云服务器
 
 1. 修改 `.env` 中的环境变量:

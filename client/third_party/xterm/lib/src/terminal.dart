@@ -147,6 +147,8 @@ class Terminal with Observable implements TerminalState, EscapeHandler {
 
   bool _bracketedPasteMode = false;
 
+  bool _savedOriginMode = false;
+
   /* State getters */
 
   /// Number of cells in a terminal row.
@@ -442,11 +444,13 @@ class Terminal with Observable implements TerminalState, EscapeHandler {
 
   @override
   void saveCursor() {
+    _savedOriginMode = _originMode;
     _buffer.saveCursor();
   }
 
   @override
   void restoreCursor() {
+    _originMode = _savedOriginMode;
     _buffer.restoreCursor();
   }
 
@@ -506,7 +510,7 @@ class Terminal with Observable implements TerminalState, EscapeHandler {
 
   @override
   void setCursorY(int y) {
-    _buffer.setCursorY(y);
+    _buffer.setCursor(_buffer.cursorX, y);
   }
 
   @override
@@ -557,6 +561,7 @@ class Terminal with Observable implements TerminalState, EscapeHandler {
   @override
   void setMargins(int top, [int? bottom]) {
     _buffer.setVerticalMargins(top, bottom ?? viewHeight - 1);
+    _buffer.setCursor(0, 0);
   }
 
   @override
@@ -683,6 +688,7 @@ class Terminal with Observable implements TerminalState, EscapeHandler {
   @override
   void setOriginMode(bool enabled) {
     _originMode = enabled;
+    _buffer.setCursor(0, 0);
   }
 
   @override

@@ -256,6 +256,32 @@ void main() {
       expect(cl[1], 1.indexed);
     });
 
+    test("insert circular works after wraparound", () {
+      final cl = IndexAwareCircularBuffer<IndexedValue<int>>(5);
+      final items =
+          List<IndexedValue<int>>.generate(7, (index) => IndexedValue(index));
+
+      cl.pushAll(items.take(5));
+      cl.trimStart(2);
+      cl.pushAll(items.skip(5));
+
+      expect(cl.length, 5);
+      expect(cl[0], 2.indexed);
+      expect(cl[4], 6.indexed);
+
+      final inserted = IndexedValue(100);
+      cl.insert(3, inserted);
+
+      expect(cl.length, 5);
+      expect(cl[0], 3.indexed);
+      expect(cl[1], 4.indexed);
+      expect(cl[2], 100.indexed);
+      expect(cl[3], 5.indexed);
+      expect(cl[4], 6.indexed);
+      expect(items[2].attached, isFalse);
+      expect(inserted.index, 2);
+    });
+
     test("insert circular immediately remove works", () {
       final cl = IndexAwareCircularBuffer<IndexedValue<int>>(10);
       cl.pushAll(
@@ -315,6 +341,22 @@ void main() {
       expect(cl[4], 9.indexed);
     });
 
+    test("trim start detaches removed items and reindexes survivors", () {
+      final cl = IndexAwareCircularBuffer<IndexedValue<int>>(5);
+      final items =
+          List<IndexedValue<int>>.generate(5, (index) => IndexedValue(index));
+      cl.pushAll(items);
+
+      cl.trimStart(2);
+
+      expect(items[0].attached, isFalse);
+      expect(items[1].attached, isFalse);
+      expect(items[2].attached, isTrue);
+      expect(items[2].index, 0);
+      expect(items[3].index, 1);
+      expect(items[4].index, 2);
+    });
+
     test("trim start with more than length works", () {
       final cl = IndexAwareCircularBuffer<IndexedValue<int>>(10);
       cl.pushAll(
@@ -328,6 +370,29 @@ void main() {
       cl.trimStart(15);
 
       expect(cl.length, 0);
+    });
+
+    test(
+        "moving existing children within the same buffer preserves consistency",
+        () {
+      final cl = IndexAwareCircularBuffer<IndexedValue<int>>(32);
+      cl.pushAll(
+        List<int>.generate(24, (index) => index).map(IndexedValue.new),
+      );
+
+      for (var i = 15; i >= 0; i--) {
+        if (i == 0) {
+          cl[i] = IndexedValue(100);
+        } else {
+          cl[i] = cl[i - 1];
+        }
+      }
+
+      expect(() => cl.insert(16, IndexedValue(200)), returnsNormally);
+      expect(cl[0], 100.indexed);
+      expect(cl[1], 0.indexed);
+      expect(cl[15], 14.indexed);
+      expect(cl[16], 200.indexed);
     });
 
     test('can track index of items', () {

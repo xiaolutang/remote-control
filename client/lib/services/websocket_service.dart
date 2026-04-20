@@ -29,6 +29,11 @@ enum TerminalOutputKind {
   snapshotComplete,
 }
 
+enum TerminalBufferKind {
+  main,
+  alt,
+}
+
 enum TerminalProtocolEventKind {
   connected,
   presence,
@@ -45,6 +50,7 @@ class TerminalProtocolEvent {
     this.payload,
     this.attachEpoch,
     this.recoveryEpoch,
+    this.activeBuffer,
     this.ptySize,
     this.views,
     this.geometryOwnerView,
@@ -55,6 +61,7 @@ class TerminalProtocolEvent {
   final String? payload;
   final int? attachEpoch;
   final int? recoveryEpoch;
+  final TerminalBufferKind? activeBuffer;
   final TerminalPtySize? ptySize;
   final Map<String, int>? views;
   final String? geometryOwnerView;
@@ -67,12 +74,14 @@ class TerminalOutputFrame {
     required this.payload,
     this.attachEpoch,
     this.recoveryEpoch,
+    this.activeBuffer,
   });
 
   final TerminalOutputKind kind;
   final String payload;
   final int? attachEpoch;
   final int? recoveryEpoch;
+  final TerminalBufferKind? activeBuffer;
 
   bool get isSnapshot => kind == TerminalOutputKind.snapshot;
 }
@@ -205,6 +214,20 @@ class WebSocketService extends ChangeNotifier {
 
   String get _viewTypeString =>
       viewType == ViewType.desktop ? 'desktop' : 'mobile';
+
+  TerminalBufferKind? _parseActiveBuffer(dynamic raw) {
+    if (raw is! String) {
+      return null;
+    }
+    switch (raw) {
+      case 'main':
+        return TerminalBufferKind.main;
+      case 'alt':
+        return TerminalBufferKind.alt;
+      default:
+        return null;
+    }
+  }
 
   void _applyPtySize(Map<String, dynamic>? pty, {bool notify = true}) {
     if (pty == null) {
@@ -510,6 +533,7 @@ class WebSocketService extends ChangeNotifier {
               final bytes = base64Decode(payload);
               final decoded = utf8.decode(bytes, allowMalformed: true);
               final recoveryEpoch = data['recovery_epoch'];
+              final activeBuffer = _parseActiveBuffer(data['active_buffer']);
               _outputFrameController.add(
                 TerminalOutputFrame(
                   kind: type == 'snapshot' || type == 'snapshot_chunk'
@@ -519,6 +543,7 @@ class WebSocketService extends ChangeNotifier {
                   attachEpoch: msgEpoch,
                   recoveryEpoch:
                       recoveryEpoch is num ? recoveryEpoch.toInt() : null,
+                  activeBuffer: activeBuffer,
                 ),
               );
               _eventController.add(
@@ -530,6 +555,7 @@ class WebSocketService extends ChangeNotifier {
                   attachEpoch: msgEpoch,
                   recoveryEpoch:
                       recoveryEpoch is num ? recoveryEpoch.toInt() : null,
+                  activeBuffer: activeBuffer,
                 ),
               );
               _outputController.add(decoded);

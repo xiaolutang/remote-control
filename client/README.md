@@ -1,16 +1,34 @@
 # rc_client
 
-A new Flutter project.
+## Production Network E2E
 
-## Getting Started
+Use the standalone runner for stable production network verification:
 
-This project is a starting point for a Flutter application.
+```bash
+cd client
+dart run tool/production_network_e2e.dart --server-ip YOUR_SERVER_IP
+```
 
-A few resources to get you started if this is your first Flutter project:
+Optional parameters:
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+```bash
+dart run tool/production_network_e2e.dart \
+  --server-ip YOUR_SERVER_IP \
+  --host rc.xiaolutang.top \
+  --username prod_test \
+  --password test123456
+```
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Environment variables are also supported:
+
+```bash
+RC_TEST_SERVER_IP=YOUR_SERVER_IP \
+RC_TEST_USERNAME=prod_test \
+RC_TEST_PASSWORD=test123456 \
+dart run tool/production_network_e2e.dart
+```
+
+`integration_test/production_network_probe_test.dart` is kept only as an
+explicit opt-in harness entry. It is not the default gate because Flutter
+`integration_test` currently reports post-test TLS socket noise across macOS,
+iOS, and Android even after the probe itself succeeds.

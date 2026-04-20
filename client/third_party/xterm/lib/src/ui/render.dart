@@ -20,6 +20,8 @@ import 'package:xterm/src/ui/terminal_theme.dart';
 typedef EditableRectCallback = void Function(Rect rect, Rect caretRect);
 
 class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
+  static const double _bottomScrollTolerance = 1.0;
+
   RenderTerminal({
     required Terminal terminal,
     required TerminalController controller,
@@ -152,9 +154,13 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
   final TerminalPainter _painter;
 
   var _stickToBottom = true;
+  bool _lastUsingAltBuffer = false;
+  double _savedMainBufferScrollOffset = 0;
+  bool _savedMainBufferStickToBottom = true;
+  double? _pendingScrollOffset;
 
   void _onScroll() {
-    _stickToBottom = _scrollOffset >= _maxScrollExtent;
+    _stickToBottom = _isNearBottom(_scrollOffset);
     markNeedsLayout();
     _notifyEditableRect();
   }
@@ -164,6 +170,26 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
   }
 
   void _onTerminalChange() {
+    final isUsingAltBuffer = _terminal.isUsingAltBuffer;
+
+    if (_lastUsingAltBuffer != isUsingAltBuffer) {
+      if (isUsingAltBuffer) {
+        _savedMainBufferScrollOffset = _scrollOffset;
+        _savedMainBufferStickToBottom = _stickToBottom;
+        _pendingScrollOffset = 0;
+        _stickToBottom = true;
+      } else {
+        if (_savedMainBufferStickToBottom) {
+          _pendingScrollOffset = null;
+          _stickToBottom = true;
+        } else {
+          _pendingScrollOffset = _savedMainBufferScrollOffset;
+          _stickToBottom = false;
+        }
+      }
+      _lastUsingAltBuffer = isUsingAltBuffer;
+    }
+
     markNeedsLayout();
     _notifyEditableRect();
   }
@@ -178,6 +204,7 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
   @override
   void attach(PipelineOwner owner) {
     super.attach(owner);
+    _lastUsingAltBuffer = _terminal.isUsingAltBuffer;
     _offset.addListener(_onScroll);
     _terminal.addListener(_onTerminalChange);
     _controller.addListener(_onControllerUpdate);
@@ -212,7 +239,13 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
 
     _updateScrollOffset();
 
-    if (_stickToBottom) {
+    if (_pendingScrollOffset != null) {
+      final targetOffset =
+          _pendingScrollOffset!.clamp(0, _maxScrollExtent).toDouble();
+      _offset.correctBy(targetOffset - _scrollOffset);
+      _stickToBottom = _isNearBottom(targetOffset);
+      _pendingScrollOffset = null;
+    } else if (_stickToBottom) {
       _offset.correctBy(_maxScrollExtent - _scrollOffset);
     }
   }
@@ -374,6 +407,10 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
 
   double get _maxScrollExtent {
     return max(_terminalHeight - _viewportHeight, 0.0);
+  }
+
+  bool _isNearBottom(double offset) {
+    return offset >= _maxScrollExtent - _bottomScrollTolerance;
   }
 
   double get _lineOffset {

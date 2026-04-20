@@ -1,251 +1,457 @@
-// ignore_for_file: avoid_print
-
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
+import 'package:asn1lib/asn1lib.dart' as asn1;
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:http/io_client.dart';
-import 'package:http/http.dart' as http;
+import 'package:pointycastle/export.dart';
+
+class _HttpProbeResult {
+  const _HttpProbeResult({
+    required this.statusCode,
+    required this.body,
+  });
+
+  final int statusCode;
+  final String body;
+
+  Map<String, dynamic> decodeJson(String label) {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      }
+      throw const FormatException('response is not a JSON object');
+    } catch (error) {
+      throw TestFailure(
+        'E2E $label returned invalid JSON: $error, body=${_compact(body)}',
+      );
+    }
+  }
+}
+
+class _WsProbeResult {
+  const _WsProbeResult({
+    required this.frame,
+    required this.message,
+  });
+
+  final String frame;
+  final Map<String, dynamic> message;
+}
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  const bool runInHarness = bool.fromEnvironment(
+    'RUN_PRODUCTION_NETWORK_PROBE_INTEGRATION',
+    defaultValue: false,
+  );
 
-  group('Production network probe', () {
-    const domainBase = 'https://rc.xiaolutang.top/rc';
-    final serverIp = Platform.environment['RC_TEST_SERVER_IP'] ?? '';
-    final ipBase = 'https://$serverIp/rc';
-    const domainWsBase = 'wss://rc.xiaolutang.top/rc';
-    final ipWsBase = 'wss://$serverIp/rc';
+  group('Production network e2e', () {
     const host = 'rc.xiaolutang.top';
-    const username = 'prod_test';
-    const password = 'test123456';
 
-    late HttpClient rawClient;
-    late http.Client httpClient;
+    final serverIp = (_readConfig(
+      key: 'RC_TEST_SERVER_IP',
+      fallback: '',
+    )).trim();
+    final username = (_readConfig(
+      key: 'RC_TEST_USERNAME',
+      fallback: 'prod_test',
+    )).trim();
+    final password = (_readConfig(
+      key: 'RC_TEST_PASSWORD',
+      fallback: 'test123456',
+    )).trim();
 
-    setUp(() {
-      rawClient = HttpClient()..connectionTimeout = const Duration(seconds: 10);
-      rawClient.badCertificateCallback = (_, __, ___) => true;
-      httpClient = IOClient(rawClient);
-    });
-
-    tearDown(() {
-      httpClient.close();
-      rawClient.close(force: true);
-    });
-
-    testWidgets('probe domain vs ip+host login paths', (_) async {
-      final dns = await InternetAddress.lookup(host);
-      print('PROBE dns=$host -> ${dns.map((e) => e.address).join(",")}');
-
-      await _probeHealth(
-        label: 'domain-health-http-package',
-        client: httpClient,
-        uri: Uri.parse('$domainBase/health')
-            .replace(queryParameters: {'probe': 'domain-health-http'}),
-      );
-
-      await _probeLogin(
-        label: 'domain-login-http-package',
-        client: httpClient,
-        uri: Uri.parse('$domainBase/api/login')
-            .replace(queryParameters: {'probe': 'domain-login-http'}),
-      );
-
-      await _probeHealthRaw(
-        label: 'domain-health-raw-direct',
-        uri: Uri.parse('$domainBase/health')
-            .replace(queryParameters: {'probe': 'domain-health-raw'}),
-        useSystemProxy: false,
-      );
-
-      await _probeLoginRaw(
-        label: 'domain-login-raw-direct',
-        uri: Uri.parse('$domainBase/api/login')
-            .replace(queryParameters: {'probe': 'domain-login-raw'}),
-        username: username,
-        password: password,
-        useSystemProxy: false,
-      );
-
-      await _probeHealth(
-        label: 'ip-host-health-http-package',
-        client: httpClient,
-        uri: Uri.parse('$ipBase/health')
-            .replace(queryParameters: {'probe': 'ip-health-http'}),
-        headers: {'Host': host},
-      );
-
-      await _probeLogin(
-        label: 'ip-host-login-http-package',
-        client: httpClient,
-        uri: Uri.parse('$ipBase/api/login')
-            .replace(queryParameters: {'probe': 'ip-login-http'}),
-        headers: {'Host': host},
-      );
-
-      await _probeHealthRaw(
-        label: 'ip-host-health-raw-direct',
-        uri: Uri.parse('$ipBase/health')
-            .replace(queryParameters: {'probe': 'ip-health-raw'}),
-        hostHeader: host,
-        useSystemProxy: false,
-      );
-
-      await _probeLoginRaw(
-        label: 'ip-host-login-raw-direct',
-        uri: Uri.parse('$ipBase/api/login')
-            .replace(queryParameters: {'probe': 'ip-login-raw'}),
-        username: username,
-        password: password,
-        hostHeader: host,
-        useSystemProxy: false,
-      );
-
-      final session = await _loginForWsSession(
-        uri: Uri.parse('$ipBase/api/login')
-            .replace(queryParameters: {'probe': 'ws-session-login'}),
-        hostHeader: host,
-        username: username,
-        password: password,
-      );
-
-      if (session != null) {
-        await _probeWebSocket(
-          label: 'domain-ws-direct',
-          uri: Uri.parse('$domainWsBase/ws/client').replace(
-            queryParameters: {
-              'session_id': session['session_id']!,
-              'view': 'mobile',
-              'probe': 'domain-ws',
-            },
-          ),
-          token: session['token']!,
-          useSystemProxy: false,
+    // Opt-in only: this harness hits a Flutter integration_test TLS socket
+    // teardown issue after the probe already succeeds on macOS/iOS/Android.
+    testWidgets(
+      'validates deterministic ip+host health, login, and websocket auth',
+      (_) async {
+        expect(
+          serverIp,
+          isNotEmpty,
+          reason: 'RC_TEST_SERVER_IP is required for production e2e. '
+              'This test only gates the deterministic IP + Host path.',
         );
 
-        await _probeWebSocket(
-          label: 'ip-host-ws-direct',
-          uri: Uri.parse('$ipWsBase/ws/client').replace(
-            queryParameters: {
-              'session_id': session['session_id']!,
-              'view': 'mobile',
-              'probe': 'ip-ws',
-            },
+        final ipBase = 'https://$serverIp/rc';
+        final ipWsBase = 'wss://$serverIp/rc';
+
+        final dns = await InternetAddress.lookup(host);
+        debugPrint(
+          'E2E dns $host -> ${dns.map((entry) => entry.address).join(",")}',
+        );
+
+        final health = await _getHttp(
+          label: 'ip-host-health',
+          uri: Uri.parse('$ipBase/health').replace(
+            queryParameters: {'probe': 'ip-health-e2e'},
           ),
-          token: session['token']!,
+          headers: const {HttpHeaders.hostHeader: host},
+        );
+        debugPrint(
+          'E2E ip-host-health status=${health.statusCode} body=${_compact(health.body)}',
+        );
+        expect(
+          health.statusCode,
+          200,
+          reason: 'IP + Host health check must succeed for e2e gating.',
+        );
+
+        final login = await _postJsonHttp(
+          label: 'ip-host-login',
+          uri: Uri.parse('$ipBase/api/login').replace(
+            queryParameters: {'probe': 'ip-login-e2e'},
+          ),
+          headers: const {HttpHeaders.hostHeader: host},
+          body: <String, dynamic>{
+            'username': username,
+            'password': password,
+            'view': 'mobile',
+          },
+        );
+        debugPrint(
+          'E2E ip-host-login status=${login.statusCode} body=${_compact(login.body)}',
+        );
+        expect(
+          login.statusCode,
+          200,
+          reason: 'IP + Host login must succeed for e2e gating.',
+        );
+
+        final loginData = login.decodeJson('ip-host-login');
+        expect(loginData['success'], true);
+
+        final sessionId = loginData['session_id']?.toString();
+        final token = loginData['token']?.toString();
+        expect(sessionId, isNotEmpty, reason: 'login must return session_id');
+        expect(token, isNotEmpty, reason: 'login must return token');
+
+        final encryptedAesKey = await _fetchEncryptedAesKey(
+          uri: Uri.parse('$ipBase/api/public-key').replace(
+            queryParameters: {'probe': 'ip-public-key-e2e'},
+          ),
           hostHeader: host,
-          useSystemProxy: false,
         );
-      } else {
-        print('PROBE ws skipped: failed to obtain session token');
-      }
 
-      expect(true, isTrue);
-    });
+        final wsResult = await _authenticateWebSocket(
+          label: 'ip-host-ws-auth',
+          uri: Uri.parse('$ipWsBase/ws/client').replace(
+            queryParameters: <String, String>{
+              'session_id': sessionId!,
+              'view': 'mobile',
+              'probe': 'ip-ws-e2e',
+            },
+          ),
+          token: token!,
+          hostHeader: host,
+          encryptedAesKey: encryptedAesKey,
+        );
+        debugPrint(
+          'E2E ip-host-ws-auth first=${_compact(wsResult.frame)}',
+        );
+
+        expect(wsResult.message['type'], 'connected');
+        expect(wsResult.message['session_id'], sessionId);
+        expect(wsResult.message['view'], 'mobile');
+        expect(wsResult.message['device_id'], isNotNull);
+      },
+      skip: !runInHarness,
+    );
   });
 }
 
-Future<void> _probeHealth({
-  required String label,
-  required http.Client client,
-  required Uri uri,
-  Map<String, String>? headers,
-}) async {
-  try {
-    final response = await client.get(uri, headers: headers);
-    print(
-        'PROBE $label status=${response.statusCode} body=${_compact(response.body)}');
-  } catch (e) {
-    print('PROBE $label error=$e');
+String _readConfig({
+  required String key,
+  required String fallback,
+}) {
+  switch (key) {
+    case 'RC_TEST_SERVER_IP':
+      return const String.fromEnvironment(
+        'RC_TEST_SERVER_IP',
+        defaultValue: '',
+      ).trim().isNotEmpty
+          ? const String.fromEnvironment('RC_TEST_SERVER_IP')
+          : (Platform.environment[key] ?? fallback);
+    case 'RC_TEST_USERNAME':
+      return const String.fromEnvironment(
+        'RC_TEST_USERNAME',
+        defaultValue: '',
+      ).trim().isNotEmpty
+          ? const String.fromEnvironment('RC_TEST_USERNAME')
+          : (Platform.environment[key] ?? fallback);
+    case 'RC_TEST_PASSWORD':
+      return const String.fromEnvironment(
+        'RC_TEST_PASSWORD',
+        defaultValue: '',
+      ).trim().isNotEmpty
+          ? const String.fromEnvironment('RC_TEST_PASSWORD')
+          : (Platform.environment[key] ?? fallback);
+    default:
+      return Platform.environment[key] ?? fallback;
   }
 }
 
-Future<void> _probeLogin({
+Future<_HttpProbeResult> _getHttp({
   required String label,
-  required http.Client client,
   required Uri uri,
   Map<String, String>? headers,
 }) async {
+  return _sendRawRequest(
+    label: label,
+    method: 'GET',
+    uri: uri,
+    headers: headers,
+  );
+}
+
+Future<_HttpProbeResult> _postJsonHttp({
+  required String label,
+  required Uri uri,
+  required Map<String, dynamic> body,
+  Map<String, String>? headers,
+}) async {
+  return _sendRawRequest(
+    label: label,
+    method: 'POST',
+    uri: uri,
+    headers: <String, String>{
+      HttpHeaders.contentTypeHeader: 'application/json',
+      ...?headers,
+    },
+    body: jsonEncode(body),
+  );
+}
+
+Future<_HttpProbeResult> _getHttpRaw({
+  required String label,
+  required Uri uri,
+  String? hostHeader,
+}) async {
+  return _sendRawRequest(
+    label: label,
+    method: 'GET',
+    uri: uri,
+    headers: hostHeader == null ? null : {HttpHeaders.hostHeader: hostHeader},
+  );
+}
+
+Future<_HttpProbeResult> _sendRawRequest({
+  required String label,
+  required String method,
+  required Uri uri,
+  Map<String, String>? headers,
+  String? body,
+}) async {
+  final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
+  client.badCertificateCallback = (_, __, ___) => true;
+  client.findProxy = (_) => 'DIRECT';
+
   try {
-    final response = await client.post(
-      uri,
-      headers: {
-        HttpHeaders.contentTypeHeader: 'application/json',
-        ...?headers,
-      },
-      body: jsonEncode({
-        'username': 'prod_test',
-        'password': 'test123456',
-        'view': 'mobile',
-      }),
+    final request = switch (method) {
+      'GET' => await client.getUrl(uri),
+      'POST' => await client.postUrl(uri),
+      _ => throw UnsupportedError('Unsupported method: $method'),
+    };
+    request.persistentConnection = false;
+    for (final entry
+        in headers?.entries ?? const <MapEntry<String, String>>[]) {
+      request.headers.set(entry.key, entry.value);
+    }
+    if (body != null) {
+      request.write(body);
+    }
+    final response = await request.close();
+    final responseBody =
+        await response.transform(SystemEncoding().decoder).join();
+    return _HttpProbeResult(
+      statusCode: response.statusCode,
+      body: responseBody,
     );
-    print(
-        'PROBE $label status=${response.statusCode} body=${_compact(response.body)}');
-  } catch (e) {
-    print('PROBE $label error=$e');
+  } catch (error) {
+    throw TestFailure('E2E $label request failed: $error');
   }
 }
 
-Future<void> _probeHealthRaw({
+Future<_WsProbeResult> _authenticateWebSocket({
   required String label,
   required Uri uri,
-  required bool useSystemProxy,
+  required String token,
   String? hostHeader,
+  String? encryptedAesKey,
 }) async {
   final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
   client.badCertificateCallback = (_, __, ___) => true;
-  client.findProxy =
-      useSystemProxy ? HttpClient.findProxyFromEnvironment : (_) => 'DIRECT';
+  client.findProxy = (_) => 'DIRECT';
+  final authUri = uri.replace(
+    queryParameters: <String, String>{
+      ...uri.queryParameters,
+      'token': token,
+    },
+  );
+
   try {
-    final request = await client.getUrl(uri);
-    request.persistentConnection = false;
-    if (hostHeader != null) {
-      request.headers.set(HttpHeaders.hostHeader, hostHeader);
+    final socket = await WebSocket.connect(
+      authUri.toString(),
+      headers: hostHeader == null
+          ? null
+          : <String, dynamic>{HttpHeaders.hostHeader: hostHeader},
+      customClient: client,
+    ).timeout(const Duration(seconds: 10));
+
+    final firstFrame = Completer<String?>();
+    final streamClosed = Completer<void>();
+    late final StreamSubscription<dynamic> subscription;
+    subscription = socket.listen(
+      (dynamic event) {
+        if (firstFrame.isCompleted) {
+          return;
+        }
+        if (event is String) {
+          firstFrame.complete(event);
+          return;
+        }
+        firstFrame.completeError(
+          TestFailure(
+            'E2E $label expected first websocket frame to be String, got ${event.runtimeType}',
+          ),
+        );
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        if (!firstFrame.isCompleted) {
+          firstFrame.completeError(
+            TestFailure('E2E $label websocket stream failed: $error'),
+          );
+        }
+        if (!streamClosed.isCompleted) {
+          streamClosed.complete();
+        }
+      },
+      onDone: () {
+        if (!firstFrame.isCompleted) {
+          firstFrame.complete(null);
+        }
+        if (!streamClosed.isCompleted) {
+          streamClosed.complete();
+        }
+      },
+      cancelOnError: false,
+    );
+
+    await Future<void>.delayed(const Duration(seconds: 1));
+    if (!firstFrame.isCompleted) {
+      socket.add(jsonEncode(<String, dynamic>{
+        'type': 'auth',
+        'token': token,
+        if (encryptedAesKey != null) 'encrypted_aes_key': encryptedAesKey,
+      }));
     }
-    final response = await request.close();
-    final body = await response.transform(SystemEncoding().decoder).join();
-    print('PROBE $label status=${response.statusCode} body=${_compact(body)}');
-  } catch (e) {
-    print('PROBE $label error=$e');
-  } finally {
-    client.close(force: true);
+
+    final first = await firstFrame.future.timeout(
+      const Duration(seconds: 10),
+      onTimeout: () => null,
+    );
+
+    await socket.close();
+    await streamClosed.future.timeout(
+      const Duration(seconds: 5),
+      onTimeout: () {},
+    );
+    await subscription.cancel();
+
+    if (first == null) {
+      throw TestFailure(
+        'E2E $label received no websocket frame. '
+        'closeCode=${socket.closeCode} closeReason=${socket.closeReason}',
+      );
+    }
+
+    try {
+      final decoded = jsonDecode(first);
+      if (decoded is! Map<String, dynamic>) {
+        throw const FormatException('websocket frame is not a JSON object');
+      }
+      return _WsProbeResult(frame: first, message: decoded);
+    } catch (error) {
+      throw TestFailure(
+        'E2E $label returned invalid websocket JSON: $error, frame=${_compact(first)}',
+      );
+    }
+  } catch (error) {
+    throw TestFailure('E2E $label request failed: $error');
   }
 }
 
-Future<void> _probeLoginRaw({
-  required String label,
+Future<String> _fetchEncryptedAesKey({
   required Uri uri,
-  required String username,
-  required String password,
-  required bool useSystemProxy,
-  String? hostHeader,
+  required String hostHeader,
 }) async {
-  final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
-  client.badCertificateCallback = (_, __, ___) => true;
-  client.findProxy =
-      useSystemProxy ? HttpClient.findProxyFromEnvironment : (_) => 'DIRECT';
-  try {
-    final request = await client.postUrl(uri);
-    request.persistentConnection = false;
-    request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
-    if (hostHeader != null) {
-      request.headers.set(HttpHeaders.hostHeader, hostHeader);
-    }
-    request.write(jsonEncode({
-      'username': username,
-      'password': password,
-      'view': 'mobile',
-    }));
-    final response = await request.close();
-    final body = await response.transform(SystemEncoding().decoder).join();
-    print('PROBE $label status=${response.statusCode} body=${_compact(body)}');
-  } catch (e) {
-    print('PROBE $label error=$e');
-  } finally {
-    client.close(force: true);
+  final response = await _getHttpRaw(
+    label: 'ip-public-key',
+    uri: uri,
+    hostHeader: hostHeader,
+  );
+  if (response.statusCode != 200) {
+    throw TestFailure(
+      'E2E ip-public-key failed: status=${response.statusCode} body=${_compact(response.body)}',
+    );
   }
+  final data = response.decodeJson('ip-public-key');
+  final pem = data['public_key_pem']?.toString();
+  if (pem == null || pem.isEmpty) {
+    throw TestFailure(
+      'E2E ip-public-key missing public_key_pem, body=${_compact(response.body)}',
+    );
+  }
+  return _encryptAesKeyBase64(pem);
+}
+
+String _encryptAesKeyBase64(String pem) {
+  final publicKey = _parseRsaPublicKeyFromPem(pem);
+  final secureRandom = FortunaRandom();
+  final seed = Uint8List.fromList(
+    List<int>.generate(32, (_) => Random.secure().nextInt(256)),
+  );
+  secureRandom.seed(KeyParameter(seed));
+
+  final aesKey = Uint8List(32);
+  for (var index = 0; index < aesKey.length; index++) {
+    aesKey[index] = secureRandom.nextUint8();
+  }
+
+  final cipher = OAEPEncoding.withSHA256(RSAEngine())
+    ..init(
+      true,
+      PublicKeyParameter<RSAPublicKey>(publicKey),
+    );
+  return base64Encode(cipher.process(aesKey));
+}
+
+RSAPublicKey _parseRsaPublicKeyFromPem(String pem) {
+  final lines = pem.split('\n');
+  final base64Str = lines
+      .where((line) => !line.startsWith('-----') && line.trim().isNotEmpty)
+      .join();
+
+  final keyBytes = base64Decode(base64Str);
+  final topLevel = asn1.ASN1Parser(keyBytes).nextObject() as asn1.ASN1Sequence;
+  final algorithmSeq = topLevel.elements[0] as asn1.ASN1Sequence;
+  final algorithmOid =
+      (algorithmSeq.elements[0] as asn1.ASN1ObjectIdentifier).identifier;
+  if (algorithmOid != '1.2.840.113549.1.1.1') {
+    throw TestFailure('E2E public key is not RSA: $algorithmOid');
+  }
+
+  final bitString = topLevel.elements[1] as asn1.ASN1BitString;
+  final rsaSeq = asn1.ASN1Parser(bitString.contentBytes()).nextObject()
+      as asn1.ASN1Sequence;
+  final modulus = (rsaSeq.elements[0] as asn1.ASN1Integer).valueAsBigInteger;
+  final exponent = (rsaSeq.elements[1] as asn1.ASN1Integer).valueAsBigInteger;
+  return RSAPublicKey(modulus, exponent);
 }
 
 String _compact(String text) {
@@ -254,90 +460,4 @@ String _compact(String text) {
     return normalized;
   }
   return '${normalized.substring(0, 160)}...';
-}
-
-Future<Map<String, String>?> _loginForWsSession({
-  required Uri uri,
-  required String username,
-  required String password,
-  String? hostHeader,
-}) async {
-  final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
-  client.badCertificateCallback = (_, __, ___) => true;
-  client.findProxy = (_) => 'DIRECT';
-  try {
-    final request = await client.postUrl(uri);
-    request.persistentConnection = false;
-    request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
-    if (hostHeader != null) {
-      request.headers.set(HttpHeaders.hostHeader, hostHeader);
-    }
-    request.write(jsonEncode({
-      'username': username,
-      'password': password,
-      'view': 'mobile',
-    }));
-    final response = await request.close();
-    final body = await response.transform(SystemEncoding().decoder).join();
-    if (response.statusCode != 200) {
-      print(
-        'PROBE ws-session-login status=${response.statusCode} body=${_compact(body)}',
-      );
-      return null;
-    }
-    final data = jsonDecode(body) as Map<String, dynamic>;
-    final sessionId = data['session_id']?.toString();
-    final token = data['token']?.toString();
-    if (sessionId == null || token == null) {
-      print(
-          'PROBE ws-session-login missing session_id/token body=${_compact(body)}');
-      return null;
-    }
-    print('PROBE ws-session-login status=200 session_id=$sessionId');
-    return {
-      'session_id': sessionId,
-      'token': token,
-    };
-  } catch (e) {
-    print('PROBE ws-session-login error=$e');
-    return null;
-  } finally {
-    client.close(force: true);
-  }
-}
-
-Future<void> _probeWebSocket({
-  required String label,
-  required Uri uri,
-  required String token,
-  required bool useSystemProxy,
-  String? hostHeader,
-}) async {
-  final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
-  client.badCertificateCallback = (_, __, ___) => true;
-  client.findProxy =
-      useSystemProxy ? HttpClient.findProxyFromEnvironment : (_) => 'DIRECT';
-
-  try {
-    final socket = await WebSocket.connect(
-      uri.toString(),
-      headers: hostHeader == null ? null : {HttpHeaders.hostHeader: hostHeader},
-      customClient: client,
-    ).timeout(const Duration(seconds: 10));
-
-    socket.add(jsonEncode({
-      'type': 'auth',
-      'token': token,
-    }));
-
-    final first = await socket.first.timeout(
-      const Duration(seconds: 10),
-    );
-    print('PROBE $label first=${_compact(first.toString())}');
-    await socket.close();
-  } catch (e) {
-    print('PROBE $label error=$e');
-  } finally {
-    client.close(force: true);
-  }
 }
