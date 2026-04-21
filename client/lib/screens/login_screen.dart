@@ -1,19 +1,25 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import '../models/app_environment.dart';
+import 'package:provider/provider.dart';
+
+import '../models/app_environment_presentation.dart';
 import '../services/auth_service.dart';
 import '../services/desktop_agent_manager.dart';
 import '../services/environment_service.dart';
-import '../services/terminal_session_manager.dart';
-import '../services/ui_helpers.dart';
-import 'network_diagnostic_screen.dart';
+import 'network_settings_screen.dart';
 import 'terminal_workspace_screen.dart';
-import 'package:provider/provider.dart';
 
 /// 登录/注册屏幕
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({
+    super.key,
+    this.authServiceBuilder,
+    this.workspaceBuilder,
+  });
+
+  final AuthService Function(String serverUrl)? authServiceBuilder;
+  final Widget Function(String token)? workspaceBuilder;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -24,8 +30,6 @@ class _LoginScreenState extends State<LoginScreen> {
   final _usernameController = TextEditingController(text: 'test');
   final _passwordController = TextEditingController(text: 'test123');
   final _confirmPasswordController = TextEditingController();
-  final _hostController = TextEditingController();
-  final _portController = TextEditingController();
 
   bool _isLoginMode = true;
   bool _isLoading = false;
@@ -33,38 +37,14 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscureConfirmPassword = true;
   String? _errorMessage;
 
-  late AppEnvironment _selectedEnvironment;
-
-  @override
-  void initState() {
-    super.initState();
-    _selectedEnvironment = EnvironmentService.instance.currentEnvironment;
-    _syncHostPortControllers();
-  }
-
-  /// 根据当前环境同步 host/port 输入框
-  void _syncHostPortControllers() {
-    final env = EnvironmentService.instance;
-    if (_selectedEnvironment == AppEnvironment.direct) {
-      _hostController.text = env.directHost;
-      _portController.text = env.directPort;
-    } else {
-      _hostController.text = env.localHost;
-      _portController.text = env.localPort;
-    }
-  }
-
   @override
   void dispose() {
     _usernameController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
-    _hostController.dispose();
-    _portController.dispose();
     super.dispose();
   }
 
-  /// 验证用户名
   String? _validateUsername(String? value) {
     if (value == null || value.isEmpty) {
       return '请输入用户名';
@@ -78,7 +58,6 @@ class _LoginScreenState extends State<LoginScreen> {
     return null;
   }
 
-  /// 验证密码
   String? _validatePassword(String? value) {
     if (value == null || value.isEmpty) {
       return '请输入密码';
@@ -89,7 +68,6 @@ class _LoginScreenState extends State<LoginScreen> {
     return null;
   }
 
-  /// 验证确认密码
   String? _validateConfirmPassword(String? value) {
     if (!_isLoginMode) {
       if (value == null || value.isEmpty) {
@@ -102,7 +80,6 @@ class _LoginScreenState extends State<LoginScreen> {
     return null;
   }
 
-  /// 提交表单
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) {
       return;
@@ -115,7 +92,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       final serverUrl = EnvironmentService.instance.currentServerUrl;
-      final authService = AuthService(serverUrl: serverUrl);
+      final authService = widget.authServiceBuilder?.call(serverUrl) ??
+          AuthService(serverUrl: serverUrl);
       Map<String, dynamic> result;
 
       if (_isLoginMode) {
@@ -130,14 +108,14 @@ class _LoginScreenState extends State<LoginScreen> {
         );
       }
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
-      // 登录/注册成功，跳转到终端工作台
       final token = result['token'] as String;
       final sessionId = result['session_id'] as String?;
       final username = _usernameController.text.trim();
 
-      // 启动 Agent（桌面端，不阻塞进入首页）
       if (sessionId != null && sessionId.isNotEmpty) {
         final agentManager = context.read<DesktopAgentManager>();
         unawaited(
@@ -152,14 +130,16 @@ class _LoginScreenState extends State<LoginScreen> {
         );
       }
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (context) => TerminalWorkspaceScreen(
-            token: token,
-          ),
+          builder: (context) =>
+              widget.workspaceBuilder?.call(token) ??
+              TerminalWorkspaceScreen(token: token),
         ),
       );
     } catch (e) {
@@ -176,381 +156,301 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  /// 切换环境（含协调层编排）
-  Future<void> _switchEnvironment(AppEnvironment newEnv) async {
-    if (newEnv == _selectedEnvironment) return;
-
-    setState(() => _isLoading = true);
-    try {
-      // 协调层编排：停 Agent → 断终端 → 清凭证 → 更新环境
-      final agentManager = context.read<DesktopAgentManager>();
-      final sessionManager = context.read<TerminalSessionManager>();
-      final serverUrl = EnvironmentService.instance.currentServerUrl;
-
-      await Future.wait([
-        // 停止 Agent（桌面端）
-        () async {
-          try {
-            await agentManager.onLogout();
-          } catch (_) {}
-        }(),
-        // 断开终端
-        () async {
-          try {
-            await sessionManager.disconnectAll();
-          } catch (_) {}
-        }(),
-        // 清除凭证
-        () async {
-          try {
-            await AuthService(serverUrl: serverUrl).logout();
-          } catch (_) {}
-        }(),
-      ]);
-
-      // 更新环境状态
-      await EnvironmentService.instance.switchEnvironment(newEnv);
-
-      if (!mounted) return;
-      setState(() {
-        _selectedEnvironment = newEnv;
-        _errorMessage = null;
-        _syncHostPortControllers();
-      });
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
+  void _setMode(bool loginMode) {
+    if (_isLoginMode == loginMode) {
+      return;
     }
-  }
-
-  /// 保存 host/port 到 EnvironmentService
-  Future<void> _saveHostPort() async {
-    final env = EnvironmentService.instance;
-    if (_selectedEnvironment == AppEnvironment.direct) {
-      if (_hostController.text != env.directHost) {
-        await env.updateDirectHost(_hostController.text);
-      }
-      if (_portController.text != env.directPort) {
-        await env.updateDirectPort(_portController.text);
-      }
-      if (env.directHost != _hostController.text) {
-        _hostController.text = env.directHost;
-      }
-      if (env.directPort != _portController.text) {
-        _portController.text = env.directPort;
-      }
-    } else {
-      if (_hostController.text != env.localHost) {
-        await env.updateLocalHost(_hostController.text);
-      }
-      if (_portController.text != env.localPort) {
-        await env.updateLocalPort(_portController.text);
-      }
-      if (env.localHost != _hostController.text) {
-        _hostController.text = env.localHost;
-      }
-      if (env.localPort != _portController.text) {
-        _portController.text = env.localPort;
-      }
-    }
-  }
-
-  /// 切换登录/注册模式
-  void _toggleMode() {
     setState(() {
-      _isLoginMode = !_isLoginMode;
+      _isLoginMode = loginMode;
       _errorMessage = null;
       _confirmPasswordController.clear();
     });
   }
 
-  Future<void> _showThemePicker() async {
-    await showThemePickerSheet(context);
-  }
-
-  void _openNetworkDiagnostic() {
-    Navigator.push(
+  Future<void> _openNetworkSettings() async {
+    final previousEnvironment = EnvironmentService.instance.currentEnvironment;
+    final previousServerUrl = EnvironmentService.instance.currentServerUrl;
+    await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => NetworkDiagnosticScreen(
-          serverUrl: EnvironmentService.instance.currentServerUrl,
+        builder: (context) => NetworkSettingsScreen(
           username: _usernameController.text.trim(),
           password: _passwordController.text,
         ),
       ),
     );
+    if (mounted &&
+        (previousEnvironment !=
+                EnvironmentService.instance.currentEnvironment ||
+            previousServerUrl !=
+                EnvironmentService.instance.currentServerUrl)) {
+      setState(() {});
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final environment = EnvironmentService.instance.currentEnvironment;
+    final serverUrl = EnvironmentService.instance.currentServerUrl;
+
     return Scaffold(
       body: SafeArea(
         child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 400),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: IconButton(
-                        tooltip: '主题',
-                        onPressed: _showThemePicker,
-                        icon: const Icon(Icons.palette_outlined),
-                      ),
-                    ),
-                    // 环境选择
-                    SegmentedButton<AppEnvironment>(
-                      segments: const [
-                        ButtonSegment(
-                          value: AppEnvironment.local,
-                          label: Text('本地'),
-                          icon: Icon(Icons.lan),
-                        ),
-                        ButtonSegment(
-                          value: AppEnvironment.direct,
-                          label: Text('直连'),
-                          icon: Icon(Icons.link),
-                        ),
-                        ButtonSegment(
-                          value: AppEnvironment.production,
-                          label: Text('线上'),
-                          icon: Icon(Icons.cloud),
-                        ),
-                      ],
-                      selected: {_selectedEnvironment},
-                      onSelectionChanged: (selected) {
-                        _switchEnvironment(selected.first);
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    // host/port 编辑区（本地和直连环境显示）
-                    if (_selectedEnvironment == AppEnvironment.local ||
-                        _selectedEnvironment == AppEnvironment.direct) ...[
-                      Row(
+          child: ScrollConfiguration(
+            behavior: ScrollConfiguration.of(
+              context,
+            ).copyWith(scrollbars: false),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 460),
+                child: Card(
+                  margin: EdgeInsets.zero,
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          Expanded(
-                            flex: 3,
-                            child: TextFormField(
-                              controller: _hostController,
-                              decoration: InputDecoration(
-                                labelText: 'Host',
-                                hintText: _selectedEnvironment ==
-                                        AppEnvironment.direct
-                                    ? '服务器 IP'
-                                    : 'localhost',
-                                prefixIcon: const Icon(Icons.dns),
-                                border: const OutlineInputBorder(),
-                                isDense: true,
-                                helperText: '字母、数字、点、短横线',
-                                helperMaxLines: 1,
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Remote Control',
+                                      style: theme.textTheme.headlineMedium
+                                          ?.copyWith(
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      _isLoginMode
+                                          ? '登录到你的终端工作台'
+                                          : '创建账号并立即开始使用',
+                                      style:
+                                          theme.textTheme.bodyLarge?.copyWith(
+                                        color: colorScheme.onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
-                              enabled: !_isLoading,
-                              onChanged: (_) => _saveHostPort(),
+                              const SizedBox(width: 12),
+                              TextButton.icon(
+                                onPressed:
+                                    _isLoading ? null : _openNetworkSettings,
+                                icon: const Icon(Icons.tune),
+                                label: const Text('网络设置'),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 20),
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: colorScheme.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  height: 44,
+                                  width: 44,
+                                  decoration: BoxDecoration(
+                                    color: colorScheme.primaryContainer,
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: Icon(
+                                    environment.icon,
+                                    color: colorScheme.onPrimaryContainer,
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        '当前网络',
+                                        style: theme.textTheme.labelLarge,
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        environment.title,
+                                        style: theme.textTheme.titleMedium,
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        serverUrl,
+                                        style: theme.textTheme.bodyMedium
+                                            ?.copyWith(
+                                          color: colorScheme.onSurfaceVariant,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            flex: 1,
-                            child: TextFormField(
-                              controller: _portController,
-                              decoration: InputDecoration(
-                                labelText: '端口',
-                                hintText: _selectedEnvironment ==
-                                        AppEnvironment.direct
-                                    ? '8080'
-                                    : '留空',
-                                prefixIcon: const Icon(Icons.numbers),
-                                border: const OutlineInputBorder(),
-                                isDense: true,
-                                helperText: '1-65535',
-                                helperMaxLines: 1,
+                          const SizedBox(height: 24),
+                          SegmentedButton<bool>(
+                            segments: const [
+                              ButtonSegment<bool>(
+                                value: true,
+                                label: Text('登录'),
+                                icon: Icon(Icons.login),
                               ),
-                              keyboardType: TextInputType.number,
+                              ButtonSegment<bool>(
+                                value: false,
+                                label: Text('创建账号'),
+                                icon: Icon(Icons.person_add_alt_1),
+                              ),
+                            ],
+                            selected: {_isLoginMode},
+                            onSelectionChanged: _isLoading
+                                ? null
+                                : (selected) => _setMode(selected.first),
+                          ),
+                          const SizedBox(height: 24),
+                          TextFormField(
+                            controller: _usernameController,
+                            decoration: const InputDecoration(
+                              labelText: '用户名',
+                              hintText: '请输入用户名',
+                              prefixIcon: Icon(Icons.person_outline),
+                              border: OutlineInputBorder(),
+                            ),
+                            textInputAction: TextInputAction.next,
+                            validator: _validateUsername,
+                            enabled: !_isLoading,
+                          ),
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: _passwordController,
+                            decoration: InputDecoration(
+                              labelText: '密码',
+                              hintText: '请输入密码',
+                              prefixIcon: const Icon(Icons.lock_outline),
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  _obscurePassword
+                                      ? Icons.visibility
+                                      : Icons.visibility_off,
+                                ),
+                                onPressed: () {
+                                  setState(() {
+                                    _obscurePassword = !_obscurePassword;
+                                  });
+                                },
+                              ),
+                              border: const OutlineInputBorder(),
+                            ),
+                            obscureText: _obscurePassword,
+                            textInputAction: _isLoginMode
+                                ? TextInputAction.done
+                                : TextInputAction.next,
+                            validator: _validatePassword,
+                            enabled: !_isLoading,
+                            onFieldSubmitted:
+                                _isLoginMode ? (_) => _submit() : null,
+                          ),
+                          if (!_isLoginMode) ...[
+                            const SizedBox(height: 16),
+                            TextFormField(
+                              controller: _confirmPasswordController,
+                              decoration: InputDecoration(
+                                labelText: '确认密码',
+                                hintText: '请再次输入密码',
+                                prefixIcon:
+                                    const Icon(Icons.verified_user_outlined),
+                                suffixIcon: IconButton(
+                                  icon: Icon(
+                                    _obscureConfirmPassword
+                                        ? Icons.visibility
+                                        : Icons.visibility_off,
+                                  ),
+                                  onPressed: () {
+                                    setState(() {
+                                      _obscureConfirmPassword =
+                                          !_obscureConfirmPassword;
+                                    });
+                                  },
+                                ),
+                                border: const OutlineInputBorder(),
+                              ),
+                              obscureText: _obscureConfirmPassword,
+                              textInputAction: TextInputAction.done,
+                              validator: _validateConfirmPassword,
                               enabled: !_isLoading,
-                              onChanged: (_) => _saveHostPort(),
+                              onFieldSubmitted: (_) => _submit(),
+                            ),
+                          ],
+                          if (_errorMessage != null) ...[
+                            const SizedBox(height: 16),
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: colorScheme.errorContainer,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.error_outline,
+                                    color: colorScheme.error,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      _errorMessage!,
+                                      style: TextStyle(
+                                        color: colorScheme.onErrorContainer,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 20),
+                          FilledButton(
+                            onPressed: _isLoading ? null : _submit,
+                            style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                            ),
+                            child: _isLoading
+                                ? const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2),
+                                  )
+                                : Text(_isLoginMode ? '继续登录' : '完成注册'),
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            _isLoginMode
+                                ? '如果网络不可达，可先进入网络设置切换环境并自动诊断。'
+                                : '注册成功后会自动进入终端工作台，并在桌面端尝试拉起 Agent。',
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 16),
-                    ],
-                    // 标题
-                    Icon(
-                      Icons.terminal,
-                      size: 64,
-                      color: Theme.of(context).colorScheme.primary,
                     ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Remote Control',
-                      style:
-                          Theme.of(context).textTheme.headlineMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      _isLoginMode ? '登录您的账号' : '创建新账号',
-                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                            color:
-                                Theme.of(context).colorScheme.onSurfaceVariant,
-                          ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 32),
-
-                    // 用户名输入框
-                    TextFormField(
-                      controller: _usernameController,
-                      decoration: const InputDecoration(
-                        labelText: '用户名',
-                        hintText: '请输入用户名',
-                        prefixIcon: Icon(Icons.person),
-                        border: OutlineInputBorder(),
-                      ),
-                      textInputAction: TextInputAction.next,
-                      validator: _validateUsername,
-                      enabled: !_isLoading,
-                    ),
-                    const SizedBox(height: 16),
-
-                    // 密码输入框
-                    TextFormField(
-                      controller: _passwordController,
-                      decoration: InputDecoration(
-                        labelText: '密码',
-                        hintText: '请输入密码',
-                        prefixIcon: const Icon(Icons.lock),
-                        suffixIcon: IconButton(
-                          icon: Icon(
-                            _obscurePassword
-                                ? Icons.visibility
-                                : Icons.visibility_off,
-                          ),
-                          onPressed: () {
-                            setState(() {
-                              _obscurePassword = !_obscurePassword;
-                            });
-                          },
-                        ),
-                        border: const OutlineInputBorder(),
-                      ),
-                      obscureText: _obscurePassword,
-                      textInputAction: _isLoginMode
-                          ? TextInputAction.done
-                          : TextInputAction.next,
-                      validator: _validatePassword,
-                      enabled: !_isLoading,
-                      onFieldSubmitted: _isLoginMode ? (_) => _submit() : null,
-                    ),
-                    const SizedBox(height: 16),
-
-                    // 确认密码输入框（仅注册模式）
-                    if (!_isLoginMode) ...[
-                      TextFormField(
-                        controller: _confirmPasswordController,
-                        decoration: InputDecoration(
-                          labelText: '确认密码',
-                          hintText: '请再次输入密码',
-                          prefixIcon: const Icon(Icons.lock_outline),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _obscureConfirmPassword
-                                  ? Icons.visibility
-                                  : Icons.visibility_off,
-                            ),
-                            onPressed: () {
-                              setState(() {
-                                _obscureConfirmPassword =
-                                    !_obscureConfirmPassword;
-                              });
-                            },
-                          ),
-                          border: const OutlineInputBorder(),
-                        ),
-                        obscureText: _obscureConfirmPassword,
-                        textInputAction: TextInputAction.done,
-                        validator: _validateConfirmPassword,
-                        enabled: !_isLoading,
-                        onFieldSubmitted: (_) => _submit(),
-                      ),
-                      const SizedBox(height: 16),
-                    ],
-
-                    // 错误提示
-                    if (_errorMessage != null) ...[
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.errorContainer,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.error_outline,
-                              color: Theme.of(context).colorScheme.error,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                _errorMessage!,
-                                style: TextStyle(
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .onErrorContainer,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                    ],
-
-                    // 提交按钮
-                    ElevatedButton(
-                      onPressed: _isLoading ? null : _submit,
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                      ),
-                      child: _isLoading
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : Text(_isLoginMode ? '登录' : '注册'),
-                    ),
-                    const SizedBox(height: 16),
-                    OutlinedButton.icon(
-                      onPressed: _isLoading ? null : _openNetworkDiagnostic,
-                      icon: const Icon(Icons.network_check),
-                      label: const Text('网络诊断'),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // 切换登录/注册
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          _isLoginMode ? '还没有账号？' : '已有账号？',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                        TextButton(
-                          onPressed: _isLoading ? null : _toggleMode,
-                          child: Text(_isLoginMode ? '立即注册' : '立即登录'),
-                        ),
-                      ],
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),

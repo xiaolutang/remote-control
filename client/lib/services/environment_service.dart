@@ -102,6 +102,9 @@ class EnvironmentService {
   ///
   /// 返回新环境对应的 serverUrl。
   Future<String> switchEnvironment(AppEnvironment newEnv) async {
+    if (_cachedEnvironment == newEnv) {
+      return currentServerUrl;
+    }
     _cachedEnvironment = newEnv;
     final prefs = _prefs ?? await SharedPreferences.getInstance();
     await prefs.setString(_keyEnvironment, newEnv.name);
@@ -111,6 +114,7 @@ class EnvironmentService {
   /// 更新本地环境的 host
   Future<void> updateLocalHost(String host) async {
     final sanitized = _sanitizeHost(host);
+    if (_cachedLocalHost == sanitized) return;
     _cachedLocalHost = sanitized;
     final prefs = _prefs ?? await SharedPreferences.getInstance();
     await prefs.setString(_keyLocalHost, sanitized);
@@ -119,6 +123,7 @@ class EnvironmentService {
   /// 更新本地环境的 port
   Future<void> updateLocalPort(String port) async {
     final sanitized = _sanitizePort(port);
+    if (_cachedLocalPort == sanitized) return;
     _cachedLocalPort = sanitized;
     final prefs = _prefs ?? await SharedPreferences.getInstance();
     await prefs.setString(_keyLocalPort, sanitized);
@@ -139,6 +144,7 @@ class EnvironmentService {
   /// 更新直连环境的 host
   Future<void> updateDirectHost(String host) async {
     final sanitized = _sanitizeHost(host);
+    if (_cachedDirectHost == sanitized) return;
     _cachedDirectHost = sanitized;
     final prefs = _prefs ?? await SharedPreferences.getInstance();
     await prefs.setString(_keyDirectHost, sanitized);
@@ -147,6 +153,7 @@ class EnvironmentService {
   /// 更新直连环境的 port
   Future<void> updateDirectPort(String port) async {
     final sanitized = _sanitizePort(port);
+    if (_cachedDirectPort == sanitized) return;
     _cachedDirectPort = sanitized;
     final prefs = _prefs ?? await SharedPreferences.getInstance();
     await prefs.setString(_keyDirectPort, sanitized);

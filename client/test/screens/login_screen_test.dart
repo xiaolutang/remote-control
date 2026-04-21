@@ -6,13 +6,37 @@ import 'package:rc_client/services/desktop_agent_manager.dart';
 import 'package:rc_client/services/auth_service.dart';
 import 'package:rc_client/services/desktop_agent_supervisor.dart';
 import 'package:rc_client/services/environment_service.dart';
-import 'package:rc_client/services/theme_controller.dart';
+import 'package:rc_client/services/terminal_session_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Minimal mock supervisor for LoginScreen tests (mobile mode, supported=false)
 class _MobileFakeSupervisor extends DesktopAgentSupervisor {
   @override
   bool get supported => false;
+}
+
+class _SpyDesktopAgentManager extends DesktopAgentManager {
+  _SpyDesktopAgentManager() : super(supervisor: _MobileFakeSupervisor());
+
+  int onLoginCallCount = 0;
+  String? lastServerUrl;
+  String? lastToken;
+  String? lastUsername;
+  String? lastDeviceId;
+
+  @override
+  Future<void> onLogin({
+    required String serverUrl,
+    required String token,
+    required String deviceId,
+    required String username,
+  }) async {
+    onLoginCallCount += 1;
+    lastServerUrl = serverUrl;
+    lastToken = token;
+    lastUsername = username;
+    lastDeviceId = deviceId;
+  }
 }
 
 /// Mock AuthService for testing
@@ -76,26 +100,26 @@ void main() {
     );
   });
 
-  // LoginScreen 现在包含环境选择 + host/port 编辑区，需要更大的视口
+  // LoginScreen 新版采用卡片式布局，大视口更接近真实使用场景
   Future<void> setLargeViewport(WidgetTester tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
   }
 
-  // LoginScreen 本地环境下有 host/port 输入框，需要偏移索引
-  // host=0, port=1, username=2, password=3, confirm=4(注册模式)
-  final usernameField = find.byType(TextFormField).at(2);
-  final passwordField = find.byType(TextFormField).at(3);
-  final confirmPasswordField = find.byType(TextFormField).at(4);
+  final usernameField = find.byType(TextFormField).at(0);
+  final passwordField = find.byType(TextFormField).at(1);
+  final confirmPasswordField = find.byType(TextFormField).at(2);
 
   Widget wrapWithApp({
     DesktopAgentManager? agentManager,
+    MockAuthService? authService,
+    Widget Function(String token)? workspaceBuilder,
   }) {
     // 使用 mobile platform mock（supported=false），LoginScreen 不需要真实 Agent
     final supervisor = _MobileFakeSupervisor();
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => ThemeController()),
+        ChangeNotifierProvider(create: (_) => TerminalSessionManager()),
         ChangeNotifierProvider(
           create: (_) =>
               agentManager ??
@@ -104,8 +128,11 @@ void main() {
               ),
         ),
       ],
-      child: const MaterialApp(
-        home: LoginScreen(),
+      child: MaterialApp(
+        home: LoginScreen(
+          authServiceBuilder: authService == null ? null : (_) => authService,
+          workspaceBuilder: workspaceBuilder,
+        ),
       ),
     );
   }
@@ -117,9 +144,11 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Remote Control'), findsOneWidget);
-      expect(find.text('登录您的账号'), findsOneWidget);
-      expect(find.text('登录'), findsOneWidget);
-      expect(find.text('立即注册'), findsOneWidget);
+      expect(find.text('登录到你的终端工作台'), findsOneWidget);
+      expect(find.text('继续登录'), findsOneWidget);
+      expect(find.text('创建账号'), findsOneWidget);
+      expect(find.text('网络设置'), findsOneWidget);
+      expect(find.text('当前网络'), findsOneWidget);
     });
 
     testWidgets('toggle to register mode shows confirm password field',
@@ -129,17 +158,16 @@ void main() {
       await tester.pumpAndSettle();
 
       // 初始是登录模式
-      expect(find.text('登录您的账号'), findsOneWidget);
+      expect(find.text('登录到你的终端工作台'), findsOneWidget);
       expect(find.text('确认密码'), findsNothing);
 
-      // 点击"立即注册"切换到注册模式
-      await tester.tap(find.text('立即注册'));
+      // 点击分段按钮切换到注册模式
+      await tester.tap(find.text('创建账号'));
       await tester.pumpAndSettle();
 
-      expect(find.text('创建新账号'), findsOneWidget);
-      expect(find.text('注册'), findsOneWidget);
+      expect(find.text('创建账号并立即开始使用'), findsOneWidget);
+      expect(find.text('完成注册'), findsOneWidget);
       expect(find.text('确认密码'), findsOneWidget);
-      expect(find.text('立即登录'), findsOneWidget);
     });
 
     testWidgets('toggle back to login mode hides confirm password',
@@ -149,23 +177,99 @@ void main() {
       await tester.pumpAndSettle();
 
       // 切换到注册模式
-      await tester.tap(find.text('立即注册'));
+      await tester.tap(find.text('创建账号'));
       await tester.pumpAndSettle();
 
       // 切换回登录模式
-      await tester.tap(find.text('立即登录'));
+      await tester.tap(find.text('登录'));
       await tester.pumpAndSettle();
 
-      expect(find.text('登录您的账号'), findsOneWidget);
+      expect(find.text('登录到你的终端工作台'), findsOneWidget);
       expect(find.text('确认密码'), findsNothing);
     });
 
-    testWidgets('shows theme picker button', (tester) async {
+    testWidgets('shows network settings entry instead of theme picker',
+        (tester) async {
       await setLargeViewport(tester);
       await tester.pumpWidget(wrapWithApp());
       await tester.pumpAndSettle();
 
-      expect(find.byIcon(Icons.palette_outlined), findsOneWidget);
+      expect(find.text('网络设置'), findsOneWidget);
+      expect(find.byIcon(Icons.tune), findsOneWidget);
+      expect(find.text('网络诊断'), findsNothing);
+      expect(find.byIcon(Icons.palette_outlined), findsNothing);
+    });
+
+    testWidgets('register success navigates into workspace', (tester) async {
+      final authService = MockAuthService(serverUrl: 'ws://localhost:8888')
+        ..setRegisterResult({
+          'success': true,
+          'token': 'registered-token',
+          'session_id': 'session-registered',
+        });
+
+      await setLargeViewport(tester);
+      await tester.pumpWidget(
+        wrapWithApp(
+          authService: authService,
+          workspaceBuilder: (token) => Scaffold(
+            body: Text('workspace:$token'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('创建账号'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(usernameField, 'newuser');
+      await tester.enterText(passwordField, 'password123');
+      await tester.enterText(confirmPasswordField, 'password123');
+      await tester.tap(find.text('完成注册'));
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(authService.registerCallCount, 1);
+      expect(authService.loginCallCount, 0);
+      expect(find.text('workspace:registered-token'), findsOneWidget);
+    });
+
+    testWidgets('desktop register success triggers agent onLogin with session',
+        (tester) async {
+      final authService = MockAuthService(serverUrl: 'ws://localhost:8888')
+        ..setRegisterResult({
+          'success': true,
+          'token': 'desktop-token',
+          'session_id': 'desktop-session',
+        });
+      final agentManager = _SpyDesktopAgentManager();
+
+      await setLargeViewport(tester);
+      await tester.pumpWidget(
+        wrapWithApp(
+          agentManager: agentManager,
+          authService: authService,
+          workspaceBuilder: (token) => Scaffold(
+            body: Text('workspace:$token'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('创建账号'));
+      await tester.pumpAndSettle();
+      await tester.enterText(usernameField, 'desktopuser');
+      await tester.enterText(passwordField, 'password123');
+      await tester.enterText(confirmPasswordField, 'password123');
+      await tester.tap(find.text('完成注册'));
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(agentManager.onLoginCallCount, 1);
+      expect(agentManager.lastToken, 'desktop-token');
+      expect(agentManager.lastUsername, 'desktopuser');
+      expect(agentManager.lastDeviceId, 'desktop-session');
+      expect(find.text('workspace:desktop-token'), findsOneWidget);
     });
   });
 
@@ -176,7 +280,7 @@ void main() {
         await tester.pumpWidget(wrapWithApp());
         await tester.pumpAndSettle();
 
-        await tester.tap(find.text('登录'));
+        await tester.tap(find.text('继续登录'));
         await tester.pumpAndSettle();
 
         // hintText 和 errorText 都包含 "请输入用户名"
@@ -189,7 +293,7 @@ void main() {
         await tester.pumpAndSettle();
 
         await tester.enterText(usernameField, 'ab');
-        await tester.tap(find.text('登录'));
+        await tester.tap(find.text('继续登录'));
         await tester.pumpAndSettle();
 
         expect(find.text('用户名至少 3 个字符'), findsOneWidget);
@@ -204,7 +308,7 @@ void main() {
           usernameField,
           'a' * 33,
         );
-        await tester.tap(find.text('登录'));
+        await tester.tap(find.text('继续登录'));
         await tester.pumpAndSettle();
 
         expect(find.text('用户名最多 32 个字符'), findsOneWidget);
@@ -216,7 +320,7 @@ void main() {
         await tester.pumpAndSettle();
 
         await tester.enterText(usernameField, 'testuser');
-        await tester.tap(find.text('登录'));
+        await tester.tap(find.text('继续登录'));
         await tester.pumpAndSettle();
 
         // hintText 和 errorText 都包含 "请输入密码"
@@ -230,7 +334,8 @@ void main() {
 
         await tester.enterText(usernameField, 'testuser');
         await tester.enterText(passwordField, '12345');
-        await tester.tap(find.text('登录'));
+        await tester.pump();
+        await tester.tap(find.text('继续登录'));
         await tester.pumpAndSettle();
 
         expect(find.text('密码至少 6 个字符'), findsOneWidget);
@@ -243,12 +348,12 @@ void main() {
         await tester.pumpAndSettle();
 
         // 切换到注册模式
-        await tester.tap(find.text('立即注册'));
+        await tester.tap(find.text('创建账号'));
         await tester.pumpAndSettle();
 
         await tester.enterText(usernameField, 'testuser');
         await tester.enterText(passwordField, 'password123');
-        await tester.tap(find.text('注册'));
+        await tester.tap(find.text('完成注册'));
         await tester.pumpAndSettle();
 
         expect(find.text('请确认密码'), findsOneWidget);
@@ -261,13 +366,13 @@ void main() {
         await tester.pumpAndSettle();
 
         // 切换到注册模式
-        await tester.tap(find.text('立即注册'));
+        await tester.tap(find.text('创建账号'));
         await tester.pumpAndSettle();
 
         await tester.enterText(usernameField, 'testuser');
         await tester.enterText(passwordField, 'password123');
         await tester.enterText(confirmPasswordField, 'password456');
-        await tester.tap(find.text('注册'));
+        await tester.tap(find.text('完成注册'));
         await tester.pumpAndSettle();
 
         expect(find.text('两次输入的密码不一致'), findsOneWidget);
@@ -309,7 +414,7 @@ void main() {
         await tester.pumpAndSettle();
 
         // 切换到注册模式
-        await tester.tap(find.text('立即注册'));
+        await tester.tap(find.text('创建账号'));
         await tester.pumpAndSettle();
 
         // 确认密码默认隐藏
@@ -346,42 +451,38 @@ void main() {
 
       await tester.enterText(usernameField, 'testuser');
       await tester.enterText(passwordField, 'password123');
-      await tester.tap(find.text('登录'));
+      await tester.tap(find.text('继续登录'));
       await tester.pumpAndSettle();
 
       // 登录失败后应显示错误提示（error container 包含 error_outline icon）
       expect(find.byIcon(Icons.error_outline), findsOneWidget);
     });
-  });
 
-  group('LoginScreen - 主题切换 (Theme Toggle)', () {
-    testWidgets('opens theme picker bottom sheet', (tester) async {
+    testWidgets('shows backend error message when register request fails',
+        (tester) async {
+      final authService = MockAuthService(serverUrl: 'ws://localhost:8888')
+        ..setRegisterException(Exception('用户名已存在'));
+
       await setLargeViewport(tester);
-      await tester.pumpWidget(wrapWithApp());
+      await tester.pumpWidget(
+        wrapWithApp(
+          authService: authService,
+        ),
+      );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byIcon(Icons.palette_outlined));
+      await tester.tap(find.text('创建账号'));
+      await tester.pumpAndSettle();
+      await tester.enterText(usernameField, 'existinguser');
+      await tester.enterText(passwordField, 'password123');
+      await tester.enterText(confirmPasswordField, 'password123');
+      await tester.tap(find.text('完成注册'));
+      await tester.pump();
       await tester.pumpAndSettle();
 
-      expect(find.text('主题模式'), findsOneWidget);
-      expect(find.text('跟随系统'), findsOneWidget);
-      expect(find.text('浅色'), findsOneWidget);
-      expect(find.text('深色'), findsOneWidget);
-    });
-
-    testWidgets('selects light theme', (tester) async {
-      await setLargeViewport(tester);
-      await tester.pumpWidget(wrapWithApp());
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.byIcon(Icons.palette_outlined));
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('浅色'));
-      await tester.pumpAndSettle();
-
-      // 底部表单应该关闭
-      expect(find.text('主题模式'), findsNothing);
+      expect(authService.registerCallCount, 1);
+      expect(find.text('用户名已存在'), findsOneWidget);
+      expect(find.byIcon(Icons.error_outline), findsOneWidget);
     });
   });
 
@@ -392,18 +493,18 @@ void main() {
       await tester.pumpAndSettle();
 
       // 切换到注册模式
-      await tester.tap(find.text('立即注册'));
+      await tester.tap(find.text('创建账号'));
       await tester.pumpAndSettle();
 
       // 输入确认密码
       await tester.enterText(confirmPasswordField, 'password123');
 
       // 切换回登录模式
-      await tester.tap(find.text('立即登录'));
+      await tester.tap(find.text('登录'));
       await tester.pumpAndSettle();
 
       // 再切换到注册模式，确认密码字段应该是空的
-      await tester.tap(find.text('立即注册'));
+      await tester.tap(find.text('创建账号'));
       await tester.pumpAndSettle();
 
       final confirmField = tester.widget<TextFormField>(
@@ -418,18 +519,17 @@ void main() {
       await tester.pumpAndSettle();
 
       // 触发一个错误 - 输入空用户名
-      await tester.tap(find.text('登录'));
+      await tester.tap(find.text('继续登录'));
       await tester.pumpAndSettle();
 
       // 应该显示错误信息
       expect(find.text('请输入用户名'), findsWidgets);
 
       // 切换模式应该清除错误
-      await tester.tap(find.text('立即注册'));
+      await tester.tap(find.text('创建账号'));
       await tester.pumpAndSettle();
 
-      // 切换后错误被清除，label 变成 "创建新账号"
-      expect(find.text('创建新账号'), findsOneWidget);
+      expect(find.text('创建账号并立即开始使用'), findsOneWidget);
     });
 
     testWidgets('mobile mode: DesktopAgentManager does not crash after login',
@@ -452,7 +552,7 @@ void main() {
       // 填写表单并提交（测试环境下网络请求会失败，但不影响 Agent 状态验证）
       await tester.enterText(usernameField, 'testuser');
       await tester.enterText(passwordField, 'password123');
-      await tester.tap(find.text('登录'));
+      await tester.tap(find.text('继续登录'));
       await tester.pumpAndSettle();
 
       // 登录请求失败（测试环境无服务器），onLogin 未被调用

@@ -171,6 +171,66 @@ void main() {
       expect(body.containsKey('view'), isTrue);
       expect(body['view'], currentView);
     });
+
+    test('register 成功后持久化 session、token 和 password', () async {
+      SharedPreferences.setMockInitialValues({});
+      final secureStorage = _InMemorySecureStorage();
+
+      final client = MockClient((request) async => http.Response(
+            jsonEncode({
+              'session_id': 'sid-register',
+              'token': 'tok-register',
+              'refresh_token': 'rt-register',
+              'expires_at': '2099-01-01T00:00:00Z',
+            }),
+            200,
+          ));
+
+      final service = AuthService(
+        serverUrl: 'http://localhost:8888',
+        client: client,
+        secureStorage: secureStorage,
+      );
+
+      final result = await service.register('newuser', 'newpass123');
+
+      expect(result['session_id'], 'sid-register');
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('rc_username'), 'newuser');
+      expect(prefs.getString('rc_session_id'), 'sid-register');
+      expect(await secureStorage.read(key: 'rc_password'), 'newpass123');
+      expect(await secureStorage.read(key: 'rc_token'), 'tok-register');
+      expect(await secureStorage.read(key: 'rc_refresh_token'), 'rt-register');
+    });
+
+    test('register 失败时透传后端 detail', () async {
+      SharedPreferences.setMockInitialValues({});
+
+      final client = MockClient((request) async => http.Response.bytes(
+            utf8.encode(jsonEncode({'detail': '用户名已存在'})),
+            409,
+            headers: const {
+              'content-type': 'application/json; charset=utf-8',
+            },
+          ));
+
+      final service = AuthService(
+        serverUrl: 'http://localhost:8888',
+        client: client,
+        secureStorage: _InMemorySecureStorage(),
+      );
+
+      expect(
+        () => service.register('existing-user', 'newpass123'),
+        throwsA(
+          isA<Exception>().having(
+            (e) => e.toString(),
+            'message',
+            contains('用户名已存在'),
+          ),
+        ),
+      );
+    });
   });
 
   // =========================================================================

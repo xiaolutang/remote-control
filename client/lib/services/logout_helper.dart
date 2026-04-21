@@ -14,12 +14,15 @@ import 'terminal_session_manager.dart';
 /// 每步独立 try-catch，任何一步失败不阻塞其余步骤。
 ///
 /// 调用方负责后续的 UI 跳转。
-Future<void> performLogout({
+Future<void> performSessionTeardown({
   required BuildContext context,
+  AuthService Function(String serverUrl)? authServiceBuilder,
 }) async {
   final agentManager = context.read<DesktopAgentManager>();
   final sessionManager = context.read<TerminalSessionManager>();
   final serverUrl = EnvironmentService.instance.currentServerUrl;
+  final authService =
+      authServiceBuilder?.call(serverUrl) ?? AuthService(serverUrl: serverUrl);
 
   await Future.wait([
     // 关闭 Agent（桌面端，token 失效前）
@@ -42,12 +45,18 @@ Future<void> performLogout({
     // 清除 token
     () async {
       try {
-        await AuthService(serverUrl: serverUrl).logout();
+        await authService.logout();
       } catch (e) {
         _log('清除 token 失败: $e');
       }
     }(),
   ]);
+}
+
+Future<void> performLogout({
+  required BuildContext context,
+}) async {
+  await performSessionTeardown(context: context);
 }
 
 /// 退出登录后跳转到指定页面
@@ -58,7 +67,7 @@ Future<void> logoutAndNavigate({
   required BuildContext context,
   required WidgetBuilder destinationBuilder,
 }) async {
-  await performLogout(context: context);
+  await performSessionTeardown(context: context);
   if (!context.mounted) return;
   Navigator.of(context).pushAndRemoveUntil(
     MaterialPageRoute(builder: destinationBuilder),
