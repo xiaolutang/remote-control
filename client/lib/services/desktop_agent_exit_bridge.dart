@@ -24,21 +24,5 @@ class DesktopAgentExitBridge {
     }
   }
 
-  static Future<void> syncManagedAgentPid(int? pid) async {
-    if (!_supported) return;
-    try {
-      if (pid == null) {
-        await _channel.invokeMethod<void>('clearManagedAgentPid');
-      } else {
-        await _channel.invokeMethod<void>(
-          'setManagedAgentPid',
-          <String, dynamic>{'pid': pid},
-        );
-      }
-    } catch (_) {
-      // Best-effort sync for native shutdown handling.
-    }
-  }
-
   static bool get _supported => Platform.isMacOS;
 }

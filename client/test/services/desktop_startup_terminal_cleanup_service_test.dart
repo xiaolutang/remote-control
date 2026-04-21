@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:rc_client/models/config.dart';
 import 'package:rc_client/models/runtime_terminal.dart';
-import 'package:rc_client/services/config_service.dart';
+import 'package:rc_client/services/desktop_exit_policy_service.dart';
 import 'package:rc_client/services/desktop_startup_terminal_cleanup_service.dart';
 import 'package:rc_client/services/environment_service.dart';
 import 'package:rc_client/services/runtime_device_service.dart';
@@ -38,13 +37,13 @@ class _FakeRuntimeDeviceService extends RuntimeDeviceService {
   }
 }
 
-class _FakeConfigService extends ConfigService {
-  _FakeConfigService(this.config);
+class _FakeDesktopExitPolicyService extends DesktopExitPolicyService {
+  _FakeDesktopExitPolicyService(this.keepRunning);
 
-  final AppConfig config;
+  final bool keepRunning;
 
   @override
-  Future<AppConfig> loadConfig() async => config;
+  Future<bool> keepAgentRunningInBackground() async => keepRunning;
 }
 
 void main() {
@@ -69,9 +68,7 @@ void main() {
       ];
     final service = DesktopStartupTerminalCleanupService(
       runtimeService: runtimeService,
-      configService: _FakeConfigService(const AppConfig(
-        desktopExitPolicy: DesktopExitPolicy.keepAgentRunningInBackground,
-      )),
+      exitPolicyService: _FakeDesktopExitPolicyService(true),
       isDesktopPlatform: true,
     );
 
@@ -112,7 +109,7 @@ void main() {
       ];
     final service = DesktopStartupTerminalCleanupService(
       runtimeService: runtimeService,
-      configService: _FakeConfigService(const AppConfig()),
+      exitPolicyService: _FakeDesktopExitPolicyService(false),
       isDesktopPlatform: true,
     );
 
@@ -148,7 +145,7 @@ void main() {
       ..failingTerminalIds.add('term-fail');
     final service = DesktopStartupTerminalCleanupService(
       runtimeService: runtimeService,
-      configService: _FakeConfigService(const AppConfig()),
+      exitPolicyService: _FakeDesktopExitPolicyService(false),
       isDesktopPlatform: true,
     );
 

@@ -65,21 +65,6 @@ class AppDelegate: FlutterAppDelegate {
         }
         self.log("syncTerminationSnapshot keepRunning=\(keepRunning) pid=\(pid ?? 0)")
         result(nil)
-      case "setManagedAgentPid":
-        guard
-          let arguments = call.arguments as? [String: Any],
-          let pid = arguments["pid"] as? Int
-        else {
-          result(FlutterError(code: "bad_args", message: "Missing pid", details: nil))
-          return
-        }
-        UserDefaults.standard.set(pid, forKey: self.managedAgentPidKey)
-        self.log("setManagedAgentPid=\(pid)")
-        result(nil)
-      case "clearManagedAgentPid":
-        UserDefaults.standard.removeObject(forKey: self.managedAgentPidKey)
-        self.log("clearManagedAgentPid")
-        result(nil)
       default:
         result(FlutterMethodNotImplemented)
       }

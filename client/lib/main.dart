@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'services/desktop_agent_exit_bridge.dart';
-import 'services/desktop_exit_policy_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/terminal_workspace_screen.dart';
 import 'services/app_startup_coordinator.dart';
 import 'services/desktop_agent_manager.dart';
+import 'services/desktop_termination_snapshot_service.dart';
 import 'services/environment_service.dart';
 import 'services/terminal_session_manager.dart';
 import 'services/theme_controller.dart';
@@ -15,11 +14,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   await EnvironmentService.initialize();
-  final keepRunning =
-      await DesktopExitPolicyService().keepAgentRunningInBackground();
-  await DesktopAgentExitBridge.syncTerminationSnapshot(
-    keepRunningInBackground: keepRunning,
-  );
+  await DesktopTerminationSnapshotService().syncCurrentSnapshot();
   runApp(const RemoteControlApp());
 }
 

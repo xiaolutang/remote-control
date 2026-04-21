@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/runtime_device.dart';
 import 'desktop_agent_exit_bridge.dart';
 import 'desktop_agent_http_client.dart';
+import 'desktop_termination_snapshot_service.dart';
 import 'runtime_device_service.dart';
 import 'secure_storage_service.dart';
 
@@ -63,6 +64,7 @@ class DesktopAgentSupervisor {
     AgentProcessLister? processLister,
     DesktopAgentHttpClient? httpClient,
     SecureStorageService? secureStorageService,
+    DesktopTerminationSnapshotService? terminationSnapshotService,
     String? homeDirectory,
   })  : _runtimeService = runtimeService,
         _processStarter = processStarter ?? Process.start,
@@ -71,9 +73,9 @@ class DesktopAgentSupervisor {
         _processLister = processLister,
         _httpClient = httpClient,
         _secureStorage = secureStorageService ?? SecureStorageService.instance,
+        _terminationSnapshotService =
+            terminationSnapshotService ?? DesktopTerminationSnapshotService(),
         _homeDirectory = homeDirectory;
-
-  static const String _managedAgentPidKey = 'rc_managed_agent_pid';
 
   final RuntimeDeviceService? _runtimeService;
   final AgentProcessStarter _processStarter;
@@ -82,6 +84,7 @@ class DesktopAgentSupervisor {
   final AgentProcessLister? _processLister;
   final DesktopAgentHttpClient? _httpClient;
   final SecureStorageService _secureStorage;
+  final DesktopTerminationSnapshotService _terminationSnapshotService;
   final String? _homeDirectory;
 
   bool get supported => !Platform.isAndroid && !Platform.isIOS;
@@ -466,10 +469,8 @@ class DesktopAgentSupervisor {
     if (!supported) {
       return;
     }
-    final pid = await _loadManagedAgentPid();
-    await DesktopAgentExitBridge.syncTerminationSnapshot(
+    await _terminationSnapshotService.syncCurrentSnapshot(
       keepRunningInBackground: keepRunningInBackground,
-      managedAgentPid: pid,
     );
   }
 
@@ -515,20 +516,15 @@ class DesktopAgentSupervisor {
   }
 
   Future<int?> _loadManagedAgentPid() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getInt(_managedAgentPidKey);
+    return _terminationSnapshotService.loadManagedAgentPid();
   }
 
   Future<void> _saveManagedAgentPid(int pid) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_managedAgentPidKey, pid);
-    await DesktopAgentExitBridge.syncManagedAgentPid(pid);
+    await _terminationSnapshotService.saveManagedAgentPid(pid);
   }
 
   Future<void> _clearManagedAgentPid() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_managedAgentPidKey);
-    await DesktopAgentExitBridge.syncManagedAgentPid(null);
+    await _terminationSnapshotService.clearManagedAgentPid();
   }
 
   Future<bool> _isProcessRunning(int pid) async {
