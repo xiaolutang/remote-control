@@ -9,6 +9,7 @@ from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, patch, MagicMock
 
 from fastapi import HTTPException
+from tests.ws_test_helpers import trusted_proxy_headers, trusted_proxy_scope
 
 
 def _make_auth_msg(token: str) -> str:
@@ -94,10 +95,8 @@ class TestWebSocketHandler:
         mock_ws = AsyncMock()
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
         mock_ws.iter_text = MagicMock(return_value=cancelled_iter_text())
-        mock_ws.headers = {"x-forwarded-proto": "https"}
-        mock_ws.headers = {"x-forwarded-proto": "https"}
-        mock_ws.headers = {"x-forwarded-proto": "https"}
-        mock_ws.headers = {"x-forwarded-proto": "https"}
+        mock_ws.headers = trusted_proxy_headers()
+        mock_ws.scope = trusted_proxy_scope()
 
         with patch('app.ws_agent.wait_for_ws_auth', new=AsyncMock(return_value=(
             {"session_id": "session-1", "sub": "user1"},
@@ -113,6 +112,57 @@ class TestWebSocketHandler:
                                     await agent_websocket_handler(mock_ws)
                                 except asyncio.CancelledError:
                                     pass
+
+    @pytest.mark.asyncio
+    async def test_agent_forwarded_wss_connects_without_aes_key(self):
+        """本地 wss 网关透传可信 TLS 标记时不应被当成 ws:// 拒绝。"""
+        from app.ws_agent import active_agents
+
+        active_agents.clear()
+
+        mock_ws = AsyncMock()
+        mock_ws.receive_text = AsyncMock(
+            return_value=json.dumps({"type": "auth", "token": "valid-token"})
+        )
+        mock_ws.iter_text = MagicMock(return_value=_cancelled_iter_text())
+        mock_ws.headers = trusted_proxy_headers()
+        mock_ws.scope = trusted_proxy_scope()
+
+        with patch(
+            "app.ws_agent.wait_for_ws_auth",
+            new=AsyncMock(
+                return_value=(
+                    {"session_id": "session-1", "sub": "user1"},
+                    {"type": "auth", "token": "valid-token"},
+                )
+            ),
+        ):
+            with patch(
+                "app.ws_agent.get_session",
+                return_value={"session_id": "session-1", "owner": "user1"},
+            ):
+                with patch("app.ws_agent.set_session_online", new_callable=AsyncMock):
+                    with patch(
+                        "app.ws_agent.update_session_device_heartbeat",
+                        new_callable=AsyncMock,
+                    ):
+                        with patch(
+                            "app.ws_client.get_view_counts",
+                            return_value={"mobile": 0, "desktop": 0},
+                        ):
+                            with patch(
+                                "app.ws_agent.list_recoverable_session_terminals",
+                                new=AsyncMock(return_value=[]),
+                            ):
+                                try:
+                                    from app.ws_agent import agent_websocket_handler
+
+                                    await agent_websocket_handler(mock_ws)
+                                except asyncio.CancelledError:
+                                    pass
+
+        first_message = mock_ws.send_json.call_args_list[0][0][0]
+        assert first_message["type"] == "connected"
 
     @pytest.mark.asyncio
     async def test_agent_ping_updates_device_heartbeat(self):
@@ -140,7 +190,8 @@ class TestWebSocketHandler:
         mock_ws = AsyncMock()
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
         mock_ws.iter_text = MagicMock(return_value=cancelled_iter_text())
-        mock_ws.headers = {"x-forwarded-proto": "https"}
+        mock_ws.headers = trusted_proxy_headers()
+        mock_ws.scope = trusted_proxy_scope()
 
         with patch('app.ws_client.wait_for_ws_auth', new=AsyncMock(return_value=(
             {"session_id": "session-1", "sub": "user1"},
@@ -182,7 +233,8 @@ class TestWebSocketHandler:
         mock_ws = AsyncMock()
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
         mock_ws.iter_text = MagicMock(return_value=cancelled_iter_text())
-        mock_ws.headers = {"x-forwarded-proto": "https"}
+        mock_ws.headers = trusted_proxy_headers()
+        mock_ws.scope = trusted_proxy_scope()
         recoverable = [{
             "terminal_id": "term-1",
             "title": "Claude / one",
@@ -217,7 +269,8 @@ class TestWebSocketHandler:
         """无效 token 拒绝测试"""
         mock_ws = AsyncMock()
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "invalid-token"}))
-        mock_ws.headers = {"x-forwarded-proto": "https"}
+        mock_ws.headers = trusted_proxy_headers()
+        mock_ws.scope = trusted_proxy_scope()
 
         with patch('app.ws_agent.wait_for_ws_auth', new=AsyncMock(side_effect=HTTPException(status_code=401, detail="Invalid token"))):
 
@@ -241,7 +294,8 @@ class TestWebSocketHandler:
         mock_ws = AsyncMock()
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
         mock_ws.iter_text = MagicMock(return_value=cancelled_iter_text())
-        mock_ws.headers = {"x-forwarded-proto": "https"}
+        mock_ws.headers = trusted_proxy_headers()
+        mock_ws.scope = trusted_proxy_scope()
 
         with patch('app.ws_client.wait_for_ws_auth', new=AsyncMock(return_value=(
             {"session_id": "session-1", "sub": "user1"},
@@ -253,6 +307,53 @@ class TestWebSocketHandler:
                         with patch('app.ws_client._broadcast_presence', new_callable=AsyncMock):
                             try:
                                 from app.ws_client import client_websocket_handler
+                                await client_websocket_handler(mock_ws, "session-1")
+                            except asyncio.CancelledError:
+                                pass
+
+        first_message = mock_ws.send_json.call_args_list[0][0][0]
+        assert first_message["type"] == "connected"
+
+    @pytest.mark.asyncio
+    async def test_client_forwarded_wss_connects_without_aes_key(self):
+        """Client 经过本地 wss 网关时，不应被 ws:// 守卫误杀。"""
+        from app.ws_client import active_clients
+
+        active_clients.clear()
+
+        mock_ws = AsyncMock()
+        mock_ws.receive_text = AsyncMock(
+            return_value=json.dumps({"type": "auth", "token": "valid-token"})
+        )
+        mock_ws.iter_text = MagicMock(return_value=_cancelled_iter_text())
+        mock_ws.headers = trusted_proxy_headers()
+        mock_ws.scope = trusted_proxy_scope()
+
+        with patch(
+            "app.ws_client.wait_for_ws_auth",
+            new=AsyncMock(
+                return_value=(
+                    {"session_id": "session-1", "sub": "user1"},
+                    {"type": "auth", "token": "valid-token"},
+                )
+            ),
+        ):
+            with patch(
+                "app.ws_client.get_session",
+                return_value={"session_id": "session-1", "owner": "user1"},
+            ):
+                with patch("app.ws_client.is_agent_connected", return_value=False):
+                    with patch(
+                        "app.ws_client.update_session_view_count",
+                        new_callable=AsyncMock,
+                    ):
+                        with patch(
+                            "app.ws_client._broadcast_presence",
+                            new_callable=AsyncMock,
+                        ):
+                            try:
+                                from app.ws_client import client_websocket_handler
+
                                 await client_websocket_handler(mock_ws, "session-1")
                             except asyncio.CancelledError:
                                 pass
@@ -473,7 +574,8 @@ class TestConnectionManagement:
         mock_ws = AsyncMock()
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
         mock_ws.iter_text = MagicMock(return_value=cancelled_iter_text())
-        mock_ws.headers = {"x-forwarded-proto": "https"}
+        mock_ws.headers = trusted_proxy_headers()
+        mock_ws.scope = trusted_proxy_scope()
 
         with patch('app.ws_client.wait_for_ws_auth', new=AsyncMock(return_value=(
             {"session_id": "session-1", "sub": "user1"},
@@ -532,7 +634,8 @@ class TestConnectionManagement:
         mock_ws = AsyncMock()
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
         mock_ws.iter_text = MagicMock(return_value=cancelled_iter_text())
-        mock_ws.headers = {"x-forwarded-proto": "https"}
+        mock_ws.headers = trusted_proxy_headers()
+        mock_ws.scope = trusted_proxy_scope()
 
         with patch('app.ws_client.wait_for_ws_auth', new=AsyncMock(return_value=(
             {"session_id": "session-1", "sub": "user1"},

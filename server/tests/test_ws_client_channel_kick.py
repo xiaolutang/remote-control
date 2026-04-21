@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.ws_client import ClientConnection, active_clients, client_websocket_handler
+from tests.ws_test_helpers import trusted_proxy_headers, trusted_proxy_scope
 
 
 async def _cancelled_iter_text():
@@ -31,7 +32,8 @@ async def test_same_view_different_terminals_do_not_kick_each_other():
         return_value=json.dumps({"type": "auth", "token": "desktop-token"})
     )
     mock_ws_new.iter_text = MagicMock(return_value=_cancelled_iter_text())
-    mock_ws_new.headers = {"x-forwarded-proto": "https"}
+    mock_ws_new.headers = trusted_proxy_headers()
+    mock_ws_new.scope = trusted_proxy_scope()
 
     terminal_state = {
         "terminal_id": "term-2",
@@ -116,7 +118,8 @@ async def test_same_view_same_terminal_still_kicks_old_client():
         return_value=json.dumps({"type": "auth", "token": "desktop-token"})
     )
     mock_ws_new.iter_text = MagicMock(return_value=_cancelled_iter_text())
-    mock_ws_new.headers = {"x-forwarded-proto": "https"}
+    mock_ws_new.headers = trusted_proxy_headers()
+    mock_ws_new.scope = trusted_proxy_scope()
 
     terminal_state = {
         "terminal_id": "term-1",

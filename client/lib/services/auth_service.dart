@@ -6,8 +6,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'http_client_factory.dart';
 import 'logger_service.dart';
+import '../models/server_endpoint_profile.dart';
 import 'secure_storage_service.dart';
-import 'server_url_helper.dart';
 import 'user_info_service.dart';
 import 'crypto_service.dart';
 
@@ -62,13 +62,14 @@ class AuthService {
                 ? SecureStorageService(storage: secureStorage)
                 : SecureStorageService.instance);
 
-  /// 将 WebSocket URL 转换为 HTTP URL
-  String _getHttpUrl() => serverUrlToHttpBase(serverUrl);
+  ServerEndpointProfile get _endpointProfile =>
+      ServerEndpointProfile.fromServerUrl(serverUrl);
 
   /// 注册
   Future<Map<String, dynamic>> register(
       String username, String password) async {
-    final httpUrl = _getHttpUrl();
+    final endpoint = _endpointProfile;
+    final httpUrl = endpoint.httpBaseUrl;
 
     // 拉取公钥并加密密码
     final body = <String, dynamic>{
@@ -76,7 +77,10 @@ class AuthService {
       'view': currentView,
     };
     try {
-      await _crypto.fetchPublicKey(httpUrl);
+      await _crypto.fetchPublicKey(
+        httpUrl,
+        trustAllCertificates: endpoint.shouldTrustSelfSignedCertificates,
+      );
       final encryptedPwd = base64Encode(
         _crypto.rsaEncrypt(utf8.encode(password)),
       );
@@ -113,7 +117,8 @@ class AuthService {
 
   /// 登录
   Future<Map<String, dynamic>> login(String username, String password) async {
-    final httpUrl = _getHttpUrl();
+    final endpoint = _endpointProfile;
+    final httpUrl = endpoint.httpBaseUrl;
     final uri = Uri.parse('$httpUrl/api/login');
 
     _logger?.info('Login attempt', metadata: {'username': username});
@@ -124,7 +129,10 @@ class AuthService {
       'view': currentView,
     };
     try {
-      await _crypto.fetchPublicKey(httpUrl);
+      await _crypto.fetchPublicKey(
+        httpUrl,
+        trustAllCertificates: endpoint.shouldTrustSelfSignedCertificates,
+      );
       final encryptedPwd = base64Encode(
         _crypto.rsaEncrypt(utf8.encode(password)),
       );

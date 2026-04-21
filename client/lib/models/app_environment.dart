@@ -1,6 +1,6 @@
 /// 应用运行环境
 enum AppEnvironment {
-  /// 本地开发环境：ws://{host}:{port}
+  /// 本地网关环境：默认 wss://localhost/rc，填端口时走本地直连
   local,
 
   /// 线上直连：ws://{host}:{port}（绕过 TLS，应用层加密保障安全）

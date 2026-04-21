@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/app_environment.dart';
+import '../models/server_endpoint_profile.dart';
 
 /// 纯状态服务：管理环境选择与 serverUrl 生成。
 ///
@@ -38,7 +39,6 @@ class EnvironmentService {
   static const String _keyDirectHost = 'rc_direct_host';
   static const String _keyDirectPort = 'rc_direct_port';
 
-  static const String _productionHost = 'wss://rc.xiaolutang.top/rc';
   static const String _defaultLocalHost = 'localhost';
   static const String _defaultDirectHost = '';
   static const String _defaultDirectPort = '8880';
@@ -61,17 +61,27 @@ class EnvironmentService {
   AppEnvironment get _defaultEnvironment =>
       _isDebug ? AppEnvironment.local : AppEnvironment.production;
 
-  /// 当前 serverUrl（同步，从内存缓存读取）
-  String get currentServerUrl => _serverUrlFor(currentEnvironment);
+  ServerEndpointProfile get currentEndpointProfile =>
+      _profileFor(currentEnvironment);
 
-  String _serverUrlFor(AppEnvironment env) {
+  /// 当前 serverUrl（同步，从内存缓存读取）
+  String get currentServerUrl => currentEndpointProfile.serverUrl;
+
+  ServerEndpointProfile _profileFor(AppEnvironment env) {
     switch (env) {
       case AppEnvironment.production:
-        return _productionHost;
+        return ServerEndpointProfile.production();
       case AppEnvironment.local:
-        return _buildLocalUrl(_cachedLocalHost, _cachedLocalPort);
+        return ServerEndpointProfile.local(
+          host: _cachedLocalHost,
+          port: _cachedLocalPort,
+        );
       case AppEnvironment.direct:
-        return _buildLocalUrl(_cachedDirectHost, _cachedDirectPort);
+        return ServerEndpointProfile.direct(
+          host: _cachedDirectHost,
+          port: _cachedDirectPort,
+          secure: false,
+        );
     }
   }
 
@@ -157,13 +167,6 @@ class EnvironmentService {
     _cachedDirectPort = sanitized;
     final prefs = _prefs ?? await SharedPreferences.getInstance();
     await prefs.setString(_keyDirectPort, sanitized);
-  }
-
-  String _buildLocalUrl(String host, String port) {
-    if (port.isEmpty) {
-      return 'ws://$host';
-    }
-    return 'ws://$host:$port';
   }
 
   String _sanitizeHost(String host) {

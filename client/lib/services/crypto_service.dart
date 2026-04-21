@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:asn1lib/asn1lib.dart' as asn1;
 import 'package:pointycastle/export.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -12,12 +13,14 @@ class CryptoService {
   CryptoService._();
   static final CryptoService instance = CryptoService._();
 
-  static const _keyFingerprintPrefsKey = 'rc_server_key_fingerprint';
+  static const _legacyFingerprintPrefsKey = 'rc_server_key_fingerprint';
 
   RSAPublicKey? _publicKey;
   String? _fingerprint;
+  String? _loadedPublicKeyBaseUrl;
   Future<void>? _pendingPublicKeyFetch;
   String? _pendingPublicKeyBaseUrl;
+  String? _currentFingerprintPrefsKey;
 
   /// 当前 AES 会话密钥（每次 WebSocket 连接生成新的）
   Uint8List? _aesKey;
@@ -26,13 +29,22 @@ class CryptoService {
   ///
   /// [httpBaseUrl] 例: http://192.168.1.78:8080
   /// 如果指纹不匹配（可能中间人攻击），抛出异常。
-  Future<void> fetchPublicKey(String httpBaseUrl) async {
+  Future<void> fetchPublicKey(
+    String httpBaseUrl, {
+    bool trustAllCertificates = false,
+  }) async {
+    if (_loadedPublicKeyBaseUrl == httpBaseUrl && _publicKey != null) {
+      return;
+    }
     if (_pendingPublicKeyFetch != null &&
         _pendingPublicKeyBaseUrl == httpBaseUrl) {
       return _pendingPublicKeyFetch;
     }
 
-    final future = _fetchPublicKeyInternal(httpBaseUrl);
+    final future = _fetchPublicKeyInternal(
+      httpBaseUrl,
+      trustAllCertificates: trustAllCertificates,
+    );
     _pendingPublicKeyFetch = future;
     _pendingPublicKeyBaseUrl = httpBaseUrl;
     try {
@@ -45,11 +57,17 @@ class CryptoService {
     }
   }
 
-  Future<void> _fetchPublicKeyInternal(String httpBaseUrl) async {
+  Future<void> _fetchPublicKeyInternal(
+    String httpBaseUrl, {
+    required bool trustAllCertificates,
+  }) async {
     final uri = Uri.parse('$httpBaseUrl/api/public-key');
     final client = HttpClient();
     try {
       client.connectionTimeout = const Duration(seconds: 10);
+      if (trustAllCertificates) {
+        client.badCertificateCallback = (_, __, ___) => true;
+      }
       final request = await client.getUrl(uri);
       final response = await request.close();
       final body = await response.transform(utf8.decoder).join();
@@ -57,13 +75,18 @@ class CryptoService {
 
       final pem = data['public_key_pem'] as String;
       final fingerprint = data['fingerprint'] as String;
+      final fingerprintPrefsKey = _fingerprintPrefsKeyForBaseUrl(httpBaseUrl);
+      final publicKey = _parseRsaPublicKeyFromPem(pem);
 
-      // 解析 PEM 公钥
-      _publicKey = _parseRsaPublicKeyFromPem(pem);
+      await _verifyFingerprint(
+        fingerprint,
+        prefsKey: fingerprintPrefsKey,
+      );
+
+      _publicKey = publicKey;
       _fingerprint = fingerprint;
-
-      // TOFU: 校验指纹
-      await _verifyFingerprint(fingerprint);
+      _loadedPublicKeyBaseUrl = httpBaseUrl;
+      _currentFingerprintPrefsKey = fingerprintPrefsKey;
     } finally {
       client.close(force: true);
     }
@@ -176,13 +199,21 @@ class CryptoService {
   }
 
   /// TOFU 校验：首次存储指纹，后续比对
-  Future<void> _verifyFingerprint(String fingerprint) async {
+  @visibleForTesting
+  static String fingerprintPrefsKeyForBaseUrl(String httpBaseUrl) {
+    return _fingerprintPrefsKeyForBaseUrl(httpBaseUrl);
+  }
+
+  Future<void> _verifyFingerprint(
+    String fingerprint, {
+    required String prefsKey,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
-    final stored = prefs.getString(_keyFingerprintPrefsKey);
+    final stored = prefs.getString(prefsKey);
 
     if (stored == null) {
-      // 首次连接，存储指纹
-      await prefs.setString(_keyFingerprintPrefsKey, fingerprint);
+      await prefs.remove(_legacyFingerprintPrefsKey);
+      await prefs.setString(prefsKey, fingerprint);
       return;
     }
 
@@ -196,9 +227,45 @@ class CryptoService {
   }
 
   /// 重置已存储的指纹（用户确认信任新密钥时调用）
-  Future<void> resetFingerprint() async {
+  Future<void> resetFingerprintForBaseUrl(String httpBaseUrl) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_keyFingerprintPrefsKey);
+    await prefs.remove(_fingerprintPrefsKeyForBaseUrl(httpBaseUrl));
+    await prefs.remove(_legacyFingerprintPrefsKey);
+    if (_loadedPublicKeyBaseUrl == httpBaseUrl ||
+        _pendingPublicKeyBaseUrl == httpBaseUrl) {
+      _clearLoadedPublicKeyState();
+    }
+  }
+
+  /// 兼容旧调用：重置当前已加载 endpoint 的指纹
+  Future<void> resetFingerprint() async {
+    final activeBaseUrl = _loadedPublicKeyBaseUrl ?? _pendingPublicKeyBaseUrl;
+    if (activeBaseUrl != null) {
+      await resetFingerprintForBaseUrl(activeBaseUrl);
+      return;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    if (_currentFingerprintPrefsKey != null) {
+      await prefs.remove(_currentFingerprintPrefsKey!);
+    }
+    await prefs.remove(_legacyFingerprintPrefsKey);
+    _clearLoadedPublicKeyState();
+  }
+
+  void _clearLoadedPublicKeyState() {
+    _publicKey = null;
+    _fingerprint = null;
+    _loadedPublicKeyBaseUrl = null;
+    _currentFingerprintPrefsKey = null;
+  }
+
+  static String _fingerprintPrefsKeyForBaseUrl(String httpBaseUrl) {
+    final uri = Uri.parse(httpBaseUrl);
+    final portPart = uri.hasPort ? ':${uri.port}' : '';
+    final pathPart = uri.path.isEmpty ? '' : uri.path;
+    final rawScope = '${uri.scheme}://${uri.host}$portPart$pathPart';
+    final normalizedScope = rawScope.replaceAll(RegExp(r'[^a-zA-Z0-9]+'), '_');
+    return 'rc_server_key_fingerprint_$normalizedScope';
   }
 
   /// 从 PEM 格式解析 RSA 公钥

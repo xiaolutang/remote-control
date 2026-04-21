@@ -17,7 +17,7 @@ extension AppEnvironmentPresentation on AppEnvironment {
   String get title {
     switch (this) {
       case AppEnvironment.local:
-        return '本地开发环境';
+        return '本地网关环境';
       case AppEnvironment.direct:
         return '服务器直连';
       case AppEnvironment.production:
@@ -28,7 +28,7 @@ extension AppEnvironmentPresentation on AppEnvironment {
   String get description {
     switch (this) {
       case AppEnvironment.local:
-        return '适合本机开发和联调，优先用于快速验证。';
+        return '默认通过本地网关 /rc 入口访问，最接近线上发布链路。';
       case AppEnvironment.direct:
         return '通过服务器 IP 直连，适合绕过域名或 TLS 问题排查。';
       case AppEnvironment.production:

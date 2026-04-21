@@ -26,7 +26,7 @@ void main() {
 
       final config = await service.loadConfig();
 
-      expect(config.serverUrl, 'ws://localhost');
+      expect(config.serverUrl, 'wss://localhost/rc');
       expect(config.desktopExitPolicy, DesktopExitPolicy.stopAgentOnExit);
       expect(config.keepAgentRunningInBackground, isFalse);
       expect(config.shortcutItems, isEmpty);
@@ -58,7 +58,7 @@ void main() {
       final restored = await service.loadConfig();
 
       // serverUrl 由 EnvironmentService 提供，不读取持久化值
-      expect(restored.serverUrl, 'ws://localhost');
+      expect(restored.serverUrl, 'wss://localhost/rc');
       expect(restored.themeMode, AppThemeMode.dark);
       expect(restored.desktopExitPolicy, DesktopExitPolicy.stopAgentOnExit);
       expect(restored.keepAgentRunningInBackground, isFalse);

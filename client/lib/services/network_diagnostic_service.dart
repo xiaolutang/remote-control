@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'server_url_helper.dart';
+import '../models/server_endpoint_profile.dart';
 
 class NetworkDiagnosticCheck {
   const NetworkDiagnosticCheck({
@@ -30,49 +30,66 @@ class NetworkDiagnosticReport {
 class NetworkDiagnosticService {
   const NetworkDiagnosticService();
 
-  static const String _productionHost = 'xiaolutang.top';
-  static const String _productionSubdomain = 'rc.xiaolutang.top';
-  static const String _productionIp = '';
-
   Future<NetworkDiagnosticReport> run({
     required String serverUrl,
     String? username,
     String? password,
+    String? view,
   }) async {
-    final httpUrl = _getHttpUrl(serverUrl);
-    final uri = Uri.parse(httpUrl);
+    final profile = ServerEndpointProfile.fromServerUrl(serverUrl);
+    final trustSelfSigned = profile.shouldTrustSelfSignedCertificates;
 
-    // 基础检查：并行执行（DNS + 域名 health x2）
+    // 基础检查：并行执行（DNS + 健康检查 x2）
     final baseResults = await Future.wait([
-      _dnsLookup(uri.host),
-      _domainHealth(uri),
-      _domainHealthDirect(uri),
+      _dnsLookup(profile.host),
+      _health(
+        title: '健康检查',
+        uri: profile.healthUri(),
+        useSystemProxy: true,
+        trustAllCertificates: trustSelfSigned,
+      ),
+      _health(
+        title: '健康检查 (DIRECT)',
+        uri: profile.healthUri(),
+        useSystemProxy: false,
+        trustAllCertificates: trustSelfSigned,
+      ),
     ]);
 
     final checks = <NetworkDiagnosticCheck>[...baseResults];
 
-    // 生产环境额外检查：并行执行（IP health + 域名 login + IP login）
-    if (_isProductionHost(uri.host)) {
+    // 网关生产环境额外检查：并行执行（IP + Host health/login）
+    if (profile.isProductionGateway) {
       final prodFutures = <Future<NetworkDiagnosticCheck>>[
-        _ipHealthWithHost(uri),
+        _ipHealthWithHost(profile),
       ];
       if ((username ?? '').isNotEmpty && (password ?? '').isNotEmpty) {
-        prodFutures.add(_domainLogin(uri, username!, password!));
-        prodFutures.add(_ipLoginWithHost(uri, username, password));
+        prodFutures.add(
+          _login(
+            title: '登录接口',
+            uri: profile.loginUri(),
+            useSystemProxy: true,
+            trustAllCertificates: trustSelfSigned,
+            username: username!,
+            password: password!,
+            view: view,
+          ),
+        );
+        prodFutures.add(
+          _ipLoginWithHost(profile, username, password, view),
+        );
       }
       checks.addAll(await Future.wait(prodFutures));
     }
 
     final report = NetworkDiagnosticReport(
       serverUrl: serverUrl,
-      httpUrl: httpUrl,
+      httpUrl: profile.httpBaseUrl,
       checks: checks,
     );
     _logReport(report);
     return report;
   }
-
-  String _getHttpUrl(String serverUrl) => serverUrlToHttpBase(serverUrl);
 
   Future<NetworkDiagnosticCheck> _dnsLookup(String host) async {
     try {
@@ -92,73 +109,92 @@ class NetworkDiagnosticService {
     }
   }
 
-  Future<NetworkDiagnosticCheck> _domainHealth(Uri baseUri) async {
-    final uri = baseUri.replace(path: '${baseUri.path}/health');
+  Future<NetworkDiagnosticCheck> _health({
+    required String title,
+    required Uri uri,
+    required bool useSystemProxy,
+    required bool trustAllCertificates,
+    String? hostHeader,
+  }) async {
     return _healthCheck(
-      title: '域名 health',
+      title: title,
       uri: uri,
-      useSystemProxy: true,
-      trustAllCertificates: false,
+      useSystemProxy: useSystemProxy,
+      trustAllCertificates: trustAllCertificates,
+      hostHeader: hostHeader,
     );
   }
 
-  Future<NetworkDiagnosticCheck> _domainHealthDirect(Uri baseUri) async {
-    final uri = baseUri.replace(path: '${baseUri.path}/health');
-    return _healthCheck(
-      title: '域名 health (DIRECT)',
-      uri: uri,
-      useSystemProxy: false,
-      trustAllCertificates: false,
-    );
-  }
-
-  Future<NetworkDiagnosticCheck> _ipHealthWithHost(Uri baseUri) async {
-    final uri = Uri.parse('https://$_productionIp${baseUri.path}/health');
-    return _healthCheck(
+  Future<NetworkDiagnosticCheck> _ipHealthWithHost(
+    ServerEndpointProfile profile,
+  ) async {
+    final uri = profile.ipFallbackUriFor('health');
+    if (uri == null) {
+      return const NetworkDiagnosticCheck(
+        title: 'IP + Host health',
+        success: false,
+        detail: '未配置 production fallback IP',
+      );
+    }
+    return _health(
       title: 'IP + Host health',
       uri: uri,
       useSystemProxy: false,
       trustAllCertificates: true,
-      hostHeader: baseUri.host,
+      hostHeader: profile.host,
     );
   }
 
-  Future<NetworkDiagnosticCheck> _domainLogin(
-    Uri baseUri,
-    String username,
-    String password,
-  ) async {
-    final uri = baseUri.replace(path: '${baseUri.path}/api/login');
+  Future<NetworkDiagnosticCheck> _login({
+    required String title,
+    required Uri uri,
+    required bool useSystemProxy,
+    required bool trustAllCertificates,
+    required String username,
+    required String password,
+    String? view,
+    String? hostHeader,
+  }) async {
+    final body = <String, dynamic>{
+      'username': username,
+      'password': password,
+    };
+    if (view != null && view.isNotEmpty) {
+      body['view'] = view;
+    }
     return _postJsonCheck(
-      title: '域名 login',
+      title: title,
       uri: uri,
-      useSystemProxy: true,
-      trustAllCertificates: false,
-      body: {
-        'username': username,
-        'password': password,
-        'view': 'mobile',
-      },
+      useSystemProxy: useSystemProxy,
+      trustAllCertificates: trustAllCertificates,
+      hostHeader: hostHeader,
+      body: body,
     );
   }
 
   Future<NetworkDiagnosticCheck> _ipLoginWithHost(
-    Uri baseUri,
+    ServerEndpointProfile profile,
     String username,
     String password,
+    String? view,
   ) async {
-    final uri = Uri.parse('https://$_productionIp${baseUri.path}/api/login');
-    return _postJsonCheck(
+    final uri = profile.ipFallbackUriFor('api/login');
+    if (uri == null) {
+      return const NetworkDiagnosticCheck(
+        title: 'IP + Host login',
+        success: false,
+        detail: '未配置 production fallback IP',
+      );
+    }
+    return _login(
       title: 'IP + Host login',
       uri: uri,
       useSystemProxy: false,
       trustAllCertificates: true,
-      hostHeader: baseUri.host,
-      body: {
-        'username': username,
-        'password': password,
-        'view': 'mobile',
-      },
+      hostHeader: profile.host,
+      username: username,
+      password: password,
+      view: view,
     );
   }
 
@@ -217,10 +253,6 @@ class NetworkDiagnosticService {
     return jsonEncode(body);
   }
 
-  bool _isProductionHost(String host) {
-    return host == _productionHost || host == _productionSubdomain;
-  }
-
   HttpClient _createClient(bool useSystemProxy, bool trustAllCertificates) {
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 10);
@@ -234,7 +266,7 @@ class NetworkDiagnosticService {
 
   NetworkDiagnosticCheck _buildCheck(
       String title, int statusCode, String body) {
-    final success = statusCode >= 200 && statusCode < 300;
+    final success = _isSuccessfulResponse(statusCode, body);
     final compactBody =
         body.length > 120 ? '${body.substring(0, 120)}...' : body;
     return NetworkDiagnosticCheck(
@@ -242,6 +274,40 @@ class NetworkDiagnosticService {
       success: success,
       detail: 'HTTP $statusCode $compactBody',
     );
+  }
+
+  bool _isSuccessfulResponse(int statusCode, String body) {
+    if (statusCode < 200 || statusCode >= 300) {
+      return false;
+    }
+
+    final trimmed = body.trim();
+    if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) {
+      return true;
+    }
+
+    try {
+      final decoded = jsonDecode(trimmed);
+      if (decoded is! Map<String, dynamic>) {
+        return true;
+      }
+      final success = decoded['success'];
+      if (success is bool) {
+        return success;
+      }
+      final status = decoded['status'];
+      if (status is String) {
+        return status.toLowerCase() == 'ok';
+      }
+      final msg = decoded['msg'];
+      if (msg is String && msg.toUpperCase().contains('NOT_FOUND')) {
+        return false;
+      }
+    } catch (_) {
+      return true;
+    }
+
+    return true;
   }
 
   void _logReport(NetworkDiagnosticReport report) {

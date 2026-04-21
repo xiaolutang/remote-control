@@ -27,21 +27,23 @@ void main() {
     });
 
     group('serverUrl generation', () {
-      test('local default host=localhost, port="" -> ws://localhost', () async {
+      test('local default host=localhost, port="" -> wss://localhost/rc',
+          () async {
         await service.loadSavedState();
-        expect(service.currentServerUrl, 'ws://localhost');
+        expect(service.currentServerUrl, 'wss://localhost/rc');
       });
 
-      test('local host=192.168.1.100, port=8080 -> ws://192.168.1.100:8080', () async {
+      test('local host=192.168.1.100, port=8080 -> ws://192.168.1.100:8080',
+          () async {
         await service.updateLocalHost('192.168.1.100');
         await service.updateLocalPort('8080');
         expect(service.currentServerUrl, 'ws://192.168.1.100:8080');
       });
 
-      test('local host=localhost, port empty -> ws://localhost', () async {
+      test('local host=localhost, port empty -> wss://localhost/rc', () async {
         await service.updateLocalHost('localhost');
         await service.updateLocalPort('');
-        expect(service.currentServerUrl, 'ws://localhost');
+        expect(service.currentServerUrl, 'wss://localhost/rc');
       });
 
       test('production -> wss://rc.xiaolutang.top/rc', () async {
@@ -67,7 +69,8 @@ void main() {
     });
 
     group('persistence', () {
-      test('save environment selection -> persists across re-initialization', () async {
+      test('save environment selection -> persists across re-initialization',
+          () async {
         await service.loadSavedState();
         await service.switchEnvironment(AppEnvironment.production);
 
@@ -77,7 +80,8 @@ void main() {
         expect(restored.currentEnvironment, AppEnvironment.production);
       });
 
-      test('save local host/port -> persists across re-initialization', () async {
+      test('save local host/port -> persists across re-initialization',
+          () async {
         await service.loadSavedState();
         await service.updateLocalHost('10.0.2.2');
         await service.updateLocalPort('9090');
@@ -88,7 +92,8 @@ void main() {
         expect(restored.localPort, '9090');
       });
 
-      test('save direct host/port -> persists across re-initialization', () async {
+      test('save direct host/port -> persists across re-initialization',
+          () async {
         await service.loadSavedState();
         await service.updateDirectHost('8.8.8.8');
         await service.updateDirectPort('9999');
@@ -107,7 +112,8 @@ void main() {
       });
 
       test('corrupted environment string -> falls back to default', () async {
-        SharedPreferences.setMockInitialValues({'rc_environment': 'invalid_value'});
+        SharedPreferences.setMockInitialValues(
+            {'rc_environment': 'invalid_value'});
         await service.loadSavedState();
         expect(service.currentEnvironment, AppEnvironment.local);
       });
@@ -117,10 +123,24 @@ void main() {
         expect(service.localHost, 'localhost');
         expect(service.localPort, '');
       });
+
+      test('persisted localhost:8080 local config remains explicit direct route',
+          () async {
+        SharedPreferences.setMockInitialValues({
+          'rc_local_host': 'localhost',
+          'rc_local_port': '8080',
+        });
+        service = EnvironmentService(debugModeProvider: () => true);
+        await service.loadSavedState();
+        expect(service.localHost, 'localhost');
+        expect(service.localPort, '8080');
+        expect(service.currentServerUrl, 'ws://localhost:8080');
+      });
     });
 
     group('input validation', () {
-      test('host with special characters -> rejected (falls back to default)', () async {
+      test('host with special characters -> rejected (falls back to default)',
+          () async {
         await service.updateLocalHost('!@#%');
         expect(service.localHost, 'localhost');
       });
@@ -157,7 +177,7 @@ void main() {
     });
 
     group('no side-effect dependencies', () {
-      test('EnvironmentService only imports foundation + shared_preferences', () {
+      test('EnvironmentService does not import side-effect services', () {
         // 约束：EnvironmentService 不导入 AuthService / DesktopAgentManager
         // 此约束由 code review 和 import 检查保障
         expect(service.currentServerUrl, isNotEmpty);

@@ -27,7 +27,12 @@ from app.ws_agent import (
     is_agent_connected,
     request_agent_terminal_snapshot,
 )
-from app.ws_auth import wait_for_ws_auth, http_to_ws_code, MAX_WS_MESSAGE_SIZE
+from app.ws_auth import (
+    wait_for_ws_auth,
+    http_to_ws_code,
+    MAX_WS_MESSAGE_SIZE,
+    is_secure_websocket_transport,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -211,8 +216,7 @@ async def client_websocket_handler(
             logger.warning("Failed to decrypt Client AES key: session_id=%s error=%s", session_id, e)
 
     # 不变量 #27 服务端守卫：非 TLS 连接（ws://）必须携带 AES 密钥
-    forwarded_proto = dict(websocket.headers).get("x-forwarded-proto", "")
-    if forwarded_proto != "https" and not client_conn.aes_key:
+    if not is_secure_websocket_transport(websocket) and not client_conn.aes_key:
         logger.warning("ws:// connection rejected: no AES key, session_id=%s", session_id)
         await websocket.close(code=4003, reason="ws:// requires encrypted_aes_key")
         return

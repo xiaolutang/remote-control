@@ -15,22 +15,33 @@
 10. 未认证访问拒绝
 
 用法：
-    python3 deploy/integration_test.py [--base-url http://localhost/rc] [--ws-url ws://localhost/rc]
+    python3 deploy/integration_test.py [--base-url https://localhost/rc] [--ws-url wss://localhost/rc]
 """
 import argparse
 import asyncio
 import json
+from functools import lru_cache
+import ssl
 import sys
 import time
+import urllib.parse
 import urllib.request
 import urllib.error
 
 # --- 配置 ---
-BASE_URL = "http://localhost/rc"
-WS_URL = "ws://localhost/rc"
+BASE_URL = "https://localhost/rc"
+WS_URL = "wss://localhost/rc"
 
 PASSED = 0
 FAILED = 0
+
+
+@lru_cache(maxsize=None)
+def ssl_context_for(url: str):
+    host = urllib.parse.urlparse(url).hostname or ""
+    if host in {"localhost", "127.0.0.1"}:
+        return ssl._create_unverified_context()
+    return None
 
 
 def api(method, path, body=None, token=None):
@@ -43,7 +54,11 @@ def api(method, path, body=None, token=None):
         req.add_header("Authorization", f"Bearer {token}")
 
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(
+            req,
+            timeout=10,
+            context=ssl_context_for(url),
+        ) as resp:
             return resp.status, json.loads(resp.read())
     except urllib.error.HTTPError as e:
         resp_body = {}
@@ -176,10 +191,15 @@ async def connect_agent(token):
         print("  [SKIP] websockets 库未安装，跳过 WebSocket 测试")
         return None, None
 
-    ws_full_url = f"{WS_URL}/ws/agent?token={token}"
+    ws_full_url = f"{WS_URL}/ws/agent"
 
     try:
-        ws = await websockets.connect(ws_full_url, open_timeout=10)
+        connect_kwargs = {"open_timeout": 10}
+        ssl_context = ssl_context_for(ws_full_url)
+        if ssl_context is not None:
+            connect_kwargs["ssl"] = ssl_context
+        ws = await websockets.connect(ws_full_url, **connect_kwargs)
+        await ws.send(json.dumps({"type": "auth", "token": token}))
         # 等待 connected 消息
         msg = await asyncio.wait_for(ws.recv(), timeout=5)
         data = json.loads(msg)
@@ -375,8 +395,8 @@ async def run_tests():
     global BASE_URL, WS_URL
 
     parser = argparse.ArgumentParser(description="全链路集成测试")
-    parser.add_argument("--base-url", default="http://localhost/rc", help="HTTP API 基础 URL")
-    parser.add_argument("--ws-url", default="ws://localhost/rc", help="WebSocket 基础 URL")
+    parser.add_argument("--base-url", default="https://localhost/rc", help="HTTP API 基础 URL")
+    parser.add_argument("--ws-url", default="wss://localhost/rc", help="WebSocket 基础 URL")
     args = parser.parse_args()
 
     BASE_URL = args.base_url.rstrip("/")

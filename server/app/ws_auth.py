@@ -4,11 +4,13 @@ WebSocket 认证共享模块
 提取 ws_agent.py 和 ws_client.py 共用的认证逻辑：
 - HTTP 状态码到 WS 关闭码映射
 - WebSocket 首条 auth 消息验证
+- 安全传输层判定
 - 共享常量
 """
 import asyncio
 import json
 import os
+import secrets
 from typing import Tuple
 
 from fastapi import WebSocketDisconnect, HTTPException
@@ -34,6 +36,54 @@ def http_to_ws_code(http_code: int) -> int:
         503: 4503,  # Service Unavailable
     }
     return mapping.get(http_code, 4500)
+
+
+def _normalized_headers(websocket) -> dict[str, str]:
+    raw_headers = getattr(websocket, "headers", None)
+    if isinstance(raw_headers, dict):
+        header_items = raw_headers.items()
+    else:
+        try:
+            header_items = dict(raw_headers or {}).items()
+        except (TypeError, ValueError):
+            header_items = ()
+
+    return {
+        str(key).strip().lower(): str(value).strip()
+        for key, value in header_items
+    }
+
+
+def _trusted_proxy_tls_token() -> str:
+    return os.environ.get("TRUSTED_PROXY_TLS_TOKEN", "").strip()
+
+
+def is_secure_websocket_transport(websocket) -> bool:
+    """判断当前 WebSocket 是否运行在 TLS 或可信反代终止后的安全链路上。"""
+    raw_scope = getattr(websocket, "scope", None)
+    scope = raw_scope if isinstance(raw_scope, dict) else {}
+    scheme = str(scope.get("scheme", "")).strip().lower()
+    if scheme in {"https", "wss"}:
+        return True
+
+    headers = _normalized_headers(websocket)
+    trusted_tls_header = os.environ.get(
+        "TRUSTED_PROXY_TLS_HEADER",
+        "x-rc-forwarded-tls",
+    ).strip().lower()
+    trusted_tls_token = _trusted_proxy_tls_token()
+
+    if (
+        trusted_tls_header
+        and trusted_tls_token
+        and secrets.compare_digest(
+            headers.get(trusted_tls_header, ""),
+            trusted_tls_token,
+        )
+    ):
+        return True
+
+    return False
 
 
 async def wait_for_ws_auth(websocket) -> Tuple[dict, dict]:

@@ -25,6 +25,7 @@ class _FakeNetworkDiagnosticService extends NetworkDiagnosticService {
     required String serverUrl,
     String? username,
     String? password,
+    String? view,
   }) async {
     runCallCount += 1;
     lastServerUrl = serverUrl;
@@ -109,10 +110,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(diagnosticService.runCallCount, 1);
-    expect(find.text('本地开发环境'), findsOneWidget);
+    expect(find.text('本地网关环境'), findsOneWidget);
     expect(find.text('网络连接'), findsOneWidget);
     expect(find.text('连接诊断'), findsOneWidget);
-    expect(find.textContaining('checked:ws://localhost'), findsOneWidget);
+    expect(find.text('https://localhost/rc'), findsOneWidget);
+    expect(find.textContaining('checked:wss://localhost/rc'), findsOneWidget);
   });
 
   testWidgets('switching environment reruns diagnostics automatically',

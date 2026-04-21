@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/app_environment.dart';
 import '../models/app_environment_presentation.dart';
+import '../services/auth_service.dart';
 import '../services/environment_service.dart';
 import '../services/environment_switch_coordinator.dart';
 import '../services/network_diagnostic_service.dart';
@@ -53,6 +54,7 @@ class _NetworkSettingsScreenState extends State<NetworkSettingsScreen> {
       serverUrl: EnvironmentService.instance.currentServerUrl,
       username: widget.username,
       password: widget.password,
+      view: currentView,
     );
   }
 
