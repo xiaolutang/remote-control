@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/agent_lifecycle_state.dart';
 import '../models/config.dart';
 import 'config_service.dart';
+import 'desktop_exit_policy_service.dart';
 import 'desktop_agent_supervisor.dart';
 
 void _logDesktopAgentManager(String message) {
@@ -99,12 +100,15 @@ class DesktopAgentManager extends ChangeNotifier {
     String deviceId = '',
     DesktopAgentSupervisor? supervisor,
     ConfigService? configService,
+    DesktopExitPolicyService? exitPolicyService,
     Duration? recoveryRetryDelayOverride,
   })  : _serverUrl = serverUrl,
         _token = token,
         _deviceId = deviceId,
         _supervisor = supervisor ?? DesktopAgentSupervisor(),
         _configService = configService ?? ConfigService(),
+        _exitPolicyService = exitPolicyService ??
+            DesktopExitPolicyService(configService: configService),
         _recoveryRetryDelayOverride = recoveryRetryDelayOverride;
 
   String _serverUrl;
@@ -112,6 +116,7 @@ class DesktopAgentManager extends ChangeNotifier {
   String _deviceId;
   final DesktopAgentSupervisor _supervisor;
   final ConfigService _configService;
+  final DesktopExitPolicyService _exitPolicyService;
   final Duration? _recoveryRetryDelayOverride;
 
   DesktopAgentState _state =
@@ -497,8 +502,7 @@ class DesktopAgentManager extends ChangeNotifier {
   Future<void> onAppClose() async {
     if (!isPlatformSupported) return;
 
-    final config = await _configService.loadConfig();
-    if (config.keepAgentRunningInBackground) {
+    if (await _exitPolicyService.keepAgentRunningInBackground()) {
       _logDesktopAgentManager('onAppClose: keeping agent running');
       return;
     }

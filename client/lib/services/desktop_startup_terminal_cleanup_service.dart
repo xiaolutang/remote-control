@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'config_service.dart';
+import 'desktop_exit_policy_service.dart';
 import 'runtime_device_service.dart';
 
 class DesktopStartupTerminalCleanupService {
@@ -8,15 +9,17 @@ class DesktopStartupTerminalCleanupService {
     String serverUrl = '',
     RuntimeDeviceService? runtimeService,
     ConfigService? configService,
+    DesktopExitPolicyService? exitPolicyService,
     bool? isDesktopPlatform,
   })  : _runtimeService =
             runtimeService ?? RuntimeDeviceService(serverUrl: serverUrl),
-        _configService = configService ?? ConfigService(),
+        _exitPolicyService = exitPolicyService ??
+            DesktopExitPolicyService(configService: configService),
         _isDesktopPlatform = isDesktopPlatform ??
             (Platform.isMacOS || Platform.isLinux || Platform.isWindows);
 
   final RuntimeDeviceService _runtimeService;
-  final ConfigService _configService;
+  final DesktopExitPolicyService _exitPolicyService;
   final bool _isDesktopPlatform;
 
   Future<void> cleanup({
@@ -27,8 +30,7 @@ class DesktopStartupTerminalCleanupService {
       return;
     }
 
-    final config = await _configService.loadConfig();
-    if (config.keepAgentRunningInBackground) {
+    if (await _exitPolicyService.keepAgentRunningInBackground()) {
       return;
     }
 

@@ -65,17 +65,6 @@ class AppDelegate: FlutterAppDelegate {
         }
         self.log("syncTerminationSnapshot keepRunning=\(keepRunning) pid=\(pid ?? 0)")
         result(nil)
-      case "setKeepRunningInBackground":
-        guard
-          let arguments = call.arguments as? [String: Any],
-          let value = arguments["value"] as? Bool
-        else {
-          result(FlutterError(code: "bad_args", message: "Missing keep-running value", details: nil))
-          return
-        }
-        UserDefaults.standard.set(value, forKey: self.keepRunningKey)
-        self.log("setKeepRunningInBackground=\(value)")
-        result(nil)
       case "setManagedAgentPid":
         guard
           let arguments = call.arguments as? [String: Any],

@@ -3,11 +3,11 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
-import '../models/config.dart';
 import '../models/runtime_terminal.dart';
 import 'config_service.dart';
 import 'desktop_agent_manager.dart';
 import 'desktop_agent_bootstrap_service.dart';
+import 'desktop_exit_policy_service.dart';
 import 'runtime_selection_controller.dart';
 
 void _logWorkspaceAction(String message) {
@@ -47,12 +47,14 @@ class DesktopWorkspaceController extends ChangeNotifier {
     required DesktopAgentBootstrapService agentBootstrapService,
     ConfigService? configService,
   })  : _agentBootstrapService = agentBootstrapService,
-        _configService = configService ?? ConfigService();
+        _exitPolicyService = DesktopExitPolicyService(
+          configService: configService,
+        );
 
   final String serverUrl;
   final String token;
   final DesktopAgentBootstrapService _agentBootstrapService;
-  final ConfigService _configService;
+  final DesktopExitPolicyService _exitPolicyService;
 
   RuntimeSelectionController? _runtimeController;
   String? _selectedTerminalId;
@@ -98,18 +100,13 @@ class DesktopWorkspaceController extends ChangeNotifier {
   }
 
   Future<void> setKeepAgentRunningInBackground(bool value) async {
-    final config = await _configService.loadConfig();
-    if (config.keepAgentRunningInBackground == value &&
-        _keepAgentRunningInBackground == value) {
+    final persisted = await _exitPolicyService.keepAgentRunningInBackground();
+    if (persisted == value && _keepAgentRunningInBackground == value) {
       return;
     }
-    await _configService.saveConfig(
-      config.copyWith(
-        desktopExitPolicy: value
-            ? DesktopExitPolicy.keepAgentRunningInBackground
-            : DesktopExitPolicy.stopAgentOnExit,
-      ),
-    );
+    if (persisted != value) {
+      await _exitPolicyService.setKeepAgentRunningInBackground(value);
+    }
     await _agentBootstrapService.syncNativeTerminationState(
       keepRunningInBackground: value,
     );
@@ -346,7 +343,7 @@ class DesktopWorkspaceController extends ChangeNotifier {
     RuntimeSelectionController controller,
     String deviceId,
   ) async {
-    final config = await _configService.loadConfig();
+    final keepRunning = await _exitPolicyService.keepAgentRunningInBackground();
     final state = await _agentBootstrapService.loadAgentState(
       serverUrl: serverUrl,
       token: token,
@@ -356,9 +353,9 @@ class DesktopWorkspaceController extends ChangeNotifier {
       return;
     }
     await _agentBootstrapService.syncNativeTerminationState(
-      keepRunningInBackground: config.keepAgentRunningInBackground,
+      keepRunningInBackground: keepRunning,
     );
-    _keepAgentRunningInBackground = config.keepAgentRunningInBackground;
+    _keepAgentRunningInBackground = keepRunning;
     _desktopAgentState = state;
     notifyListeners();
   }

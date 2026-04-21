@@ -24,18 +24,6 @@ class DesktopAgentExitBridge {
     }
   }
 
-  static Future<void> syncKeepRunningInBackground(bool keepRunning) async {
-    if (!_supported) return;
-    try {
-      await _channel.invokeMethod<void>(
-        'setKeepRunningInBackground',
-        <String, dynamic>{'value': keepRunning},
-      );
-    } catch (_) {
-      // Best-effort sync for native shutdown handling.
-    }
-  }
-
   static Future<void> syncManagedAgentPid(int? pid) async {
     if (!_supported) return;
     try {
