@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xterm/xterm.dart';
 import 'dart:io';
 
+import '../helpers/account_menu_test_helper.dart';
 import '../mocks/mock_websocket_service.dart';
 
 /// 内置命令增多后"当前项目"section 可能需要滚动才能看到
@@ -218,6 +219,13 @@ void main() {
 
       final scaffold = tester.widget<Scaffold>(find.byType(Scaffold));
       expect(scaffold.resizeToAvoidBottomInset, isFalse);
+    });
+
+    testWidgets('account menu exposes profile feedback and logout actions',
+        (tester) async {
+      await pumpScreen(tester, mockService);
+
+      await openAccountMenuAndExpectCommonEntries(tester);
     });
 
     testWidgets('mobile follows shared PTY instead of auto resizing',

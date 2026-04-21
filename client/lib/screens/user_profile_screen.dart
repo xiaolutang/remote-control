@@ -1,24 +1,11 @@
 import 'package:flutter/material.dart';
-import 'feedback_screen.dart';
 import '../services/user_info_service.dart';
-import '../services/logout_helper.dart';
-import 'login_screen.dart';
 
 /// 用户信息页面
 ///
 /// 显示用户名、登录时间、平台信息。
-/// 提供反馈问题入口和退出登录入口。
 class UserProfileScreen extends StatefulWidget {
-  final String serverUrl;
-  final String token;
-  final String sessionId;
-
-  const UserProfileScreen({
-    super.key,
-    required this.serverUrl,
-    required this.token,
-    required this.sessionId,
-  });
+  const UserProfileScreen({super.key});
 
   @override
   State<UserProfileScreen> createState() => _UserProfileScreenState();
@@ -45,9 +32,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('个人信息'),
@@ -78,43 +62,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                       title: '平台',
                       value: _userInfo?.platform ?? '-',
                     ),
-
-                    const SizedBox(height: 32),
-                    Divider(color: colorScheme.outlineVariant),
-                    const SizedBox(height: 16),
-
-                    // 操作区
-                    Text(
-                      '操作',
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-
-                    // 反馈问题入口
-                    ListTile(
-                      leading: const Icon(Icons.feedback_outlined),
-                      title: const Text('反馈问题'),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () => _navigateToFeedback(context),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-
-                    const SizedBox(height: 4),
-
-                    // 退出登录入口
-                    ListTile(
-                      leading: Icon(Icons.logout, color: colorScheme.error),
-                      title: Text('退出登录', style: TextStyle(color: colorScheme.error)),
-                      trailing: Icon(Icons.chevron_right, color: colorScheme.error),
-                      onTap: () => _handleLogout(context),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
                   ],
                 ),
               ),
@@ -130,9 +77,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     final theme = Theme.of(context);
     return ListTile(
       leading: Icon(icon),
-      title: Text(title, style: theme.textTheme.bodySmall?.copyWith(
-        color: theme.colorScheme.onSurfaceVariant,
-      )),
+      title: Text(title,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          )),
       subtitle: Text(value, style: theme.textTheme.bodyLarge),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
@@ -152,46 +100,4 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   String _pad(int n) => n.toString().padLeft(2, '0');
-
-  void _navigateToFeedback(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => FeedbackScreen(
-          serverUrl: widget.serverUrl,
-          token: widget.token,
-          sessionId: widget.sessionId,
-        ),
-      ),
-    );
-  }
-
-  Future<void> _handleLogout(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('退出登录'),
-        content: const Text('确定要退出登录吗？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: Text(
-              '退出',
-              style: TextStyle(color: Theme.of(ctx).colorScheme.error),
-            ),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true || !context.mounted) return;
-
-    await logoutAndNavigate(
-      context: context,
-      destinationBuilder: (_) => const LoginScreen(),
-    );
-  }
 }

@@ -12,6 +12,7 @@ import 'package:rc_client/services/theme_controller.dart';
 import 'package:rc_client/services/websocket_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../helpers/account_menu_test_helper.dart';
 import '../mocks/mock_websocket_service.dart';
 
 class _FakeSelectionController extends RuntimeSelectionController {
@@ -84,7 +85,8 @@ void main() {
     );
   });
 
-  testWidgets('shows devices and terminals in selection screen', (tester) async {
+  testWidgets('shows devices and terminals in selection screen',
+      (tester) async {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
@@ -109,7 +111,8 @@ void main() {
     expect(find.text('可创建终端'), findsOneWidget);
   });
 
-  testWidgets('shows local desktop title when local device is selected', (tester) async {
+  testWidgets('shows local desktop title when local device is selected',
+      (tester) async {
     await tester.binding.setSurfaceSize(const Size(1280, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -153,7 +156,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final button = tester.widget<FilledButton>(find.widgetWithText(FilledButton, '连接'));
+    final button =
+        tester.widget<FilledButton>(find.widgetWithText(FilledButton, '连接'));
     expect(button.onPressed, isNotNull);
   });
 
@@ -223,5 +227,27 @@ void main() {
 
     expect(find.byKey(const Key('rename-device-input')), findsOneWidget);
     expect(find.byKey(const Key('device-max-terminals-input')), findsNothing);
+  });
+
+  testWidgets('account menu exposes feedback and logout actions',
+      (tester) async {
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => ThemeController()),
+          ChangeNotifierProvider(create: (_) => TerminalSessionManager()),
+        ],
+        child: MaterialApp(
+          home: RuntimeSelectionScreen(
+            serverUrl: 'ws://localhost:8888',
+            token: 'token',
+            controller: _FakeSelectionController(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await openAccountMenuAndExpectCommonEntries(tester);
   });
 }

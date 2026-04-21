@@ -6,7 +6,8 @@ import 'package:xterm/xterm.dart';
 
 import '../models/shortcut_item.dart';
 import '../models/terminal_shortcut.dart';
-import '../services/auth_service.dart';
+import '../navigation/account_menu_actions.dart';
+import '../services/account_menu_action_handler.dart';
 import '../services/config_service.dart';
 import '../services/logout_helper.dart';
 import '../services/runtime_device_service.dart';
@@ -17,7 +18,6 @@ import '../services/websocket_service.dart';
 import '../widgets/terminal_shortcut_bar.dart';
 import '../widgets/tui_selector.dart';
 import 'login_screen.dart';
-import 'user_profile_screen.dart';
 
 /// 终端屏幕
 class TerminalScreen extends StatefulWidget {
@@ -1361,22 +1361,22 @@ class _TerminalScreenState extends State<TerminalScreen> {
     await showThemePickerSheet(context);
   }
 
-  Future<void> _navigateToProfile() async {
+  Future<void> _handleAccountAction(AccountMenuAction action) async {
     _releaseInputFocus();
+    if (action == AccountMenuAction.theme) {
+      await showThemePickerSheet(context);
+      return;
+    }
     final configService = ConfigService();
     final config = await configService.loadConfig();
-    final session =
-        await AuthService(serverUrl: config.serverUrl).getSavedSession();
-    final sessionId = session?['session_id'] ?? '';
     if (!mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => UserProfileScreen(
-          serverUrl: config.serverUrl,
-          token: config.token ?? '',
-          sessionId: sessionId,
-        ),
-      ),
+    await handleAccountMenuAction(
+      context,
+      action: action,
+      serverUrl: config.serverUrl,
+      token: config.token ?? '',
+      logoutDestinationBuilder: (_) => const LoginScreen(),
+      onTheme: _showThemePicker,
     );
   }
 
@@ -1623,21 +1623,11 @@ class _TerminalScreenState extends State<TerminalScreen> {
               return _buildStatusIndicator(service.status);
             },
           ),
-          PopupMenuButton<String>(
+          PopupMenuButton<AccountMenuAction>(
             onSelected: (value) {
-              if (value == 'profile') {
-                _navigateToProfile();
-              } else if (value == 'theme') {
-                _showThemePicker();
-              } else {
-                _sendSpecialKey(value);
-              }
+              _handleAccountAction(value);
             },
-            itemBuilder: (context) => [
-              const PopupMenuItem(value: 'theme', child: Text('主题')),
-              const PopupMenuDivider(),
-              const PopupMenuItem(value: 'profile', child: Text('个人信息')),
-            ],
+            itemBuilder: (context) => buildAccountMenuEntries(),
           ),
         ],
       ),

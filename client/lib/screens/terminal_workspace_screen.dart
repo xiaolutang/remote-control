@@ -5,20 +5,21 @@ import 'package:provider/provider.dart';
 
 import '../models/runtime_device.dart';
 import '../models/runtime_terminal.dart';
+import '../navigation/account_menu_actions.dart';
+import '../services/account_menu_action_handler.dart';
 import '../services/auth_service.dart';
 import '../services/config_service.dart';
 import '../services/desktop_agent_bootstrap_service.dart';
-import '../services/logout_helper.dart';
 import '../services/desktop_agent_manager.dart';
 import '../services/desktop_workspace_controller.dart';
 import '../services/environment_service.dart';
+import '../services/logout_helper.dart';
 import '../services/runtime_device_service.dart';
 import '../services/runtime_selection_controller.dart';
 import '../services/terminal_session_manager.dart';
 import '../services/ui_helpers.dart';
 import '../services/websocket_service.dart';
 import 'login_screen.dart';
-import 'user_profile_screen.dart';
 import 'terminal_screen.dart';
 
 class TerminalWorkspaceScreen extends StatelessWidget {
@@ -246,7 +247,18 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
                           ),
                   onRefresh: _workspaceController.refresh,
                   onTheme: () => showThemePickerSheet(context),
-                  onProfile: () => _handleProfile(context),
+                  onProfile: () => _handleAccountAction(
+                    context,
+                    AccountMenuAction.profile,
+                  ),
+                  onFeedback: () => _handleAccountAction(
+                    context,
+                    AccountMenuAction.feedback,
+                  ),
+                  onLogout: () => _handleAccountAction(
+                    context,
+                    AccountMenuAction.logout,
+                  ),
                 ),
                 Expanded(
                   child: _buildBody(
@@ -832,19 +844,18 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
     );
   }
 
-  Future<void> _handleProfile(BuildContext context) async {
+  Future<void> _handleAccountAction(
+    BuildContext context,
+    AccountMenuAction action,
+  ) async {
     final serverUrl = EnvironmentService.instance.currentServerUrl;
-    final session = await AuthService(serverUrl: serverUrl).getSavedSession();
-    final sessionId = session?['session_id'] ?? '';
-    if (!context.mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => UserProfileScreen(
-          serverUrl: serverUrl,
-          token: widget.token,
-          sessionId: sessionId,
-        ),
-      ),
+    await handleAccountMenuAction(
+      context,
+      action: action,
+      serverUrl: serverUrl,
+      token: widget.token,
+      logoutDestinationBuilder: (_) => const LoginScreen(),
+      onTheme: () => showThemePickerSheet(context),
     );
   }
 
@@ -893,6 +904,8 @@ class _WorkspaceHeaderBar extends StatelessWidget {
     required this.onRefresh,
     required this.onTheme,
     required this.onProfile,
+    required this.onFeedback,
+    required this.onLogout,
   });
 
   final RuntimeDevice? device;
@@ -904,6 +917,8 @@ class _WorkspaceHeaderBar extends StatelessWidget {
   final VoidCallback? onRefresh;
   final VoidCallback? onTheme;
   final VoidCallback? onProfile;
+  final VoidCallback? onFeedback;
+  final VoidCallback? onLogout;
 
   @override
   Widget build(BuildContext context) {
@@ -990,32 +1005,27 @@ class _WorkspaceHeaderBar extends StatelessWidget {
             icon: const Icon(Icons.refresh, size: 20),
           ),
           // 设置按钮 - 小菜单（主题 + 个人信息）
-          PopupMenuButton<void>(
+          PopupMenuButton<AccountMenuAction>(
             tooltip: '设置',
             padding: EdgeInsets.zero,
             icon: const Icon(Icons.settings_outlined, size: 20),
-            itemBuilder: (context) => [
-              PopupMenuItem(
-                onTap: onTheme,
-                child: const Row(
-                  children: [
-                    Icon(Icons.palette_outlined, size: 20),
-                    SizedBox(width: 12),
-                    Text('主题'),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                onTap: onProfile,
-                child: const Row(
-                  children: [
-                    Icon(Icons.person_outline, size: 20),
-                    SizedBox(width: 12),
-                    Text('个人信息'),
-                  ],
-                ),
-              ),
-            ],
+            onSelected: (value) {
+              switch (value) {
+                case AccountMenuAction.theme:
+                  onTheme?.call();
+                  break;
+                case AccountMenuAction.profile:
+                  onProfile?.call();
+                  break;
+                case AccountMenuAction.feedback:
+                  onFeedback?.call();
+                  break;
+                case AccountMenuAction.logout:
+                  onLogout?.call();
+                  break;
+              }
+            },
+            itemBuilder: (context) => buildAccountMenuEntries(),
           ),
         ],
       ),

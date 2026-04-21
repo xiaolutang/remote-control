@@ -3,14 +3,15 @@ import 'package:provider/provider.dart';
 
 import '../models/runtime_device.dart';
 import '../models/runtime_terminal.dart';
-import '../services/auth_service.dart';
+import '../navigation/account_menu_actions.dart';
+import '../services/account_menu_action_handler.dart';
 import '../services/runtime_device_service.dart';
 import '../services/runtime_selection_controller.dart';
 import '../services/terminal_session_manager.dart';
 import '../services/ui_helpers.dart';
 import '../services/websocket_service.dart';
+import 'login_screen.dart';
 import 'terminal_screen.dart';
-import 'user_profile_screen.dart';
 
 class RuntimeSelectionScreen extends StatelessWidget {
   const RuntimeSelectionScreen({
@@ -27,20 +28,17 @@ class RuntimeSelectionScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider<RuntimeSelectionController>(
-      create: (_) =>
-          _controller ??
+      create: (_) => _controller ??
           RuntimeSelectionController(
             serverUrl: serverUrl,
             token: token,
             runtimeService: RuntimeDeviceService(serverUrl: serverUrl),
-          )..initialize(),
+          )
+        ..initialize(),
       child: const _RuntimeSelectionView(),
     );
   }
 }
-
-/// 运行时选择页面菜单动作
-enum _MenuAction { theme, profile }
 
 class _RuntimeSelectionView extends StatelessWidget {
   const _RuntimeSelectionView();
@@ -59,44 +57,18 @@ class _RuntimeSelectionView extends StatelessWidget {
             onPressed: controller.loadDevices,
             icon: const Icon(Icons.refresh),
           ),
-          PopupMenuButton<_MenuAction>(
+          PopupMenuButton<AccountMenuAction>(
             onSelected: (value) async {
-              if (value == _MenuAction.theme) {
-                await showThemePickerSheet(context);
-                return;
-              }
-
-              if (value == _MenuAction.profile) {
-                final session = await AuthService(serverUrl: controller.serverUrl).getSavedSession();
-                final sessionId = session?['session_id'] ?? '';
-                if (!context.mounted) return;
-                await Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => UserProfileScreen(
-                      serverUrl: controller.serverUrl,
-                      token: controller.token,
-                      sessionId: sessionId,
-                    ),
-                  ),
-                );
-              }
+              await handleAccountMenuAction(
+                context,
+                action: value,
+                serverUrl: controller.serverUrl,
+                token: controller.token,
+                logoutDestinationBuilder: (_) => const LoginScreen(),
+                onTheme: () => showThemePickerSheet(context),
+              );
             },
-            itemBuilder: (context) => const [
-              PopupMenuItem<_MenuAction>(
-                value: _MenuAction.theme,
-                child: Text('主题'),
-              ),
-              PopupMenuItem<_MenuAction>(
-                value: _MenuAction.profile,
-                child: Row(
-                  children: [
-                    Icon(Icons.person_outline, size: 20),
-                    SizedBox(width: 12),
-                    Text('个人信息'),
-                  ],
-                ),
-              ),
-            ],
+            itemBuilder: (context) => buildAccountMenuEntries(),
           ),
         ],
       ),
@@ -179,7 +151,6 @@ class _RuntimeSelectionView extends StatelessWidget {
       ),
     );
   }
-
 }
 
 class _DeviceList extends StatelessWidget {
@@ -289,14 +260,16 @@ class _TerminalPanel extends StatelessWidget {
               IconButton(
                 key: const Key('edit-device-name'),
                 tooltip: '编辑设备名',
-                onPressed: () => _showRenameDeviceDialog(context, controller, device!),
+                onPressed: () =>
+                    _showRenameDeviceDialog(context, controller, device!),
                 icon: const Icon(Icons.edit),
               ),
               FilledButton.icon(
                 key: const Key('create-terminal'),
-                onPressed: device!.canCreateTerminal && !controller.creatingTerminal
-                    ? () => _showCreateDialog(context, controller, device!)
-                    : null,
+                onPressed:
+                    device!.canCreateTerminal && !controller.creatingTerminal
+                        ? () => _showCreateDialog(context, controller, device!)
+                        : null,
                 icon: controller.creatingTerminal
                     ? const SizedBox(
                         width: 16,
@@ -354,13 +327,15 @@ class _TerminalPanel extends StatelessWidget {
                                         device!.deviceId,
                                         terminal.terminalId,
                                       );
-                                  await controller.closeTerminal(terminal.terminalId);
+                                  await controller
+                                      .closeTerminal(terminal.terminalId);
                                 },
                           icon: const Icon(Icons.close),
                         ),
                         FilledButton(
                           onPressed: device!.agentOnline && terminal.canAttach
-                              ? () => _openTerminal(context, controller, terminal)
+                              ? () =>
+                                  _openTerminal(context, controller, terminal)
                               : null,
                           child: const Text('连接'),
                         ),
@@ -546,10 +521,10 @@ class _TerminalPanel extends StatelessWidget {
     RuntimeTerminal terminal,
   ) async {
     final service = context.read<TerminalSessionManager>().getOrCreate(
-      controller.selectedDeviceId,
-      terminal.terminalId,
-      () => controller.buildTerminalService(terminal),
-    );
+          controller.selectedDeviceId,
+          terminal.terminalId,
+          () => controller.buildTerminalService(terminal),
+        );
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => ChangeNotifierProvider<WebSocketService>.value(
@@ -565,7 +540,8 @@ class _TerminalPanel extends StatelessWidget {
   }
 
   String _statusLabel(RuntimeTerminal terminal) {
-    final viewCount = terminal.views.values.fold<int>(0, (sum, value) => sum + value);
+    final viewCount =
+        terminal.views.values.fold<int>(0, (sum, value) => sum + value);
     final reason = terminal.disconnectReason;
     final reasonText = reason == null || reason.isEmpty ? '' : ' · $reason';
     return '状态: ${terminal.status} · 连接数: $viewCount$reasonText';

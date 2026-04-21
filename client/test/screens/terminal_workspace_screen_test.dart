@@ -18,6 +18,7 @@ import 'package:rc_client/services/theme_controller.dart';
 import 'package:rc_client/services/websocket_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../helpers/account_menu_test_helper.dart';
 import '../mocks/mock_websocket_service.dart';
 
 class _FakeWorkspaceController extends RuntimeSelectionController {
@@ -303,6 +304,37 @@ void main() {
     expect(find.text('创建第一个终端'), findsOneWidget);
     expect(
         find.byKey(const Key('workspace-open-terminal-menu')), findsOneWidget);
+  });
+
+  testWidgets('workspace settings menu exposes feedback and logout actions',
+      (tester) async {
+    final controller = _FakeWorkspaceController(
+      devices: const [
+        RuntimeDevice(
+          deviceId: 'mbp-01',
+          name: 'mac-phone',
+          owner: 'user1',
+          agentOnline: true,
+          maxTerminals: 3,
+          activeTerminals: 1,
+        ),
+      ],
+      terminals: const [
+        RuntimeTerminal(
+          terminalId: 'term-1',
+          title: 'Claude / ai_rules',
+          cwd: './',
+          command: '/bin/bash',
+          status: 'detached',
+          views: {'mobile': 0, 'desktop': 0},
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(wrapWithApp(controller));
+    await tester.pumpAndSettle();
+
+    await openAccountMenuAndExpectCommonEntries(tester);
   });
 
   testWidgets('mobile workspace scaffold disables resizeToAvoidBottomInset',
@@ -1103,13 +1135,11 @@ void main() {
     });
 
     test('all screen files use logoutAndNavigate for logout', () async {
-      // 架构原则：所有退出登录必须通过共享 logoutAndNavigate 编排
-      // 确保不会出现某些 screen 绕过 Agent 关闭的情况
-      // 注意：runtime_selection_screen 和 login_screen 没有 logout 功能，不需要检查
+      // 架构原则：提供退出登录入口的 screen 必须通过共享 logoutAndNavigate 编排
+      // 账户信息页已收敛为纯资料页，不再承载 logout 入口
       final screenFiles = [
         'lib/screens/terminal_workspace_screen.dart',
         'lib/screens/terminal_screen.dart',
-        'lib/screens/user_profile_screen.dart',
       ];
 
       for (final path in screenFiles) {
@@ -1121,13 +1151,12 @@ void main() {
     });
 
     test('no screen file contains inline _showThemePicker method', () async {
-      // 架构原则：主题选择器已统一到 ui_helpers.showThemePickerSheet
-      // 确保不会出现某些 screen 仍然保留内联 _showThemePicker 的情况
+      // 架构原则：拥有主题入口的 screen 必须复用共享的 showThemePickerSheet
+      // login_screen 已移除主题入口，不再参与该约束
       final screenFiles = [
         'lib/screens/terminal_workspace_screen.dart',
         'lib/screens/terminal_screen.dart',
         'lib/screens/runtime_selection_screen.dart',
-        'lib/screens/login_screen.dart',
       ];
 
       for (final path in screenFiles) {
