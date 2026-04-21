@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'auth_service.dart';
 import 'config_service.dart';
 import 'desktop_agent_manager.dart';
+import 'desktop_startup_terminal_cleanup_service.dart';
 import 'runtime_device_service.dart';
 
 enum AppStartupDestination {
@@ -35,18 +36,26 @@ class AppStartupCoordinator {
     AuthService? authService,
     RuntimeDeviceService? runtimeService,
     ConfigService? configService,
+    DesktopStartupTerminalCleanupService? desktopTerminalCleanupService,
     bool? isDesktopPlatform,
   })  : _authService = authService ?? AuthService(serverUrl: serverUrl),
         _runtimeService =
             runtimeService ?? RuntimeDeviceService(serverUrl: serverUrl),
-        _configService = configService ?? ConfigService(),
+        _desktopTerminalCleanupService = desktopTerminalCleanupService ??
+            DesktopStartupTerminalCleanupService(
+              serverUrl: serverUrl,
+              runtimeService:
+                  runtimeService ?? RuntimeDeviceService(serverUrl: serverUrl),
+              configService: configService ?? ConfigService(),
+              isDesktopPlatform: isDesktopPlatform,
+            ),
         _isDesktopPlatform = isDesktopPlatform ??
             (Platform.isMacOS || Platform.isLinux || Platform.isWindows);
 
   final String serverUrl;
   final AuthService _authService;
   final RuntimeDeviceService _runtimeService;
-  final ConfigService _configService;
+  final DesktopStartupTerminalCleanupService _desktopTerminalCleanupService;
   final bool _isDesktopPlatform;
 
   Future<AppStartupResult> restore({
@@ -121,11 +130,9 @@ class AppStartupCoordinator {
     required String deviceId,
   }) async {
     if (_isDesktopPlatform) {
-      final config = await _configService.loadConfig();
-      await _closeLingeringDesktopTerminalsIfNeeded(
+      await _desktopTerminalCleanupService.cleanup(
         token: token,
         deviceId: deviceId,
-        keepAgentRunningInBackground: config.keepAgentRunningInBackground,
       );
       await agentManager.onAppStart(
         serverUrl: serverUrl,
@@ -150,32 +157,6 @@ class AppStartupCoordinator {
       token: token,
       initialDevices: devices,
     );
-  }
-
-  Future<void> _closeLingeringDesktopTerminalsIfNeeded({
-    required String token,
-    required String deviceId,
-    required bool keepAgentRunningInBackground,
-  }) async {
-    if (!_isDesktopPlatform) {
-      return;
-    }
-    if (keepAgentRunningInBackground) {
-      return;
-    }
-
-    final terminals = await _runtimeService.listTerminals(token, deviceId);
-    for (final terminal in terminals) {
-      if (terminal.isClosed) {
-        continue;
-      }
-      try {
-        await _runtimeService.closeTerminal(
-            token, deviceId, terminal.terminalId);
-      } catch (_) {
-        // Best effort: if one stale terminal fails to close, do not block startup.
-      }
-    }
   }
 
   void _restoreAgentInBackground(
