@@ -7,8 +7,6 @@ class AppDelegate: FlutterAppDelegate {
   private let lifecycleChannelName = "rc_client/desktop_agent_lifecycle"
   private let keepRunningKey = "rc_desktop_keep_agent_running"
   private let managedAgentPidKey = "rc_desktop_managed_agent_pid"
-  private let flutterConfigKey = "flutter.rc_client_config"
-  private let flutterManagedAgentPidKey = "flutter.rc_managed_agent_pid"
   private let logPath = "/tmp/rc_desktop_exit.log"
 
   private func log(_ message: String) {
@@ -27,31 +25,8 @@ class AppDelegate: FlutterAppDelegate {
     }
   }
 
-  private func resolvedKeepRunning(defaults: UserDefaults) -> Bool {
-    if let nativeValue = defaults.object(forKey: keepRunningKey) as? Bool {
-      return nativeValue
-    }
-    guard
-      let rawConfig = defaults.string(forKey: flutterConfigKey),
-      let data = rawConfig.data(using: .utf8),
-      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-      let keepRunning = json["keepAgentRunningInBackground"] as? Bool
-    else {
-      return false
-    }
-    return keepRunning
-  }
-
   private func resolvedManagedAgentPid(defaults: UserDefaults) -> Int {
-    let nativePid = defaults.integer(forKey: managedAgentPidKey)
-    if nativePid > 0 {
-      return nativePid
-    }
-    let flutterPid = defaults.integer(forKey: flutterManagedAgentPidKey)
-    if flutterPid > 0 {
-      return flutterPid
-    }
-    return 0
+    defaults.integer(forKey: managedAgentPidKey)
   }
 
   override func applicationDidFinishLaunching(_ notification: Notification) {
@@ -75,6 +50,21 @@ class AppDelegate: FlutterAppDelegate {
       }
 
       switch call.method {
+      case "syncTerminationSnapshot":
+        guard let arguments = call.arguments as? [String: Any] else {
+          result(FlutterError(code: "bad_args", message: "Missing termination snapshot", details: nil))
+          return
+        }
+        let keepRunning = arguments["keepRunningInBackground"] as? Bool ?? false
+        let pid = arguments["managedAgentPid"] as? Int
+        UserDefaults.standard.set(keepRunning, forKey: self.keepRunningKey)
+        if let pid = pid, pid > 0 {
+          UserDefaults.standard.set(pid, forKey: self.managedAgentPidKey)
+        } else {
+          UserDefaults.standard.removeObject(forKey: self.managedAgentPidKey)
+        }
+        self.log("syncTerminationSnapshot keepRunning=\(keepRunning) pid=\(pid ?? 0)")
+        result(nil)
       case "setKeepRunningInBackground":
         guard
           let arguments = call.arguments as? [String: Any],
@@ -109,7 +99,7 @@ class AppDelegate: FlutterAppDelegate {
 
   override func applicationWillTerminate(_ notification: Notification) {
     let defaults = UserDefaults.standard
-    let keepRunning = resolvedKeepRunning(defaults: defaults)
+    let keepRunning = defaults.object(forKey: keepRunningKey) as? Bool ?? false
     let pid = resolvedManagedAgentPid(defaults: defaults)
     log("applicationWillTerminate keepRunning=\(keepRunning) pid=\(pid)")
     guard !keepRunning else {

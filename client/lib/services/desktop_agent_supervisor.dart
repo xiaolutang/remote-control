@@ -466,11 +466,11 @@ class DesktopAgentSupervisor {
     if (!supported) {
       return;
     }
-    await DesktopAgentExitBridge.syncKeepRunningInBackground(
-      keepRunningInBackground,
-    );
     final pid = await _loadManagedAgentPid();
-    await DesktopAgentExitBridge.syncManagedAgentPid(pid);
+    await DesktopAgentExitBridge.syncTerminationSnapshot(
+      keepRunningInBackground: keepRunningInBackground,
+      managedAgentPid: pid,
+    );
   }
 
   String? discoverAgentWorkdir({String? preferredWorkdir}) {

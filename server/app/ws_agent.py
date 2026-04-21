@@ -44,6 +44,10 @@ HEARTBEAT_TIMEOUT = 60  # 秒
 # Stale TTL 配置
 STALE_TTL_SECONDS = 90  # Agent 断开后等待 90 秒才真正 offline
 
+CLEANUP_REASON_AGENT_SHUTDOWN = "agent_shutdown"
+CLEANUP_REASON_NETWORK_LOST = "network_lost"
+CLEANUP_REASON_DEVICE_OFFLINE = "device_offline"
+
 
 class AgentConnection:
     """Agent 连接状态"""
@@ -111,7 +115,7 @@ async def agent_websocket_handler(
         return
 
     owner = session.get("owner", payload.get("sub", ""))
-    cleanup_reason = "agent_shutdown"
+    cleanup_reason = CLEANUP_REASON_AGENT_SHUTDOWN
 
     # 创建连接对象
     agent_conn = AgentConnection(session_id, websocket, owner)
@@ -205,7 +209,7 @@ async def agent_websocket_handler(
         pass
     except Exception as e:
         logger.error("Agent connection error: session_id=%s error=%s", session_id, e, exc_info=True)
-        cleanup_reason = "network_lost"
+        cleanup_reason = CLEANUP_REASON_NETWORK_LOST
     finally:
         # 清理连接
         if heartbeat_task and heartbeat_task.done():
@@ -388,7 +392,7 @@ async def _heartbeat_checker(websocket, session_id: str):
         if not agent_conn.is_alive():
             logger.warning("Agent heartbeat timeout: session_id=%s", session_id)
             await websocket.close(code=1008, reason="Heartbeat timeout")
-            return "network_lost"
+            return CLEANUP_REASON_NETWORK_LOST
 
     return None
 
@@ -408,7 +412,10 @@ def _cleanup_pending_futures(
             future.set_exception(RuntimeError(f"agent disconnected: {reason}"))
 
 
-async def _cleanup_agent(session_id: str, reason: str = "agent_shutdown"):
+async def _cleanup_agent(
+    session_id: str,
+    reason: str = CLEANUP_REASON_AGENT_SHUTDOWN,
+):
     """
     清理 Agent 连接
 
@@ -426,7 +433,7 @@ async def _cleanup_agent(session_id: str, reason: str = "agent_shutdown"):
     _cleanup_pending_futures(pending_terminal_snapshots, session_id, reason)
 
     # 主动关闭 Agent（例如桌面端正常退出）不应保留可恢复 terminal。
-    if reason == "agent_shutdown":
+    if _uses_immediate_offline_cleanup(reason):
         await _set_session_offline_immediately(session_id, reason=reason)
         return
 
@@ -481,6 +488,10 @@ def _clear_agent_stale(session_id: str):
         logger.debug("Agent stale cleared: session_id=%s", session_id)
 
 
+def _uses_immediate_offline_cleanup(reason: str) -> bool:
+    return reason == CLEANUP_REASON_AGENT_SHUTDOWN
+
+
 async def _expire_stale_agent(session_id: str):
     """
     过期 stale Agent，将其真正设为 offline
@@ -493,7 +504,7 @@ async def _expire_stale_agent(session_id: str):
 
     # 原子更新：status=offline + agent_online=False + bulk close terminals
     try:
-        await set_session_offline(session_id, reason="device_offline")
+        await set_session_offline(session_id, reason=CLEANUP_REASON_DEVICE_OFFLINE)
         logger.info("Agent expired from stale to offline_expired: session_id=%s", session_id)
     except Exception as e:
         logger.error("Failed to expire stale agent: session_id=%s error=%s", session_id, e)
@@ -528,7 +539,10 @@ async def _cleanup_agent_immediately(session_id: str):
     Args:
         session_id: 会话 ID
     """
-    await _set_session_offline_immediately(session_id, reason="agent_shutdown")
+    await _set_session_offline_immediately(
+        session_id,
+        reason=CLEANUP_REASON_AGENT_SHUTDOWN,
+    )
 
 
 async def _set_session_offline_immediately(

@@ -16,8 +16,8 @@ void main() async {
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   await EnvironmentService.initialize();
   final config = await ConfigService().loadConfig();
-  await DesktopAgentExitBridge.syncKeepRunningInBackground(
-    config.keepAgentRunningInBackground,
+  await DesktopAgentExitBridge.syncTerminationSnapshot(
+    keepRunningInBackground: config.keepAgentRunningInBackground,
   );
   runApp(const RemoteControlApp());
 }
