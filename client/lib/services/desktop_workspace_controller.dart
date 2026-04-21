@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import '../models/config.dart';
 import '../models/runtime_terminal.dart';
 import 'config_service.dart';
 import 'desktop_agent_manager.dart';
@@ -55,7 +56,7 @@ class DesktopWorkspaceController extends ChangeNotifier {
 
   RuntimeSelectionController? _runtimeController;
   String? _selectedTerminalId;
-  bool _keepAgentRunningInBackground = true;
+  bool _keepAgentRunningInBackground = false;
   bool _desktopActionInFlight = false;
   DesktopAgentState? _desktopAgentState;
   String? _lastKnownDeviceId;
@@ -99,14 +100,14 @@ class DesktopWorkspaceController extends ChangeNotifier {
   Future<void> setKeepAgentRunningInBackground(bool value) async {
     final config = await _configService.loadConfig();
     if (config.keepAgentRunningInBackground == value &&
-        config.desktopBackgroundModeUserSet &&
         _keepAgentRunningInBackground == value) {
       return;
     }
     await _configService.saveConfig(
       config.copyWith(
-        keepAgentRunningInBackground: value,
-        desktopBackgroundModeUserSet: true,
+        desktopExitPolicy: value
+            ? DesktopExitPolicy.keepAgentRunningInBackground
+            : DesktopExitPolicy.stopAgentOnExit,
       ),
     );
     await _agentBootstrapService.syncNativeTerminationState(

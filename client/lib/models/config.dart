@@ -7,6 +7,11 @@ enum AppThemeMode {
   dark,
 }
 
+enum DesktopExitPolicy {
+  stopAgentOnExit,
+  keepAgentRunningInBackground,
+}
+
 /// 配置模型
 class AppConfig {
   /// serverUrl 由 EnvironmentService 动态提供，不参与持久化
@@ -19,12 +24,14 @@ class AppConfig {
   final Duration heartbeatInterval;
   final AppThemeMode themeMode;
   final ClaudeNavigationMode claudeNavigationMode;
-  final bool keepAgentRunningInBackground;
-  final bool desktopBackgroundModeUserSet;
+  final DesktopExitPolicy desktopExitPolicy;
   final String desktopAgentWorkdir;
   final String preferredDeviceId;
   final List<ShortcutItem> shortcutItems;
   final Map<String, List<ShortcutItem>> projectShortcutItems;
+
+  bool get keepAgentRunningInBackground =>
+      desktopExitPolicy == DesktopExitPolicy.keepAgentRunningInBackground;
 
   const AppConfig({
     this.serverUrl = '',
@@ -36,13 +43,16 @@ class AppConfig {
     this.heartbeatInterval = const Duration(seconds: 30),
     this.themeMode = AppThemeMode.system,
     this.claudeNavigationMode = ClaudeNavigationMode.standard,
-    this.keepAgentRunningInBackground = false,
-    this.desktopBackgroundModeUserSet = false,
+    DesktopExitPolicy? desktopExitPolicy,
+    bool? keepAgentRunningInBackground,
     this.desktopAgentWorkdir = '',
     this.preferredDeviceId = '',
     this.shortcutItems = const [],
     this.projectShortcutItems = const {},
-  });
+  }) : desktopExitPolicy = desktopExitPolicy ??
+            (keepAgentRunningInBackground == true
+                ? DesktopExitPolicy.keepAgentRunningInBackground
+                : DesktopExitPolicy.stopAgentOnExit);
 
   AppConfig copyWith({
     String? serverUrl,
@@ -54,8 +64,7 @@ class AppConfig {
     Duration? heartbeatInterval,
     AppThemeMode? themeMode,
     ClaudeNavigationMode? claudeNavigationMode,
-    bool? keepAgentRunningInBackground,
-    bool? desktopBackgroundModeUserSet,
+    DesktopExitPolicy? desktopExitPolicy,
     String? desktopAgentWorkdir,
     String? preferredDeviceId,
     List<ShortcutItem>? shortcutItems,
@@ -71,10 +80,7 @@ class AppConfig {
       heartbeatInterval: heartbeatInterval ?? this.heartbeatInterval,
       themeMode: themeMode ?? this.themeMode,
       claudeNavigationMode: claudeNavigationMode ?? this.claudeNavigationMode,
-      keepAgentRunningInBackground:
-          keepAgentRunningInBackground ?? this.keepAgentRunningInBackground,
-      desktopBackgroundModeUserSet:
-          desktopBackgroundModeUserSet ?? this.desktopBackgroundModeUserSet,
+      desktopExitPolicy: desktopExitPolicy ?? this.desktopExitPolicy,
       desktopAgentWorkdir: desktopAgentWorkdir ?? this.desktopAgentWorkdir,
       preferredDeviceId: preferredDeviceId ?? this.preferredDeviceId,
       shortcutItems: shortcutItems ?? this.shortcutItems,
@@ -92,8 +98,7 @@ class AppConfig {
       'heartbeatIntervalMs': heartbeatInterval.inMilliseconds,
       'themeMode': themeMode.name,
       'claudeNavigationMode': claudeNavigationMode.name,
-      'keepAgentRunningInBackground': keepAgentRunningInBackground,
-      'desktopBackgroundModeUserSet': desktopBackgroundModeUserSet,
+      'desktopExitPolicy': desktopExitPolicy.name,
       'desktopAgentWorkdir': desktopAgentWorkdir,
       'preferredDeviceId': preferredDeviceId,
       'shortcutItems': shortcutItems.map((item) => item.toJson()).toList(),
@@ -108,6 +113,11 @@ class AppConfig {
 
   factory AppConfig.fromJson(Map<String, dynamic> json,
       {String serverUrl = ''}) {
+    final explicitExitPolicy = json['desktopExitPolicy'] as String?;
+    final legacyKeepRunning =
+        json['keepAgentRunningInBackground'] as bool? ?? false;
+    final legacyExplicitChoice =
+        json['desktopBackgroundModeUserSet'] as bool? ?? false;
     return AppConfig(
       serverUrl: serverUrl,
       token: json['token'] as String?,
@@ -125,10 +135,12 @@ class AppConfig {
         json['claudeNavigationMode'] as String? ??
             ClaudeNavigationMode.standard.name,
       ),
-      keepAgentRunningInBackground:
-          json['keepAgentRunningInBackground'] as bool? ?? false,
-      desktopBackgroundModeUserSet:
-          json['desktopBackgroundModeUserSet'] as bool? ?? false,
+      desktopExitPolicy: explicitExitPolicy != null
+          ? DesktopExitPolicy.values.byName(explicitExitPolicy)
+          : _legacyDesktopExitPolicy(
+              keepRunningInBackground: legacyKeepRunning,
+              hadExplicitChoice: legacyExplicitChoice,
+            ),
       desktopAgentWorkdir: json['desktopAgentWorkdir'] as String? ?? '',
       preferredDeviceId: json['preferredDeviceId'] as String? ?? '',
       shortcutItems: ((json['shortcutItems'] as List<dynamic>?) ?? const [])
@@ -148,5 +160,15 @@ class AppConfig {
         ),
       ),
     );
+  }
+
+  static DesktopExitPolicy _legacyDesktopExitPolicy({
+    required bool keepRunningInBackground,
+    required bool hadExplicitChoice,
+  }) {
+    if (keepRunningInBackground && hadExplicitChoice) {
+      return DesktopExitPolicy.keepAgentRunningInBackground;
+    }
+    return DesktopExitPolicy.stopAgentOnExit;
   }
 }

@@ -24,16 +24,7 @@ class ConfigService {
 
     try {
       final json = jsonDecode(jsonStr) as Map<String, dynamic>;
-      final config = AppConfig.fromJson(json, serverUrl: serverUrl);
-      final hasExplicitBackgroundChoice =
-          json['desktopBackgroundModeUserSet'] == true;
-      if (!hasExplicitBackgroundChoice && config.keepAgentRunningInBackground) {
-        return config.copyWith(
-          keepAgentRunningInBackground: false,
-          desktopBackgroundModeUserSet: false,
-        );
-      }
-      return config;
+      return AppConfig.fromJson(json, serverUrl: serverUrl);
     } catch (e) {
       return AppConfig(serverUrl: serverUrl);
     }

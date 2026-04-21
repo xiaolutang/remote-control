@@ -15,8 +15,8 @@ void main() {
       expect(config.maxRetries, 5);
       expect(config.themeMode, AppThemeMode.system);
       expect(config.claudeNavigationMode, ClaudeNavigationMode.standard);
+      expect(config.desktopExitPolicy, DesktopExitPolicy.stopAgentOnExit);
       expect(config.keepAgentRunningInBackground, isFalse);
-      expect(config.desktopBackgroundModeUserSet, isFalse);
       expect(config.desktopAgentWorkdir, isEmpty);
     });
 
@@ -39,6 +39,7 @@ void main() {
       expect(config.maxRetries, 10);
       expect(config.themeMode, AppThemeMode.dark);
       expect(config.claudeNavigationMode, ClaudeNavigationMode.application);
+      expect(config.desktopExitPolicy, DesktopExitPolicy.stopAgentOnExit);
       expect(config.keepAgentRunningInBackground, isFalse);
       expect(config.desktopAgentWorkdir, '/tmp/agent');
     });
@@ -95,7 +96,10 @@ void main() {
         json['claudeNavigationMode'],
         ClaudeNavigationMode.application.name,
       );
-      expect(json['keepAgentRunningInBackground'], isFalse);
+      expect(
+        json['desktopExitPolicy'],
+        DesktopExitPolicy.stopAgentOnExit.name,
+      );
       expect(json['desktopAgentWorkdir'], '/tmp/agent');
       expect((json['shortcutItems'] as List).length, 1);
       expect(
@@ -133,8 +137,8 @@ void main() {
       expect(config.autoReconnect, isTrue);
       expect(config.themeMode, AppThemeMode.system);
       expect(config.claudeNavigationMode, ClaudeNavigationMode.standard);
+      expect(config.desktopExitPolicy, DesktopExitPolicy.stopAgentOnExit);
       expect(config.keepAgentRunningInBackground, isFalse);
-      expect(config.desktopBackgroundModeUserSet, isFalse);
       expect(config.desktopAgentWorkdir, isEmpty);
     });
 
@@ -149,7 +153,7 @@ void main() {
         maxRetries: 10,
         themeMode: AppThemeMode.dark,
         claudeNavigationMode: ClaudeNavigationMode.application,
-        keepAgentRunningInBackground: false,
+        desktopExitPolicy: DesktopExitPolicy.stopAgentOnExit,
         desktopAgentWorkdir: '/tmp/agent',
       );
 
@@ -159,6 +163,7 @@ void main() {
       expect(updated.maxRetries, 10);
       expect(updated.themeMode, AppThemeMode.dark);
       expect(updated.claudeNavigationMode, ClaudeNavigationMode.application);
+      expect(updated.desktopExitPolicy, DesktopExitPolicy.stopAgentOnExit);
       expect(updated.keepAgentRunningInBackground, isFalse);
       expect(updated.desktopAgentWorkdir, '/tmp/agent');
     });

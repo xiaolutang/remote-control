@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'dart:convert';
 import 'package:rc_client/models/app_environment.dart';
 import 'package:rc_client/models/config.dart';
 import 'package:rc_client/models/shortcut_item.dart';
@@ -26,6 +27,7 @@ void main() {
       final config = await service.loadConfig();
 
       expect(config.serverUrl, 'ws://localhost');
+      expect(config.desktopExitPolicy, DesktopExitPolicy.stopAgentOnExit);
       expect(config.keepAgentRunningInBackground, isFalse);
       expect(config.shortcutItems, isEmpty);
     });
@@ -58,6 +60,7 @@ void main() {
       // serverUrl 由 EnvironmentService 提供，不读取持久化值
       expect(restored.serverUrl, 'ws://localhost');
       expect(restored.themeMode, AppThemeMode.dark);
+      expect(restored.desktopExitPolicy, DesktopExitPolicy.stopAgentOnExit);
       expect(restored.keepAgentRunningInBackground, isFalse);
       expect(restored.shortcutItems.single.id, 'claude_help');
       expect(restored.shortcutItems.single.enabled, isFalse);
@@ -85,29 +88,48 @@ void main() {
 
     test('legacy saved keep-running=true is migrated back to false', () async {
       final service = ConfigService();
-      const legacy = AppConfig(
-        keepAgentRunningInBackground: true,
-      );
-
-      await service.saveConfig(legacy);
+      SharedPreferences.setMockInitialValues({
+        'rc_client_config': jsonEncode({
+          'keepAgentRunningInBackground': true,
+        }),
+      });
       final restored = await service.loadConfig();
 
+      expect(restored.desktopExitPolicy, DesktopExitPolicy.stopAgentOnExit);
       expect(restored.keepAgentRunningInBackground, isFalse);
-      expect(restored.desktopBackgroundModeUserSet, isFalse);
     });
 
-    test('explicit keep-running choice is preserved', () async {
+    test('legacy explicit keep-running choice is preserved', () async {
+      final service = ConfigService();
+      SharedPreferences.setMockInitialValues({
+        'rc_client_config': jsonEncode({
+          'keepAgentRunningInBackground': true,
+          'desktopBackgroundModeUserSet': true,
+        }),
+      });
+      final restored = await service.loadConfig();
+
+      expect(
+        restored.desktopExitPolicy,
+        DesktopExitPolicy.keepAgentRunningInBackground,
+      );
+      expect(restored.keepAgentRunningInBackground, isTrue);
+    });
+
+    test('desktopExitPolicy schema is preserved', () async {
       final service = ConfigService();
       const explicit = AppConfig(
-        keepAgentRunningInBackground: true,
-        desktopBackgroundModeUserSet: true,
+        desktopExitPolicy: DesktopExitPolicy.keepAgentRunningInBackground,
       );
 
       await service.saveConfig(explicit);
       final restored = await service.loadConfig();
 
+      expect(
+        restored.desktopExitPolicy,
+        DesktopExitPolicy.keepAgentRunningInBackground,
+      );
       expect(restored.keepAgentRunningInBackground, isTrue);
-      expect(restored.desktopBackgroundModeUserSet, isTrue);
     });
   });
 }
