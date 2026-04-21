@@ -243,6 +243,84 @@ class MockWebSocketService extends ChangeNotifier implements WebSocketService {
     _outputController.add(data);
   }
 
+  void simulateConnectedEvent({
+    int? attachEpoch,
+    int? recoveryEpoch,
+    int? rows,
+    int? cols,
+  }) {
+    _status = ConnectionStatus.connected;
+    _attachEpoch = attachEpoch;
+    _recoveryEpoch = recoveryEpoch;
+    if (rows != null && cols != null) {
+      _ptyRows = rows;
+      _ptyCols = cols;
+    }
+    _eventController.add(
+      TerminalProtocolEvent(
+        kind: TerminalProtocolEventKind.connected,
+        attachEpoch: _attachEpoch,
+        recoveryEpoch: _recoveryEpoch,
+        ptySize: rows != null && cols != null
+            ? TerminalPtySize(rows: rows, cols: cols)
+            : null,
+        views: _views,
+        geometryOwnerView: _geometryOwnerView,
+        terminalStatus: _terminalStatus,
+      ),
+    );
+    _terminalConnectedController.add(null);
+    notifyListeners();
+  }
+
+  void simulateSnapshotChunk(
+    String data, {
+    TerminalBufferKind activeBuffer = TerminalBufferKind.main,
+    int? attachEpoch,
+    int? recoveryEpoch,
+  }) {
+    _outputFrameController.add(
+      TerminalOutputFrame(
+        kind: TerminalOutputKind.snapshotChunk,
+        payload: data,
+        attachEpoch: attachEpoch,
+        recoveryEpoch: recoveryEpoch,
+        activeBuffer: activeBuffer,
+      ),
+    );
+    _eventController.add(
+      TerminalProtocolEvent(
+        kind: TerminalProtocolEventKind.snapshotChunk,
+        payload: data,
+        attachEpoch: attachEpoch,
+        recoveryEpoch: recoveryEpoch,
+        activeBuffer: activeBuffer,
+      ),
+    );
+    _outputController.add(data);
+  }
+
+  void simulateSnapshotComplete({
+    int? attachEpoch,
+    int? recoveryEpoch,
+  }) {
+    _outputFrameController.add(
+      TerminalOutputFrame(
+        kind: TerminalOutputKind.snapshotComplete,
+        payload: '',
+        attachEpoch: attachEpoch,
+        recoveryEpoch: recoveryEpoch,
+      ),
+    );
+    _eventController.add(
+      TerminalProtocolEvent(
+        kind: TerminalProtocolEventKind.snapshotComplete,
+        attachEpoch: attachEpoch,
+        recoveryEpoch: recoveryEpoch,
+      ),
+    );
+  }
+
   void simulatePtySize({required int rows, required int cols}) {
     _ptyRows = rows;
     _ptyCols = cols;

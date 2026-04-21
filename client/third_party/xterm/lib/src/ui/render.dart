@@ -158,9 +158,13 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
   double _savedMainBufferScrollOffset = 0;
   bool _savedMainBufferStickToBottom = true;
   double? _pendingScrollOffset;
+  bool _bottomAlignAfterAltExit = false;
 
   void _onScroll() {
     _stickToBottom = _isNearBottom(_scrollOffset);
+    if (!_stickToBottom) {
+      _bottomAlignAfterAltExit = false;
+    }
     markNeedsLayout();
     _notifyEditableRect();
   }
@@ -178,13 +182,16 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
         _savedMainBufferStickToBottom = _stickToBottom;
         _pendingScrollOffset = 0;
         _stickToBottom = true;
+        _bottomAlignAfterAltExit = false;
       } else {
         if (_savedMainBufferStickToBottom) {
           _pendingScrollOffset = null;
           _stickToBottom = true;
+          _bottomAlignAfterAltExit = true;
         } else {
           _pendingScrollOffset = _savedMainBufferScrollOffset;
           _stickToBottom = false;
+          _bottomAlignAfterAltExit = false;
         }
       }
       _lastUsingAltBuffer = isUsingAltBuffer;
@@ -271,13 +278,16 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
     final col = cellOffset.x;
     final x = col * _painter.cellSize.width;
     final y = row * _painter.cellSize.height;
-    return Offset(x + _padding.left, y + _padding.top - _scrollOffset);
+    return Offset(
+      x + _padding.left,
+      y + _padding.top + _bottomAlignedTopInset - _scrollOffset,
+    );
   }
 
   /// Get the [CellOffset] of the cell that [offset] is in.
   CellOffset getCellOffset(Offset offset) {
     final x = offset.dx - _padding.left;
-    final y = offset.dy - _padding.top + _scrollOffset;
+    final y = offset.dy - _padding.top + _scrollOffset - _bottomAlignedTopInset;
     final row = y ~/ _painter.cellSize.height;
     final col = x ~/ _painter.cellSize.width;
     return CellOffset(
@@ -413,8 +423,32 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
     return offset >= _maxScrollExtent - _bottomScrollTolerance;
   }
 
+  double get _visibleContentHeight {
+    final visibleRows = max(_terminal.buffer.absoluteCursorY + 1, 1);
+    return visibleRows * _painter.cellSize.height;
+  }
+
+  double get _bottomAlignedTopInset {
+    if (_terminal.isUsingAltBuffer ||
+        !_stickToBottom ||
+        !_bottomAlignAfterAltExit) {
+      return 0;
+    }
+    return max(_viewportHeight - _visibleContentHeight, 0.0);
+  }
+
+  int get _lastPaintedLine {
+    if (_bottomAlignedTopInset > 0) {
+      return _terminal.buffer.absoluteCursorY.clamp(
+        0,
+        _terminal.buffer.lines.length - 1,
+      );
+    }
+    return _terminal.buffer.lines.length - 1;
+  }
+
   double get _lineOffset {
-    return -_scrollOffset + _padding.top;
+    return -_scrollOffset + _padding.top + _bottomAlignedTopInset;
   }
 
   /// The offset of the cursor from the top left corner of this render object.
@@ -438,6 +472,16 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
   void _paint(PaintingContext context, Offset offset) {
     final canvas = context.canvas;
 
+    canvas.save();
+    canvas.clipRect(offset & size);
+    canvas.drawRect(
+      offset & size,
+      Paint()
+        ..color = _painter.theme.background
+        ..blendMode = BlendMode.src,
+    );
+    canvas.restore();
+
     final lines = _terminal.buffer.lines;
     final charHeight = _painter.cellSize.height;
 
@@ -447,8 +491,8 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
     final firstLine = firstLineOffset ~/ charHeight;
     final lastLine = lastLineOffset ~/ charHeight;
 
-    final effectFirstLine = firstLine.clamp(0, lines.length - 1);
-    final effectLastLine = lastLine.clamp(0, lines.length - 1);
+    final effectFirstLine = firstLine.clamp(0, _lastPaintedLine);
+    final effectLastLine = lastLine.clamp(0, _lastPaintedLine);
 
     for (var i = effectFirstLine; i <= effectLastLine; i++) {
       _painter.paintLine(

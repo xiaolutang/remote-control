@@ -35,6 +35,11 @@ class TerminalScreen extends StatefulWidget {
 }
 
 class _TerminalScreenState extends State<TerminalScreen> {
+  static const bool _enableTerminalTransitionLogs = false;
+  static final RegExp _terminalTransitionPattern = RegExp(
+    '\x1B\\[(?:\\?1049[hl]|\\?1048[hl]|\\?6[hl]|[0-9;]*r)',
+  );
+
   Terminal? _terminal;
   WebSocketService? _webSocketService;
   late final ShortcutConfigService _shortcutConfigService;
@@ -293,6 +298,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
         break;
       case TerminalProtocolEventKind.output:
       case TerminalProtocolEventKind.snapshot:
+      case TerminalProtocolEventKind.snapshotChunk:
         if ((_activeService.terminalId ?? '').isEmpty &&
             event.payload != null) {
           _onOutput(event.payload!);
@@ -337,9 +343,57 @@ class _TerminalScreenState extends State<TerminalScreen> {
   }
 
   void _onOutput(String data) {
+    final shouldLogTransition = _enableTerminalTransitionLogs &&
+        _terminalTransitionPattern.hasMatch(data);
+    if (shouldLogTransition) {
+      _logTerminalTransition('before_write', data);
+    }
     _activeTerminal.write(data);
+    if (shouldLogTransition) {
+      _logTerminalTransition('after_write', data);
+    }
     // 更新输出缓冲区（用于 TUI 选择器）
     _updateOutputBuffer(data);
+  }
+
+  void _logTerminalTransition(String stage, String data) {
+    if (!kDebugMode) return;
+
+    final terminal = _activeTerminal;
+    final buffer = terminal.buffer;
+    debugPrint(
+      '[TerminalTransition] $stage '
+      'buffer=${terminal.isUsingAltBuffer ? "alt" : "main"} '
+      'cursor=(${buffer.cursorX},${buffer.cursorY}) '
+      'absoluteY=${buffer.absoluteCursorY} '
+      'scrollBack=${buffer.scrollBack} '
+      'height=${buffer.height} '
+      'view=${terminal.viewWidth}x${terminal.viewHeight} '
+      'margins=${buffer.marginTop}-${buffer.marginBottom} '
+      'origin=${terminal.originMode} '
+      'seq=${_summarizeTerminalSequences(data)}',
+    );
+  }
+
+  String _summarizeTerminalSequences(String data) {
+    final matches = _terminalTransitionPattern.allMatches(data).toList();
+    if (matches.isEmpty) {
+      return '[]';
+    }
+
+    final sequences = matches
+        .map((match) => _formatEscapeSequence(match.group(0)!))
+        .take(8)
+        .toList();
+    final suffix = matches.length > sequences.length ? ' ...' : '';
+    return '[${sequences.join(', ')}$suffix]';
+  }
+
+  String _formatEscapeSequence(String value) {
+    return value
+        .replaceAll('\x1B', '<ESC>')
+        .replaceAll('\n', r'\n')
+        .replaceAll('\r', r'\r');
   }
 
   /// 更新输出缓冲区

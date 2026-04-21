@@ -637,11 +637,19 @@ class EscapeParser {
 
   /// `ESC [ s` Save Cursor Position (ANSI.SCP)
   void _csiHandleSaveCursor() {
+    if (_csi.prefix != null) {
+      handler.unknownCSI(_csi.finalByte);
+      return;
+    }
     handler.saveCursor();
   }
 
   /// `ESC [ u` Restore Cursor Position (ANSI.RCP)
   void _csiHandleRestoreCursor() {
+    if (_csi.prefix != null) {
+      handler.unknownCSI(_csi.finalByte);
+      return;
+    }
     handler.restoreCursor();
   }
 

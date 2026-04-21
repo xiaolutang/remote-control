@@ -1,10 +1,13 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rc_client/services/terminal_session_manager.dart';
 import 'package:rc_client/services/websocket_service.dart';
 import 'package:xterm/xterm.dart';
+
+const _streamSettleDelay = Duration(milliseconds: 30);
 
 /// 测试用 Mock WebSocketService
 /// 不发起真实连接，但可以追踪方法调用
@@ -111,6 +114,22 @@ class MockWebSocketService extends WebSocketService {
   void send(String data) {
     sentMessages.add(data);
   }
+
+  @override
+  void debugHandleMessage(String message) {
+    final decoded = jsonDecode(message);
+    if (decoded is Map<String, dynamic>) {
+      final type = decoded['type'];
+      if (type == 'connected') {
+        _mockConnected = true;
+        _mockStatus = ConnectionStatus.connected;
+      } else if (type == 'closed') {
+        _mockConnected = false;
+        _mockStatus = ConnectionStatus.disconnected;
+      }
+    }
+    super.debugHandleMessage(message);
+  }
 }
 
 extension _TerminalSessionManagerTestAccess on TerminalSessionManager {
@@ -137,8 +156,29 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('TerminalSessionManager', () {
+    test('parses snapshot_chunk frames from websocket messages', () async {
+      final service = MockWebSocketService(
+        sessionId: 'session-1',
+        deviceId: 'mbp-01',
+        terminalId: 'term-1',
+      );
+
+      final nextFrame = service.outputFrameStream.first;
+      service.debugHandleMessage(jsonEncode({
+        'type': 'snapshot_chunk',
+        'payload': base64Encode(utf8.encode('chunk-body')),
+        'active_buffer': 'alt',
+      }));
+
+      final frame = await nextFrame;
+      expect(frame.kind, TerminalOutputKind.snapshotChunk);
+      expect(frame.payload, 'chunk-body');
+      expect(frame.activeBuffer, TerminalBufferKind.alt);
+    });
+
     test('reuses existing terminal session for same device and terminal', () {
       final manager = TerminalSessionManager();
+      addTearDown(manager.disconnectAll);
       var createCount = 0;
 
       WebSocketService build() {
@@ -163,6 +203,7 @@ void main() {
 
     test('reuses existing Terminal instance for same device and terminal', () {
       final manager = TerminalSessionManager();
+      addTearDown(manager.disconnectAll);
       var createCount = 0;
 
       Terminal build() {
@@ -183,6 +224,7 @@ void main() {
         'replaces cached terminal buffer when snapshot arrives after reconnect',
         () async {
       final manager = TerminalSessionManager();
+      addTearDown(manager.disconnectAll);
       final firstService = MockWebSocketService(
         sessionId: 'session-1',
         deviceId: 'mbp-01',
@@ -200,7 +242,7 @@ void main() {
         'type': 'data',
         'payload': base64Encode(utf8.encode('stale frame')),
       }));
-      await Future<void>.delayed(const Duration(milliseconds: 10));
+      await Future<void>.delayed(_streamSettleDelay);
       expect(terminal.buffer.lines[0].toString(), contains('stale frame'));
 
       final reconnectedService = MockWebSocketService(
@@ -214,7 +256,7 @@ void main() {
         'type': 'snapshot',
         'payload': base64Encode(utf8.encode('fresh snapshot')),
       }));
-      await Future<void>.delayed(const Duration(milliseconds: 10));
+      await Future<void>.delayed(_streamSettleDelay);
 
       expect(
           terminal.buffer.lines[0].toString(), isNot(contains('stale frame')));
@@ -224,6 +266,7 @@ void main() {
     test('does not let later snapshot clobber existing live terminal buffer',
         () async {
       final manager = TerminalSessionManager();
+      addTearDown(manager.disconnectAll);
       final service = MockWebSocketService(
         sessionId: 'session-1',
         deviceId: 'mbp-01',
@@ -241,14 +284,14 @@ void main() {
         'type': 'data',
         'payload': base64Encode(utf8.encode('codex live frame')),
       }));
-      await Future<void>.delayed(const Duration(milliseconds: 10));
+      await Future<void>.delayed(_streamSettleDelay);
       expect(terminal.buffer.lines[0].toString(), contains('codex live frame'));
 
       service.debugHandleMessage(jsonEncode({
         'type': 'snapshot',
         'payload': base64Encode(utf8.encode('truncated snapshot')),
       }));
-      await Future<void>.delayed(const Duration(milliseconds: 10));
+      await Future<void>.delayed(_streamSettleDelay);
 
       expect(
         terminal.buffer.lines[0].toString(),
@@ -263,6 +306,7 @@ void main() {
     test('applies authoritative remote pty resize to cached terminal',
         () async {
       final manager = TerminalSessionManager();
+      addTearDown(manager.disconnectAll);
       final service = MockWebSocketService(
         sessionId: 'session-1',
         deviceId: 'mbp-01',
@@ -281,7 +325,7 @@ void main() {
         'rows': 36,
         'cols': 110,
       }));
-      await Future<void>.delayed(const Duration(milliseconds: 10));
+      await Future<void>.delayed(_streamSettleDelay);
 
       expect(terminal.viewHeight, 36);
       expect(terminal.viewWidth, 110);
@@ -290,6 +334,7 @@ void main() {
     test('restores alternate snapshot without leaking alt content into main',
         () async {
       final manager = TerminalSessionManager();
+      addTearDown(manager.disconnectAll);
       final service = MockWebSocketService(
         sessionId: 'session-1',
         deviceId: 'mbp-01',
@@ -317,7 +362,7 @@ void main() {
         ),
       }));
 
-      await Future<void>.delayed(const Duration(milliseconds: 10));
+      await Future<void>.delayed(_streamSettleDelay);
 
       expect(terminal.isUsingAltBuffer, isFalse);
       expect(
@@ -331,6 +376,102 @@ void main() {
       expect(
         terminal.altBuffer.lines[0].toString(),
         contains('alternate snapshot body'),
+      );
+    });
+
+    test('reassembles chunked snapshot before replacing terminal buffer',
+        () async {
+      final manager = TerminalSessionManager();
+      addTearDown(manager.disconnectAll);
+      final service = MockWebSocketService(
+        sessionId: 'session-1',
+        deviceId: 'mbp-01',
+        terminalId: 'term-1',
+      );
+
+      final terminal = manager.testEnsureTerminal(
+        'mbp-01',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: service,
+      );
+
+      service.debugHandleMessage(jsonEncode({
+        'type': 'data',
+        'payload': base64Encode(utf8.encode('stale screen')),
+      }));
+      service.debugHandleMessage(jsonEncode({'type': 'connected'}));
+      service.debugHandleMessage(jsonEncode({
+        'type': 'snapshot_chunk',
+        'payload': base64Encode(utf8.encode('fresh ')),
+        'active_buffer': 'main',
+      }));
+      service.debugHandleMessage(jsonEncode({
+        'type': 'snapshot_chunk',
+        'payload': base64Encode(utf8.encode('snapshot')),
+        'active_buffer': 'main',
+      }));
+      service.debugHandleMessage(jsonEncode({'type': 'snapshot_complete'}));
+
+      await Future<void>.delayed(_streamSettleDelay);
+
+      expect(
+        terminal.mainBuffer.lines[0].toString(),
+        contains('fresh snapshot'),
+      );
+      expect(
+        terminal.mainBuffer.lines[0].toString(),
+        isNot(contains('stale screen')),
+      );
+    });
+
+    test(
+        'preserves local alt-buffer state when recovery snapshot replays alt-buffer transitions into main',
+        () async {
+      final manager = TerminalSessionManager();
+      addTearDown(manager.disconnectAll);
+      final service = MockWebSocketService(
+        sessionId: 'session-1',
+        deviceId: 'mbp-01',
+        terminalId: 'term-1',
+      );
+
+      final terminal = manager.testEnsureTerminal(
+        'mbp-01',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: service,
+      );
+
+      terminal.write('shell prompt');
+      terminal.write('\x1b[?1049hclaude ui');
+      expect(terminal.isUsingAltBuffer, isTrue);
+
+      service.debugHandleMessage(jsonEncode({'type': 'connected'}));
+      service.debugHandleMessage(jsonEncode({
+        'type': 'snapshot_chunk',
+        'payload': base64Encode(
+          utf8.encode('\x1b[?1049htruncated claude\x1b[?1049l'),
+        ),
+        'active_buffer': 'main',
+      }));
+      service.debugHandleMessage(jsonEncode({
+        'type': 'output',
+        'payload':
+            base64Encode(utf8.encode('\x1b[?1049lrestored shell prompt')),
+      }));
+      service.debugHandleMessage(jsonEncode({'type': 'snapshot_complete'}));
+
+      await Future<void>.delayed(_streamSettleDelay);
+
+      expect(terminal.isUsingAltBuffer, isFalse);
+      expect(
+        terminal.mainBuffer.lines[0].toString(),
+        contains('restored shell prompt'),
+      );
+      expect(
+        terminal.mainBuffer.lines[0].toString(),
+        isNot(contains('truncated claude')),
       );
     });
   });
@@ -355,6 +496,7 @@ void main() {
     });
 
     tearDown(() {
+      debugDefaultTargetPlatformOverride = null;
       manager.disconnectAll();
     });
 
@@ -899,10 +1041,22 @@ void main() {
       expect(manager.get('dev-1', 'term-1'), isNotNull);
     });
 
-    test('didChangeAppLifecycleState(inactive) 触发 pauseAll', () async {
+    test('didChangeAppLifecycleState(inactive) 在桌面端不触发 pauseAll', () async {
       final mock = buildMock();
       manager.getOrCreate('dev-1', 'term-1', () => mock);
       mock.setMockConnected(true);
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+
+      manager.didChangeAppLifecycleState(AppLifecycleState.inactive);
+
+      expect(mock.disconnectCallCount, 0);
+    });
+
+    test('didChangeAppLifecycleState(inactive) 在移动端触发 pauseAll', () async {
+      final mock = buildMock();
+      manager.getOrCreate('dev-1', 'term-1', () => mock);
+      mock.setMockConnected(true);
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
 
       manager.didChangeAppLifecycleState(AppLifecycleState.inactive);
 
@@ -1428,7 +1582,7 @@ void main() {
       expect(mock.sentMessages, contains('\x1b[?1;2c'));
     });
 
-    test('recovery 窗口内的终端自动应答被丢弃，不在稍后补发', () async {
+    test('recovery 窗口内保留终端 device attributes 自动应答', () async {
       final mock = buildMock();
       manager.getOrCreate('dev-1', 'term-1', () => mock);
 
@@ -1444,10 +1598,56 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 20));
 
       terminal.write('\x1b[c');
+
+      expect(mock.sentMessages, contains('\x1b[?1;2c'));
+    });
+
+    test('snapshot 重放期间的 device attributes 自动应答不会回传 shell', () async {
+      final mock = buildMock();
+      manager.getOrCreate('dev-1', 'term-1', () => mock);
+
+      manager.testEnsureTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: mock,
+      );
+
+      await manager.connectTerminal('dev-1', 'term-1');
+      mock.debugHandleMessage(jsonEncode({'type': 'connected'}));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      mock.debugHandleMessage(jsonEncode({
+        'type': 'snapshot_chunk',
+        'payload': base64Encode(utf8.encode('\x1b[c')),
+      }));
+      mock.debugHandleMessage(jsonEncode({'type': 'snapshot_complete'}));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
       expect(mock.sentMessages, isNot(contains('\x1b[?1;2c')));
+    });
+
+    test('recovery 窗口内的 cursor report 自动应答被丢弃，不在稍后补发', () async {
+      final mock = buildMock();
+      manager.getOrCreate('dev-1', 'term-1', () => mock);
+
+      final terminal = manager.testEnsureTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: mock,
+      );
+
+      await manager.connectTerminal('dev-1', 'term-1');
+      mock.debugHandleMessage(jsonEncode({'type': 'connected'}));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      terminal.setCursor(4, 3);
+      terminal.write('\x1b[6n');
+      expect(mock.sentMessages, isNot(contains('\x1b[4;5R')));
 
       await Future<void>.delayed(const Duration(milliseconds: 2200));
-      expect(mock.sentMessages, isNot(contains('\x1b[?1;2c')));
+      expect(mock.sentMessages, isNot(contains('\x1b[4;5R')));
     });
 
     test('idle bind 已连接 service 直接消费 live output', () async {
@@ -1775,7 +1975,7 @@ void main() {
       expect(adapter.outputText.value, contains('line 59'));
     });
 
-    test('检测到 claude 退出尾巴后清理旧界面，仅保留 resume 和 prompt', () {
+    test('Claude 退出文案不会触发应用层 buffer 重写', () {
       final terminal = Terminal(maxLines: 10000);
       final adapter = RendererAdapter(terminal);
 
@@ -1788,113 +1988,15 @@ void main() {
       );
 
       final bufferText = terminal.buffer.getText();
+      expect(bufferText, contains('old help line 1'));
+      expect(bufferText, contains('old help line 2'));
       expect(bufferText, contains('Resume this session with:'));
       expect(bufferText, contains('claude --resume session-123'));
       expect(bufferText, contains('bash-3.2\$'));
-      expect(bufferText, isNot(contains('old help line 1')));
-      expect(bufferText, isNot(contains('old help line 2')));
-      expect(adapter.outputText.value, isNot(contains('old help line 1')));
+      expect(adapter.outputText.value, contains('old help line 1'));
     });
 
-    test('检测到 prompt 后仍残留旧内容时，继续收敛为 resume 和 prompt', () {
-      final terminal = Terminal(maxLines: 10000);
-      final adapter = RendererAdapter(terminal);
-
-      adapter.applyLiveOutput(
-        'Resume this session with:\r\n'
-        'claude --resume session-456\r\n'
-        'bash-3.2\$ \r\n'
-        'stale claude help line\r\n'
-        'stale claude footer',
-      );
-
-      final bufferText = terminal.buffer.getText();
-      expect(bufferText, contains('Resume this session with:'));
-      expect(bufferText, contains('claude --resume session-456'));
-      expect(bufferText, contains('bash-3.2\$'));
-      expect(bufferText, isNot(contains('stale claude help line')));
-      expect(bufferText, isNot(contains('stale claude footer')));
-      expect(adapter.outputText.value, isNot(contains('stale claude help line')));
-    });
-
-    test('退出清理时保留前面的 shell 历史，不把 prompt 顶到第一行', () {
-      final terminal = Terminal(maxLines: 10000);
-      final adapter = RendererAdapter(terminal);
-
-      adapter.applyLiveOutput(
-        'bash-3.2\$ cd project/ai_rules/\r\n'
-        'bash-3.2\$ claude\r\n'
-        'stale claude help line\r\n'
-        'Resume this session with:\r\n'
-        'claude --resume session-789\r\n'
-        'bash-3.2\$ ',
-      );
-
-      final bufferText = terminal.buffer.getText();
-      expect(bufferText, contains('bash-3.2\$ cd project/ai_rules/'));
-      expect(bufferText, contains('bash-3.2\$ claude'));
-      expect(bufferText, contains('Resume this session with:'));
-      expect(bufferText, contains('claude --resume session-789'));
-      expect(bufferText, contains('bash-3.2\$'));
-      expect(bufferText, isNot(contains('stale claude help line')));
-    });
-
-    test('prompt 已经恢复后，只保留该 prompt 之前的 shell 历史', () {
-      final terminal = Terminal(maxLines: 10000);
-      final adapter = RendererAdapter(terminal);
-
-      adapter.applyLiveOutput(
-        'bash-3.2\$ cd project/ai_rules/\r\n'
-        'bash-3.2\$ \r\n'
-        'Resume this session with:\r\n'
-        'claude --resume session-999\r\n'
-        'Claude Code v2.1.76\r\n'
-        '~/project/ai_rules',
-      );
-
-      final bufferText = terminal.buffer.getText();
-      expect(bufferText, contains('bash-3.2\$ cd project/ai_rules/'));
-      expect(bufferText, contains('bash-3.2\$'));
-      expect(bufferText, isNot(contains('Resume this session with:')));
-      expect(bufferText, isNot(contains('claude --resume session-999')));
-      expect(bufferText, isNot(contains('Claude Code v2.1.76')));
-    });
-
-    test('顶部 prompt + 下方 stale claude block 时，将 prompt 收敛回历史末尾', () {
-      final terminal = Terminal(maxLines: 10000);
-      final adapter = RendererAdapter(terminal);
-
-      adapter.applyLiveOutput(
-        'bash-3.2\$ \r\n'
-        'The default interactive shell is now zsh.\r\n'
-        'To update your account to use zsh, please run `chsh -s /bin/zsh`.\r\n'
-        'bash-3.2\$ pwd\r\n'
-        '/Users/tangxiaolu\r\n'
-        'bash-3.2\$ cd project/ai_rules/\r\n'
-        'bash-3.2\$ pwd\r\n'
-        '/Users/tangxiaolu/project/ai_rules\r\n'
-        'bash-3.2\$ claude\r\n'
-        'Claude Code v2.1.76\r\n'
-        'glm-5.1 · API Usage Billing\r\n'
-        '~/project/ai_rules',
-      );
-
-      final bufferText = terminal.buffer.getText();
-      final trimmedLines = bufferText
-          .split('\n')
-          .map((line) => line.trimRight())
-          .where((line) => line.isNotEmpty)
-          .toList(growable: false);
-
-      expect(trimmedLines.first, 'The default interactive shell is now zsh.');
-      expect(trimmedLines, contains('bash-3.2\$ claude'));
-      expect(trimmedLines.last, 'bash-3.2\$');
-      expect(bufferText, isNot(contains('Claude Code v2.1.76')));
-      expect(bufferText, isNot(contains('glm-5.1 · API Usage Billing')));
-      expect(bufferText, isNot(contains('~/project/ai_rules')));
-    });
-
-    test('检测到 codex 退出尾巴后清理旧界面，并保留前面的 shell 历史', () {
+    test('Codex 退出文案不会触发应用层 buffer 重写', () {
       final terminal = Terminal(maxLines: 10000);
       final adapter = RendererAdapter(terminal);
 
@@ -1911,50 +2013,11 @@ void main() {
       expect(bufferText, contains('bash-3.2\$ pwd'));
       expect(bufferText, contains('/Users/tangxiaolu/project/remote-control'));
       expect(bufferText, contains('bash-3.2\$ codex'));
+      expect(bufferText, contains('stale codex helper line'));
       expect(
         bufferText,
         contains('To continue this session, run codex resume abc123'),
       );
-      expect(bufferText, contains('bash-3.2\$'));
-      expect(bufferText, isNot(contains('stale codex helper line')));
-    });
-
-    test('顶部 prompt + 下方 stale codex block 时，将 prompt 收敛回历史末尾', () {
-      final terminal = Terminal(maxLines: 10000);
-      final adapter = RendererAdapter(terminal);
-
-      adapter.applyLiveOutput(
-        'bash-3.2\$ \r\n'
-        'bash-3.2\$ pwd\r\n'
-        '/Users/tangxiaolu/project/remote-control\r\n'
-        'bash-3.2\$ codex\r\n'
-        'OpenAI Codex v0.1.0\r\n'
-        'model: gpt-5.4\r\n'
-        '~/project/remote-control',
-      );
-
-      final bufferText = terminal.buffer.getText();
-      final trimmedLines = bufferText
-          .split('\n')
-          .map((line) => line.trimRight())
-          .where((line) => line.isNotEmpty)
-          .toList(growable: false);
-
-      expect(trimmedLines, contains('bash-3.2\$ codex'));
-      expect(trimmedLines.last, 'bash-3.2\$');
-      expect(bufferText, isNot(contains('OpenAI Codex v0.1.0')));
-      expect(bufferText, isNot(contains('model: gpt-5.4')));
-      expect(bufferText, isNot(contains('~/project/remote-control')));
-    });
-
-    test('普通 shell prompt 输出不触发 claude/codex 退出清理', () {
-      final terminal = Terminal(maxLines: 10000);
-      final adapter = RendererAdapter(terminal);
-
-      adapter.applyLiveOutput('regular output\r\nbash-3.2\$ ');
-
-      final bufferText = terminal.buffer.getText();
-      expect(bufferText, contains('regular output'));
       expect(bufferText, contains('bash-3.2\$'));
     });
   });

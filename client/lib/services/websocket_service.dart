@@ -26,6 +26,7 @@ enum ViewType {
 enum TerminalOutputKind {
   data,
   snapshot,
+  snapshotChunk,
   snapshotComplete,
 }
 
@@ -38,6 +39,7 @@ enum TerminalProtocolEventKind {
   connected,
   presence,
   snapshot,
+  snapshotChunk,
   snapshotComplete,
   output,
   resize,
@@ -83,7 +85,11 @@ class TerminalOutputFrame {
   final int? recoveryEpoch;
   final TerminalBufferKind? activeBuffer;
 
-  bool get isSnapshot => kind == TerminalOutputKind.snapshot;
+  bool get isSnapshot =>
+      kind == TerminalOutputKind.snapshot ||
+      kind == TerminalOutputKind.snapshotChunk;
+
+  bool get isSnapshotChunk => kind == TerminalOutputKind.snapshotChunk;
 }
 
 class TerminalPtySize {
@@ -94,6 +100,69 @@ class TerminalPtySize {
 
   final int rows;
   final int cols;
+}
+
+class _CollectingStringSink implements StringSink {
+  String _value = '';
+
+  @override
+  void write(Object? obj) {
+    _value += '$obj';
+  }
+
+  @override
+  void writeAll(Iterable<dynamic> objects, [String separator = '']) {
+    _value += objects.join(separator);
+  }
+
+  @override
+  void writeCharCode(int charCode) {
+    _value += String.fromCharCode(charCode);
+  }
+
+  @override
+  void writeln([Object? obj = '']) {
+    _value += '$obj\n';
+  }
+
+  String take() {
+    final value = _value;
+    _value = '';
+    return value;
+  }
+}
+
+class _StreamingUtf8Decoder {
+  _StreamingUtf8Decoder() {
+    _resetDecoder();
+  }
+
+  final _sink = _CollectingStringSink();
+  late ByteConversionSink _decoder;
+
+  String decode(List<int> bytes, {bool endOfInput = false}) {
+    if (bytes.isNotEmpty) {
+      _decoder.add(bytes);
+    }
+    if (endOfInput) {
+      _decoder.close();
+      final output = _sink.take();
+      _resetDecoder();
+      return output;
+    }
+    return _sink.take();
+  }
+
+  void reset() {
+    _sink.take();
+    _resetDecoder();
+  }
+
+  void _resetDecoder() {
+    _decoder = const Utf8Decoder(
+      allowMalformed: true,
+    ).startChunkedConversion(StringConversionSink.fromStringSink(_sink));
+  }
 }
 
 /// WebSocket 服务
@@ -137,6 +206,9 @@ class WebSocketService extends ChangeNotifier {
   int? _ptyCols;
   int? _attachEpoch;
   int? _recoveryEpoch;
+  final _liveUtf8Decoder = _StreamingUtf8Decoder();
+  final _snapshotUtf8Decoder = _StreamingUtf8Decoder();
+  TerminalBufferKind _lastSnapshotActiveBuffer = TerminalBufferKind.main;
 
   final StreamController<String> _outputController =
       StreamController<String>.broadcast();
@@ -177,7 +249,8 @@ class WebSocketService extends ChangeNotifier {
   Stream<TerminalOutputFrame> get outputFrameStream =>
       _outputFrameController.stream;
   Stream<TerminalProtocolEvent> get eventStream => _eventController.stream;
-  Stream<void> get terminalConnectedStream => _terminalConnectedController.stream;
+  Stream<void> get terminalConnectedStream =>
+      _terminalConnectedController.stream;
   Stream<TerminalPtySize> get ptySizeStream => _ptySizeController.stream;
   @Deprecated('Use eventStream with TerminalProtocolEventKind.presence instead')
   Stream<Map<String, int>> get presenceStream => _presenceController.stream;
@@ -214,6 +287,12 @@ class WebSocketService extends ChangeNotifier {
 
   String get _viewTypeString =>
       viewType == ViewType.desktop ? 'desktop' : 'mobile';
+
+  void _resetTerminalDecoders() {
+    _liveUtf8Decoder.reset();
+    _snapshotUtf8Decoder.reset();
+    _lastSnapshotActiveBuffer = TerminalBufferKind.main;
+  }
 
   TerminalBufferKind? _parseActiveBuffer(dynamic raw) {
     if (raw is! String) {
@@ -282,6 +361,7 @@ class WebSocketService extends ChangeNotifier {
   }
 
   void _applyConnectedMessage(Map<String, dynamic> data) {
+    _resetTerminalDecoders();
     _status = ConnectionStatus.connected;
     _retryCount = 0;
     _agentOnline = data['agent_online'] ?? false;
@@ -345,6 +425,7 @@ class WebSocketService extends ChangeNotifier {
     _status = ConnectionStatus.connecting;
     _allowReconnect = true;
     _errorMessage = null;
+    _resetTerminalDecoders();
     notifyListeners();
 
     // 日志埋点：开始连接
@@ -520,7 +601,8 @@ class WebSocketService extends ChangeNotifier {
         case 'output':
           {
             final msgAttachEpoch = data['attach_epoch'];
-            final msgEpoch = msgAttachEpoch is num ? msgAttachEpoch.toInt() : null;
+            final msgEpoch =
+                msgAttachEpoch is num ? msgAttachEpoch.toInt() : null;
             final currentEpoch = _attachEpoch;
             // 旧 epoch 消息静默丢弃（不变量 #32）
             if (msgEpoch != null &&
@@ -528,37 +610,38 @@ class WebSocketService extends ChangeNotifier {
                 msgEpoch < currentEpoch) {
               break;
             }
+            if (type == 'snapshot_start') {
+              _snapshotUtf8Decoder.reset();
+              _lastSnapshotActiveBuffer = TerminalBufferKind.main;
+            }
             final payload = data['payload'] as String?;
             if (payload != null) {
-              final bytes = base64Decode(payload);
-              final decoded = utf8.decode(bytes, allowMalformed: true);
-              final recoveryEpoch = data['recovery_epoch'];
+              final isSnapshotPayload = type == 'snapshot' ||
+                  type == 'snapshot_start' ||
+                  type == 'snapshot_chunk';
               final activeBuffer = _parseActiveBuffer(data['active_buffer']);
-              _outputFrameController.add(
-                TerminalOutputFrame(
-                  kind: type == 'snapshot' || type == 'snapshot_chunk'
-                      ? TerminalOutputKind.snapshot
-                      : TerminalOutputKind.data,
-                  payload: decoded,
-                  attachEpoch: msgEpoch,
-                  recoveryEpoch:
-                      recoveryEpoch is num ? recoveryEpoch.toInt() : null,
-                  activeBuffer: activeBuffer,
-                ),
+              if (type == 'snapshot' || type == 'snapshot_start') {
+                _snapshotUtf8Decoder.reset();
+              }
+              if (activeBuffer != null && isSnapshotPayload) {
+                _lastSnapshotActiveBuffer = activeBuffer;
+              }
+              final bytes = base64Decode(payload);
+              final decoded =
+                  (isSnapshotPayload ? _snapshotUtf8Decoder : _liveUtf8Decoder)
+                      .decode(bytes);
+              if (decoded.isEmpty) {
+                break;
+              }
+              final recoveryEpoch = data['recovery_epoch'];
+              _emitTerminalPayload(
+                type: type ?? 'output',
+                payload: decoded,
+                attachEpoch: msgEpoch,
+                recoveryEpoch:
+                    recoveryEpoch is num ? recoveryEpoch.toInt() : null,
+                activeBuffer: activeBuffer,
               );
-              _eventController.add(
-                TerminalProtocolEvent(
-                  kind: type == 'snapshot' || type == 'snapshot_chunk'
-                      ? TerminalProtocolEventKind.snapshot
-                      : TerminalProtocolEventKind.output,
-                  payload: decoded,
-                  attachEpoch: msgEpoch,
-                  recoveryEpoch:
-                      recoveryEpoch is num ? recoveryEpoch.toInt() : null,
-                  activeBuffer: activeBuffer,
-                ),
-              );
-              _outputController.add(decoded);
             }
             break;
           }
@@ -574,6 +657,22 @@ class WebSocketService extends ChangeNotifier {
                 msgEpoch < currentEpoch) {
               break;
             }
+            final recoveryEpoch = data['recovery_epoch'] is num
+                ? (data['recovery_epoch'] as num).toInt()
+                : null;
+            final flushedSnapshot = _snapshotUtf8Decoder.decode(
+              const <int>[],
+              endOfInput: true,
+            );
+            if (flushedSnapshot.isNotEmpty) {
+              _emitTerminalPayload(
+                type: 'snapshot_chunk',
+                payload: flushedSnapshot,
+                attachEpoch: msgEpoch,
+                recoveryEpoch: recoveryEpoch,
+                activeBuffer: _lastSnapshotActiveBuffer,
+              );
+            }
             _outputFrameController.add(
               const TerminalOutputFrame(
                 kind: TerminalOutputKind.snapshotComplete,
@@ -584,9 +683,7 @@ class WebSocketService extends ChangeNotifier {
               TerminalProtocolEvent(
                 kind: TerminalProtocolEventKind.snapshotComplete,
                 attachEpoch: msgEpoch,
-                recoveryEpoch: data['recovery_epoch'] is num
-                    ? (data['recovery_epoch'] as num).toInt()
-                    : null,
+                recoveryEpoch: recoveryEpoch,
               ),
             );
             break;
@@ -646,8 +743,7 @@ class WebSocketService extends ChangeNotifier {
           _deviceKickedController.add(null);
           break;
         default:
-          debugPrint(
-              '[WebSocketService] unknown message type: $type');
+          debugPrint('[WebSocketService] unknown message type: $type');
           break;
       }
     } catch (e) {
@@ -660,12 +756,49 @@ class WebSocketService extends ChangeNotifier {
     _handleMessage(message);
   }
 
+  void _emitTerminalPayload({
+    required String type,
+    required String payload,
+    required int? attachEpoch,
+    required int? recoveryEpoch,
+    required TerminalBufferKind? activeBuffer,
+  }) {
+    _outputFrameController.add(
+      TerminalOutputFrame(
+        kind: switch (type) {
+          'snapshot' => TerminalOutputKind.snapshot,
+          'snapshot_chunk' => TerminalOutputKind.snapshotChunk,
+          _ => TerminalOutputKind.data,
+        },
+        payload: payload,
+        attachEpoch: attachEpoch,
+        recoveryEpoch: recoveryEpoch,
+        activeBuffer: activeBuffer,
+      ),
+    );
+    _eventController.add(
+      TerminalProtocolEvent(
+        kind: switch (type) {
+          'snapshot' => TerminalProtocolEventKind.snapshot,
+          'snapshot_chunk' => TerminalProtocolEventKind.snapshotChunk,
+          _ => TerminalProtocolEventKind.output,
+        },
+        payload: payload,
+        attachEpoch: attachEpoch,
+        recoveryEpoch: recoveryEpoch,
+        activeBuffer: activeBuffer,
+      ),
+    );
+    _outputController.add(payload);
+  }
+
   Uint8List base64Decode(String source) {
     return base64.decode(source);
   }
 
   /// 处理断开连接
   void _handleDisconnect() {
+    _resetTerminalDecoders();
     _stopHeartbeat();
 
     // 根据 close code 设置错误信息（无论当前连接状态）
@@ -799,6 +932,7 @@ class WebSocketService extends ChangeNotifier {
     _allowReconnect = false;
     _encryptionEnabled = false;
     _crypto.clearAesKey();
+    _resetTerminalDecoders();
     _stopHeartbeat();
     _reconnectTimer?.cancel();
     await _streamSubscription?.cancel();

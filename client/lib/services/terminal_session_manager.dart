@@ -11,261 +11,82 @@ import 'websocket_service.dart';
 const Duration _recoveryTimeout = Duration(seconds: 5);
 const Duration _postInterruptReplyHold = Duration(milliseconds: 350);
 const Duration _postRecoveryReplyDrop = Duration(seconds: 2);
+const bool _enableTerminalTransitionLogs = false;
+final RegExp _terminalTransitionPattern = RegExp(
+  '\x1B\\[(?:\\?1049[hl]|\\?1048[hl]|\\?6[hl]|[0-9;]*r)',
+);
+final RegExp _alternateBufferTransitionPattern = RegExp(
+  '\x1B\\[\\?(?:1049|1047|47)[hl]',
+);
 
-class _AgentExitPattern {
-  const _AgentExitPattern({
-    required this.exitMarkers,
-    required this.uiMarkers,
-    this.resumeHeader,
-    this.resumeCommandPrefix,
-  });
-
-  final List<String> exitMarkers;
-  final List<String> uiMarkers;
-  final String? resumeHeader;
-  final String? resumeCommandPrefix;
-}
-
-const List<_AgentExitPattern> _agentExitPatterns = [
-  _AgentExitPattern(
-    exitMarkers: [
-      'Resume this session with:',
-      'claude --resume ',
-    ],
-    uiMarkers: [
-      'Claude Code v',
-      'AI Usage Billing',
-    ],
-    resumeHeader: 'Resume this session with:',
-    resumeCommandPrefix: 'claude --resume ',
-  ),
-  _AgentExitPattern(
-    exitMarkers: [
-      'To continue this session, run codex resume ',
-      'codex resume ',
-    ],
-    uiMarkers: [
-      'OpenAI Codex',
-    ],
-  ),
-];
-
-final List<String> _agentExitMarkers = _agentExitPatterns
-    .expand((pattern) => pattern.exitMarkers)
-    .toList(growable: false);
-final List<String> _agentUiMarkers = _agentExitPatterns
-    .expand((pattern) => [...pattern.exitMarkers, ...pattern.uiMarkers])
-    .toList(growable: false);
-final List<String> _agentExitNormalizationHints = <String>[
-  ..._agentExitMarkers,
-  ..._agentExitPatterns.expand((pattern) => pattern.uiMarkers),
-];
-
-bool _looksLikeShellPrompt(String line) {
-  final trimmed = line.trimRight();
-  if (trimmed.isEmpty) {
-    return false;
+String _summarizeTerminalSequences(String data) {
+  final matches = _terminalTransitionPattern.allMatches(data).toList();
+  if (matches.isEmpty) {
+    return '[]';
   }
-  return trimmed.endsWith('%') ||
-      trimmed.endsWith(r'$') ||
-      trimmed.endsWith('#');
+
+  final sequences = matches
+      .map((match) => _formatEscapeSequence(match.group(0)!))
+      .take(8)
+      .toList();
+  final suffix = matches.length > sequences.length ? ' ...' : '';
+  return '[${sequences.join(', ')}$suffix]';
 }
 
-bool _looksLikeShellPromptPrefix(String line) {
-  final trimmed = line.trimRight();
-  if (trimmed.isEmpty) {
-    return false;
-  }
-  final promptPrefix = RegExp(r'(^|[^A-Za-z0-9_./-])[A-Za-z0-9_./:-]+[#$%] ');
-  return promptPrefix.hasMatch(trimmed);
+String _formatEscapeSequence(String value) {
+  return value
+      .replaceAll('\x1B', '<ESC>')
+      .replaceAll('\n', r'\n')
+      .replaceAll('\r', r'\r');
 }
 
-bool _containsLikelyShellPrompt(String data) {
-  if (data.isEmpty) {
-    return false;
-  }
-  return data
-      .split('\n')
-      .map((line) => line.replaceAll('\r', ''))
-      .any(_looksLikeShellPrompt);
+enum _TerminalAutoResponseKind {
+  deviceAttributes,
+  statusReport,
+  cursorReport,
+  deviceControlString,
 }
 
-bool _containsAgentExitMarker(String data) {
-  return _agentExitMarkers.any(data.contains);
-}
-
-bool _looksLikeAgentUiLine(String line) {
-  final trimmed = line.trimRight();
-  if (trimmed.isEmpty) {
-    return false;
-  }
-  return _agentUiMarkers.any(trimmed.contains);
-}
-
-bool _mightNeedAgentExitNormalization(String data) {
-  if (data.isEmpty) {
-    return false;
-  }
-  return _containsLikelyShellPrompt(data) ||
-      _agentExitNormalizationHints.any(data.contains);
-}
-
-bool _isTerminalAutoResponse(String data) {
+_TerminalAutoResponseKind? _classifyTerminalAutoResponse(String data) {
   if (data.isEmpty || !data.startsWith('\x1b')) {
-    return false;
+    return null;
   }
-  if (data == '\x1b[?1;2c' ||
-      data == '\x1b[0n' ||
-      data.startsWith('\x1b[>') ||
-      data.startsWith('\x1bP!|')) {
-    return true;
+
+  if (data == '\x1b[?1;2c' || data.startsWith('\x1b[>')) {
+    return _TerminalAutoResponseKind.deviceAttributes;
+  }
+  if (data == '\x1b[0n') {
+    return _TerminalAutoResponseKind.statusReport;
+  }
+  if (data.startsWith('\x1bP!|')) {
+    return _TerminalAutoResponseKind.deviceControlString;
   }
   final cursorReport = RegExp(r'^\x1b\[\d+;\d+R$');
-  return cursorReport.hasMatch(data);
+  if (cursorReport.hasMatch(data)) {
+    return _TerminalAutoResponseKind.cursorReport;
+  }
+  return null;
+}
+
+bool _shouldSuppressTerminalAutoResponse(
+  _TerminalReplyGuardMode mode,
+  _TerminalAutoResponseKind kind,
+) {
+  switch (mode) {
+    case _TerminalReplyGuardMode.none:
+      return false;
+    case _TerminalReplyGuardMode.interrupt:
+      return true;
+    case _TerminalReplyGuardMode.recovery:
+      return kind == _TerminalAutoResponseKind.statusReport ||
+          kind == _TerminalAutoResponseKind.cursorReport;
+  }
 }
 
 enum _TerminalReplyGuardMode {
   none,
   interrupt,
   recovery,
-}
-
-class _AgentExitNormalizationPlan {
-  const _AgentExitNormalizationPlan({
-    required this.lineIndices,
-    required this.cursorSourceIndex,
-  });
-
-  final List<int> lineIndices;
-  final int cursorSourceIndex;
-}
-
-List<int> _nonEmptyLineRange(
-  List<String> lines,
-  int start,
-  int end,
-) {
-  if (start >= end) {
-    return const <int>[];
-  }
-  return List<int>.generate(
-    end - start,
-    (offset) => start + offset,
-  ).where((index) => lines[index].isNotEmpty).toList(growable: false);
-}
-
-int? _findLastShellPromptBefore(List<String> lines, int beforeIndex) {
-  for (var i = beforeIndex - 1; i >= 0; i--) {
-    if (_looksLikeShellPrompt(lines[i]) ||
-        _looksLikeShellPromptPrefix(lines[i])) {
-      return i;
-    }
-  }
-  return null;
-}
-
-int _resolveExitStart(List<String> lines, int markerIndex) {
-  for (final pattern in _agentExitPatterns) {
-    final header = pattern.resumeHeader;
-    final prefix = pattern.resumeCommandPrefix;
-    if (header == null || prefix == null) {
-      continue;
-    }
-    if (lines[markerIndex].contains(prefix) &&
-        markerIndex > 0 &&
-        lines[markerIndex - 1].contains(header)) {
-      return markerIndex - 1;
-    }
-  }
-  return markerIndex;
-}
-
-_AgentExitNormalizationPlan? _buildPromptFirstAgentLayout(List<String> lines) {
-  final firstNonEmpty = lines.indexWhere((line) => line.trim().isNotEmpty);
-  if (firstNonEmpty < 0) {
-    return null;
-  }
-  final topLine = lines[firstNonEmpty];
-  if (!_looksLikeShellPrompt(topLine)) {
-    return null;
-  }
-
-  final agentStart = lines.indexWhere(
-    (line) => _looksLikeAgentUiLine(line),
-    firstNonEmpty + 1,
-  );
-  if (agentStart < 0) {
-    return null;
-  }
-
-  final shellHistoryIndices = _nonEmptyLineRange(
-    lines,
-    firstNonEmpty + 1,
-    agentStart,
-  );
-  if (shellHistoryIndices.isEmpty) {
-    return null;
-  }
-
-  final lastHistoryLine = lines[shellHistoryIndices.last];
-  if (!_looksLikeShellPrompt(lastHistoryLine) &&
-      !_looksLikeShellPromptPrefix(lastHistoryLine)) {
-    return null;
-  }
-
-  return _AgentExitNormalizationPlan(
-    lineIndices: <int>[
-      ...shellHistoryIndices,
-      firstNonEmpty,
-    ],
-    cursorSourceIndex: firstNonEmpty,
-  );
-}
-
-_AgentExitNormalizationPlan? _buildNormalizedAgentExitPlanFromBuffer(
-  List<BufferLine> lines,
-) {
-  final textLines =
-      lines.map((line) => line.toString().trimRight()).toList(growable: false);
-
-  for (var i = 0; i < lines.length; i++) {
-    final line = textLines[i];
-    if (_agentExitMarkers.any(line.contains)) {
-      final exitStart = _resolveExitStart(textLines, i);
-      final promptBefore = _findLastShellPromptBefore(textLines, exitStart);
-      final historyIndices = promptBefore == null
-          ? const <int>[]
-          : _nonEmptyLineRange(textLines, 0, promptBefore + 1);
-
-      for (var promptIndex = exitStart;
-          promptIndex < lines.length;
-          promptIndex++) {
-        if (_looksLikeShellPrompt(textLines[promptIndex])) {
-          final exitLineIndices = _nonEmptyLineRange(
-            textLines,
-            exitStart,
-            promptIndex + 1,
-          );
-          return _AgentExitNormalizationPlan(
-            lineIndices: <int>[
-              ...historyIndices,
-              ...exitLineIndices,
-            ],
-            cursorSourceIndex: promptIndex,
-          );
-        }
-      }
-
-      if (promptBefore != null && historyIndices.isNotEmpty) {
-        return _AgentExitNormalizationPlan(
-          lineIndices: historyIndices,
-          cursorSourceIndex: promptBefore,
-        );
-      }
-      return null;
-    }
-  }
-  return _buildPromptFirstAgentLayout(textLines);
 }
 
 /// Terminal session 状态机枚举（F072）
@@ -287,7 +108,6 @@ class RendererAdapter {
   final List<String> _outputBuffer = [];
   final ValueNotifier<String> _outputText = ValueNotifier<String>('');
   bool _disposed = false;
-  bool _normalizingAgentExit = false;
 
   static const int _maxBufferLines = 50;
 
@@ -300,6 +120,10 @@ class RendererAdapter {
   ValueListenable<String> get outputText => _outputText;
 
   bool get isDisposed => _disposed;
+
+  bool get hasMeaningfulContent =>
+      _bufferHasMeaningfulContent(_terminal.mainBuffer) ||
+      _bufferHasMeaningfulContent(_terminal.altBuffer);
 
   /// 应用 snapshot（清空现有 buffer 后写入）
   void applySnapshot(
@@ -352,11 +176,34 @@ class RendererAdapter {
   }
 
   void _write(String data) {
-    _terminal.write(data);
-    _appendOutputBuffer(data);
-    if (_mightNeedAgentExitNormalization(data)) {
-      _maybeNormalizeAgentExitScreen();
+    final shouldLogTransition = _enableTerminalTransitionLogs &&
+        _terminalTransitionPattern.hasMatch(data);
+    if (shouldLogTransition) {
+      _logTerminalTransition('before_write', data);
     }
+    _terminal.write(data);
+    if (shouldLogTransition) {
+      _logTerminalTransition('after_write', data);
+    }
+    _appendOutputBuffer(data);
+  }
+
+  void _logTerminalTransition(String stage, String data) {
+    if (!kDebugMode) return;
+
+    final buffer = _terminal.buffer;
+    debugPrint(
+      '[TerminalTransition] $stage '
+      'buffer=${_terminal.isUsingAltBuffer ? "alt" : "main"} '
+      'cursor=(${buffer.cursorX},${buffer.cursorY}) '
+      'absoluteY=${buffer.absoluteCursorY} '
+      'scrollBack=${buffer.scrollBack} '
+      'height=${buffer.height} '
+      'view=${_terminal.viewWidth}x${_terminal.viewHeight} '
+      'margins=${buffer.marginTop}-${buffer.marginBottom} '
+      'origin=${_terminal.originMode} '
+      'seq=${_summarizeTerminalSequences(data)}',
+    );
   }
 
   void _appendOutputBuffer(String data) {
@@ -372,75 +219,18 @@ class RendererAdapter {
     _outputText.value = _outputBuffer.join('\n');
   }
 
-  void _maybeNormalizeAgentExitScreen() {
-    if (_disposed || _normalizingAgentExit || _terminal.isUsingAltBuffer) {
-      return;
-    }
-
-    final currentLines = _terminal.buffer.lines.toList();
-    final plan = _buildNormalizedAgentExitPlanFromBuffer(currentLines);
-    if (plan == null || plan.lineIndices.isEmpty) {
-      return;
-    }
-
-    _normalizingAgentExit = true;
-    try {
-      _applyNormalizationPlan(currentLines, plan);
-      final normalizedLines = _terminal.buffer.lines
-          .toList()
-          .map((line) => line.toString().trimRight())
-          .where((line) => line.isNotEmpty)
-          .toList(growable: false);
-      _outputBuffer
-        ..clear()
-        ..addAll(normalizedLines.take(_maxBufferLines));
-      _outputText.value = _outputBuffer.join('\n');
-      _terminal.notifyListeners();
-    } finally {
-      _normalizingAgentExit = false;
-    }
-  }
-
-  void _applyNormalizationPlan(
-    List<BufferLine> currentLines,
-    _AgentExitNormalizationPlan plan,
-  ) {
-    final replacement = <BufferLine>[];
-    for (final index in plan.lineIndices) {
-      replacement.add(_cloneBufferLine(currentLines[index]));
-    }
-    while (replacement.length < _terminal.viewHeight) {
-      replacement.add(BufferLine(_terminal.viewWidth));
-    }
-    _terminal.buffer.lines.replaceWith(replacement);
-
-    final finalCursorAbsolute =
-        plan.lineIndices.indexOf(plan.cursorSourceIndex);
-    final scrollBack = _terminal.buffer.lines.length - _terminal.viewHeight;
-    final cursorY = (finalCursorAbsolute - scrollBack).clamp(
-      0,
-      _terminal.viewHeight - 1,
-    );
-    final cursorLine = replacement[finalCursorAbsolute];
-    final cursorX = cursorLine.toString().trimRight().length.clamp(
-          0,
-          _terminal.viewWidth - 1,
-        );
-    _terminal.setCursor(cursorX, cursorY);
-  }
-
-  BufferLine _cloneBufferLine(BufferLine source) {
-    final clone = BufferLine(
-      source.length,
-      isWrapped: source.isWrapped,
-    );
-    clone.data.setAll(0, source.data);
-    return clone;
-  }
-
   void dispose() {
     _disposed = true;
     _outputText.dispose();
+  }
+
+  bool _bufferHasMeaningfulContent(Buffer buffer) {
+    for (var i = 0; i < buffer.lines.length; i++) {
+      if (buffer.lines[i].toString().trim().isNotEmpty) {
+        return true;
+      }
+    }
+    return false;
   }
 }
 
@@ -449,13 +239,16 @@ class _TerminalState {
 
   final RendererAdapter renderer;
   final List<String> _pendingRecoveryFrames = [];
+  final List<String> _pendingSnapshotChunks = [];
   final List<String> _pendingTerminalReplies = [];
   bool _hasLiveOutput = false;
   bool _recovering = false;
+  TerminalBufferKind _pendingSnapshotActiveBuffer = TerminalBufferKind.main;
   _TerminalReplyGuardMode _replyGuardMode = _TerminalReplyGuardMode.none;
   Timer? _recoveryTimeoutTimer;
   Timer? _postInterruptReplyTimer;
   void Function(String data)? _transportSink;
+  bool _snapshotReplayInProgress = false;
 
   // F072: 显式状态机追踪
   TerminalSessionState _sessionState = TerminalSessionState.idle;
@@ -464,6 +257,7 @@ class _TerminalState {
 
   TerminalSessionState get sessionState => _sessionState;
   ValueNotifier<TerminalSessionState> get stateNotifier => _stateNotifier;
+  bool get isRecovering => _recovering;
 
   /// 合法的状态转换表
   static const Map<TerminalSessionState, Set<TerminalSessionState>>
@@ -531,9 +325,25 @@ class _TerminalState {
   }
 
   void beginRecovery() {
+    if (_recovering) {
+      _armReplyGuard(_TerminalReplyGuardMode.recovery);
+      _recoveryTimeoutTimer?.cancel();
+      _recoveryTimeoutTimer = Timer(_recoveryTimeout, () {
+        if (_recovering) {
+          debugPrint(
+            '[TerminalSessionState] recovery timeout — auto-finishing recovery',
+          );
+          finishRecovery();
+        }
+      });
+      _setSessionState(TerminalSessionState.recovering);
+      return;
+    }
     _recovering = true;
     _hasLiveOutput = false;
     _pendingRecoveryFrames.clear();
+    _pendingSnapshotChunks.clear();
+    _pendingSnapshotActiveBuffer = TerminalBufferKind.main;
     _armReplyGuard(_TerminalReplyGuardMode.recovery);
     // 安全网：如果 snapshot_complete 未在超时内到达，自动完成恢复
     _recoveryTimeoutTimer?.cancel();
@@ -556,7 +366,20 @@ class _TerminalState {
     if (!_recovering && _hasLiveOutput) {
       return;
     }
-    renderer.applySnapshot(data, activeBuffer: activeBuffer);
+    _applySnapshotIfSafe(data, activeBuffer: activeBuffer);
+  }
+
+  void appendSnapshotChunk(
+    String data, {
+    TerminalBufferKind activeBuffer = TerminalBufferKind.main,
+  }) {
+    if (!_recovering && _hasLiveOutput) {
+      return;
+    }
+    _pendingSnapshotActiveBuffer = activeBuffer;
+    if (data.isNotEmpty) {
+      _pendingSnapshotChunks.add(data);
+    }
   }
 
   void prepareForRebind() {
@@ -581,14 +404,22 @@ class _TerminalState {
       return;
     }
 
+    final autoResponseKind = _classifyTerminalAutoResponse(data);
+    if (_snapshotReplayInProgress && autoResponseKind != null) {
+      return;
+    }
+
     if (data.contains('\x03')) {
       _armReplyGuard(_TerminalReplyGuardMode.interrupt);
       sink(data);
       return;
     }
 
-    if (_replyGuardMode != _TerminalReplyGuardMode.none &&
-        _isTerminalAutoResponse(data)) {
+    if (autoResponseKind != null &&
+        _shouldSuppressTerminalAutoResponse(
+          _replyGuardMode,
+          autoResponseKind,
+        )) {
       if (_replyGuardMode == _TerminalReplyGuardMode.interrupt) {
         _pendingTerminalReplies.add(data);
       }
@@ -603,9 +434,7 @@ class _TerminalState {
     if (_replyGuardMode == _TerminalReplyGuardMode.none || data.isEmpty) {
       return;
     }
-    if (_containsAgentExitMarker(data) || _containsLikelyShellPrompt(data)) {
-      _dropPendingTerminalReplies();
-    }
+    _dropPendingTerminalReplies();
   }
 
   void _armReplyGuard(_TerminalReplyGuardMode mode) {
@@ -661,12 +490,56 @@ class _TerminalState {
     _recovering = false;
     _recoveryTimeoutTimer?.cancel();
     _recoveryTimeoutTimer = null;
+    if (_pendingSnapshotChunks.isNotEmpty) {
+      _applySnapshotIfSafe(
+        _pendingSnapshotChunks.join(),
+        activeBuffer: _pendingSnapshotActiveBuffer,
+      );
+      _pendingSnapshotChunks.clear();
+    }
     for (final frame in _pendingRecoveryFrames) {
       renderer.applyLiveOutput(frame);
     }
     _pendingRecoveryFrames.clear();
     // F072: recovering -> live
     _setSessionState(TerminalSessionState.live);
+  }
+
+  void _applySnapshotIfSafe(
+    String data, {
+    required TerminalBufferKind activeBuffer,
+  }) {
+    if (_shouldPreserveLocalTerminal(data, activeBuffer: activeBuffer)) {
+      if (kDebugMode) {
+        debugPrint(
+          '[TerminalSessionState] dropping unsafe recovery snapshot '
+          'buffer=${activeBuffer.name} seq=${_summarizeTerminalSequences(data)}',
+        );
+      }
+      return;
+    }
+    _snapshotReplayInProgress = true;
+    try {
+      renderer.applySnapshot(data, activeBuffer: activeBuffer);
+    } finally {
+      _snapshotReplayInProgress = false;
+    }
+  }
+
+  bool _shouldPreserveLocalTerminal(
+    String data, {
+    required TerminalBufferKind activeBuffer,
+  }) {
+    if (!_recovering) {
+      return false;
+    }
+    if (activeBuffer != TerminalBufferKind.main) {
+      return false;
+    }
+    if (!renderer.hasMeaningfulContent) {
+      return false;
+    }
+    return _alternateBufferTransitionPattern.hasMatch(data);
   }
 
   void dispose() {
@@ -683,23 +556,17 @@ class _TerminalBinding {
   const _TerminalBinding({
     required this.service,
     required this.generation,
-    required this.connectedSubscription,
-    required this.outputSubscription,
-    required this.ptySubscription,
+    required this.protocolSubscription,
     required this.statusListener,
   });
 
   final WebSocketService service;
   final int generation;
-  final StreamSubscription<void> connectedSubscription;
-  final StreamSubscription<TerminalOutputFrame> outputSubscription;
-  final StreamSubscription<TerminalPtySize> ptySubscription;
+  final StreamSubscription<TerminalProtocolEvent> protocolSubscription;
   final void Function() statusListener;
 
   Future<void> cancel() async {
-    await connectedSubscription.cancel();
-    await outputSubscription.cancel();
-    await ptySubscription.cancel();
+    await protocolSubscription.cancel();
     service.removeListener(statusListener);
   }
 }
@@ -724,6 +591,23 @@ class TerminalSessionManager extends ChangeNotifier
     _maybeRegisterObserver();
   }
 
+  bool get _shouldPauseOnInactive {
+    if (kIsWeb) {
+      return false;
+    }
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android:
+      case TargetPlatform.iOS:
+        return true;
+      case TargetPlatform.fuchsia:
+      case TargetPlatform.linux:
+      case TargetPlatform.macOS:
+      case TargetPlatform.ohos:
+      case TargetPlatform.windows:
+        return false;
+    }
+  }
+
   /// F076: 全平台注册 WidgetsBindingObserver
   /// 桌面端也需要感知前后台切换（macOS 合盖/窗口最小化等）
   void _maybeRegisterObserver() {
@@ -735,8 +619,12 @@ class TerminalSessionManager extends ChangeNotifier
   void didChangeAppLifecycleState(AppLifecycleState state) {
     switch (state) {
       case AppLifecycleState.paused:
-      case AppLifecycleState.inactive:
         pauseAll();
+        break;
+      case AppLifecycleState.inactive:
+        if (_shouldPauseOnInactive) {
+          pauseAll();
+        }
         break;
       case AppLifecycleState.resumed:
         resumeAll();
@@ -936,33 +824,55 @@ class TerminalSessionManager extends ChangeNotifier
     _terminalBindings[key] = _TerminalBinding(
       service: service,
       generation: generation,
-      connectedSubscription: service.terminalConnectedStream.listen((_) {
+      protocolSubscription: service.eventStream.listen((event) {
         if (_bindingGenerations[key] != generation) return;
-        // 防止排队中的 connected 事件覆盖永久失败状态
-        if (service.isPermanentlyFailed) {
-          return;
+        switch (event.kind) {
+          case TerminalProtocolEventKind.connected:
+            // 防止排队中的 connected 事件覆盖永久失败状态
+            if (service.isPermanentlyFailed ||
+                service.status != ConnectionStatus.connected) {
+              return;
+            }
+            final pty = event.ptySize;
+            if (pty != null) {
+              state.applyRemotePtySize(pty.rows, pty.cols);
+            }
+            state.beginRecovery();
+            return;
+          case TerminalProtocolEventKind.snapshot:
+            if (service.status == ConnectionStatus.connected) {
+              state.beginRecovery();
+            }
+            state.replaceWithSnapshot(
+              event.payload ?? '',
+              activeBuffer: event.activeBuffer ?? TerminalBufferKind.main,
+            );
+            return;
+          case TerminalProtocolEventKind.snapshotChunk:
+            if (service.status == ConnectionStatus.connected) {
+              state.beginRecovery();
+            }
+            state.appendSnapshotChunk(
+              event.payload ?? '',
+              activeBuffer: event.activeBuffer ?? TerminalBufferKind.main,
+            );
+            return;
+          case TerminalProtocolEventKind.snapshotComplete:
+            state.finishRecovery();
+            return;
+          case TerminalProtocolEventKind.output:
+            state.appendLiveFrame(event.payload ?? '');
+            return;
+          case TerminalProtocolEventKind.resize:
+            final pty = event.ptySize;
+            if (pty != null) {
+              state.applyRemotePtySize(pty.rows, pty.cols);
+            }
+            return;
+          case TerminalProtocolEventKind.presence:
+          case TerminalProtocolEventKind.closed:
+            return;
         }
-        if (service.status != ConnectionStatus.connected) return;
-        state.beginRecovery();
-      }),
-      outputSubscription: service.outputFrameStream.listen((frame) {
-        if (_bindingGenerations[key] != generation) return;
-        if (frame.isSnapshot) {
-          state.replaceWithSnapshot(
-            frame.payload,
-            activeBuffer: frame.activeBuffer ?? TerminalBufferKind.main,
-          );
-          return;
-        }
-        if (frame.kind == TerminalOutputKind.snapshotComplete) {
-          state.finishRecovery();
-          return;
-        }
-        state.appendLiveFrame(frame.payload);
-      }),
-      ptySubscription: service.ptySizeStream.listen((pty) {
-        if (_bindingGenerations[key] != generation) return;
-        state.applyRemotePtySize(pty.rows, pty.cols);
       }),
       statusListener: () {
         if (_bindingGenerations[key] != generation) return;

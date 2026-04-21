@@ -535,6 +535,59 @@ void main() {
       },
     );
 
+    testWidgets(
+      'bottom-aligns short main buffer content after alternate buffer exits',
+      (tester) async {
+        final terminal = Terminal(maxLines: 500);
+
+        await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+            body: SizedBox.expand(
+              child: TerminalView(terminal),
+            ),
+          ),
+        ));
+
+        terminal.write('bash-3.2\$ ');
+        await tester.pump();
+
+        terminal.write('\x1b[?1049halt screen');
+        await tester.pump();
+
+        terminal.write('\x1b[?1049l');
+        await tester.pump();
+
+        final dynamic state = tester.state(find.byType(TerminalView));
+        final cursorBottom = (state.cursorRect as Rect).bottom;
+        final viewHeight = tester.getSize(find.byType(TerminalView)).height;
+
+        expect(cursorBottom, closeTo(viewHeight, 1));
+      },
+    );
+
+    testWidgets(
+      'keeps short main buffer content top-aligned without alternate buffer transitions',
+      (tester) async {
+        final terminal = Terminal(maxLines: 500);
+
+        await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+            body: SizedBox.expand(
+              child: TerminalView(terminal),
+            ),
+          ),
+        ));
+
+        terminal.write('bash-3.2\$ ');
+        await tester.pump();
+
+        final dynamic state = tester.state(find.byType(TerminalView));
+        final cursorTop = (state.cursorRect as Rect).top;
+
+        expect(cursorTop, closeTo(0, 1));
+      },
+    );
+
     testWidgets('works', (tester) async {
       final terminalOutput = <String>[];
       final terminal = Terminal(onOutput: terminalOutput.add);

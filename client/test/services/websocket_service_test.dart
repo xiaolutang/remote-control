@@ -250,7 +250,8 @@ void main() {
       service.dispose();
     });
 
-    test('snapshot_chunk messages are decoded into snapshot frames', () async {
+    test('snapshot_chunk messages are decoded into snapshot chunk frames',
+        () async {
       final service = WebSocketService(
         serverUrl: 'ws://localhost:8888',
         token: 'test-token',
@@ -270,7 +271,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 10));
 
       expect(frames, hasLength(1));
-      expect(frames.single.kind, TerminalOutputKind.snapshot);
+      expect(frames.single.kind, TerminalOutputKind.snapshotChunk);
       expect(frames.single.payload, 'hello chunk');
       expect(frames.single.attachEpoch, 3);
       expect(frames.single.recoveryEpoch, 7);
@@ -300,9 +301,12 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 10));
 
       expect(frames, hasLength(1));
+      expect(frames.single.kind, TerminalOutputKind.snapshotChunk);
       expect(frames.single.activeBuffer, TerminalBufferKind.alt);
       final snapshotEvents = events
-          .where((event) => event.kind == TerminalProtocolEventKind.snapshot)
+          .where(
+            (event) => event.kind == TerminalProtocolEventKind.snapshotChunk,
+          )
           .toList();
       expect(snapshotEvents, hasLength(1));
       expect(snapshotEvents.single.activeBuffer, TerminalBufferKind.alt);
@@ -644,6 +648,94 @@ void main() {
       expect(closedEvent.single.terminalStatus, 'closed');
 
       await sub.cancel();
+      service.dispose();
+    });
+
+    test('output messages preserve UTF-8 characters across frame boundaries',
+        () async {
+      final service = WebSocketService(
+        serverUrl: 'ws://localhost:8888',
+        token: 'test-token',
+        sessionId: 'session-1',
+      );
+
+      final frames = <TerminalOutputFrame>[];
+      final events = <TerminalProtocolEvent>[];
+      final sub1 = service.outputFrameStream.listen(frames.add);
+      final sub2 = service.eventStream.listen(events.add);
+      final bytes = utf8.encode('你');
+
+      service.debugHandleMessage(jsonEncode({
+        'type': 'output',
+        'payload': base64Encode(bytes.sublist(0, 2)),
+      }));
+      service.debugHandleMessage(jsonEncode({
+        'type': 'output',
+        'payload': base64Encode(bytes.sublist(2)),
+      }));
+
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(frames, hasLength(1));
+      expect(frames.single.kind, TerminalOutputKind.data);
+      expect(frames.single.payload, '你');
+      expect(frames.single.payload, isNot(contains('�')));
+
+      final outputEvents = events
+          .where((event) => event.kind == TerminalProtocolEventKind.output)
+          .toList();
+      expect(outputEvents, hasLength(1));
+      expect(outputEvents.single.payload, '你');
+
+      await sub1.cancel();
+      await sub2.cancel();
+      service.dispose();
+    });
+
+    test(
+        'snapshot_chunk messages preserve UTF-8 characters across frame boundaries',
+        () async {
+      final service = WebSocketService(
+        serverUrl: 'ws://localhost:8888',
+        token: 'test-token',
+        sessionId: 'session-1',
+      );
+
+      final frames = <TerminalOutputFrame>[];
+      final events = <TerminalProtocolEvent>[];
+      final sub1 = service.outputFrameStream.listen(frames.add);
+      final sub2 = service.eventStream.listen(events.add);
+      final bytes = utf8.encode('好');
+
+      service.debugHandleMessage(jsonEncode({
+        'type': 'snapshot_chunk',
+        'payload': base64Encode(bytes.sublist(0, 2)),
+        'active_buffer': 'alt',
+      }));
+      service.debugHandleMessage(jsonEncode({
+        'type': 'snapshot_chunk',
+        'payload': base64Encode(bytes.sublist(2)),
+        'active_buffer': 'alt',
+      }));
+
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(frames, hasLength(1));
+      expect(frames.single.kind, TerminalOutputKind.snapshotChunk);
+      expect(frames.single.payload, '好');
+      expect(frames.single.payload, isNot(contains('�')));
+      expect(frames.single.activeBuffer, TerminalBufferKind.alt);
+
+      final snapshotEvents = events
+          .where(
+              (event) => event.kind == TerminalProtocolEventKind.snapshotChunk)
+          .toList();
+      expect(snapshotEvents, hasLength(1));
+      expect(snapshotEvents.single.payload, '好');
+      expect(snapshotEvents.single.activeBuffer, TerminalBufferKind.alt);
+
+      await sub1.cancel();
+      await sub2.cancel();
       service.dispose();
     });
   });

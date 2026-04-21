@@ -212,6 +212,19 @@ void main() {
       expect(terminal.buffer.cursorY, 4);
     });
 
+    test('does not treat prefixed CSI < u as ANSI cursor restore', () {
+      final terminal = Terminal();
+
+      terminal.setCursor(0, 0);
+      terminal.write('\x1b[s');
+      terminal.setCursor(12, 9);
+
+      terminal.write('\x1b[<u');
+
+      expect(terminal.buffer.cursorX, 12);
+      expect(terminal.buffer.cursorY, 9);
+    });
+
     test('restores cursor to the saved buffer line after scrollback grows', () {
       final terminal = Terminal();
       terminal.resize(5, 4);
