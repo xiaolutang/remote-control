@@ -125,15 +125,12 @@ class CustomTextEditState extends State<CustomTextEdit> with TextInputClient {
     _connection?.setEditingState(value);
   }
 
-  void setEditableRect(Rect rect, Rect caretRect) {
+  void setEditableRect(Rect rect, Rect caretRect, Matrix4 transform) {
     if (!hasInputConnection) {
       return;
     }
 
-    _connection?.setEditableSizeAndTransform(
-      rect.size,
-      Matrix4.translationValues(0, 0, 0),
-    );
+    _connection?.setEditableSizeAndTransform(rect.size, transform);
 
     _connection?.setCaretRect(caretRect);
   }

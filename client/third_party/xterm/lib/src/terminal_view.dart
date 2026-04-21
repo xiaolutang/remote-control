@@ -461,8 +461,12 @@ class TerminalViewState extends State<TerminalView> {
     }
   }
 
-  void _onEditableRect(Rect rect, Rect caretRect) {
-    _customTextEditKey.currentState?.setEditableRect(rect, caretRect);
+  void _onEditableRect(Rect rect, Rect caretRect, Matrix4 transform) {
+    _customTextEditKey.currentState?.setEditableRect(
+      rect,
+      caretRect,
+      transform,
+    );
   }
 
   void _scrollToBottom() {

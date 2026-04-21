@@ -17,7 +17,11 @@ import 'package:xterm/src/ui/terminal_size.dart';
 import 'package:xterm/src/ui/terminal_text_style.dart';
 import 'package:xterm/src/ui/terminal_theme.dart';
 
-typedef EditableRectCallback = void Function(Rect rect, Rect caretRect);
+typedef EditableRectCallback = void Function(
+  Rect editableRect,
+  Rect caretRect,
+  Matrix4 transform,
+);
 
 class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
   static const double _bottomScrollTolerance = 1.0;
@@ -352,18 +356,11 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
   }
 
   void _notifyEditableRect() {
-    final cursor = localToGlobal(cursorOffset);
+    final editableRect = Offset.zero & size;
+    final caretRect = cursorOffset & _painter.cellSize;
+    final transform = getTransformTo(null);
 
-    final rect = Rect.fromLTRB(
-      cursor.dx,
-      cursor.dy,
-      size.width,
-      cursor.dy + _painter.cellSize.height,
-    );
-
-    final caretRect = cursor & _painter.cellSize;
-
-    _onEditableRect?.call(rect, caretRect);
+    _onEditableRect?.call(editableRect, caretRect, transform);
   }
 
   /// Update the viewport size in cells based on the current widget size in
