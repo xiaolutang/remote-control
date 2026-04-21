@@ -20,6 +20,7 @@ class AppConfig {
   final AppThemeMode themeMode;
   final ClaudeNavigationMode claudeNavigationMode;
   final bool keepAgentRunningInBackground;
+  final bool desktopBackgroundModeUserSet;
   final String desktopAgentWorkdir;
   final String preferredDeviceId;
   final List<ShortcutItem> shortcutItems;
@@ -35,7 +36,8 @@ class AppConfig {
     this.heartbeatInterval = const Duration(seconds: 30),
     this.themeMode = AppThemeMode.system,
     this.claudeNavigationMode = ClaudeNavigationMode.standard,
-    this.keepAgentRunningInBackground = true,
+    this.keepAgentRunningInBackground = false,
+    this.desktopBackgroundModeUserSet = false,
     this.desktopAgentWorkdir = '',
     this.preferredDeviceId = '',
     this.shortcutItems = const [],
@@ -53,6 +55,7 @@ class AppConfig {
     AppThemeMode? themeMode,
     ClaudeNavigationMode? claudeNavigationMode,
     bool? keepAgentRunningInBackground,
+    bool? desktopBackgroundModeUserSet,
     String? desktopAgentWorkdir,
     String? preferredDeviceId,
     List<ShortcutItem>? shortcutItems,
@@ -67,10 +70,11 @@ class AppConfig {
       reconnectDelay: reconnectDelay ?? this.reconnectDelay,
       heartbeatInterval: heartbeatInterval ?? this.heartbeatInterval,
       themeMode: themeMode ?? this.themeMode,
-      claudeNavigationMode:
-          claudeNavigationMode ?? this.claudeNavigationMode,
+      claudeNavigationMode: claudeNavigationMode ?? this.claudeNavigationMode,
       keepAgentRunningInBackground:
           keepAgentRunningInBackground ?? this.keepAgentRunningInBackground,
+      desktopBackgroundModeUserSet:
+          desktopBackgroundModeUserSet ?? this.desktopBackgroundModeUserSet,
       desktopAgentWorkdir: desktopAgentWorkdir ?? this.desktopAgentWorkdir,
       preferredDeviceId: preferredDeviceId ?? this.preferredDeviceId,
       shortcutItems: shortcutItems ?? this.shortcutItems,
@@ -89,6 +93,7 @@ class AppConfig {
       'themeMode': themeMode.name,
       'claudeNavigationMode': claudeNavigationMode.name,
       'keepAgentRunningInBackground': keepAgentRunningInBackground,
+      'desktopBackgroundModeUserSet': desktopBackgroundModeUserSet,
       'desktopAgentWorkdir': desktopAgentWorkdir,
       'preferredDeviceId': preferredDeviceId,
       'shortcutItems': shortcutItems.map((item) => item.toJson()).toList(),
@@ -101,15 +106,18 @@ class AppConfig {
     };
   }
 
-  factory AppConfig.fromJson(Map<String, dynamic> json, {String serverUrl = ''}) {
+  factory AppConfig.fromJson(Map<String, dynamic> json,
+      {String serverUrl = ''}) {
     return AppConfig(
       serverUrl: serverUrl,
       token: json['token'] as String?,
       sessionId: json['sessionId'] as String? ?? '',
       autoReconnect: json['autoReconnect'] as bool? ?? true,
       maxRetries: json['maxRetries'] as int? ?? 5,
-      reconnectDelay: Duration(milliseconds: json['reconnectDelayMs'] as int? ?? 1000),
-      heartbeatInterval: Duration(milliseconds: json['heartbeatIntervalMs'] as int? ?? 30000),
+      reconnectDelay:
+          Duration(milliseconds: json['reconnectDelayMs'] as int? ?? 1000),
+      heartbeatInterval:
+          Duration(milliseconds: json['heartbeatIntervalMs'] as int? ?? 30000),
       themeMode: AppThemeMode.values.byName(
         json['themeMode'] as String? ?? AppThemeMode.system.name,
       ),
@@ -118,14 +126,17 @@ class AppConfig {
             ClaudeNavigationMode.standard.name,
       ),
       keepAgentRunningInBackground:
-          json['keepAgentRunningInBackground'] as bool? ?? true,
+          json['keepAgentRunningInBackground'] as bool? ?? false,
+      desktopBackgroundModeUserSet:
+          json['desktopBackgroundModeUserSet'] as bool? ?? false,
       desktopAgentWorkdir: json['desktopAgentWorkdir'] as String? ?? '',
       preferredDeviceId: json['preferredDeviceId'] as String? ?? '',
       shortcutItems: ((json['shortcutItems'] as List<dynamic>?) ?? const [])
           .whereType<Map<String, dynamic>>()
           .map(ShortcutItem.fromJson)
           .toList(growable: false),
-      projectShortcutItems: (((json['projectShortcutItems'] as Map<String, dynamic>?) ??
+      projectShortcutItems:
+          (((json['projectShortcutItems'] as Map<String, dynamic>?) ??
                   const <String, dynamic>{}))
               .map(
         (key, value) => MapEntry(

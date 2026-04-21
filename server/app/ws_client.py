@@ -91,16 +91,14 @@ def _unregister_client(channel_key: str, client_conn: ClientConnection):
 
 
 def _find_client_by_view_type(
-    session_id: str,
+    channel_key: str,
     view_type: str,
     exclude_conn: Optional[ClientConnection] = None,
 ) -> Optional[ClientConnection]:
-    """在所有 channel_key 中查找同 session 同 view_type 的已有 Client"""
-    for channel_key, clients in active_clients.items():
-        if _matches_session(channel_key, session_id):
-            for client in clients:
-                if client.view_type == view_type and client is not exclude_conn:
-                    return client
+    """在同一 channel 内查找同 view_type 的已有 Client。"""
+    for client in active_clients.get(channel_key, []):
+        if client.view_type == view_type and client is not exclude_conn:
+            return client
     return None
 
 
@@ -226,7 +224,11 @@ async def client_websocket_handler(
     )
 
     # 检测同端已有连接，直接踢出
-    existing_client = _find_client_by_view_type(session_id, view, exclude_conn=client_conn)
+    existing_client = _find_client_by_view_type(
+        channel_key,
+        view,
+        exclude_conn=client_conn,
+    )
     if existing_client:
         logger.info(
             "Kicking existing client: session_id=%s view=%s old_device=%s",

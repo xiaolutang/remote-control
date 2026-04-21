@@ -412,7 +412,7 @@ async def _cleanup_agent(session_id: str, reason: str = "agent_shutdown"):
     """
     清理 Agent 连接
 
-    将 Agent 标记为 stale 而非立即 offline，等待 TTL 过期。
+    network_lost 等异常断连进入 stale；agent_shutdown 等显式停止直接 offline。
 
     Args:
         session_id: 会话 ID
@@ -424,6 +424,11 @@ async def _cleanup_agent(session_id: str, reason: str = "agent_shutdown"):
     _cleanup_pending_futures(pending_terminal_creates, session_id, reason)
     _cleanup_pending_futures(pending_terminal_closes, session_id, reason)
     _cleanup_pending_futures(pending_terminal_snapshots, session_id, reason)
+
+    # 主动关闭 Agent（例如桌面端正常退出）不应保留可恢复 terminal。
+    if reason == "agent_shutdown":
+        await _set_session_offline_immediately(session_id, reason=reason)
+        return
 
     # 先进入 recoverable offline，再等待 TTL 过期
     try:
@@ -523,14 +528,25 @@ async def _cleanup_agent_immediately(session_id: str):
     Args:
         session_id: 会话 ID
     """
-    # 先清除 stale 状态
-    _clear_agent_stale(session_id)
+    await _set_session_offline_immediately(session_id, reason="agent_shutdown")
 
-    # 原子更新：status=offline + agent_online=False + bulk close terminals
+
+async def _set_session_offline_immediately(
+    session_id: str,
+    *,
+    reason: str,
+) -> None:
+    """清除 stale 状态并立即把 session/terminals 收口到 offline_expired。"""
+    _clear_agent_stale(session_id)
     try:
-        await set_session_offline(session_id, reason="agent_shutdown")
-    except Exception as e:
-        logger.error("Failed to cleanup agent immediately: session_id=%s error=%s", session_id, e)
+        await set_session_offline(session_id, reason=reason)
+    except Exception as exc:
+        logger.error(
+            "Failed to mark session offline_expired: session_id=%s reason=%s error=%s",
+            session_id,
+            reason,
+            exc,
+        )
 
 
 async def _restore_recoverable_terminals(session_id: str, agent_conn: AgentConnection):

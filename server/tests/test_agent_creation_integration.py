@@ -203,8 +203,8 @@ class TestAgentCreationIntegration:
         # Flutter 第 1 次轮询 → 应该看到 online
         assert _device_online({"session_id": session_id, **session_data}) is True
 
-        # Agent 断连（模拟快速断连）
-        await _cleanup_agent(session_id, "agent_shutdown")
+        # Agent 异常断连（模拟快速断连）
+        await _cleanup_agent(session_id, "network_lost")
 
         # Flutter 第 2 次轮询 → 应该看到 offline
         assert _device_online({"session_id": session_id, **session_data}) is False

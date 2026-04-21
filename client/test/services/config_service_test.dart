@@ -18,16 +18,20 @@ void main() {
       EnvironmentService.setInstance(envService);
     });
 
-    test('returns serverUrl from EnvironmentService when no saved config exists', () async {
+    test(
+        'returns serverUrl from EnvironmentService when no saved config exists',
+        () async {
       final service = ConfigService();
 
       final config = await service.loadConfig();
 
       expect(config.serverUrl, 'ws://localhost');
+      expect(config.keepAgentRunningInBackground, isFalse);
       expect(config.shortcutItems, isEmpty);
     });
 
-    test('preserves saved fields and uses EnvironmentService serverUrl', () async {
+    test('preserves saved fields and uses EnvironmentService serverUrl',
+        () async {
       final service = ConfigService();
       const saved = AppConfig(
         serverUrl: 'ws://old-value:8888/rc',
@@ -77,6 +81,33 @@ void main() {
       final service = ConfigService();
       final config = await service.loadConfig();
       expect(config.serverUrl, 'wss://rc.xiaolutang.top/rc');
+    });
+
+    test('legacy saved keep-running=true is migrated back to false', () async {
+      final service = ConfigService();
+      const legacy = AppConfig(
+        keepAgentRunningInBackground: true,
+      );
+
+      await service.saveConfig(legacy);
+      final restored = await service.loadConfig();
+
+      expect(restored.keepAgentRunningInBackground, isFalse);
+      expect(restored.desktopBackgroundModeUserSet, isFalse);
+    });
+
+    test('explicit keep-running choice is preserved', () async {
+      final service = ConfigService();
+      const explicit = AppConfig(
+        keepAgentRunningInBackground: true,
+        desktopBackgroundModeUserSet: true,
+      );
+
+      await service.saveConfig(explicit);
+      final restored = await service.loadConfig();
+
+      expect(restored.keepAgentRunningInBackground, isTrue);
+      expect(restored.desktopBackgroundModeUserSet, isTrue);
     });
   });
 }

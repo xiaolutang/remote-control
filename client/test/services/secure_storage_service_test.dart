@@ -5,6 +5,7 @@ import 'package:rc_client/services/secure_storage_service.dart';
 class _CountingSecureStorage implements FlutterSecureStorage {
   final Map<String, String> _store = <String, String>{};
   int readCallCount = 0;
+  int readAllCallCount = 0;
 
   @override
   Future<void> write({
@@ -32,6 +33,19 @@ class _CountingSecureStorage implements FlutterSecureStorage {
   }) async {
     readCallCount += 1;
     return _store[key];
+  }
+
+  @override
+  Future<Map<String, String>> readAll({
+    IOSOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WindowsOptions? wOptions,
+    WebOptions? webOptions,
+    MacOsOptions? mOptions,
+  }) async {
+    readAllCallCount += 1;
+    return Map<String, String>.from(_store);
   }
 
   @override
@@ -77,7 +91,7 @@ class _CountingSecureStorage implements FlutterSecureStorage {
 }
 
 void main() {
-  test('does not eager-load every tracked secret when reading a single key',
+  test('tracked single-key read is served from one secure-storage snapshot',
       () async {
     final storage = _CountingSecureStorage()
       .._store[SecureStorageService.passwordKey] = 'pwd'
@@ -91,7 +105,8 @@ void main() {
     );
     expect(await service.read(SecureStorageService.tokenKey), 'tok');
 
-    expect(storage.readCallCount, 2);
+    expect(storage.readCallCount, 0);
+    expect(storage.readAllCallCount, 1);
   });
 
   test(
@@ -129,9 +144,11 @@ void main() {
 
     expect(firstValues[SecureStorageService.tokenKey], 'tok');
     expect(firstValues[SecureStorageService.refreshTokenKey], 'rt');
-    expect(storage.readCallCount, 3);
+    expect(storage.readCallCount, 0);
+    expect(storage.readAllCallCount, 1);
 
     storage.readCallCount = 0;
+    storage.readAllCallCount = 0;
     final secondLaunch = SecureStorageService(storage: storage);
     final secondValues = await secondLaunch.readTrackedEntries(
       const <String>[
@@ -142,6 +159,7 @@ void main() {
 
     expect(secondValues[SecureStorageService.tokenKey], 'tok');
     expect(secondValues[SecureStorageService.refreshTokenKey], 'rt');
-    expect(storage.readCallCount, 1);
+    expect(storage.readCallCount, 0);
+    expect(storage.readAllCallCount, 1);
   });
 }

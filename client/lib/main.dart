@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'services/config_service.dart';
+import 'services/desktop_agent_exit_bridge.dart';
 import 'screens/login_screen.dart';
 import 'screens/terminal_workspace_screen.dart';
 import 'services/app_startup_coordinator.dart';
@@ -13,6 +15,10 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   await EnvironmentService.initialize();
+  final config = await ConfigService().loadConfig();
+  await DesktopAgentExitBridge.syncKeepRunningInBackground(
+    config.keepAgentRunningInBackground,
+  );
   runApp(const RemoteControlApp());
 }
 

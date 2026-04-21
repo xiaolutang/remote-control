@@ -15,7 +15,8 @@ void main() {
       expect(config.maxRetries, 5);
       expect(config.themeMode, AppThemeMode.system);
       expect(config.claudeNavigationMode, ClaudeNavigationMode.standard);
-      expect(config.keepAgentRunningInBackground, isTrue);
+      expect(config.keepAgentRunningInBackground, isFalse);
+      expect(config.desktopBackgroundModeUserSet, isFalse);
       expect(config.desktopAgentWorkdir, isEmpty);
     });
 
@@ -98,7 +99,8 @@ void main() {
       expect(json['desktopAgentWorkdir'], '/tmp/agent');
       expect((json['shortcutItems'] as List).length, 1);
       expect(
-        ((json['projectShortcutItems'] as Map<String, dynamic>)['project-a'] as List)
+        ((json['projectShortcutItems'] as Map<String, dynamic>)['project-a']
+                as List)
             .length,
         1,
       );
@@ -117,7 +119,8 @@ void main() {
       );
       expect(restored.desktopAgentWorkdir, config.desktopAgentWorkdir);
       expect(restored.shortcutItems.single.id, 'claude_help');
-      expect(restored.projectShortcutItems['project-a']!.single.id, 'project_test');
+      expect(restored.projectShortcutItems['project-a']!.single.id,
+          'project_test');
     });
 
     test('fromJson handles missing fields', () {
@@ -130,7 +133,8 @@ void main() {
       expect(config.autoReconnect, isTrue);
       expect(config.themeMode, AppThemeMode.system);
       expect(config.claudeNavigationMode, ClaudeNavigationMode.standard);
-      expect(config.keepAgentRunningInBackground, isTrue);
+      expect(config.keepAgentRunningInBackground, isFalse);
+      expect(config.desktopBackgroundModeUserSet, isFalse);
       expect(config.desktopAgentWorkdir, isEmpty);
     });
 

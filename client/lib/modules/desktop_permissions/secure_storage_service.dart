@@ -36,10 +36,8 @@ class SecureStorageService {
 
   final FlutterSecureStorage _storage;
   final Map<String, String?> _cache = <String, String?>{};
-  final Map<String, Future<String?>> _trackedReadFutures =
-      <String, Future<String?>>{};
-  Future<void>? _trackedBundleLoadFuture;
-  bool _trackedBundleLoaded = false;
+  Future<void>? _trackedSnapshotLoadFuture;
+  bool _trackedSnapshotLoaded = false;
 
   Future<String?> read(String key) async {
     if (_cache.containsKey(key)) {
@@ -75,19 +73,12 @@ class SecureStorageService {
       return result;
     }
 
-    await _loadTrackedBundleIfPresent();
+    await _loadTrackedSnapshot();
 
     for (final key in requestedKeys) {
       if (_cache.containsKey(key)) {
         result[key] = _cache[key];
       }
-    }
-
-    for (final key in requestedKeys) {
-      if (result.containsKey(key)) {
-        continue;
-      }
-      result[key] = await _readTrackedLegacyKey(key);
     }
 
     return result;
@@ -121,7 +112,7 @@ class SecureStorageService {
     final needsBundleLoad =
         untouchedKeys.any((key) => !_cache.containsKey(key));
     if (needsBundleLoad) {
-      await _loadTrackedBundleIfPresent();
+      await _loadTrackedSnapshot();
     }
     for (final entry in trackedEntries.entries) {
       _cache[entry.key] = entry.value;
@@ -146,16 +137,17 @@ class SecureStorageService {
       await _storage.delete(key: key);
       _cache.remove(key);
     }
-    _trackedReadFutures.clear();
-    _trackedBundleLoaded = false;
-    _trackedBundleLoadFuture = null;
+    _resetTrackedSnapshotState();
   }
 
   void clearMemoryCache() {
     _cache.clear();
-    _trackedReadFutures.clear();
-    _trackedBundleLoaded = false;
-    _trackedBundleLoadFuture = null;
+    _resetTrackedSnapshotState();
+  }
+
+  void _resetTrackedSnapshotState() {
+    _trackedSnapshotLoaded = false;
+    _trackedSnapshotLoadFuture = null;
   }
 
   Future<void> warmUpTrackedKeys() async {
@@ -170,39 +162,19 @@ class SecureStorageService {
     return values[key];
   }
 
-  Future<String?> _readTrackedLegacyKey(String key) async {
-    final pending = _trackedReadFutures[key];
-    if (pending != null) {
-      return pending;
-    }
-
-    final future = () async {
-      final value = await _storage.read(key: key);
-      _cache[key] = value;
-      if (value != null && value.isNotEmpty) {
-        await _persistTrackedBundle();
-      }
-      return value;
-    }();
-    _trackedReadFutures[key] = future;
-
-    try {
-      return await future;
-    } finally {
-      _trackedReadFutures.remove(key);
-    }
-  }
-
-  Future<void> _loadTrackedBundleIfPresent() async {
-    if (_trackedBundleLoaded) {
+  Future<void> _loadTrackedSnapshot() async {
+    if (_trackedSnapshotLoaded) {
       return;
     }
-    if (_trackedBundleLoadFuture != null) {
-      return _trackedBundleLoadFuture;
+    if (_trackedSnapshotLoadFuture != null) {
+      return _trackedSnapshotLoadFuture;
     }
 
-    _trackedBundleLoadFuture = () async {
-      final raw = await _storage.read(key: _trackedBundleKey);
+    _trackedSnapshotLoadFuture = () async {
+      // Load tracked secrets in one secure-storage access so macOS Keychain
+      // migration/recovery does not fan out into multiple permission prompts.
+      final snapshot = await _storage.readAll();
+      final raw = snapshot[_trackedBundleKey];
       if (raw != null && raw.isNotEmpty) {
         try {
           final decoded = jsonDecode(raw);
@@ -220,13 +192,30 @@ class SecureStorageService {
           // Ignore a corrupted bundle and fall back to legacy per-key entries.
         }
       }
-      _trackedBundleLoaded = true;
+
+      var restoredFromLegacy = false;
+      for (final key in _trackedKeys) {
+        if (_cache.containsKey(key)) {
+          continue;
+        }
+        final value = snapshot[key];
+        if (value != null) {
+          _cache[key] = value;
+          restoredFromLegacy = true;
+        }
+      }
+
+      if (restoredFromLegacy) {
+        await _persistTrackedBundle();
+      }
+
+      _trackedSnapshotLoaded = true;
     }();
 
     try {
-      await _trackedBundleLoadFuture;
+      await _trackedSnapshotLoadFuture;
     } finally {
-      _trackedBundleLoadFuture = null;
+      _trackedSnapshotLoadFuture = null;
     }
   }
 

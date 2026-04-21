@@ -98,8 +98,16 @@ class DesktopWorkspaceController extends ChangeNotifier {
 
   Future<void> setKeepAgentRunningInBackground(bool value) async {
     final config = await _configService.loadConfig();
+    if (config.keepAgentRunningInBackground == value &&
+        config.desktopBackgroundModeUserSet &&
+        _keepAgentRunningInBackground == value) {
+      return;
+    }
     await _configService.saveConfig(
-      config.copyWith(keepAgentRunningInBackground: value),
+      config.copyWith(
+        keepAgentRunningInBackground: value,
+        desktopBackgroundModeUserSet: true,
+      ),
     );
     await _agentBootstrapService.syncNativeTerminationState(
       keepRunningInBackground: value,

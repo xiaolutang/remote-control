@@ -703,6 +703,24 @@ class TestConnectionManagement:
         assert "session-1" not in stale_agents
 
     @pytest.mark.asyncio
+    async def test_cleanup_agent_agent_shutdown_sets_offline_not_stale(self):
+        """agent_shutdown 应立即关闭 terminal，不进入 stale/recoverable。"""
+        from app.ws_agent import _cleanup_agent, active_agents, AgentConnection, stale_agents
+
+        active_agents.clear()
+        stale_agents.clear()
+        active_agents["session-1"] = AgentConnection("session-1", AsyncMock(), "user1")
+
+        with patch("app.ws_agent.set_session_offline", new=AsyncMock()) as set_offline, \
+             patch("app.ws_agent.set_session_offline_recoverable", new=AsyncMock()) as set_offline_recoverable:
+            await _cleanup_agent("session-1", "agent_shutdown")
+
+        set_offline.assert_awaited_once_with("session-1", reason="agent_shutdown")
+        set_offline_recoverable.assert_not_awaited()
+        assert "session-1" not in stale_agents
+        assert "session-1" not in active_agents
+
+    @pytest.mark.asyncio
     async def test_stale_agent_recovery_on_reconnect(self):
         """Agent 重连时，如果处于 stale 状态，应该恢复。"""
         from app.ws_agent import stale_agents, _is_agent_stale, _clear_agent_stale
