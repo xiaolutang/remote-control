@@ -11,6 +11,7 @@ import '../services/desktop_agent_bootstrap_service.dart';
 import '../services/logout_helper.dart';
 import '../services/desktop_agent_manager.dart';
 import '../services/desktop_workspace_controller.dart';
+import '../services/environment_service.dart';
 import '../services/runtime_device_service.dart';
 import '../services/runtime_selection_controller.dart';
 import '../services/terminal_session_manager.dart';
@@ -23,30 +24,31 @@ import 'terminal_screen.dart';
 class TerminalWorkspaceScreen extends StatelessWidget {
   const TerminalWorkspaceScreen({
     super.key,
-    required this.serverUrl,
     required this.token,
+    this.initialDevices = const <RuntimeDevice>[],
     RuntimeSelectionController? controller,
     DesktopAgentBootstrapService? agentBootstrapService,
   })  : _controller = controller,
         _agentBootstrapService = agentBootstrapService;
 
-  final String serverUrl;
   final String token;
+  final List<RuntimeDevice> initialDevices;
   final RuntimeSelectionController? _controller;
   final DesktopAgentBootstrapService? _agentBootstrapService;
 
   @override
   Widget build(BuildContext context) {
+    final serverUrl = EnvironmentService.instance.currentServerUrl;
     return ChangeNotifierProvider<RuntimeSelectionController>(
       create: (_) => _controller ??
           RuntimeSelectionController(
             serverUrl: serverUrl,
             token: token,
             runtimeService: RuntimeDeviceService(serverUrl: serverUrl),
+            initialDevices: initialDevices,
           )
         ..initialize(),
       child: _TerminalWorkspaceView(
-        serverUrl: serverUrl,
         token: token,
         agentBootstrapService:
             _agentBootstrapService ?? DesktopAgentBootstrapService(),
@@ -57,12 +59,10 @@ class TerminalWorkspaceScreen extends StatelessWidget {
 
 class _TerminalWorkspaceView extends StatefulWidget {
   const _TerminalWorkspaceView({
-    required this.serverUrl,
     required this.token,
     required this.agentBootstrapService,
   });
 
-  final String serverUrl;
   final String token;
   final DesktopAgentBootstrapService agentBootstrapService;
 
@@ -83,7 +83,7 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
   void initState() {
     super.initState();
     _workspaceController = DesktopWorkspaceController(
-      serverUrl: widget.serverUrl,
+      serverUrl: EnvironmentService.instance.currentServerUrl,
       token: widget.token,
       agentBootstrapService: widget.agentBootstrapService,
       configService: ConfigService(),
@@ -833,14 +833,14 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
   }
 
   Future<void> _handleProfile(BuildContext context) async {
-    final session =
-        await AuthService(serverUrl: widget.serverUrl).getSavedSession();
+    final serverUrl = EnvironmentService.instance.currentServerUrl;
+    final session = await AuthService(serverUrl: serverUrl).getSavedSession();
     final sessionId = session?['session_id'] ?? '';
     if (!context.mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => UserProfileScreen(
-          serverUrl: widget.serverUrl,
+          serverUrl: serverUrl,
           token: widget.token,
           sessionId: sessionId,
         ),

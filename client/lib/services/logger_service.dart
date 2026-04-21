@@ -4,6 +4,7 @@ import 'dart:collection';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'server_url_helper.dart';
 
 /// 日志级别
 enum LogLevel {
@@ -206,14 +207,7 @@ class LoggerService extends ChangeNotifier {
   }
 
   /// 转换 WebSocket URL 为 HTTP URL
-  String _getHttpUrl() {
-    if (serverUrl.startsWith('ws://')) {
-      return serverUrl.replaceFirst('ws://', 'http://');
-    } else if (serverUrl.startsWith('wss://')) {
-      return serverUrl.replaceFirst('wss://', 'https://');
-    }
-    return serverUrl;
-  }
+  String _getHttpUrl() => serverUrlToHttpBase(serverUrl);
 
   /// 添加到缓存（失败重试用）
   void _addToCache(List<LogRecord> logs) {

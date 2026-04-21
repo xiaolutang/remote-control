@@ -4,6 +4,7 @@ import 'dart:io' show HttpClient;
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'server_url_helper.dart';
 import 'http_client_factory.dart';
 import 'logger_service.dart';
 import 'crypto_service.dart';
@@ -188,6 +189,8 @@ class WebSocketService extends ChangeNotifier {
 
   // 加密服务
   final CryptoService _crypto = CryptoService.instance;
+  final Future<void> Function(String httpBaseUrl)? _publicKeyFetcher;
+  final bool Function()? _hasPublicKeyChecker;
   bool _encryptionEnabled = false;
 
   ConnectionStatus _status = ConnectionStatus.disconnected;
@@ -240,7 +243,11 @@ class WebSocketService extends ChangeNotifier {
     this.maxRetries = 60,
     this.reconnectDelay = const Duration(seconds: 1),
     LoggerService? logger,
-  }) : _logger = logger;
+    Future<void> Function(String httpBaseUrl)? publicKeyFetcher,
+    bool Function()? hasPublicKeyChecker,
+  })  : _logger = logger,
+        _publicKeyFetcher = publicKeyFetcher,
+        _hasPublicKeyChecker = hasPublicKeyChecker;
 
   ConnectionStatus get status => _status;
   String? get errorMessage => _errorMessage;
@@ -287,6 +294,28 @@ class WebSocketService extends ChangeNotifier {
 
   String get _viewTypeString =>
       viewType == ViewType.desktop ? 'desktop' : 'mobile';
+
+  String get _httpBaseUrl => serverUrlToHttpBase(serverUrl);
+  bool get _requiresApplicationLayerEncryption =>
+      requiresApplicationLayerEncryption(serverUrl);
+
+  bool get _hasPublicKey =>
+      _hasPublicKeyChecker?.call() ?? _crypto.hasPublicKey;
+
+  Future<void> _ensurePublicKeyLoaded() async {
+    if (_hasPublicKey) {
+      return;
+    }
+    final fetcher = _publicKeyFetcher ?? _crypto.fetchPublicKey;
+    await fetcher(_httpBaseUrl);
+  }
+
+  @visibleForTesting
+  Future<void> debugEnsurePublicKeyLoaded() => _ensurePublicKeyLoaded();
+
+  @visibleForTesting
+  bool get debugRequiresApplicationLayerEncryption =>
+      _requiresApplicationLayerEncryption;
 
   void _resetTerminalDecoders() {
     _liveUtf8Decoder.reset();
@@ -436,6 +465,17 @@ class WebSocketService extends ChangeNotifier {
     });
 
     try {
+      if (_requiresApplicationLayerEncryption && !_hasPublicKey) {
+        try {
+          await _ensurePublicKeyLoaded();
+        } catch (e) {
+          _status = ConnectionStatus.error;
+          _errorMessage = '安全连接建立失败';
+          notifyListeners();
+          return false;
+        }
+      }
+
       // WS URL 不再携带 token，认证通过首条 auth 消息完成
       final queryParameters = <String, String>{
         'view': _viewTypeString,
@@ -465,7 +505,7 @@ class WebSocketService extends ChangeNotifier {
         'token': token,
       };
       bool aesKeyExchanged = false;
-      if (_crypto.hasPublicKey) {
+      if (_requiresApplicationLayerEncryption) {
         try {
           _crypto.generateAesKey();
           authMessage['encrypted_aes_key'] = _crypto.getEncryptedAesKeyBase64();
@@ -477,7 +517,7 @@ class WebSocketService extends ChangeNotifier {
       }
       // ws:// 连接必须成功完成 AES 密钥交换（不变量 #27）
       // 在发送 auth 前检查：若无 AES 密钥则直接拒绝，不发送明文 auth
-      if (serverUrl.startsWith('ws://') && !aesKeyExchanged) {
+      if (_requiresApplicationLayerEncryption && !aesKeyExchanged) {
         _status = ConnectionStatus.error;
         _errorMessage = '安全连接建立失败';
         notifyListeners();

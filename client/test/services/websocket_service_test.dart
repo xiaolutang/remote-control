@@ -100,6 +100,59 @@ void main() {
 
       expect(service, isNotNull);
     });
+
+    test('preloads public key for ws session restore flow', () async {
+      var fetchCount = 0;
+      var hasPublicKey = false;
+      final service = WebSocketService(
+        serverUrl: 'ws://127.0.0.1:1',
+        token: 'test-token',
+        sessionId: 'session-1',
+        hasPublicKeyChecker: () => hasPublicKey,
+        publicKeyFetcher: (_) async {
+          fetchCount += 1;
+          hasPublicKey = true;
+        },
+      );
+
+      await service.debugEnsurePublicKeyLoaded();
+
+      expect(fetchCount, 1);
+      service.dispose();
+    });
+
+    test('connect reports security error when ws public key fetch fails',
+        () async {
+      final service = WebSocketService(
+        serverUrl: 'ws://127.0.0.1:1',
+        token: 'test-token',
+        sessionId: 'session-1',
+        autoReconnect: false,
+        maxRetries: 0,
+        hasPublicKeyChecker: () => false,
+        publicKeyFetcher: (_) async {
+          throw Exception('fetch failed');
+        },
+      );
+
+      final connected = await service.connect();
+
+      expect(connected, isFalse);
+      expect(service.status, ConnectionStatus.error);
+      expect(service.errorMessage, '安全连接建立失败');
+      service.dispose();
+    });
+
+    test('wss transport does not require application-layer encryption', () {
+      final service = WebSocketService(
+        serverUrl: 'wss://127.0.0.1:1',
+        token: 'test-token',
+        sessionId: 'session-1',
+      );
+
+      expect(service.debugRequiresApplicationLayerEncryption, isFalse);
+      service.dispose();
+    });
   });
 
   group('WebSocketService terminalsChangedStream', () {

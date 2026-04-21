@@ -325,8 +325,6 @@ void main() {
         'rc_username': 'testuser',
         'rc_password': 'testpass',
         'rc_session_id': 'sid-1',
-        'rc_token': 'tok-1',
-        'rc_refresh_token': 'rt-1',
         'rc_expires_at': '2099-01-01T00:00:00Z',
       });
 
@@ -338,7 +336,6 @@ void main() {
       // 验证初始状态有值
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getString('rc_username'), 'testuser');
-      expect(prefs.getString('rc_token'), 'tok-1');
 
       // 执行 logout
       await service.logout();
@@ -347,6 +344,8 @@ void main() {
       expect(prefs.getString('rc_username'), isNull);
       expect(prefs.getString('rc_session_id'), isNull);
       expect(prefs.getString('rc_expires_at'), isNull);
+      expect(prefs.getString('rc_token'), isNull);
+      expect(prefs.getString('rc_refresh_token'), isNull);
     });
 
     test('logout 后 getSavedSession 返回 null', () async {
@@ -398,6 +397,61 @@ void main() {
 
       final credsAfter = await service.getSavedCredentials();
       expect(credsAfter, isNull);
+    });
+
+    test('getSavedSession 迁移旧 SharedPreferences token 到 secure storage',
+        () async {
+      SharedPreferences.setMockInitialValues({
+        'rc_username': 'testuser',
+        'rc_session_id': 'sid-1',
+        'rc_token': 'tok-1',
+        'rc_refresh_token': 'rt-1',
+      });
+
+      final secureStorage = _InMemorySecureStorage();
+      final service = AuthService(
+        serverUrl: 'http://localhost:8888',
+        secureStorage: secureStorage,
+      );
+
+      final session = await service.getSavedSession(
+        includeRefreshToken: true,
+      );
+
+      expect(session, isNotNull);
+      expect(session!['token'], 'tok-1');
+      expect(session['refresh_token'], 'rt-1');
+      expect(await secureStorage.read(key: 'rc_token'), 'tok-1');
+      expect(await secureStorage.read(key: 'rc_refresh_token'), 'rt-1');
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('rc_token'), isNull);
+      expect(prefs.getString('rc_refresh_token'), isNull);
+    });
+
+    test('getSavedSession(includeRefreshToken: true) returns refresh token',
+        () async {
+      SharedPreferences.setMockInitialValues({
+        'rc_username': 'testuser',
+        'rc_session_id': 'sid-1',
+      });
+
+      final secureStorage = _InMemorySecureStorage();
+      await secureStorage.write(key: 'rc_token', value: 'tok-1');
+      await secureStorage.write(key: 'rc_refresh_token', value: 'rt-1');
+
+      final service = AuthService(
+        serverUrl: 'http://localhost:8888',
+        secureStorage: secureStorage,
+      );
+
+      final session = await service.getSavedSession(
+        includeRefreshToken: true,
+      );
+
+      expect(session, isNotNull);
+      expect(session!['token'], 'tok-1');
+      expect(session['refresh_token'], 'rt-1');
     });
   });
 }

@@ -6,6 +6,7 @@ import '../models/runtime_device.dart';
 import '../models/runtime_terminal.dart';
 import 'auth_service.dart';
 import 'http_client_factory.dart';
+import 'server_url_helper.dart';
 
 class RuntimeDeviceService {
   RuntimeDeviceService({
@@ -16,15 +17,7 @@ class RuntimeDeviceService {
   final String serverUrl;
   final http.Client _client;
 
-  String get _httpUrl {
-    if (serverUrl.startsWith('ws://')) {
-      return serverUrl.replaceFirst('ws://', 'http://');
-    }
-    if (serverUrl.startsWith('wss://')) {
-      return serverUrl.replaceFirst('wss://', 'https://');
-    }
-    return serverUrl;
-  }
+  String get _httpUrl => serverUrlToHttpBase(serverUrl);
 
   Map<String, String> _headers(String token) => {
         'Authorization': 'Bearer $token',
@@ -38,14 +31,11 @@ class RuntimeDeviceService {
       final errorCode = data['error_code'] as String?;
       switch (errorCode) {
         case 'TOKEN_REPLACED':
-          throw AuthException(
-              AuthErrorCode.tokenReplaced, '您已在其他设备登录');
+          throw AuthException(AuthErrorCode.tokenReplaced, '您已在其他设备登录');
         case 'TOKEN_EXPIRED':
-          throw AuthException(
-              AuthErrorCode.tokenExpired, '登录已过期');
+          throw AuthException(AuthErrorCode.tokenExpired, '登录已过期');
         case 'TOKEN_INVALID':
-          throw AuthException(
-              AuthErrorCode.tokenInvalid, '认证信息无效');
+          throw AuthException(AuthErrorCode.tokenInvalid, '认证信息无效');
       }
     }
     throw Exception(data['detail'] ?? defaultMessage);
@@ -68,7 +58,8 @@ class RuntimeDeviceService {
     return devices;
   }
 
-  Future<List<RuntimeTerminal>> listTerminals(String token, String deviceId) async {
+  Future<List<RuntimeTerminal>> listTerminals(
+      String token, String deviceId) async {
     final response = await _client.get(
       Uri.parse('$_httpUrl/api/runtime/devices/$deviceId/terminals'),
       headers: _headers(token),
@@ -133,7 +124,8 @@ class RuntimeDeviceService {
     String terminalId,
   ) async {
     final response = await _client.delete(
-      Uri.parse('$_httpUrl/api/runtime/devices/$deviceId/terminals/$terminalId'),
+      Uri.parse(
+          '$_httpUrl/api/runtime/devices/$deviceId/terminals/$terminalId'),
       headers: _headers(token),
     );
     final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -143,10 +135,8 @@ class RuntimeDeviceService {
     return RuntimeTerminal.fromJson(data);
   }
 
-  Future<RuntimeDevice> updateDevice(
-    String token,
-    String deviceId,
-    {String? name}) async {
+  Future<RuntimeDevice> updateDevice(String token, String deviceId,
+      {String? name}) async {
     final response = await _client.patch(
       Uri.parse('$_httpUrl/api/runtime/devices/$deviceId'),
       headers: _headers(token),
@@ -168,7 +158,8 @@ class RuntimeDeviceService {
     String title,
   ) async {
     final response = await _client.patch(
-      Uri.parse('$_httpUrl/api/runtime/devices/$deviceId/terminals/$terminalId'),
+      Uri.parse(
+          '$_httpUrl/api/runtime/devices/$deviceId/terminals/$terminalId'),
       headers: _headers(token),
       body: jsonEncode({'title': title}),
     );

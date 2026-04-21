@@ -265,7 +265,6 @@ void main() {
       ],
       child: MaterialApp(
         home: TerminalWorkspaceScreen(
-          serverUrl: 'ws://localhost:8888',
           token: 'token',
           controller: controller,
           agentBootstrapService: agentBootstrapService ??

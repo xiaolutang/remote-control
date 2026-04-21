@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 
 import '../models/feedback_model.dart';
 import 'http_client_factory.dart';
+import 'server_url_helper.dart';
 
 /// 反馈提交服务
 class FeedbackService {
@@ -23,14 +24,7 @@ class FeedbackService {
   }) : _client = client ?? HttpClientFactory.create();
 
   /// 将 WebSocket URL 转换为 HTTP URL
-  String _getHttpUrl() {
-    if (serverUrl.startsWith('ws://')) {
-      return serverUrl.replaceFirst('ws://', 'http://');
-    } else if (serverUrl.startsWith('wss://')) {
-      return serverUrl.replaceFirst('wss://', 'https://');
-    }
-    return serverUrl;
-  }
+  String _getHttpUrl() => serverUrlToHttpBase(serverUrl);
 
   /// 获取当前平台标识
   String _getPlatform() {

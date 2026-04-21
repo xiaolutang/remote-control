@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -11,6 +10,7 @@ import '../models/runtime_device.dart';
 import 'desktop_agent_exit_bridge.dart';
 import 'desktop_agent_http_client.dart';
 import 'runtime_device_service.dart';
+import 'secure_storage_service.dart';
 
 typedef AgentProcessStarter = Future<Process> Function(
   String executable,
@@ -62,6 +62,7 @@ class DesktopAgentSupervisor {
     AgentPidKiller? pidKiller,
     AgentProcessLister? processLister,
     DesktopAgentHttpClient? httpClient,
+    SecureStorageService? secureStorageService,
     String? homeDirectory,
   })  : _runtimeService = runtimeService,
         _processStarter = processStarter ?? Process.start,
@@ -69,6 +70,7 @@ class DesktopAgentSupervisor {
         _pidKiller = pidKiller ?? Process.killPid,
         _processLister = processLister,
         _httpClient = httpClient,
+        _secureStorage = secureStorageService ?? SecureStorageService.instance,
         _homeDirectory = homeDirectory;
 
   static const String _managedAgentPidKey = 'rc_managed_agent_pid';
@@ -79,6 +81,7 @@ class DesktopAgentSupervisor {
   final AgentPidKiller _pidKiller;
   final AgentProcessLister? _processLister;
   final DesktopAgentHttpClient? _httpClient;
+  final SecureStorageService _secureStorage;
   final String? _homeDirectory;
 
   bool get supported => !Platform.isAndroid && !Platform.isIOS;
@@ -399,13 +402,8 @@ class DesktopAgentSupervisor {
 
     try {
       final prefs = await SharedPreferences.getInstance();
-      // refresh_token 从 SecureStorage 读取（与 AuthService 使用一致配置）
-      const secureStorage = FlutterSecureStorage(
-        aOptions: AndroidOptions(encryptedSharedPreferences: true),
-        iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
-        mOptions: MacOsOptions(useDataProtectionKeyChain: false),
-      );
-      final refreshToken = await secureStorage.read(key: 'rc_refresh_token');
+      final resolvedRefreshToken =
+          await _secureStorage.read(SecureStorageService.refreshTokenKey);
       final username = prefs.getString('rc_username');
 
       final managedConfigFile = File(
@@ -426,8 +424,8 @@ class DesktopAgentSupervisor {
         'reconnect_base_delay': 1.0,
         'heartbeat_interval': 30.0,
       };
-      if (refreshToken != null && refreshToken.isNotEmpty) {
-        payload['refresh_token'] = refreshToken;
+      if (resolvedRefreshToken != null && resolvedRefreshToken.isNotEmpty) {
+        payload['refresh_token'] = resolvedRefreshToken;
       }
       if (username != null && username.isNotEmpty) {
         payload['username'] = username;

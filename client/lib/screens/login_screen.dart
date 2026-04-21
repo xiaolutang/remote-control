@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../models/app_environment.dart';
 import '../services/auth_service.dart';
@@ -137,22 +139,17 @@ class _LoginScreenState extends State<LoginScreen> {
 
       // 启动 Agent（桌面端，不阻塞进入首页）
       if (sessionId != null && sessionId.isNotEmpty) {
-        try {
-          final agentManager = context.read<DesktopAgentManager>();
-          await agentManager
+        final agentManager = context.read<DesktopAgentManager>();
+        unawaited(
+          agentManager
               .onLogin(
                 serverUrl: serverUrl,
                 token: token,
                 username: username,
                 deviceId: sessionId,
               )
-              .timeout(
-                const Duration(seconds: 15),
-                onTimeout: () {},
-              );
-        } catch (_) {
-          // Agent 启动失败，继续进入首页
-        }
+              .catchError((_) {}),
+        );
       }
 
       if (!mounted) return;
@@ -161,7 +158,6 @@ class _LoginScreenState extends State<LoginScreen> {
         context,
         MaterialPageRoute(
           builder: (context) => TerminalWorkspaceScreen(
-            serverUrl: serverUrl,
             token: token,
           ),
         ),

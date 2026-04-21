@@ -16,14 +16,17 @@ class RuntimeSelectionController extends ChangeNotifier {
     required this.token,
     required RuntimeDeviceService runtimeService,
     ConfigService? configService,
+    List<RuntimeDevice> initialDevices = const <RuntimeDevice>[],
   })  : _runtimeService = runtimeService,
-        _configService = configService ?? ConfigService();
+        _configService = configService ?? ConfigService(),
+        _initialDevices = List<RuntimeDevice>.unmodifiable(initialDevices);
 
   final String serverUrl;
   final String token;
   final RuntimeDeviceService _runtimeService;
   final ConfigService _configService;
   final String? _localHostname = _resolveLocalHostname();
+  final List<RuntimeDevice> _initialDevices;
 
   List<RuntimeDevice> _devices = const [];
   List<RuntimeTerminal> _terminals = const [];
@@ -67,6 +70,21 @@ class RuntimeSelectionController extends ChangeNotifier {
     _config = config;
     _selectedDeviceId =
         config.preferredDeviceId.isEmpty ? null : config.preferredDeviceId;
+    if (_initialDevices.isNotEmpty) {
+      _devices = _initialDevices;
+      final next = _selectedDeviceId;
+      if (_devices.isEmpty) {
+        _selectedDeviceId = null;
+        _terminals = const [];
+      } else if (next != null &&
+          _devices.any((device) => device.deviceId == next)) {
+        await selectDevice(next, notify: false);
+      } else {
+        await selectDevice(_resolveInitialDeviceId(_devices), notify: false);
+      }
+      notifyListeners();
+      return;
+    }
     await loadDevices();
   }
 

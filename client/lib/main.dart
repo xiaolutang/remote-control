@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'screens/login_screen.dart';
 import 'screens/terminal_workspace_screen.dart';
-import 'services/auth_service.dart';
+import 'services/app_startup_coordinator.dart';
 import 'services/desktop_agent_manager.dart';
 import 'services/environment_service.dart';
 import 'services/terminal_session_manager.dart';
@@ -102,8 +102,7 @@ class _AppShellState extends State<_AppShell> with WidgetsBindingObserver {
               systemNavigationBarDividerColor: Colors.transparent,
               statusBarIconBrightness:
                   isDark ? Brightness.light : Brightness.dark,
-              statusBarBrightness:
-                  isDark ? Brightness.dark : Brightness.light,
+              statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
               systemNavigationBarIconBrightness:
                   isDark ? Brightness.light : Brightness.dark,
               systemStatusBarContrastEnforced: false,
@@ -139,80 +138,27 @@ class _SplashPageState extends State<SplashPage> {
 
   Future<void> _checkAutoLogin() async {
     final serverUrl = EnvironmentService.instance.currentServerUrl;
+    final coordinator = AppStartupCoordinator(serverUrl: serverUrl);
+    final result = await coordinator.restore(
+      agentManager: context.read<DesktopAgentManager>(),
+    );
 
-    // 检查是否有保存的凭证
-    Map<String, String>? credentials;
-    final authService = AuthService(serverUrl: serverUrl);
-    try {
-      credentials = await authService.getSavedCredentials();
-    } catch (e) {
-      // secure storage 读取失败（如 macOS keychain 问题），直接跳登录页
-      if (!mounted) return;
+    if (!mounted) return;
+
+    if (result.destination == AppStartupDestination.workspace &&
+        result.token != null) {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (context) => const LoginScreen(),
+          builder: (context) => TerminalWorkspaceScreen(
+            token: result.token!,
+            initialDevices: result.initialDevices,
+          ),
         ),
       );
       return;
     }
 
-    if (credentials != null) {
-      // 尝试自动登录
-      try {
-        final result = await authService.login(
-          credentials['username']!,
-          credentials['password']!,
-        );
-
-        if (!mounted) return;
-
-        // 自动登录成功，恢复 Agent（桌面端）
-        final token = result['token'] as String;
-        final sessionId = result['session_id'] as String?;
-        final username = credentials['username']!;
-
-        // 恢复 Agent 生命周期（不阻塞进入首页）
-        if (sessionId != null && sessionId.isNotEmpty) {
-          try {
-            final agentManager = context.read<DesktopAgentManager>();
-            await agentManager.onAppStart(
-              serverUrl: serverUrl,
-              token: token,
-              username: username,
-              deviceId: sessionId,
-            ).timeout(
-              const Duration(seconds: 15),
-              onTimeout: () {
-                // Agent 恢复超时，继续进入首页
-              },
-            );
-          } catch (e) {
-            // Agent 恢复失败，继续进入首页
-          }
-        }
-
-        if (!mounted) return;
-
-        // 跳转到终端工作台
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => TerminalWorkspaceScreen(
-              serverUrl: serverUrl,
-              token: token,
-            ),
-          ),
-        );
-        return;
-      } catch (e) {
-        // 自动登录失败，继续显示登录页面
-      }
-    }
-
-    if (!mounted) return;
-
-    // 显示登录页面
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(

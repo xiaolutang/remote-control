@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'server_url_helper.dart';
 
 class NetworkDiagnosticCheck {
   const NetworkDiagnosticCheck({
@@ -71,15 +72,7 @@ class NetworkDiagnosticService {
     return report;
   }
 
-  String _getHttpUrl(String serverUrl) {
-    if (serverUrl.startsWith('ws://')) {
-      return serverUrl.replaceFirst('ws://', 'http://');
-    }
-    if (serverUrl.startsWith('wss://')) {
-      return serverUrl.replaceFirst('wss://', 'https://');
-    }
-    return serverUrl;
-  }
+  String _getHttpUrl(String serverUrl) => serverUrlToHttpBase(serverUrl);
 
   Future<NetworkDiagnosticCheck> _dnsLookup(String host) async {
     try {
@@ -186,7 +179,8 @@ class NetworkDiagnosticService {
       final body = await response.transform(SystemEncoding().decoder).join();
       return _buildCheck(title, response.statusCode, body);
     } catch (e) {
-      return NetworkDiagnosticCheck(title: title, success: false, detail: e.toString());
+      return NetworkDiagnosticCheck(
+          title: title, success: false, detail: e.toString());
     } finally {
       client.close(force: true);
     }
@@ -212,7 +206,8 @@ class NetworkDiagnosticService {
       final text = await response.transform(SystemEncoding().decoder).join();
       return _buildCheck(title, response.statusCode, text);
     } catch (e) {
-      return NetworkDiagnosticCheck(title: title, success: false, detail: e.toString());
+      return NetworkDiagnosticCheck(
+          title: title, success: false, detail: e.toString());
     } finally {
       client.close(force: true);
     }
@@ -237,9 +232,11 @@ class NetworkDiagnosticService {
     return client;
   }
 
-  NetworkDiagnosticCheck _buildCheck(String title, int statusCode, String body) {
+  NetworkDiagnosticCheck _buildCheck(
+      String title, int statusCode, String body) {
     final success = statusCode >= 200 && statusCode < 300;
-    final compactBody = body.length > 120 ? '${body.substring(0, 120)}...' : body;
+    final compactBody =
+        body.length > 120 ? '${body.substring(0, 120)}...' : body;
     return NetworkDiagnosticCheck(
       title: title,
       success: success,

@@ -168,6 +168,12 @@ class MockWebSocketService extends ChangeNotifier implements WebSocketService {
   @override
   bool get isPermanentlyFailed => isAuthFailed || _terminalStatus == 'closed';
 
+  @override
+  Future<void> debugEnsurePublicKeyLoaded() async {}
+
+  @override
+  bool get debugRequiresApplicationLayerEncryption => true;
+
   /// 模拟连接成功
   void simulateConnect({bool agentOnline = true}) {
     _status = ConnectionStatus.connected;

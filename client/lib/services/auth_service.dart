@@ -6,6 +6,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'http_client_factory.dart';
 import 'logger_service.dart';
+import 'secure_storage_service.dart';
+import 'server_url_helper.dart';
 import 'user_info_service.dart';
 import 'crypto_service.dart';
 
@@ -44,35 +46,24 @@ class AuthService {
   final LoggerService? _logger;
   final http.Client _client;
   final CryptoService _crypto;
-  final FlutterSecureStorage _secureStorage;
+  final SecureStorageService _secureStorage;
 
   AuthService({
     required this.serverUrl,
     LoggerService? logger,
     http.Client? client,
     FlutterSecureStorage? secureStorage,
+    SecureStorageService? secureStorageService,
   })  : _logger = logger,
         _client = client ?? HttpClientFactory.create(),
         _crypto = CryptoService.instance,
-        _secureStorage = secureStorage ??
-            FlutterSecureStorage(
-              aOptions: const AndroidOptions(encryptedSharedPreferences: true),
-              iOptions: const IOSOptions(
-                  accessibility: KeychainAccessibility.first_unlock),
-              // Keep macOS secure storage behavior identical across debug and
-              // release builds until stable signing/keychain-sharing is set up.
-              mOptions: const MacOsOptions(useDataProtectionKeyChain: false),
-            );
+        _secureStorage = secureStorageService ??
+            (secureStorage != null
+                ? SecureStorageService(storage: secureStorage)
+                : SecureStorageService.instance);
 
   /// 将 WebSocket URL 转换为 HTTP URL
-  String _getHttpUrl() {
-    if (serverUrl.startsWith('ws://')) {
-      return serverUrl.replaceFirst('ws://', 'http://');
-    } else if (serverUrl.startsWith('wss://')) {
-      return serverUrl.replaceFirst('wss://', 'https://');
-    }
-    return serverUrl;
-  }
+  String _getHttpUrl() => serverUrlToHttpBase(serverUrl);
 
   /// 注册
   Future<Map<String, dynamic>> register(
@@ -108,9 +99,11 @@ class AuthService {
     final data = jsonDecode(response.body);
 
     if (response.statusCode == 200) {
-      // 保存登录信息
-      await _saveCredentials(username, password);
-      await _saveSession(data);
+      await _saveAuthState(
+        username: username,
+        password: password,
+        session: data,
+      );
       await UserInfoService().saveLoginTime();
       return data;
     } else {
@@ -170,9 +163,11 @@ class AuthService {
     final data = jsonDecode(response.body);
 
     if (response.statusCode == 200) {
-      // 保存登录信息
-      await _saveCredentials(username, password);
-      await _saveSession(data);
+      await _saveAuthState(
+        username: username,
+        password: password,
+        session: data,
+      );
       await UserInfoService().saveLoginTime();
 
       _logger?.info('Login successful', metadata: {
@@ -256,48 +251,54 @@ class AuthService {
     }
   }
 
-  /// 保存凭证（密码存入 secure storage，用户名保留 SharedPreferences）
-  Future<void> _saveCredentials(String username, String password) async {
+  Future<void> _saveAuthState({
+    required String username,
+    required String password,
+    required Map<String, dynamic> session,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('rc_username', username);
-    await _secureStorage.write(key: 'rc_password', value: password);
-    // 迁移旧 SharedPreferences 中的密码
-    final oldPassword = prefs.getString('rc_password');
-    if (oldPassword != null) {
-      await prefs.remove('rc_password');
+    await prefs.setString('rc_session_id', session['session_id'] ?? '');
+    await prefs.setString('rc_expires_at', session['expires_at'] ?? '');
+    await _secureStorage.writeTrackedEntries(<String, String?>{
+      SecureStorageService.passwordKey: password,
+      SecureStorageService.tokenKey: _normalizeSecret(session['token']),
+      SecureStorageService.refreshTokenKey:
+          _normalizeSecret(session['refresh_token']),
+    });
+    for (final key in const <String>[
+      'rc_password',
+      'rc_token',
+      'rc_refresh_token',
+    ]) {
+      if (prefs.containsKey(key)) {
+        await prefs.remove(key);
+      }
     }
   }
 
-  /// 保存会话（token 存入 secure storage）
-  Future<void> _saveSession(Map<String, dynamic> data) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('rc_session_id', data['session_id'] ?? '');
-    await prefs.setString('rc_expires_at', data['expires_at'] ?? '');
-    await _secureStorage.write(key: 'rc_token', value: data['token'] ?? '');
-    await _secureStorage.write(
-        key: 'rc_refresh_token', value: data['refresh_token'] ?? '');
-    // 迁移旧 SharedPreferences 中的 token
-    final oldToken = prefs.getString('rc_token');
-    if (oldToken != null) {
-      await prefs.remove('rc_token');
+  String? _normalizeSecret(Object? value) {
+    if (value is! String || value.isEmpty) {
+      return null;
     }
-    final oldRefreshToken = prefs.getString('rc_refresh_token');
-    if (oldRefreshToken != null) {
-      await prefs.remove('rc_refresh_token');
-    }
+    return value;
   }
 
   /// 获取保存的凭证
   Future<Map<String, String>?> getSavedCredentials() async {
     final prefs = await SharedPreferences.getInstance();
     final username = prefs.getString('rc_username');
-    // 优先从 secure storage 读取密码
-    String? password = await _secureStorage.read(key: 'rc_password');
+    final trackedSecrets = await _secureStorage.readTrackedEntries(
+      const <String>[SecureStorageService.passwordKey],
+    );
+    String? password = trackedSecrets[SecureStorageService.passwordKey];
     // 兼容旧版本：如果 secure storage 无密码但 SharedPreferences 有，自动迁移
     if (password == null) {
       final oldPassword = prefs.getString('rc_password');
       if (oldPassword != null) {
-        await _secureStorage.write(key: 'rc_password', value: oldPassword);
+        await _secureStorage.writeTrackedEntries(<String, String?>{
+          SecureStorageService.passwordKey: oldPassword,
+        });
         await prefs.remove('rc_password');
         password = oldPassword;
       }
@@ -310,23 +311,50 @@ class AuthService {
   }
 
   /// 获取保存的会话
-  Future<Map<String, String>?> getSavedSession() async {
+  Future<Map<String, String>?> getSavedSession({
+    bool includeRefreshToken = false,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
     final sessionId = prefs.getString('rc_session_id');
-    // 优先从 secure storage 读取 token
-    String? token = await _secureStorage.read(key: 'rc_token');
-    // 兼容旧版本：如果 secure storage 无 token 但 SharedPreferences 有，自动迁移
-    if (token == null) {
-      final oldToken = prefs.getString('rc_token');
-      if (oldToken != null) {
-        await _secureStorage.write(key: 'rc_token', value: oldToken);
+    final trackedSecrets = await _secureStorage.readTrackedEntries(
+      includeRefreshToken
+          ? const <String>[
+              SecureStorageService.tokenKey,
+              SecureStorageService.refreshTokenKey,
+            ]
+          : const <String>[SecureStorageService.tokenKey],
+    );
+    String? token = trackedSecrets[SecureStorageService.tokenKey];
+    String? refreshToken = includeRefreshToken
+        ? trackedSecrets[SecureStorageService.refreshTokenKey]
+        : null;
+
+    if (token == null || token.isEmpty) {
+      final legacyToken = prefs.getString('rc_token');
+      final legacyRefreshToken =
+          includeRefreshToken ? prefs.getString('rc_refresh_token') : null;
+      if ((legacyToken ?? '').isNotEmpty) {
+        await _secureStorage.writeTrackedEntries(<String, String?>{
+          SecureStorageService.tokenKey: legacyToken,
+          if (includeRefreshToken)
+            SecureStorageService.refreshTokenKey: legacyRefreshToken,
+        });
         await prefs.remove('rc_token');
-        token = oldToken;
+        await prefs.remove('rc_refresh_token');
+        token = legacyToken;
+        refreshToken = legacyRefreshToken;
       }
     }
 
-    if (sessionId != null && token != null) {
-      return {'session_id': sessionId, 'token': token};
+    if (sessionId != null && token != null && token.isNotEmpty) {
+      final result = <String, String>{
+        'session_id': sessionId,
+        'token': token,
+      };
+      if (includeRefreshToken && refreshToken != null) {
+        result['refresh_token'] = refreshToken;
+      }
+      return result;
     }
     return null;
   }
@@ -353,10 +381,10 @@ class AuthService {
     await prefs.remove('rc_username');
     await prefs.remove('rc_session_id');
     await prefs.remove('rc_expires_at');
+    await prefs.remove('rc_token');
+    await prefs.remove('rc_refresh_token');
     // 清除 secure storage 中的敏感数据
-    await _secureStorage.delete(key: 'rc_password');
-    await _secureStorage.delete(key: 'rc_token');
-    await _secureStorage.delete(key: 'rc_refresh_token');
+    await _secureStorage.clearAllTrackedKeys();
     await UserInfoService().clearLoginTime();
   }
 }

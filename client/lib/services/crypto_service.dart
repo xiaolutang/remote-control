@@ -16,6 +16,8 @@ class CryptoService {
 
   RSAPublicKey? _publicKey;
   String? _fingerprint;
+  Future<void>? _pendingPublicKeyFetch;
+  String? _pendingPublicKeyBaseUrl;
 
   /// 当前 AES 会话密钥（每次 WebSocket 连接生成新的）
   Uint8List? _aesKey;
@@ -25,6 +27,25 @@ class CryptoService {
   /// [httpBaseUrl] 例: http://192.168.1.78:8080
   /// 如果指纹不匹配（可能中间人攻击），抛出异常。
   Future<void> fetchPublicKey(String httpBaseUrl) async {
+    if (_pendingPublicKeyFetch != null &&
+        _pendingPublicKeyBaseUrl == httpBaseUrl) {
+      return _pendingPublicKeyFetch;
+    }
+
+    final future = _fetchPublicKeyInternal(httpBaseUrl);
+    _pendingPublicKeyFetch = future;
+    _pendingPublicKeyBaseUrl = httpBaseUrl;
+    try {
+      await future;
+    } finally {
+      if (identical(_pendingPublicKeyFetch, future)) {
+        _pendingPublicKeyFetch = null;
+        _pendingPublicKeyBaseUrl = null;
+      }
+    }
+  }
+
+  Future<void> _fetchPublicKeyInternal(String httpBaseUrl) async {
     final uri = Uri.parse('$httpBaseUrl/api/public-key');
     final client = HttpClient();
     try {
