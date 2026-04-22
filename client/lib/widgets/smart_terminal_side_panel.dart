@@ -131,7 +131,6 @@ class _SmartTerminalSidePanelState extends State<SmartTerminalSidePanel> {
               height: double.infinity,
               child: _SmartTerminalSidePanelContent(
                 onClose: _closePanel,
-                isOpen: _panelOpen,
               ),
             ),
           ),

@@ -4,11 +4,9 @@ part of 'smart_terminal_side_panel.dart';
 class _SmartTerminalSidePanelContent extends StatefulWidget {
   const _SmartTerminalSidePanelContent({
     required this.onClose,
-    required this.isOpen,
   });
 
   final VoidCallback onClose;
-  final bool isOpen;
 
   @override
   State<_SmartTerminalSidePanelContent> createState() =>
@@ -80,6 +78,7 @@ class _SmartTerminalSidePanelContentState
     if (intent.isEmpty || _resolvingIntent) return;
 
     _intentController.clear();
+    _fallbackReason = null;
     setState(() {
       _resolvingIntent = true;
       _pendingIntent = intent;
