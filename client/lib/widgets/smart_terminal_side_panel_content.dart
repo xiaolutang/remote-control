@@ -169,17 +169,28 @@ class _SmartTerminalSidePanelContentState
     // 编译命令并通过 WebSocket 注入
     final plan = _draft.toLaunchPlan();
     final input = plan.postCreateInput;
+    var injectFailed = false;
     if (input.isNotEmpty) {
       try {
         final service = context.read<WebSocketService>();
         service.send(input);
-      } catch (_) {
-        // 注入失败不阻塞
+      } catch (e) {
+        injectFailed = true;
+        if (!mounted) return;
+        _turns.add(_SidePanelConversationTurn(
+          userText: '',
+          items: [_SidePanelStreamItem.assistantMessage(
+            AssistantMessage(type: 'error', text: '命令注入失败：$e'),
+          )],
+        ));
       }
     }
 
+    if (!mounted) return;
     setState(() => _executing = false);
-    widget.onClose(); // 执行后自动收起面板
+    if (!injectFailed) {
+      widget.onClose();
+    }
   }
 
   @override
@@ -187,7 +198,6 @@ class _SmartTerminalSidePanelContentState
     final colorScheme = Theme.of(context).colorScheme;
     final connected = _isConnected;
     final hasPendingTurn = _pendingIntent != null;
-    // ignore: unused_local_variable (used below via hasPendingTurn)
 
     return Container(
       decoration: BoxDecoration(
