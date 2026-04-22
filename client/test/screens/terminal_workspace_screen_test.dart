@@ -567,6 +567,8 @@ void main() {
     await tester.tap(find.byKey(const Key('workspace-empty-create-action')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
+    await tester.ensureVisible(find.byKey(const Key('smart-create-submit')));
+    await tester.tap(find.byKey(const Key('smart-create-submit')));
     await tester.pumpAndSettle();
 
     // 应该触发 bootstrap
@@ -607,6 +609,10 @@ void main() {
 
     // 点击"启动并创建终端"按钮
     await tester.tap(find.byKey(const Key('workspace-empty-create-action')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.ensureVisible(find.byKey(const Key('smart-create-submit')));
+    await tester.tap(find.byKey(const Key('smart-create-submit')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
@@ -691,11 +697,16 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('workspace-menu-create')));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('smart-create-advanced')));
+    await tester.tap(find.byKey(const Key('smart-create-advanced')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('smart-create-title')));
     await tester.enterText(
-      find.byKey(const Key('workspace-create-terminal-title')),
+      find.byKey(const Key('smart-create-title')),
       'New Terminal',
     );
-    await tester.tap(find.byKey(const Key('workspace-create-terminal-submit')));
+    await tester.ensureVisible(find.byKey(const Key('smart-create-submit')));
+    await tester.tap(find.byKey(const Key('smart-create-submit')));
     await tester.pumpAndSettle();
 
     expect(find.textContaining('New Terminal'), findsWidgets);
@@ -767,12 +778,136 @@ void main() {
 
     // 点击"启动并创建终端"按钮
     await tester.tap(find.byKey(const Key('workspace-empty-create-action')));
+    await tester.pumpAndSettle();
+    await tester
+        .tap(find.byKey(const Key('smart-create-recommend-claude_code')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('smart-create-submit')));
+    await tester.tap(find.byKey(const Key('smart-create-submit')));
     await tester.pump();
     await tester.pumpAndSettle();
 
     // 应该触发 bootstrap 并创建终端
     expect(startCalls, greaterThanOrEqualTo(1));
-    expect(find.textContaining('Claude / mac-phone'), findsWidgets);
+    expect(find.textContaining('Claude'), findsWidgets);
+  });
+
+  testWidgets('intent flow shows manual confirmation for relative path',
+      (tester) async {
+    final controller = _FakeWorkspaceController(
+      devices: const [
+        RuntimeDevice(
+          deviceId: 'mbp-01',
+          name: 'mac-phone',
+          owner: 'user1',
+          agentOnline: true,
+          maxTerminals: 3,
+          activeTerminals: 1,
+        ),
+      ],
+      terminals: [
+        const RuntimeTerminal(
+          terminalId: 'term-1',
+          title: 'Claude / ai_rules',
+          cwd: '~/project',
+          command: '/bin/bash',
+          status: 'attached',
+          views: {'mobile': 0, 'desktop': 0},
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(wrapWithApp(controller));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('workspace-open-terminal-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('workspace-menu-create')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('smart-create-intent-input')),
+      '进 claude 到 project/app 看下',
+    );
+    await tester.tap(find.byKey(const Key('smart-create-generate')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('smart-create-preview-warning')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('smart-create-preview-source')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('smart-create-preview-provider')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('smart-create-preview-reasoning')),
+      findsOneWidget,
+    );
+    expect(
+        find.byKey(const Key('smart-create-confirm-manual')), findsOneWidget);
+    final submitButton = tester.widget<FilledButton>(
+      find.byKey(const Key('smart-create-submit')),
+    );
+    expect(submitButton.onPressed, isNull);
+    expect(find.text('project/app'), findsWidgets);
+  });
+
+  testWidgets('workspace custom advanced flow uses shared create path',
+      (tester) async {
+    final controller = _FakeWorkspaceController(
+      devices: const [
+        RuntimeDevice(
+          deviceId: 'mbp-01',
+          name: 'mac-phone',
+          owner: 'user1',
+          agentOnline: true,
+          maxTerminals: 3,
+          activeTerminals: 1,
+        ),
+      ],
+      terminals: [
+        const RuntimeTerminal(
+          terminalId: 'term-1',
+          title: 'Claude / ai_rules',
+          cwd: '~/project',
+          command: '/bin/bash',
+          status: 'attached',
+          views: {'mobile': 0, 'desktop': 0},
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(wrapWithApp(controller));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('workspace-open-terminal-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('workspace-menu-create')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('smart-create-recommend-custom')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('smart-create-title')));
+    await tester.enterText(
+      find.byKey(const Key('smart-create-title')),
+      'Workspace Custom',
+    );
+    await tester.enterText(
+      find.byKey(const Key('smart-create-cwd')),
+      '/tmp/workspace-custom',
+    );
+    await tester.enterText(
+      find.byKey(const Key('smart-create-command')),
+      '/bin/zsh',
+    );
+    await tester.ensureVisible(find.byKey(const Key('smart-create-submit')));
+    await tester.tap(find.byKey(const Key('smart-create-submit')));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Workspace Custom'), findsWidgets);
   });
 
   // TODO: This test has a ListView rendering issue in test environment

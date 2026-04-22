@@ -1,25 +1,40 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:rc_client/models/config.dart';
+import 'package:rc_client/models/project_context_settings.dart';
+import 'package:rc_client/models/project_context_snapshot.dart';
+import 'package:rc_client/models/recent_launch_context.dart';
 import 'package:rc_client/models/runtime_device.dart';
 import 'package:rc_client/models/runtime_terminal.dart';
+import 'package:rc_client/models/terminal_launch_plan.dart';
 import 'package:rc_client/services/config_service.dart';
 import 'package:rc_client/services/environment_service.dart';
+import 'package:rc_client/services/llm_planner_provider.dart';
+import 'package:rc_client/services/planner_credentials_service.dart';
 import 'package:rc_client/services/runtime_device_service.dart';
 import 'package:rc_client/services/runtime_selection_controller.dart';
+import 'package:rc_client/services/terminal_launch_plan_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _FakeRuntimeDeviceService extends RuntimeDeviceService {
-  _FakeRuntimeDeviceService()
-      : super(serverUrl: 'ws://localhost:8888');
+  _FakeRuntimeDeviceService() : super(serverUrl: 'ws://localhost:8888');
 
   List<RuntimeDevice> devices = const [];
   Map<String, List<RuntimeTerminal>> terminalsByDevice = const {};
+  final Map<String, ProjectContextSettings> settingsByDevice =
+      <String, ProjectContextSettings>{};
+  final Map<String, DeviceProjectContextSnapshot> snapshotsByDevice =
+      <String, DeviceProjectContextSnapshot>{};
 
   @override
   Future<List<RuntimeDevice>> listDevices(String token) async => devices;
 
   @override
-  Future<List<RuntimeTerminal>> listTerminals(String token, String deviceId) async {
+  Future<List<RuntimeTerminal>> listTerminals(
+      String token, String deviceId) async {
     return terminalsByDevice[deviceId] ?? const [];
   }
 
@@ -62,11 +77,8 @@ class _FakeRuntimeDeviceService extends RuntimeDeviceService {
   }
 
   @override
-  Future<RuntimeDevice> updateDevice(
-    String token,
-    String deviceId,
-    {String? name}
-  ) async {
+  Future<RuntimeDevice> updateDevice(String token, String deviceId,
+      {String? name}) async {
     return RuntimeDevice(
       deviceId: deviceId,
       name: name ?? 'Updated',
@@ -94,6 +106,52 @@ class _FakeRuntimeDeviceService extends RuntimeDeviceService {
       updatedAt: DateTime.parse('2026-03-29T02:00:00Z'),
     );
   }
+
+  @override
+  Future<ProjectContextSettings> getProjectContextSettings(
+    String token,
+    String deviceId,
+  ) async {
+    return settingsByDevice[deviceId] ??
+        ProjectContextSettings(deviceId: deviceId);
+  }
+
+  @override
+  Future<ProjectContextSettings> saveProjectContextSettings(
+    String token,
+    String deviceId,
+    ProjectContextSettings settings,
+  ) async {
+    settingsByDevice[deviceId] = settings;
+    return settings;
+  }
+
+  @override
+  Future<DeviceProjectContextSnapshot> getProjectContextSnapshot(
+    String token,
+    String deviceId,
+  ) async {
+    return snapshotsByDevice[deviceId] ??
+        DeviceProjectContextSnapshot(
+          deviceId: deviceId,
+          generatedAt: DateTime.parse('2026-04-22T12:00:00Z'),
+        );
+  }
+
+  @override
+  Future<DeviceProjectContextSnapshot> refreshProjectContextSnapshot(
+    String token,
+    String deviceId,
+  ) async {
+    return getProjectContextSnapshot(token, deviceId);
+  }
+}
+
+class _AlwaysKeyPlannerCredentialsService extends PlannerCredentialsService {
+  _AlwaysKeyPlannerCredentialsService();
+
+  @override
+  Future<String?> readApiKey(String deviceId) async => 'test-key';
 }
 
 void main() {
@@ -111,7 +169,9 @@ void main() {
     });
 
     test('initializes with preferred device and loads terminals', () async {
-      await configService.saveConfig(const AppConfig(preferredDeviceId: 'mbp-02'));
+      await configService.saveConfig(
+        const AppConfig(preferredDeviceId: 'mbp-02'),
+      );
       runtimeService.devices = const [
         RuntimeDevice(
           deviceId: 'mbp-01',
@@ -153,6 +213,60 @@ void main() {
 
       expect(controller.selectedDeviceId, 'mbp-02');
       expect(controller.terminals.single.terminalId, 'term-1');
+    });
+
+    test('builds recommended launch plans from selected device context',
+        () async {
+      await configService.saveConfig(
+        AppConfig(
+          preferredDeviceId: 'mbp-02',
+          recentLaunchContexts: {
+            'mbp-02': RecentLaunchContext(
+              deviceId: 'mbp-02',
+              lastTool: TerminalLaunchTool.codex,
+              lastCwd: '/Users/demo/project/remote-control',
+              lastSuccessfulPlan: const TerminalLaunchPlan(
+                tool: TerminalLaunchTool.codex,
+                title: 'Codex / remote-control',
+                cwd: '/Users/demo/project/remote-control',
+                command: '/bin/bash',
+                entryStrategy: TerminalEntryStrategy.shellBootstrap,
+                postCreateInput: 'codex\n',
+                source: TerminalLaunchPlanSource.recommended,
+              ),
+              updatedAt: DateTime.parse('2026-04-22T03:30:00Z'),
+            ),
+          },
+        ),
+      );
+      runtimeService.devices = const [
+        RuntimeDevice(
+          deviceId: 'mbp-02',
+          name: 'Online',
+          owner: 'user1',
+          agentOnline: true,
+          maxTerminals: 2,
+          activeTerminals: 0,
+        ),
+      ];
+      runtimeService.terminalsByDevice = const {'mbp-02': []};
+
+      final controller = RuntimeSelectionController(
+        serverUrl: 'ws://localhost:8888',
+        token: 'token',
+        runtimeService: runtimeService,
+        configService: configService,
+      );
+      await controller.initialize();
+
+      expect(
+        controller.recommendedLaunchPlans.first.tool,
+        TerminalLaunchTool.codex,
+      );
+      expect(
+        controller.recommendedLaunchPlans.first.postCreateInput,
+        'codex\n',
+      );
     });
 
     test('blocks terminal creation when selected device is offline', () async {
@@ -276,7 +390,8 @@ void main() {
 
       expect(closed, isNotNull);
       expect(controller.terminals.single.status, 'closed');
-      expect(controller.terminals.single.disconnectReason, 'server_forced_close');
+      expect(
+          controller.terminals.single.disconnectReason, 'server_forced_close');
     });
 
     test('updates selected device name and local list', () async {
@@ -345,7 +460,8 @@ void main() {
       expect(controller.terminals.single.title, 'New Title');
     });
 
-    test('syncs selected device active terminal count after create and close', () async {
+    test('syncs selected device active terminal count after create and close',
+        () async {
       runtimeService.devices = const [
         RuntimeDevice(
           deviceId: 'mbp-01',
@@ -389,6 +505,357 @@ void main() {
       expect(controller.selectedDevice?.activeTerminals, 1);
     });
 
+    test('rememberSuccessfulLaunchPlan persists selected device context',
+        () async {
+      runtimeService.devices = const [
+        RuntimeDevice(
+          deviceId: 'mbp-01',
+          name: 'Online',
+          owner: 'user1',
+          agentOnline: true,
+          maxTerminals: 3,
+          activeTerminals: 0,
+        ),
+      ];
+      runtimeService.terminalsByDevice = const {'mbp-01': []};
+
+      final controller = RuntimeSelectionController(
+        serverUrl: 'ws://localhost:8888',
+        token: 'token',
+        runtimeService: runtimeService,
+        configService: configService,
+      );
+      await controller.initialize();
+      await controller.rememberSuccessfulLaunchPlan(
+        const TerminalLaunchPlan(
+          tool: TerminalLaunchTool.claudeCode,
+          title: 'Claude / remote-control',
+          cwd: '/Users/demo/project/remote-control',
+          command: '/bin/bash',
+          entryStrategy: TerminalEntryStrategy.shellBootstrap,
+          postCreateInput: 'claude\n',
+          source: TerminalLaunchPlanSource.recommended,
+        ),
+      );
+
+      final restored = await configService.loadConfig();
+      final context = restored.recentLaunchContexts['mbp-01']!;
+      expect(context.lastTool, TerminalLaunchTool.claudeCode);
+      expect(context.lastCwd, '/Users/demo/project/remote-control');
+      expect(context.lastSuccessfulPlan.postCreateInput, 'claude\n');
+    });
+
+    test('loads project context settings for selected device', () async {
+      runtimeService.devices = const [
+        RuntimeDevice(
+          deviceId: 'mbp-01',
+          name: 'Online',
+          owner: 'user1',
+          agentOnline: true,
+          maxTerminals: 3,
+          activeTerminals: 0,
+        ),
+      ];
+      runtimeService.terminalsByDevice = const {'mbp-01': []};
+      runtimeService.settingsByDevice['mbp-01'] = const ProjectContextSettings(
+        deviceId: 'mbp-01',
+        pinnedProjects: [
+          PinnedProject(
+            label: 'remote-control',
+            cwd: '/Users/demo/project/remote-control',
+          ),
+        ],
+      );
+
+      final controller = RuntimeSelectionController(
+        serverUrl: 'ws://localhost:8888',
+        token: 'token',
+        runtimeService: runtimeService,
+        configService: configService,
+      );
+      await controller.initialize();
+      final settings = await controller.loadProjectContextSettings();
+
+      expect(settings, isNotNull);
+      expect(settings!.pinnedProjects.single.label, 'remote-control');
+      expect(controller.projectContextSettings?.deviceId, 'mbp-01');
+    });
+
+    test('saves project context settings for selected device', () async {
+      runtimeService.devices = const [
+        RuntimeDevice(
+          deviceId: 'mbp-01',
+          name: 'Online',
+          owner: 'user1',
+          agentOnline: true,
+          maxTerminals: 3,
+          activeTerminals: 0,
+        ),
+      ];
+      runtimeService.terminalsByDevice = const {'mbp-01': []};
+
+      final controller = RuntimeSelectionController(
+        serverUrl: 'ws://localhost:8888',
+        token: 'token',
+        runtimeService: runtimeService,
+        configService: configService,
+      );
+      await controller.initialize();
+
+      final saved = await controller.updateProjectContextSettings(
+        const ProjectContextSettings(
+          deviceId: 'mbp-01',
+          pinnedProjects: [
+            PinnedProject(
+              label: 'remote-control',
+              cwd: '/Users/demo/project/remote-control',
+            ),
+          ],
+          plannerConfig: PlannerRuntimeConfigModel(
+            provider: 'llm',
+            llmEnabled: true,
+          ),
+        ),
+      );
+
+      expect(saved, isNotNull);
+      expect(
+        runtimeService.settingsByDevice['mbp-01']!.plannerConfig.llmEnabled,
+        isTrue,
+      );
+      expect(controller.projectContextSettings?.plannerConfig.provider, 'llm');
+    });
+
+    test(
+        'loads project context snapshot and uses candidate cwd for recommendation',
+        () async {
+      runtimeService.devices = const [
+        RuntimeDevice(
+          deviceId: 'mbp-01',
+          name: 'Online',
+          owner: 'user1',
+          agentOnline: true,
+          maxTerminals: 3,
+          activeTerminals: 0,
+        ),
+      ];
+      runtimeService.terminalsByDevice = const {'mbp-01': []};
+      runtimeService.snapshotsByDevice['mbp-01'] = DeviceProjectContextSnapshot(
+        deviceId: 'mbp-01',
+        generatedAt: DateTime.parse('2026-04-22T12:00:00Z'),
+        candidates: const [
+          ProjectContextCandidate(
+            candidateId: 'cand-1',
+            deviceId: 'mbp-01',
+            label: 'remote-control',
+            cwd: '/Users/demo/project/remote-control',
+            source: 'pinned_project',
+            toolHints: ['codex', 'shell'],
+          ),
+        ],
+      );
+
+      final controller = RuntimeSelectionController(
+        serverUrl: 'ws://localhost:8888',
+        token: 'token',
+        runtimeService: runtimeService,
+        configService: configService,
+      );
+      await controller.initialize();
+
+      expect(
+        controller.recommendedLaunchPlans.first.cwd,
+        '/Users/demo/project/remote-control',
+      );
+      expect(
+        controller.recommendedLaunchPlans.first.tool,
+        TerminalLaunchTool.codex,
+      );
+    });
+
+    test(
+        'resolveLaunchPlanFromIntent lazy-loads settings and keeps local rules',
+        () async {
+      runtimeService.devices = const [
+        RuntimeDevice(
+          deviceId: 'mbp-01',
+          name: 'Online',
+          owner: 'user1',
+          agentOnline: true,
+          maxTerminals: 3,
+          activeTerminals: 0,
+        ),
+      ];
+      runtimeService.terminalsByDevice = const {'mbp-01': []};
+      runtimeService.settingsByDevice['mbp-01'] = const ProjectContextSettings(
+        deviceId: 'mbp-01',
+        plannerConfig: PlannerRuntimeConfigModel(
+          provider: 'local_rules',
+          llmEnabled: false,
+        ),
+      );
+      runtimeService.snapshotsByDevice['mbp-01'] = DeviceProjectContextSnapshot(
+        deviceId: 'mbp-01',
+        generatedAt: DateTime.parse('2026-04-22T12:00:00Z'),
+        candidates: const [
+          ProjectContextCandidate(
+            candidateId: 'cand-1',
+            deviceId: 'mbp-01',
+            label: 'remote-control',
+            cwd: '/Users/demo/project/remote-control',
+            source: 'pinned_project',
+            toolHints: ['shell'],
+          ),
+        ],
+      );
+
+      final controller = RuntimeSelectionController(
+        serverUrl: 'ws://localhost:8888',
+        token: 'token',
+        runtimeService: runtimeService,
+        configService: configService,
+      );
+      await controller.initialize();
+
+      expect(controller.projectContextSettings, isNull);
+      final plan = await controller.resolveLaunchPlanFromIntent(
+        '进入 codex 修一下登录问题',
+      );
+
+      expect(controller.projectContextSettings?.deviceId, 'mbp-01');
+      expect(plan.tool, TerminalLaunchTool.codex);
+      expect(plan.cwd, '/Users/demo/project/remote-control');
+      expect(plan.confidence, TerminalLaunchConfidence.medium);
+    });
+
+    test('resolveLaunchPlanFromIntent keeps llm candidate scope per device',
+        () async {
+      await configService.saveConfig(
+        const AppConfig(preferredDeviceId: 'mbp-02'),
+      );
+      runtimeService.devices = const [
+        RuntimeDevice(
+          deviceId: 'mbp-01',
+          name: 'Online 1',
+          owner: 'user1',
+          agentOnline: true,
+          maxTerminals: 3,
+          activeTerminals: 0,
+        ),
+        RuntimeDevice(
+          deviceId: 'mbp-02',
+          name: 'Online 2',
+          owner: 'user1',
+          agentOnline: true,
+          maxTerminals: 3,
+          activeTerminals: 0,
+        ),
+      ];
+      runtimeService.terminalsByDevice = const {
+        'mbp-01': [],
+        'mbp-02': [],
+      };
+      runtimeService.settingsByDevice['mbp-01'] = const ProjectContextSettings(
+        deviceId: 'mbp-01',
+        plannerConfig: PlannerRuntimeConfigModel(
+          provider: 'llm',
+          llmEnabled: true,
+        ),
+      );
+      runtimeService.settingsByDevice['mbp-02'] = const ProjectContextSettings(
+        deviceId: 'mbp-02',
+        plannerConfig: PlannerRuntimeConfigModel(
+          provider: 'llm',
+          llmEnabled: true,
+        ),
+      );
+      runtimeService.snapshotsByDevice['mbp-01'] = DeviceProjectContextSnapshot(
+        deviceId: 'mbp-01',
+        generatedAt: DateTime.parse('2026-04-22T12:00:00Z'),
+        candidates: const [
+          ProjectContextCandidate(
+            candidateId: 'cand-dev1',
+            deviceId: 'mbp-01',
+            label: 'device-one',
+            cwd: '/Users/demo/project/device-one',
+            source: 'pinned_project',
+            toolHints: ['codex'],
+          ),
+        ],
+      );
+      runtimeService.snapshotsByDevice['mbp-02'] = DeviceProjectContextSnapshot(
+        deviceId: 'mbp-02',
+        generatedAt: DateTime.parse('2026-04-22T12:00:00Z'),
+        candidates: const [
+          ProjectContextCandidate(
+            candidateId: 'cand-dev2',
+            deviceId: 'mbp-02',
+            label: 'device-two',
+            cwd: '/Users/demo/project/device-two',
+            source: 'pinned_project',
+            toolHints: ['codex'],
+          ),
+        ],
+      );
+
+      final plannerService = TerminalLaunchPlanService(
+        llmPlannerProvider: LlmPlannerProvider(
+          client: MockClient((request) async {
+            final body = jsonDecode(request.body) as Map<String, dynamic>;
+            final messages = body['messages'] as List<dynamic>;
+            final userPayload = jsonDecode(
+              (messages.last as Map<String, dynamic>)['content'] as String,
+            ) as Map<String, dynamic>;
+            final candidates =
+                userPayload['candidates'] as List<dynamic>? ?? const [];
+            expect(candidates.length, 1);
+            expect(
+              (candidates.first as Map<String, dynamic>)['candidate_id'],
+              'cand-dev2',
+            );
+            return http.Response(
+              jsonEncode({
+                'choices': [
+                  {
+                    'message': {
+                      'content': jsonEncode({
+                        'tool': 'codex',
+                        'matched_candidate_id': 'cand-dev2',
+                        'cwd': '/Users/demo/project/device-two',
+                        'reasoning_kind': 'candidate_match',
+                      }),
+                    },
+                  },
+                ],
+              }),
+              200,
+            );
+          }),
+          credentialsService: _AlwaysKeyPlannerCredentialsService(),
+          endpointResolver: (_) =>
+              Uri.parse('https://planner.test/v1/chat/completions'),
+          model: 'test-model',
+        ),
+      );
+
+      final controller = RuntimeSelectionController(
+        serverUrl: 'ws://localhost:8888',
+        token: 'token',
+        runtimeService: runtimeService,
+        configService: configService,
+        terminalLaunchPlanService: plannerService,
+      );
+      await controller.initialize();
+
+      final plan = await controller.resolveLaunchPlanFromIntent(
+        '进入 codex 看下当前项目',
+      );
+
+      expect(controller.selectedDeviceId, 'mbp-02');
+      expect(plan.tool, TerminalLaunchTool.codex);
+      expect(plan.cwd, '/Users/demo/project/device-two');
+    });
+
     // F030: 平台判断测试
     test('isDesktopPlatform returns true on desktop platforms', () {
       // 在 macOS/Linux/Windows 上运行测试时，isDesktopPlatform 应该返回 true
@@ -404,7 +871,9 @@ void main() {
       expect(controller.isDesktopPlatform, isTrue);
     });
 
-    test('isLocalDeviceSelected returns true only on desktop with matching device', () async {
+    test(
+        'isLocalDeviceSelected returns true only on desktop with matching device',
+        () async {
       runtimeService.devices = const [
         RuntimeDevice(
           deviceId: 'mbp-local',

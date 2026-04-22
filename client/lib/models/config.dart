@@ -1,3 +1,5 @@
+import 'project_context_snapshot.dart';
+import 'recent_launch_context.dart';
 import 'shortcut_item.dart';
 import 'terminal_shortcut.dart';
 
@@ -29,6 +31,8 @@ class AppConfig {
   final String preferredDeviceId;
   final List<ShortcutItem> shortcutItems;
   final Map<String, List<ShortcutItem>> projectShortcutItems;
+  final Map<String, RecentLaunchContext> recentLaunchContexts;
+  final Map<String, DeviceProjectContextSnapshot> projectContextSnapshots;
 
   bool get keepAgentRunningInBackground =>
       desktopExitPolicy == DesktopExitPolicy.keepAgentRunningInBackground;
@@ -49,6 +53,8 @@ class AppConfig {
     this.preferredDeviceId = '',
     this.shortcutItems = const [],
     this.projectShortcutItems = const {},
+    this.recentLaunchContexts = const {},
+    this.projectContextSnapshots = const {},
   }) : desktopExitPolicy = desktopExitPolicy ??
             (keepAgentRunningInBackground == true
                 ? DesktopExitPolicy.keepAgentRunningInBackground
@@ -69,6 +75,8 @@ class AppConfig {
     String? preferredDeviceId,
     List<ShortcutItem>? shortcutItems,
     Map<String, List<ShortcutItem>>? projectShortcutItems,
+    Map<String, RecentLaunchContext>? recentLaunchContexts,
+    Map<String, DeviceProjectContextSnapshot>? projectContextSnapshots,
   }) {
     return AppConfig(
       serverUrl: serverUrl ?? this.serverUrl,
@@ -85,6 +93,9 @@ class AppConfig {
       preferredDeviceId: preferredDeviceId ?? this.preferredDeviceId,
       shortcutItems: shortcutItems ?? this.shortcutItems,
       projectShortcutItems: projectShortcutItems ?? this.projectShortcutItems,
+      recentLaunchContexts: recentLaunchContexts ?? this.recentLaunchContexts,
+      projectContextSnapshots:
+          projectContextSnapshots ?? this.projectContextSnapshots,
     );
   }
 
@@ -107,6 +118,12 @@ class AppConfig {
           key,
           value.map((item) => item.toJson()).toList(),
         ),
+      ),
+      'recentLaunchContexts': recentLaunchContexts.map(
+        (key, value) => MapEntry(key, value.toJson()),
+      ),
+      'projectContextSnapshots': projectContextSnapshots.map(
+        (key, value) => MapEntry(key, value.toJson()),
       ),
     };
   }
@@ -159,6 +176,12 @@ class AppConfig {
               .toList(growable: false),
         ),
       ),
+      recentLaunchContexts: _parseRecentLaunchContexts(
+        json['recentLaunchContexts'],
+      ),
+      projectContextSnapshots: _parseProjectContextSnapshots(
+        json['projectContextSnapshots'],
+      ),
     );
   }
 
@@ -170,5 +193,55 @@ class AppConfig {
       return DesktopExitPolicy.keepAgentRunningInBackground;
     }
     return DesktopExitPolicy.stopAgentOnExit;
+  }
+
+  static Map<String, RecentLaunchContext> _parseRecentLaunchContexts(
+    Object? rawValue,
+  ) {
+    if (rawValue is! Map) {
+      return const {};
+    }
+
+    final contexts = <String, RecentLaunchContext>{};
+    for (final entry in rawValue.entries) {
+      final key = entry.key.toString();
+      final value = entry.value;
+      if (value is! Map) {
+        continue;
+      }
+      final context = RecentLaunchContext.tryFromJson(
+        Map<String, dynamic>.from(value),
+        fallbackDeviceId: key,
+      );
+      if (context != null) {
+        contexts[key] = context;
+      }
+    }
+    return contexts;
+  }
+
+  static Map<String, DeviceProjectContextSnapshot>
+      _parseProjectContextSnapshots(
+    Object? rawValue,
+  ) {
+    if (rawValue is! Map) {
+      return const {};
+    }
+
+    final snapshots = <String, DeviceProjectContextSnapshot>{};
+    for (final entry in rawValue.entries) {
+      final key = entry.key.toString();
+      final value = entry.value;
+      if (value is! Map) {
+        continue;
+      }
+      final snapshot = DeviceProjectContextSnapshot.fromJson(
+        Map<String, dynamic>.from(value),
+      );
+      if (snapshot.deviceId.isNotEmpty) {
+        snapshots[key] = snapshot;
+      }
+    }
+    return snapshots;
   }
 }

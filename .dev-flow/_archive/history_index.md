@@ -39,6 +39,9 @@
 | S036 | 2026-04-15 | IP 直连 + RSA/AES 加密 | feature | 分两期：Phase1 IP 直连（紧急）+ Phase2 RSA+AES 加密（后续） |
 | S037 | 2026-04-16 | 终端 P0 稳定性修复规划 | bugfix | 4 个终端体验 P0 任务拆解完成；workflow 收口为 local/local/local；规划审核通过 |
 | S039 | 2026-04-17 | 终端交互架构重构规划 | planning | 从终端补丁修复升级为整体交互重构；Agent 主恢复源 + 四层客户端模型 + Desktop 恢复链纳入统一状态机 |
+| S040 | 2026-04-22 | 智能终端进入规划 | planning | 在 terminal 创建前加入推荐式与一句话意图式智能，统一收口到 Client 侧 TerminalLaunchPlan 编排 |
+| S041 | 2026-04-22 | 智能终端进入规划复审修正 | planning | 补齐直接进入工具语义、RecentLaunchContext 数据源和高风险失败/边界测试 |
+| S042 | 2026-04-22 | 设备感知智能终端进入长期路线补全 | planning | 智能识别后续必须基于当前设备项目上下文；LLM 只能在候选事实上做选择，不得发明路径 |
 
 ## 已沉淀到 architecture.md 的决策
 

@@ -33,29 +33,37 @@ async def db_with_tables():
 
 @pytest.mark.asyncio
 async def test_init_db_creates_tables(db_with_tables):
-    """init_db 创建 users 和 user_devices 表"""
+    """init_db 创建核心表结构。"""
     async with aiosqlite.connect(TEST_DB) as db:
-        # 检查 users 表
-        cursor = await db.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
-        )
-        assert await cursor.fetchone() is not None
-
-        # 检查 user_devices 表
-        cursor = await db.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='user_devices'"
-        )
-        assert await cursor.fetchone() is not None
+        for table_name in (
+            "users",
+            "user_devices",
+            "project_source_pinned_projects",
+            "project_source_scan_roots",
+            "project_source_planner_configs",
+        ):
+            cursor = await db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                (table_name,),
+            )
+            assert await cursor.fetchone() is not None
 
 
 @pytest.mark.asyncio
 async def test_init_db_creates_index(db_with_tables):
-    """init_db 创建 username 索引"""
+    """init_db 创建索引。"""
     async with aiosqlite.connect(TEST_DB) as db:
-        cursor = await db.execute(
-            "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_user_devices_username'"
-        )
-        assert await cursor.fetchone() is not None
+        for index_name in (
+            "idx_user_devices_username",
+            "idx_pinned_projects_scope",
+            "idx_scan_roots_scope",
+            "idx_planner_configs_scope",
+        ):
+            cursor = await db.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' AND name=?",
+                (index_name,),
+            )
+            assert await cursor.fetchone() is not None
 
 
 @pytest.mark.asyncio
@@ -166,3 +174,96 @@ async def test_configure_database_creates_instance():
     db = configure_database("/tmp/test_configure.db")
     assert isinstance(db, Database)
     assert db.db_path == "/tmp/test_configure.db"
+
+
+@pytest.mark.asyncio
+async def test_replace_and_get_pinned_projects_are_device_scoped(db_with_tables):
+    """固定项目只按 user + device 生效。"""
+    from app.database import (
+        get_pinned_projects,
+        replace_pinned_projects,
+        save_user,
+    )
+
+    await save_user("erin", "hash")
+    await replace_pinned_projects(
+        "erin",
+        "device-a",
+        [
+            {"label": "remote-control", "cwd": "/Users/demo/project/remote-control"},
+            {"label": "ai-rules", "cwd": "/Users/demo/project/ai_rules"},
+        ],
+    )
+    await replace_pinned_projects(
+        "erin",
+        "device-b",
+        [{"label": "other", "cwd": "/Users/demo/project/other"}],
+    )
+
+    device_a_projects = await get_pinned_projects("erin", "device-a")
+    device_b_projects = await get_pinned_projects("erin", "device-b")
+
+    assert sorted(project["cwd"] for project in device_a_projects) == [
+        "/Users/demo/project/ai_rules",
+        "/Users/demo/project/remote-control",
+    ]
+    assert [project["cwd"] for project in device_b_projects] == [
+        "/Users/demo/project/other",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_replace_and_get_scan_roots_persists_enabled_and_depth(db_with_tables):
+    """扫描根目录配置支持 depth/enabled 持久化。"""
+    from app.database import (
+        get_approved_scan_roots,
+        replace_approved_scan_roots,
+        save_user,
+    )
+
+    await save_user("frank", "hash")
+    await replace_approved_scan_roots(
+        "frank",
+        "device-a",
+        [
+            {"root_path": "/Users/demo/project", "scan_depth": 3, "enabled": True},
+            {"root_path": "/Volumes/workspace", "scan_depth": 1, "enabled": False},
+        ],
+    )
+
+    roots = await get_approved_scan_roots("frank", "device-a")
+
+    assert [(root["root_path"], root["scan_depth"], root["enabled"]) for root in roots] == [
+        ("/Users/demo/project", 3, 1),
+        ("/Volumes/workspace", 1, 0),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_save_and_get_planner_config(db_with_tables):
+    """planner 配置可按 user + device 持久化。"""
+    from app.database import (
+        get_planner_config,
+        save_planner_config,
+        save_user,
+    )
+
+    await save_user("gina", "hash")
+    await save_planner_config(
+        "gina",
+        "device-a",
+        {
+            "provider": "llm",
+            "llm_enabled": True,
+            "endpoint_profile": "openai_compatible",
+            "credentials_mode": "client_secure_storage",
+            "requires_explicit_opt_in": True,
+        },
+    )
+
+    config = await get_planner_config("gina", "device-a")
+
+    assert config is not None
+    assert config["provider"] == "llm"
+    assert config["llm_enabled"] == 1
+    assert config["credentials_mode"] == "client_secure_storage"

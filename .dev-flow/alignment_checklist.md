@@ -100,3 +100,16 @@
 | **终端交互架构重构** | **UI 瘦身迁移** | **CONTRACT-039** | **not_applicable** | **pending** | **pending** | **F074: TerminalScreen / Workspace 只负责展示、焦点、快捷键、IME** |
 | **终端交互架构重构** | **桌面端 Agent 断连恢复编排** | **CONTRACT-040, CONTRACT-041, CONTRACT-042** | **pending** | **pending** | **pending** | **F075: agent 断连 recoverable/TTL/重启恢复 与 app lifecycle 编排统一** |
 | **终端交互架构重构** | **客户端生命周期恢复编排** | **CONTRACT-039, CONTRACT-042** | **not_applicable** | **pending** | **pending** | **F076: foreground/cold start/network restore 统一恢复状态机** |
+| **智能终端进入** | **产品基线：推荐式 + 意图式 + 高级配置** | **CONTRACT-043** | **not_applicable** | **completed** | **completed** | **S077: 智能创建边界、TerminalLaunchPlan 和移动端首用语义收口** |
+| **智能终端进入** | **智能创建入口 UI** | **CONTRACT-043** | **not_applicable** | **pending** | **pending** | **F077: 推荐项、一句话输入、高级配置同屏编排** |
+| **智能终端进入** | **启动方案推荐服务** | **CONTRACT-043** | **not_applicable** | **completed** | **completed** | **F078: 最近工具 / 最近 cwd / 默认 shell 兜底的推荐排序** |
+| **智能终端进入** | **一句话意图到 TerminalLaunchPlan** | **CONTRACT-043** | **not_applicable** | **pending** | **pending** | **F079: 短句意图解析为 tool/title/cwd/command，模糊时回退推荐** |
+| **智能终端进入** | **统一创建链路收口** | **CONTRACT-043** | **not_applicable** | **pending** | **pending** | **F080: runtime selection 与 workspace 共用一套 createTerminal 主链路** |
+| **智能终端进入** | **自动化与首用 smoke** | **CONTRACT-043** | **not_applicable** | **pending** | **pending** | **F081: 推荐/意图/自定义三链路回归 + 手机端首用验证** |
+| **设备感知智能终端进入** | **项目来源管理与 Planner 配置基线** | **CONTRACT-044** | **not_applicable** | **pending** | **pending** | **S078: pinned_project、approved_scan_root、planner opt-in 与刷新协议基线** |
+| **设备感知智能终端进入** | **设备项目上下文采集与摘要** | **CONTRACT-044** | **pending** | **not_applicable** | **pending** | **B074: Agent/Server 提供当前设备候选项目摘要，不上传完整文件树** |
+| **设备感知智能终端进入** | **项目来源管理与 Planner 配置 UI** | **CONTRACT-044** | **not_applicable** | **pending** | **pending** | **F086: 固定项目、扫描根目录授权和 planner 开关/凭证配置** |
+| **设备感知智能终端进入** | **候选项目上下文缓存与排序** | **CONTRACT-043, CONTRACT-044** | **not_applicable** | **pending** | **pending** | **F082: Client 按设备缓存候选项目并与 recent context 合并排序** |
+| **设备感知智能终端进入** | **候选约束 LLM Planner** | **CONTRACT-043, CONTRACT-044** | **not_applicable** | **pending** | **pending** | **F083: LLM 只能在候选事实上生成 plan，失败时回退 local_rules** |
+| **设备感知智能终端进入** | **候选项目确认流与可解释反馈** | **CONTRACT-043, CONTRACT-044** | **not_applicable** | **pending** | **pending** | **F084: 展示候选来源/provider/confidence，确认后才允许创建** |
+| **设备感知智能终端进入** | **设备感知智能回归与隐私 smoke** | **CONTRACT-043, CONTRACT-044** | **not_applicable** | **pending** | **pending** | **F085: 跨设备隔离、LLM fallback、隐私边界与首用 smoke** |

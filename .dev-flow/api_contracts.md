@@ -48,6 +48,8 @@
 | CONTRACT-040 | 1519 | Server terminal metadata / ownership / lifecycle truth | B071, F075 |
 | CONTRACT-041 | 1560 | Agent terminal snapshot authority | B072, F075 |
 | CONTRACT-042 | 1590 | Terminal recovery WebSocket protocol | S072, S073, B071, B072, B073, F071, F072, F075, F076 |
+| CONTRACT-043 | 1652 | 智能终端创建编排 | S077, F077, F078, F079, F080, F081 |
+| CONTRACT-044 | 1737 | 设备感知智能终端规划 | S078, B074, F086, F082, F083, F084, F085 |
 
 ## 日志集成
 
@@ -1641,3 +1643,237 @@ live -> detached_recoverable -> closed
 | epoch drop | 旧 `attach_epoch` / `recovery_epoch` 的 snapshot/output/resize 必须被丢弃 |
 | compatibility window | 迁移期允许 server 做双协议兼容，但必须有明确灰度与回退策略 |
 | cold start | 冷启动恢复必须依赖权威 snapshot，而不是旧 local cache |
+
+## 智能终端进入
+
+### 智能终端创建编排
+
+| 字段 | 值 |
+|------|----|
+| ID | CONTRACT-043 |
+| Scope | Client orchestration |
+| Related Tasks | S077, F077, F078, F079, F080, F081 |
+
+#### TerminalLaunchPlan
+
+```json
+{
+  "tool": "claude_code",
+  "title": "Claude / My Mac",
+  "cwd": "~/project/remote-control",
+  "command": "/bin/bash",
+  "entry_strategy": "shell_bootstrap",
+  "post_create_input": "claude\n",
+  "source": "recommended",
+  "intent": "帮我进入 Claude 看这个项目",
+  "confidence": "high",
+  "requires_manual_confirmation": false
+}
+```
+
+#### Fields
+
+| Field | Meaning |
+|-------|---------|
+| `tool` | 目标工具类型：`claude_code` / `codex` / `shell` / `custom` |
+| `title` | terminal 标题 |
+| `cwd` | 启动目录 |
+| `command` | terminal 创建时的启动命令 |
+| `entry_strategy` | 进入目标工具的策略：`direct_exec` / `shell_bootstrap` |
+| `post_create_input` | terminal 创建成功并连通后，由 Client 自动发送的首条输入，可为空 |
+| `source` | 方案来源：`recommended` / `intent` / `custom` |
+| `intent` | 用户输入的一句话目标，可为空 |
+| `confidence` | 方案置信度：`high` / `medium` / `low` |
+| `requires_manual_confirmation` | 是否需要用户在高级配置中确认 |
+
+#### Entry Strategy
+
+| Tool | Default Strategy | Create Command | Post Create Input |
+|------|------------------|----------------|-------------------|
+| `claude_code` | `shell_bootstrap` | `/bin/bash` | `claude\n` |
+| `codex` | `shell_bootstrap` | `/bin/bash` | `codex\n` |
+| `shell` | `direct_exec` | `/bin/bash` | `""` |
+| `custom` | 用户决定 | 用户填写 | 用户填写/留空 |
+
+说明：
+
+- v1 为了保持 Server/Agent 创建契约不变，`claude_code` 和 `codex` 默认不直接修改 agent 侧 PTY 启动协议，而是先创建 shell，再由 Client 在 terminal 连接成功后自动发送 `post_create_input`
+- `direct_exec` 仅表示 terminal 创建完成后无需额外 bootstrap 输入
+- 若本机环境缺少 `claude` / `codex` 命令，bootstrap 失败必须回显错误，且用户仍可留在 shell 中手动修正
+
+#### RecentLaunchContext
+
+```json
+{
+  "device_id": "dev_123",
+  "last_tool": "claude_code",
+  "last_cwd": "~/project/remote-control",
+  "last_successful_plan": {
+    "tool": "claude_code",
+    "cwd": "~/project/remote-control",
+    "command": "/bin/bash",
+    "entry_strategy": "shell_bootstrap",
+    "post_create_input": "claude\n"
+  },
+  "updated_at": "2026-04-22T12:00:00+0800"
+}
+```
+
+`RecentLaunchContext` 由 Client 本地持久化，是推荐服务的权威数据源；不写入 Server runtime terminal metadata。
+
+#### Rules
+
+| Rule | Meaning |
+|------|---------|
+| client only orchestration | 智能编排只发生在 Client；Server/Agent 只接收最终 `title/cwd/command/env/terminal_id` |
+| no new server llm in v1 | v1 不引入新的服务端 LLM 依赖 |
+| explainable recommendation | 推荐与意图结果必须可解释，基于最近 terminal / 最近 cwd / 最近工具和短句规则生成 |
+| custom fallback required | 任意推荐或意图结果都必须可回退到手动高级配置 |
+| one create path | 推荐、意图、自定义三条路径最终必须收口到同一个 `createTerminal` 主链路 |
+| explicit entry semantics | `tool` 必须映射到明确的 `entry_strategy + command + post_create_input`，不能只停留在抽象枚举 |
+| local recent source | 最近工具/最近计划由 Client 本地 `RecentLaunchContext` 持久化，缓存损坏或为空时必须回退默认推荐 |
+| bootstrap failure visible | `shell_bootstrap` 失败时必须让用户看到终端回显，并保留当前 shell 继续操作，不得直接吞错 |
+
+### 设备感知智能终端规划
+
+| 字段 | 值 |
+|------|----|
+| ID | CONTRACT-044 |
+| Scope | Agent discovery + Client orchestration |
+| Related Tasks | S078, B074, F086, F082, F083, F084, F085 |
+
+#### ProjectContextCandidate
+
+```json
+{
+  "candidate_id": "cand_recent_remote_control",
+  "device_id": "dev_123",
+  "label": "remote-control",
+  "cwd": "/Users/demo/project/remote-control",
+  "source": "recent_terminal",
+  "tool_hints": ["claude_code", "codex", "shell"],
+  "last_used_at": "2026-04-22T12:00:00+0800",
+  "requires_confirmation": false
+}
+```
+
+#### DeviceProjectContextSnapshot
+
+```json
+{
+  "device_id": "dev_123",
+  "generated_at": "2026-04-22T12:05:00+0800",
+  "candidates": [
+    {
+      "candidate_id": "cand_recent_remote_control",
+      "label": "remote-control",
+      "cwd": "/Users/demo/project/remote-control",
+      "source": "recent_terminal"
+    }
+  ]
+}
+```
+
+#### IntentResolutionResult
+
+```json
+{
+  "provider": "llm",
+  "matched_candidate_id": "cand_recent_remote_control",
+  "plan": {
+    "tool": "codex",
+    "title": "Codex / remote-control",
+    "cwd": "/Users/demo/project/remote-control",
+    "command": "/bin/bash",
+    "entry_strategy": "shell_bootstrap",
+    "post_create_input": "codex\n",
+    "source": "intent",
+    "confidence": "medium",
+    "requires_manual_confirmation": false
+  },
+  "reasoning_kind": "candidate_match"
+}
+```
+
+#### Candidate Source
+
+| Source | Meaning |
+|--------|---------|
+| `recent_terminal` | 来自当前设备最近 terminal 的 `cwd` |
+| `recent_launch` | 来自当前设备最近成功启动 plan |
+| `pinned_project` | 用户主动固定/收藏的项目 |
+| `approved_scan` | Agent 在用户已授权根目录内发现的项目候选 |
+| `explicit_input` | 用户本次输入里明确写出的路径 |
+
+#### Planner Provider
+
+| Provider | Meaning |
+|----------|---------|
+| `local_rules` | 客户端本地规则解析 |
+| `llm` | 在候选项目约束下运行的可选 LLM planner |
+
+#### ProjectSourceSettings
+
+```json
+{
+  "device_id": "dev_123",
+  "pinned_projects": [
+    {
+      "label": "remote-control",
+      "cwd": "/Users/demo/project/remote-control"
+    }
+  ],
+  "approved_scan_roots": [
+    {
+      "root_path": "/Users/demo/project",
+      "scan_depth": 2,
+      "enabled": true
+    }
+  ]
+}
+```
+
+#### PlannerRuntimeConfig
+
+```json
+{
+  "provider": "local_rules",
+  "llm_enabled": false,
+  "endpoint_profile": "openai_compatible",
+  "credentials_mode": "client_secure_storage",
+  "requires_explicit_opt_in": true
+}
+```
+
+#### Retrieval Protocol
+
+| Step | Behavior |
+|------|----------|
+| snapshot fetch | Client 通过 `GET /api/runtime/devices/{device_id}/project-context` 获取当前设备候选快照 |
+| manual refresh | Client 通过 `POST /api/runtime/devices/{device_id}/project-context:refresh` 主动触发重采集 |
+| post-config refresh | 固定项目、扫描根目录或 planner 配置变更后，必须触发一次候选刷新 |
+| stale fallback | 快照为空、过期、损坏或刷新失败时，Client 回退到本地缓存或 `F078` 默认推荐 |
+| update event | Server 可通过 `project_context_updated` 事件通知当前设备候选已刷新，Client 只按 `device_id` 局部更新 |
+
+#### Settings Protocol
+
+| Step | Behavior |
+|------|----------|
+| settings fetch | Client 通过 `GET /api/runtime/devices/{device_id}/project-context/settings` 获取 `ProjectSourceSettings + PlannerRuntimeConfig` |
+| settings save | Client 通过 `PUT /api/runtime/devices/{device_id}/project-context/settings` 更新 pinned project、scan root 和 planner 配置 |
+| secure credential write | 外部 LLM 凭证不进入该 settings payload，仍由 Client 写入安全存储 |
+| settings scope | settings 以 `user_id + device_id` 为作用域，不跨用户、不跨设备共享 |
+
+#### Rules
+
+| Rule | Meaning |
+|------|---------|
+| user managed sources | `pinned_project` 与 `approved_scan_root` 必须有显式管理入口，不能只依赖隐式历史 |
+| device scoped context | 只能使用当前 `device_id` 的项目候选，不得跨设备污染 |
+| no path invention | `cwd` 必须来自 `ProjectContextCandidate.cwd` 或用户显式输入路径 |
+| server relay only | Server 只中转/缓存候选摘要，不存完整文件树，不做自然语言理解 |
+| agent fact source | Agent 负责采集设备本地项目候选摘要，但不解析用户意图 |
+| planner fallback chain | `llm` 不可用或结果无效时，必须回退到 `local_rules` 或默认推荐 |
+| confirmation on ambiguity | 候选不唯一、路径不在候选中或置信度不足时，必须 `requires_manual_confirmation=true` |
+| llm opt-in required | `llm` provider 默认关闭，只有用户显式开启后才能参与规划 |
+| client credential ownership | planner 凭证默认保存在 Client 安全存储；Agent 不得持有外部 LLM key |

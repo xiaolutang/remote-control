@@ -2,31 +2,33 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-19T18:00:00+0800",
+  "updated_at": "2026-04-22T22:05:00+0800",
   "status": "completed",
   "active_requirement_cycle": {
-    "name": "terminal-interaction-refactor",
-    "branch": "feat/terminal-interaction-refactor",
-    "started_at": "2026-04-17",
-    "completed_at": "2026-04-19"
+    "id": "R040",
+    "name": "intelligent-terminal-entry",
+    "status": "completed",
+    "branch": "feat/R040-intelligent-terminal-entry",
+    "started_at": "2026-04-22",
+    "completed_at": "2026-04-22"
   },
   "workflow": {
     "name": "remote-control",
     "mode": "A",
     "runtime": "skill_orchestrated",
-    "review_provider": "codex_plugin",
+    "review_provider": "local",
     "audit_provider": "local",
     "risk_provider": "local"
   },
   "summary": {
-    "total": 16,
+    "total": 29,
     "pending": 0,
     "in_progress": 0,
-    "completed": 16,
+    "completed": 29,
     "blocked": 0,
     "cancelled": 0
   },
-  "next_phase": "terminal-interaction-refactor",
+  "next_phase": "context-aware-intelligent-entry",
   "project_info": {
     "description": "远程控制终端（Server + Agent + Client）。含反馈系统、日志集成、用户信息、Docker 标准化部署。",
     "tech_stack": {
@@ -1070,6 +1072,847 @@
         "client/lib/screens/terminal_screen.dart",
         "client/lib/screens/terminal_workspace_screen.dart"
       ]
+    },
+    {
+      "id": "S077",
+      "phase": "intelligent-terminal-entry",
+      "module": "shared",
+      "name": "智能终端进入产品基线",
+      "description": "把“新建终端”从裸表单升级为智能进入链路，明确推荐式入口、一句话意图输入和高级配置兜底三条路径的边界。\n\n本轮范围：\n- 推荐式入口：直接选 `Claude Code / Codex / Shell / 自定义`\n- 意图式入口：用户输入一句目标，由系统生成 terminal 启动方案\n- 高级配置兜底：始终可回退到手动填写 `title / cwd / command`\n\n约束：\n- v1 不引入新的服务端 LLM 依赖\n- 智能编排发生在 Client；Server/Agent 只接收最终 terminal create payload\n- 推荐和意图结果必须可解释，不能做黑盒静默决策",
+      "verification": "F2",
+      "depends_on": [],
+      "status": "completed",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "明确推荐式、意图式、高级配置三条进入路径及切换关系",
+        "定义统一 TerminalLaunchPlan，至少包含 tool/title/cwd/command/source，并补齐 entry_strategy/post_create_input 语义",
+        "明确 `Claude Code / Codex / Shell / 自定义` 对应的真实进入策略，不能只停留在工具枚举",
+        "现有 Server/Agent terminal create 契约保持不变，智能链路只在 Client 编排",
+        "定义 RecentLaunchContext 作为最近工具/最近计划的本地权威数据源",
+        "移动端首用场景被列为主验收路径，桌面端共用同一创建模型"
+      ],
+      "contract_refs": [
+        "CONTRACT-043"
+      ],
+      "files": [
+        ".dev-flow/api_contracts.md",
+        ".dev-flow/project_spec.md",
+        ".dev-flow/feature_map.md",
+        "client/lib/screens/runtime_selection_screen.dart",
+        "client/lib/screens/terminal_workspace_screen.dart"
+      ],
+      "started_at": "2026-04-22T09:30:00+0800",
+      "completed_at": "2026-04-22T10:10:00+0800",
+      "actual_minutes": 40,
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 0,
+        "waiting_for_external": false
+      },
+      "execution_notes": "通过 S040/S041 规划与审核回合完成 CONTRACT-043、TerminalLaunchPlan、RecentLaunchContext 和智能创建边界收口。",
+      "evidence_file": ".dev-flow/evidence/S077.md"
+    },
+    {
+      "id": "F077",
+      "phase": "intelligent-terminal-entry",
+      "module": "client-ui",
+      "name": "智能创建入口 UI：推荐项 + 一句话输入 + 高级配置",
+      "description": "重构 runtime selection 与 workspace 内的“新建终端”入口，改为移动端优先的智能创建面板。\n\n交互要求：\n- 顶部直接展示推荐项：`Claude Code / Codex / Shell / 自定义`\n- 中部提供一句话输入框，让用户说“我要在某个项目里修 bug / 看代码 / 跑命令”\n- 底部保留高级配置折叠区，用户可手动修改 title/cwd/command\n- 面板必须同时适配 workspace 主路径和旧 runtime selection 后备入口",
+      "verification": "F2",
+      "depends_on": [
+        "S077"
+      ],
+      "status": "completed",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "新建终端不再默认先暴露三个裸 TextField",
+        "用户可不输入任何文字，直接点推荐项创建 terminal",
+        "用户可输入一句目标，并看到系统生成的启动方案预览",
+        "高级配置可展开并覆盖自动生成的 title/cwd/command",
+        "当 requires_manual_confirmation=true 时，UI 明确阻止直接创建并提示用户确认",
+        "runtime selection 与 workspace 两个入口共用同一套智能创建 UI"
+      ],
+      "contract_refs": [
+        "CONTRACT-043"
+      ],
+      "risk_tags": [
+        "first_use"
+      ],
+      "test_tasks": [
+        {
+          "type": "widget",
+          "description": "智能创建面板结构",
+          "scenarios": [
+            "默认展示推荐项、一句话输入和高级配置入口",
+            "移动端窄屏下布局不溢出",
+            "runtime selection 与 workspace 入口展示一致"
+          ]
+        },
+        {
+          "type": "widget",
+          "description": "交互切换",
+          "scenarios": [
+            "点击推荐项后预填启动方案",
+            "展开高级配置后可修改自动生成字段",
+            "从意图输入切回自定义不会丢失已编辑字段",
+            "requires_manual_confirmation=true 时创建按钮进入确认态而非直接提交"
+          ]
+        },
+        {
+          "type": "widget",
+          "description": "首用与异常状态",
+          "scenarios": [
+            "首次历史为空时仍展示稳定默认推荐",
+            "本地 RecentLaunchContext 损坏时退回默认推荐且不崩溃",
+            "推荐项文案过长或 intent 过长时布局不溢出"
+          ]
+        },
+        {
+          "type": "manual",
+          "description": "首用体验 smoke",
+          "scenarios": [
+            "手机端首次进入时能理解如何创建 Claude/Codex terminal",
+            "不阅读帮助也能完成一次推荐创建",
+            "误触推荐项后仍能回退到自定义"
+          ]
+        }
+      ],
+      "smoke_required": true,
+      "files": [
+        "client/lib/screens/runtime_selection_screen.dart",
+        "client/lib/screens/terminal_workspace_screen.dart"
+      ],
+      "started_at": "2026-04-22T14:10:00+0800",
+      "completed_at": "2026-04-22T15:50:00+0800",
+      "actual_minutes": 100,
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 0,
+        "waiting_for_external": false
+      },
+      "execution_notes": "新增共享 smart terminal create dialog，统一 runtime selection 与 workspace 的创建入口；支持推荐项、一句话输入、方案预览和高级配置，并在模糊路径场景下要求用户显式确认。",
+      "evidence_file": ".dev-flow/evidence/F077.md"
+    },
+    {
+      "id": "F078",
+      "phase": "intelligent-terminal-entry",
+      "module": "client-domain",
+      "name": "启动方案推荐服务：最近工具 / 最近目录 / 推荐排序",
+      "description": "新增客户端本地的启动方案推荐服务，根据当前设备、最近 terminal、最近 cwd、最近工具和入口上下文，生成默认推荐的 TerminalLaunchPlan。\n\nv1 规则：\n- 优先复用当前设备最近成功使用的 cwd 和 tool\n- 当没有历史时，回退到安全默认值（如 `~` + `/bin/bash`）\n- 推荐项排序稳定，可解释，不依赖远端 LLM 或网络请求",
+      "verification": "F1",
+      "depends_on": [
+        "S077"
+      ],
+      "status": "completed",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "可基于现有 terminal 历史生成 Claude/Codex/Shell 的默认启动方案",
+        "最近工具/最近计划由 Client 本地 RecentLaunchContext 持久化并恢复，不依赖隐式标题解析",
+        "无历史数据时有稳定兜底，不阻塞创建",
+        "RecentLaunchContext 为空、损坏或版本不兼容时能安全回退默认推荐",
+        "推荐结果输出统一 TerminalLaunchPlan，供 UI 和 create flow 复用",
+        "推荐排序与字段生成规则可单测，不依赖远端服务"
+      ],
+      "contract_refs": [
+        "CONTRACT-043"
+      ],
+      "risk_tags": [
+        "first_use",
+        "config"
+      ],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "推荐排序",
+          "scenarios": [
+            "有最近 Claude 历史时优先推荐 Claude Code",
+            "有最近 Codex 历史时推荐 Codex plan",
+            "无历史时回退到默认 shell plan",
+            "RecentLaunchContext 指向旧设备时不污染当前设备推荐"
+          ]
+        },
+        {
+          "type": "unit",
+          "description": "方案生成",
+          "scenarios": [
+            "recent cwd 被正确带入 title/cwd/command",
+            "历史 terminal 已关闭时仍可作为 cwd 参考",
+            "缺少 cwd/command 时使用保守默认值",
+            "Claude/Codex 方案生成正确的 shell_bootstrap 和 post_create_input"
+          ]
+        },
+        {
+          "type": "unit",
+          "description": "空数据与损坏缓存",
+          "scenarios": [
+            "首次缓存为空时返回默认推荐",
+            "RecentLaunchContext JSON 损坏时丢弃缓存并回退默认推荐",
+            "缓存中 tool 未知时降级为 shell/custom 推荐"
+          ]
+        },
+        {
+          "type": "unit",
+          "description": "边界与失败",
+          "scenarios": [
+            "cwd 超长或包含特殊字符时仍生成可编辑 plan，不在推荐层崩溃",
+            "历史 plan 缺字段时补默认值而不是抛异常",
+            "推荐服务初始化失败时上层可收到稳定兜底结果"
+          ]
+        }
+      ],
+      "smoke_required": false,
+      "files": [
+        "client/lib/models/runtime_terminal.dart",
+        "client/lib/services/runtime_selection_controller.dart",
+        "client/lib/services/desktop_workspace_controller.dart",
+        "client/lib/services/terminal_launch_plan_service.dart"
+      ],
+      "started_at": "2026-04-22T10:15:00+0800",
+      "completed_at": "2026-04-22T11:25:00+0800",
+      "actual_minutes": 70,
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 1,
+        "waiting_for_external": false
+      },
+      "execution_notes": "新增 TerminalLaunchPlan/RecentLaunchContext 模型、AppConfig 本地持久化、TerminalLaunchPlanService 和 RuntimeSelectionController 推荐/记忆入口；相关单测与 analyze 已通过。",
+      "evidence_file": ".dev-flow/evidence/F078.md"
+    },
+    {
+      "id": "F079",
+      "phase": "intelligent-terminal-entry",
+      "module": "client-domain",
+      "name": "一句话意图到 TerminalLaunchPlan 编排",
+      "description": "在推荐服务之上增加轻量意图解析层，让用户输入一句自然语言目标后，系统生成更贴近意图的 terminal 启动方案。\n\nv1 只做轻量编排，不做真正长对话代理：\n- 识别用户想进入的工具类型：`Claude Code / Codex / Shell`\n- 允许识别路径线索、当前项目线索和常见动作线索\n- 识别不明确时，退回推荐方案并要求用户确认，而不是静默猜测\n- 输出仍然是可编辑的 TerminalLaunchPlan",
+      "verification": "F1",
+      "depends_on": [
+        "F078"
+      ],
+      "status": "completed",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "用户输入一句话后可生成带 tool/title/cwd/command 的启动方案",
+        "意图明确时优先给出对应工具方案；意图模糊时回退推荐方案",
+        "识别出路径但置信度不足时，plan 标记 requires_manual_confirmation=true",
+        "任何意图解析结果都允许用户在高级配置中修改",
+        "v1 不引入新的服务端 LLM 调用，也不让 Server/Agent 感知自然语言"
+      ],
+      "contract_refs": [
+        "CONTRACT-043"
+      ],
+      "risk_tags": [
+        "first_use",
+        "config"
+      ],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "意图识别",
+          "scenarios": [
+            "“帮我进 Claude 看这个项目” → Claude Code plan",
+            "“进入 codex 修一下登录问题” → Codex plan",
+            "“开个终端跑命令” → Shell plan",
+            "识别 Claude/Codex 时自动带出对应 entry_strategy/post_create_input"
+          ]
+        },
+        {
+          "type": "unit",
+          "description": "模糊输入回退",
+          "scenarios": [
+            "没有工具关键词时回退推荐方案",
+            "路径线索无法识别时保留默认 cwd 并提示用户确认",
+            "空输入不走意图解析，直接展示推荐项",
+            "模糊但含路径线索的输入 -> requires_manual_confirmation=true"
+          ]
+        },
+        {
+          "type": "unit",
+          "description": "边界输入",
+          "scenarios": [
+            "超长输入不会导致解析崩溃，且结果可回退推荐",
+            "包含特殊字符或换行的输入会被安全归一化",
+            "中英混合、大小写混合的 codex/claude 关键词仍可识别"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "失败与确认分支",
+          "scenarios": [
+            "意图解析无法确定路径时 UI 展示需确认状态",
+            "解析结果被用户手动覆盖后，最终 plan 以手工修改为准",
+            "推荐服务不可用时意图解析回退到默认推荐而不是空白"
+          ]
+        }
+      ],
+      "smoke_required": false,
+      "files": [
+        "client/lib/services/terminal_launch_plan_service.dart",
+        "client/test/services/terminal_launch_plan_service_test.dart"
+      ],
+      "started_at": "2026-04-22T14:20:00+0800",
+      "completed_at": "2026-04-22T16:10:00+0800",
+      "actual_minutes": 110,
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 1,
+        "waiting_for_external": false
+      },
+      "execution_notes": "在 TerminalLaunchPlanService 中补齐本地规则意图解析，支持 Claude/Codex/Shell 识别、路径线索提取、模糊输入回退、manual confirmation 标记，并通过共享创建面板接入 UI。",
+      "evidence_file": ".dev-flow/evidence/F079.md"
+    },
+    {
+      "id": "F080",
+      "phase": "intelligent-terminal-entry",
+      "module": "client-integration",
+      "name": "创建链路收口：统一用 TerminalLaunchPlan 创建并进入目标工具",
+      "description": "把 runtime selection 和 workspace 两条创建链路收口到统一的 TerminalLaunchPlan -> createTerminal 编排中，避免智能入口和旧表单各走一套代码。\n\n要求：\n- 推荐创建、意图创建、自定义创建都汇聚成同一个 createTerminal 调用\n- 成功创建后自动进入目标 terminal\n- 失败时保留当前 plan 和用户输入，允许重试而不是全部清空",
+      "verification": "F2",
+      "depends_on": [
+        "F077",
+        "F078",
+        "F079"
+      ],
+      "status": "completed",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "两个新建入口共用一套 TerminalLaunchPlan 创建流程",
+        "Claude/Codex 的 shell_bootstrap 策略在 terminal 连接成功后自动发送 post_create_input",
+        "创建成功后自动进入新 terminal，不需要再次手动连接",
+        "createTerminal 失败（offline/terminal 上限/5xx）后保留 plan 和意图输入，方便用户修正重试",
+        "bootstrap 失败时用户可见终端回显并停留在 shell，不丢失当前 terminal",
+        "旧的裸表单逻辑被收口为高级配置兜底，而不是并存两套主路径"
+      ],
+      "contract_refs": [
+        "CONTRACT-043"
+      ],
+      "risk_tags": [
+        "first_use",
+        "config"
+      ],
+      "test_tasks": [
+        {
+          "type": "integration",
+          "description": "统一创建流程",
+          "scenarios": [
+            "推荐创建可直接落到 createTerminal 并进入 terminal",
+            "意图创建生成 plan 后可成功创建并进入 terminal",
+            "自定义高级配置仍走同一 createTerminal 主链路",
+            "Claude/Codex terminal 建立连接后自动发送 bootstrap 输入"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "失败与重试",
+          "scenarios": [
+            "device offline 时 createTerminal 失败后保留 intent 文本和 plan",
+            "terminal 达上限时 createTerminal 失败后保留 intent 文本和 plan",
+            "服务端 5xx 时 createTerminal 失败后保留 intent 文本和 plan",
+            "切换推荐项后可重新生成 plan 并重试",
+            "从 workspace 与 runtime selection 创建行为一致",
+            "bootstrap 命令不存在时用户仍停留在 shell，可手动修正"
+          ]
+        }
+      ],
+      "smoke_required": true,
+      "files": [
+        "client/lib/screens/runtime_selection_screen.dart",
+        "client/lib/screens/terminal_workspace_screen.dart",
+        "client/lib/services/runtime_selection_controller.dart",
+        "client/lib/services/desktop_workspace_controller.dart",
+        "client/lib/services/terminal_launch_session_service.dart",
+        "client/test/services/terminal_launch_session_service_test.dart"
+      ],
+      "started_at": "2026-04-22T16:10:00+0800",
+      "completed_at": "2026-04-22T16:40:00+0800",
+      "actual_minutes": 30,
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 1,
+        "waiting_for_external": false
+      },
+      "execution_notes": "新增 TerminalLaunchSessionService，把创建成功后的 session 准备和 shell_bootstrap 自动注入收口为共享链路；runtime selection 与 workspace 在创建成功后都复用该 service 自动进入并执行 Claude/Codex bootstrap。",
+      "evidence_file": ".dev-flow/evidence/F080.md"
+    },
+    {
+      "id": "F081",
+      "phase": "intelligent-terminal-entry",
+      "module": "client-test",
+      "name": "智能终端进入自动化与首用 smoke",
+      "description": "补齐智能创建入口的 unit/widget/integration/manual 覆盖，重点防止推荐链路、意图链路和高级配置兜底相互打架。\n\n首用风险重点：\n- 手机端用户能否在不手打长命令的情况下完成一次 Claude/Codex 进入\n- 失败后是否还能继续走自定义兜底\n- 两个入口是否因实现分叉而表现不一致",
+      "verification": "F2",
+      "depends_on": [
+        "F080"
+      ],
+      "status": "completed",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "推荐式、意图式、自定义三条链路都有自动化覆盖",
+        "runtime selection 与 workspace 两入口都有回归测试",
+        "手机端首用 smoke 覆盖 Claude/Codex/Shell 至少各一条主路径",
+        "失败回退和重试路径被显式验证，不依赖人工记忆"
+      ],
+      "contract_refs": [
+        "CONTRACT-043"
+      ],
+      "files": [
+        "client/test/screens/runtime_selection_screen_test.dart",
+        "client/test/screens/terminal_workspace_screen_test.dart",
+        "client/test/services/terminal_launch_plan_service_test.dart"
+      ],
+      "started_at": "2026-04-22T16:40:00+0800",
+      "completed_at": "2026-04-22T17:05:00+0800",
+      "actual_minutes": 25,
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 1,
+        "waiting_for_external": false
+      },
+      "execution_notes": "补齐自定义链路、失败重试保留输入、手机端首用 Claude/Codex/Shell 三路径 smoke，以及 workspace 共享高级配置创建回归；整组智能创建相关 analyze/test 均已通过。",
+      "evidence_file": ".dev-flow/evidence/F081.md"
+    },
+    {
+      "id": "B074",
+      "phase": "context-aware-intelligent-entry",
+      "module": "agent",
+      "name": "设备项目上下文采集与候选摘要",
+      "description": "为智能终端进入补齐“当前设备自己的项目事实源”。Agent 在用户已授权范围内输出轻量的 `ProjectContextCandidate` 摘要，供 Client 后续推荐和 LLM planner 使用。\n\n约束：\n- 只输出候选摘要，不上传完整文件树\n- 候选来源限于 recent terminal、固定项目、managed agent workdir、已授权扫描根目录\n- Agent 不解析自然语言，只负责事实采集",
+      "verification": "F2",
+      "depends_on": [
+        "S078"
+      ],
+      "status": "completed",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "Agent/Server 可向 Client 提供当前设备的 `ProjectContextCandidate` 列表，至少包含 candidate_id/label/cwd/source/tool_hints/updated_at",
+        "候选只来自当前设备已知事实源，不跨设备混用",
+        "候选生成会读取当前 `user_id + device_id` 的项目来源 settings，而不是写死开发机路径",
+        "扫描失败、权限不足或无候选时不会阻断 terminal 创建",
+        "Server 只中转/缓存候选摘要，不持久化完整本地文件树",
+        "上下文采集不引入任何自然语言理解职责"
+      ],
+      "contract_refs": [
+        "CONTRACT-044"
+      ],
+      "risk_tags": [
+        "privacy",
+        "config",
+        "startup"
+      ],
+      "test_tasks": [
+        {
+          "type": "integration",
+          "description": "候选摘要采集",
+          "scenarios": [
+            "recent terminal cwd 能形成候选项目摘要",
+            "fixed/pinned 项目能稳定出现在候选中",
+            "已授权根目录扫描出的 git 仓库只输出候选摘要，不输出完整文件树",
+            "扫描失败或权限不足时返回空候选而不是报错阻断"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "中转与隔离",
+          "scenarios": [
+            "Server 只按 device_id 中转候选摘要，不跨设备串数据",
+            "无候选设备仍可继续创建 shell",
+            "刷新候选快照不会影响现有 terminal 主链路"
+          ]
+        }
+      ],
+      "smoke_required": true,
+      "files": [
+        "agent/**",
+        "server/**"
+      ],
+      "started_at": "2026-04-22T17:20:00+0800",
+      "completed_at": "2026-04-22T18:05:00+0800",
+      "actual_minutes": 45,
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 1,
+        "waiting_for_external": false
+      },
+      "execution_notes": "Server 新增 device-scoped project-context snapshot/refresh 接口，当前先聚合 recent terminal 与 pinned project 摘要，并持久化 pinned project / approved scan root settings，保持无候选时也返回空快照且不影响 terminal 主链路。",
+      "evidence_file": ".dev-flow/evidence/B074.md"
+    },
+    {
+      "id": "S078",
+      "phase": "context-aware-intelligent-entry",
+      "module": "shared",
+      "name": "项目来源管理与 Planner 配置基线",
+      "description": "为设备感知智能终端进入补齐正式配置面，定义 pinned project、approved scan root、candidate refresh 和 planner opt-in 的产品边界。\n\n要求：\n- 项目来源必须是用户可管理配置，而不是隐式实现细节\n- LLM planner 默认关闭，只有用户显式开启才参与解析\n- planner 凭证归属 Client 安全存储，不下发到 Agent",
+      "verification": "F2",
+      "depends_on": [
+        "F081"
+      ],
+      "status": "completed",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "定义 `pinned_project`、`approved_scan_root` 和候选刷新触发时机",
+        "明确项目来源管理入口归属与用户操作语义：新增、删除、授权、撤销",
+        "明确 planner provider 默认关闭、显式 opt-in 和凭证归属策略",
+        "补齐 Candidate 获取/刷新协议，避免 B074/F082/F083 前后端各自猜测",
+        "产品边界与 `CONTRACT-044`、架构不变量保持一致"
+      ],
+      "contract_refs": [
+        "CONTRACT-044"
+      ],
+      "risk_tags": [
+        "privacy",
+        "llm",
+        "config",
+        "first_use"
+      ],
+      "files": [
+        ".dev-flow/api_contracts.md",
+        ".dev-flow/project_spec.md",
+        ".dev-flow/feature_map.md"
+      ],
+      "started_at": "2026-04-22T17:10:00+0800",
+      "completed_at": "2026-04-22T17:20:00+0800",
+      "actual_minutes": 10,
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 0,
+        "waiting_for_external": false
+      },
+      "execution_notes": "基于 CONTRACT-044 明确了 pinned_project、approved_scan_root、planner opt-in、settings scope 与 refresh 协议，后续实现只允许在当前 device_id 的候选事实上工作。",
+      "evidence_file": ".dev-flow/evidence/S078.md"
+    },
+    {
+      "id": "F086",
+      "phase": "context-aware-intelligent-entry",
+      "module": "client-ui",
+      "name": "项目来源管理与 Planner 配置 UI",
+      "description": "提供用户可见的配置入口，管理固定项目、扫描根目录授权与 LLM planner 开关/配置。\n\n目标：\n- 让 `pinned_project` 与 `approved_scan_root` 成为正式产品能力\n- 让用户知道智能识别来源于哪些项目候选\n- 未配置 LLM 时默认继续使用本地规则",
+      "verification": "F2",
+      "depends_on": [
+        "S078",
+        "B074"
+      ],
+      "status": "completed",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "用户可新增/删除 pinned project，并在修改后触发候选刷新",
+        "用户可授权/撤销 approved scan root，并看到授权状态",
+        "planner provider 默认关闭；开启时需要显式确认并完成配置",
+        "planner 凭证保存在 Client 安全存储，不展示明文、不透传到 Agent",
+        "未启用或未配置 planner 时，智能创建默认只走 local_rules"
+      ],
+      "contract_refs": [
+        "CONTRACT-044"
+      ],
+      "risk_tags": [
+        "privacy",
+        "llm",
+        "config",
+        "first_use"
+      ],
+      "test_tasks": [
+        {
+          "type": "widget",
+          "description": "项目来源管理",
+          "scenarios": [
+            "新增/删除 pinned project 后列表即时更新",
+            "授权/撤销 approved scan root 后状态正确展示",
+            "无任何来源配置时展示清晰空态和说明"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "planner 配置与刷新",
+          "scenarios": [
+            "planner 默认关闭，未 opt-in 不会发送外部请求",
+            "项目来源与 planner 配置可按 device_id 正确读取与保存",
+            "开启 planner 后会校验必填配置并触发候选刷新",
+            "删除来源配置后相关候选不再参与排序"
+          ]
+        }
+      ],
+      "smoke_required": true,
+      "files": [
+        "client/lib/screens/**",
+        "client/lib/services/**",
+        "client/lib/models/**"
+      ],
+      "started_at": "2026-04-22T18:10:00+0800",
+      "completed_at": "2026-04-22T19:05:00+0800",
+      "actual_minutes": 55,
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 1,
+        "waiting_for_external": false
+      },
+      "execution_notes": "新增项目来源设置弹窗、settings GET/PUT 协议和 planner 配置持久化；固定项目、扫描根目录和 planner opt-in 都可按 device_id 读写，planner API Key 仅保存在 Client 安全存储。",
+      "evidence_file": ".dev-flow/evidence/F086.md"
+    },
+    {
+      "id": "F082",
+      "phase": "context-aware-intelligent-entry",
+      "module": "client-domain",
+      "name": "候选项目上下文缓存与排序",
+      "description": "Client 接收当前设备的 `ProjectContextCandidate` 后，按设备隔离缓存，并与 `RecentLaunchContext`、terminal 历史一起生成更稳定的候选排序结果。\n\n目标：\n- 优先让用户看到“这台设备上真正可用的项目”\n- 候选为空时，仍回退到 F078 的默认推荐\n- 不让别的设备上下文污染当前计划",
+      "verification": "F1",
+      "depends_on": [
+        "B074",
+        "F086"
+      ],
+      "status": "completed",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "Client 按 `device_id` 缓存候选项目上下文，不跨设备混用",
+        "候选排序可综合 recent launch、recent terminal、pinned 项目和候选 source",
+        "候选为空、快照损坏或过期时，稳定回退到 F078 默认推荐",
+        "候选项目可直接预填 title/cwd/tool hints，不依赖 LLM 才能使用",
+        "排序规则和降级路径可单测"
+      ],
+      "contract_refs": [
+        "CONTRACT-043",
+        "CONTRACT-044"
+      ],
+      "risk_tags": [
+        "config",
+        "first_use",
+        "privacy"
+      ],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "候选排序",
+          "scenarios": [
+            "同设备 recent candidate 优先于旧 candidate",
+            "pinned 项目在首次进入时优先于普通扫描候选",
+            "不同 source 的稳定排序不受列表原始顺序影响",
+            "候选上下文与 RecentLaunchContext 合并后不会覆盖错误 device_id"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "缓存与降级",
+          "scenarios": [
+            "切换设备后只展示当前设备候选",
+            "候选快照损坏时回退 F078 推荐且不崩溃",
+            "候选为空时仍可直接创建 Claude/Codex/Shell"
+          ]
+        }
+      ],
+      "smoke_required": false,
+      "files": [
+        "client/lib/services/terminal_launch_plan_service.dart",
+        "client/lib/services/runtime_selection_controller.dart",
+        "client/lib/models/**"
+      ],
+      "started_at": "2026-04-22T19:05:00+0800",
+      "completed_at": "2026-04-22T20:10:00+0800",
+      "actual_minutes": 65,
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 1,
+        "waiting_for_external": false
+      },
+      "execution_notes": "Client 新增 project-context snapshot 缓存，并把 device-scoped 候选摘要接入推荐排序；当 recent context 为空时优先使用 pinned/recent candidate 的 cwd 和 tool hints，失败时回退本地默认推荐。",
+      "evidence_file": ".dev-flow/evidence/F082.md"
+    },
+    {
+      "id": "F083",
+      "phase": "context-aware-intelligent-entry",
+      "module": "client-domain",
+      "name": "候选约束 LLM Planner",
+      "description": "在本地规则之上增加 `PlannerProvider` 抽象，允许未来接入可选 LLM planner，但其输入必须是“用户短句 + 当前设备候选项目 + recent context”，输出仍然收口为 `TerminalLaunchPlan`。\n\n关键约束：\n- `llm` 只做候选选择与补全，不得发明路径\n- provider 不可用时回退 `local_rules`\n- 不让 Server/Agent 感知自然语言",
+      "verification": "F1",
+      "depends_on": [
+        "F082",
+        "F086"
+      ],
+      "status": "completed",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "存在统一 `PlannerProvider` 抽象，至少支持 `local_rules` 与 `llm` 两种 provider",
+        "LLM provider 的输入严格限制为用户短句、当前设备候选项目和 recent context",
+        "LLM 输出必须引用候选项目或用户显式输入路径，否则自动进入确认分支",
+        "provider 超时、异常、空结果或违规结果时会稳定回退本地规则",
+        "最终产物仍然是可编辑的 `TerminalLaunchPlan`，不改现有 create 契约"
+      ],
+      "contract_refs": [
+        "CONTRACT-043",
+        "CONTRACT-044"
+      ],
+      "risk_tags": [
+        "llm",
+        "privacy",
+        "config"
+      ],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "provider 约束",
+          "scenarios": [
+            "LLM 返回候选内项目 -> 生成合法 plan",
+            "LLM 返回候选外路径 -> requires_manual_confirmation=true",
+            "LLM 返回空结果/非法 JSON/超时 -> 回退 local_rules",
+            "local_rules 与 llm 输出都归一化为同一 TerminalLaunchPlan"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "回退与隔离",
+          "scenarios": [
+            "provider 被关闭时全链路仍可使用本地规则",
+            "不同设备的候选集合传给 planner 时不会串用",
+            "含隐私路径的候选不会被扩展成额外扫描请求"
+          ]
+        }
+      ],
+      "smoke_required": false,
+      "files": [
+        "client/lib/services/**",
+        "client/lib/models/**"
+      ],
+      "started_at": "2026-04-22T20:12:00+0800",
+      "actual_minutes": 53,
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 0,
+        "resume_hint": "继续实现 F084 候选确认流与可解释反馈",
+        "waiting_for_external": false
+      },
+      "execution_notes": "新增 PlannerProvider 抽象、本地规则 provider 与 LLM provider；LLM 输入被严格收口为 intent + 当前设备 candidates + recent context，输出只允许候选内 cwd 或用户显式路径，超时/异常/空结果/非法 JSON 全部稳定回退 local_rules。RuntimeSelectionController 改为异步解析并懒加载 device-scoped planner settings。",
+      "evidence_file": ".dev-flow/evidence/F083.md"
+    },
+    {
+      "id": "F084",
+      "phase": "context-aware-intelligent-entry",
+      "module": "client-ui",
+      "name": "候选项目确认流与可解释反馈",
+      "description": "让智能识别结果对用户可见、可确认、可回退。用户不仅看到最终 plan，还能看到它基于哪个候选项目、哪个 provider、为什么需要确认。\n\n目标：\n- 消除“模型替我瞎猜目录”的不透明感\n- 让错误匹配在创建前暴露，而不是创建后补救",
+      "verification": "F2",
+      "depends_on": [
+        "F083"
+      ],
+      "status": "completed",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "UI 能展示当前 plan 绑定的候选项目、source/provider、confidence 和确认状态",
+        "当 `requires_manual_confirmation=true` 时，用户必须显式确认后才能创建",
+        "用户可切换候选项目、改 tool、改 cwd，最终 plan 以用户编辑为准",
+        "没有候选项目时 UI 仍保留推荐式和自定义兜底，不出现空白死路",
+        "runtime selection 与 workspace 两入口的确认体验保持一致"
+      ],
+      "contract_refs": [
+        "CONTRACT-043",
+        "CONTRACT-044"
+      ],
+      "risk_tags": [
+        "first_use",
+        "llm",
+        "config"
+      ],
+      "test_tasks": [
+        {
+          "type": "widget",
+          "description": "确认态展示",
+          "scenarios": [
+            "匹配到候选项目时展示 label/source/confidence",
+            "需要确认时创建按钮进入确认态而不是直接提交",
+            "用户改动 cwd/tool 后原 provider 结果不再强制覆盖",
+            "无候选时仍展示推荐项与高级配置"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "双入口一致性",
+          "scenarios": [
+            "runtime selection 与 workspace 的确认流行为一致",
+            "从确认态切回自定义不会丢失用户刚编辑的字段",
+            "候选切换后 plan 与预览同步更新"
+          ]
+        }
+      ],
+      "smoke_required": true,
+      "files": [
+        "client/lib/screens/runtime_selection_screen.dart",
+        "client/lib/screens/terminal_workspace_screen.dart",
+        "client/lib/widgets/**"
+      ],
+      "started_at": "2026-04-22T21:06:00+0800",
+      "completed_at": "2026-04-22T21:35:00+0800",
+      "actual_minutes": 29,
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 0,
+        "resume_hint": "继续完成 F085 回归与隐私 smoke",
+        "waiting_for_external": false
+      },
+      "execution_notes": "智能创建弹窗新增可解释预览：展示 source/provider/candidate/confidence/reasoning/confirmation，并允许直接切换候选项目；用户手动改 tool/cwd 后会进入 user_override 状态，最终 plan 以用户编辑为准。runtime selection 与 workspace 两入口共享同一确认体验。",
+      "evidence_file": ".dev-flow/evidence/F084.md"
+    },
+    {
+      "id": "F085",
+      "phase": "context-aware-intelligent-entry",
+      "module": "client-test",
+      "name": "设备感知智能回归与隐私 smoke",
+      "description": "补齐设备感知智能终端进入的自动化和手工验证，重点覆盖跨设备隔离、隐私边界、LLM fallback 与首次无候选场景。\n\n目标：\n- 确保智能识别真的基于当前设备事实\n- 确保可选 LLM 出问题时不会拖垮创建主链路",
+      "verification": "F2",
+      "depends_on": [
+        "F084"
+      ],
+      "status": "completed",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "设备 A/B 候选项目与 recent context 的隔离有自动化覆盖",
+        "LLM 正常、超时、空结果、越界路径四类结果都有回归覆盖",
+        "隐私边界被显式验证：Server/Client 只处理候选摘要，不依赖完整文件树",
+        "首次无候选项目时，用户仍能完成一次 Shell/Claude/Codex 创建",
+        "移动端真实首用 smoke 验证候选选择、确认流和自定义回退"
+      ],
+      "contract_refs": [
+        "CONTRACT-043",
+        "CONTRACT-044"
+      ],
+      "risk_tags": [
+        "first_use",
+        "llm",
+        "privacy",
+        "config"
+      ],
+      "test_tasks": [
+        {
+          "type": "integration",
+          "description": "跨设备与 fallback",
+          "scenarios": [
+            "设备 A 候选不会出现在设备 B 的智能结果中",
+            "LLM 超时后自动回退 local_rules",
+            "候选外路径进入确认态而非直接创建",
+            "无候选设备仍能走推荐式创建"
+          ]
+        },
+        {
+          "type": "manual",
+          "description": "隐私与首用 smoke",
+          "scenarios": [
+            "用户能看见当前 plan 基于哪个候选项目生成",
+            "候选错误时用户能在创建前修正",
+            "不需要上传完整项目目录即可完成智能识别",
+            "手机端首用不需要手打完整本地路径"
+          ]
+        }
+      ],
+      "smoke_required": true,
+      "files": [
+        "client/test/**",
+        "integration_test/**"
+      ],
+      "started_at": "2026-04-22T21:36:00+0800",
+      "completed_at": "2026-04-22T22:05:00+0800",
+      "actual_minutes": 29,
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 0,
+        "resume_hint": "R040 已完成，可进入提交/发布阶段",
+        "waiting_for_external": false
+      },
+      "execution_notes": "补齐了跨设备隔离、LLM 正常/超时/空结果/越界路径、隐私边界和移动端首用候选选择/确认/自定义回退覆盖；当前 R040 相关 analyze/test 已全量通过。",
+      "evidence_file": ".dev-flow/evidence/F085.md"
     }
   ],
   "archived_phases": [

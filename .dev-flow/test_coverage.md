@@ -32,6 +32,7 @@
 | **环境选择 (env-selector)** | unit | 24 passed | ✅ |
 | **终端 P0 修复 (terminal-p0-fixes)** | unit, widget, integration, smoke | 已规划 | 🔶 |
 | **终端交互架构重构 (terminal-interaction-refactor)** | design, unit, integration, widget, smoke | 已规划 | 🔶 |
+| **智能终端进入 (intelligent-terminal-entry)** | design, unit, widget, integration, manual | 已规划 | 🔶 |
 
 ## 模块覆盖详情
 
@@ -165,6 +166,12 @@
 | UI 瘦身迁移 | F074 | widget,smoke | 页面只做展示/焦点/快捷键/IME；不再直接管 recover | 🔶 |
 | 桌面端 Agent 断连恢复编排 | F075 | integration,smoke | agent 断连 TTL 恢复；app 前后台；app 重启；agent 重启与 terminal 恢复 | 🔶 |
 | 客户端生命周期恢复编排 | F076 | integration,smoke | foreground/cold start/network restore 统一恢复链 | 🔶 |
+| 智能终端进入产品基线 | S077 | design | 推荐/意图/高级配置三路径边界；TerminalLaunchPlan；统一 create 主链路 | 🔶 |
+| 智能创建入口 UI | F077 | widget,manual | 推荐卡片；一句话输入；高级配置折叠；移动端首用理解成本 | 🔶 |
+| 启动方案推荐服务 | F078 | unit | 最近工具/最近 cwd 排序；本地 RecentLaunchContext；空缓存/坏缓存回退；closed terminal 历史复用 | 🔶 |
+| 一句话意图编排 | F079 | unit,integration | 短句 -> tool/title/cwd/command；确认分支；边界输入；无新服务端 LLM 依赖 | 🔶 |
+| 创建链路统一收口 | F080 | integration | runtime/workspace 双入口共用 createTerminal；offline/上限/5xx 失败保留 plan；bootstrap 自动进入 | 🔶 |
+| 智能终端进入验证 | F081 | widget,integration,manual | 推荐/意图/自定义三链路；手机端 Claude/Codex/Shell 首用 smoke | 🔶 |
 
 #### 终端交互重构关键场景
 
@@ -178,6 +185,43 @@
 - [ ] app 从后台回前台后 active terminal 正确 recover
 - [ ] app 被杀后重启，通过 Agent 权威 snapshot 恢复 terminal
 - [ ] agent 与 server 断连后进入 recoverable，不立刻 closed；TTL 超时后再 closed
+
+### 智能终端进入（intelligent-terminal-entry phase）
+
+| Module | Task IDs | Test Type | Required Scenarios | Status |
+|--------|----------|-----------|--------------------|--------|
+| 智能终端进入产品基线 | S077 | design | 推荐式/意图式/高级配置边界；TerminalLaunchPlan 字段稳定；同一 create 主链路 | 🔶 |
+| 智能创建入口 UI | F077 | widget,manual | 推荐项可直接创建；一句话输入可见；高级配置可覆盖自动结果；移动端布局稳定 | 🔶 |
+| 启动方案推荐服务 | F078 | unit | 最近 terminal/cwd/tool 推荐；RecentLaunchContext 持久化；空缓存/坏缓存/未知 tool 回退 | 🔶 |
+| 一句话意图编排 | F079 | unit,integration | Claude/Codex/Shell 意图识别；模糊意图确认；超长/特殊字符输入；路径线索缺失时要求确认 | 🔶 |
+| 创建链路收口 | F080 | integration | workspace/runtime 两入口一致；offline/上限/5xx 失败保留输入；shell_bootstrap 自动进入 terminal | 🔶 |
+| 自动化与首用 smoke | F081 | widget,integration,manual | 推荐/意图/自定义三链路回归；手机端首用不依赖手输长命令 | 🔶 |
+| 项目来源与 Planner 配置基线 | S078 | design | pinned_project、approved_scan_root、planner opt-in、client 凭证归属 | 🔶 |
+| 设备项目上下文采集 | B074 | integration | 当前设备 recent/pinned/approved_scan 候选；无完整文件树上传；扫描失败不阻断创建 | 🔶 |
+| 项目来源管理与 Planner 配置 UI | F086 | widget,integration | 固定项目增删；扫描根目录授权/撤销；planner 默认关闭与显式开启 | 🔶 |
+| 候选项目缓存与排序 | F082 | unit,integration | 按设备隔离缓存；候选排序稳定；空候选回退 F078 默认推荐 | 🔶 |
+| 候选约束 LLM Planner | F083 | unit,integration | 只允许匹配候选或用户显式路径；provider 失败回退 local_rules；低置信度需确认 | 🔶 |
+| 候选确认流与可解释反馈 | F084 | widget,integration | 显示匹配候选、原因、确认态；用户可覆盖 cwd/tool；模糊路径不自动提交 | 🔶 |
+| 设备感知智能验证 | F085 | integration,manual | 跨设备隔离、隐私约束、LLM fallback、首次无候选场景 | 🔶 |
+
+#### 智能终端进入关键测试场景
+
+- [ ] 不输入任何文字时，用户可直接点击 `Claude Code` 创建 terminal
+- [ ] 输入“进入 codex 修一下登录问题”后可生成 Codex plan
+- [ ] 输入模糊文本时回退推荐方案，而不是静默乱猜
+- [ ] 输入模糊但带路径线索时，系统要求用户确认，而不是直接提交
+- [ ] 高级配置覆盖后，最终 createTerminal 使用的是用户修改后的 plan
+- [ ] runtime selection 与 workspace 两个入口创建行为一致
+- [ ] `RecentLaunchContext` 为空、损坏、未知版本时都能安全回退默认推荐
+- [ ] createTerminal 在 `offline` / `terminal 上限` / `5xx` 下都保留 intent 文本和已生成方案
+- [ ] `claude` / `codex` bootstrap 命令不存在时，用户仍留在 shell 且能看到失败回显
+- [ ] 手机端首用场景中，用户不必手输完整 `cwd/command`
+- [ ] 用户可显式新增/删除 pinned project，且修改后会触发候选刷新
+- [ ] 用户可授权/撤销 approved scan root，撤销后不再参与候选生成
+- [ ] 当前设备候选项目不能污染其他设备的智能识别结果
+- [ ] LLM 返回候选外路径时不会直接创建，而是进入确认态
+- [ ] Agent/Server 不上传完整本地文件树，只有候选摘要参与智能识别
+- [ ] LLM planner 默认关闭，未显式 opt-in 时不会发送用户短句到外部 provider
 
 ### CONTRACT-002: Agent Connected 消息
 - [x] 消息包含 type, session_id, owner, views, timestamp

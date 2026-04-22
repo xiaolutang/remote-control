@@ -1,6 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rc_client/models/config.dart';
+import 'package:rc_client/models/project_context_snapshot.dart';
+import 'package:rc_client/models/recent_launch_context.dart';
 import 'package:rc_client/models/shortcut_item.dart';
+import 'package:rc_client/models/terminal_launch_plan.dart';
 import 'package:rc_client/models/terminal_shortcut.dart';
 
 void main() {
@@ -21,7 +24,7 @@ void main() {
     });
 
     test('custom values', () {
-      const config = AppConfig(
+      final config = AppConfig(
         serverUrl: 'ws://localhost:8080',
         sessionId: 'session-123',
         token: 'token-abc',
@@ -45,7 +48,7 @@ void main() {
     });
 
     test('toJson and fromJson', () {
-      const config = AppConfig(
+      final config = AppConfig(
         serverUrl: 'ws://localhost:8080',
         sessionId: 'session-123',
         token: 'token-abc',
@@ -82,6 +85,39 @@ void main() {
             ),
           ],
         },
+        recentLaunchContexts: {
+          'dev-1': RecentLaunchContext(
+            deviceId: 'dev-1',
+            lastTool: TerminalLaunchTool.claudeCode,
+            lastCwd: '/tmp/agent',
+            lastSuccessfulPlan: TerminalLaunchPlan(
+              tool: TerminalLaunchTool.claudeCode,
+              title: 'Claude / agent',
+              cwd: '/tmp/agent',
+              command: '/bin/bash',
+              entryStrategy: TerminalEntryStrategy.shellBootstrap,
+              postCreateInput: 'claude\n',
+              source: TerminalLaunchPlanSource.recommended,
+            ),
+            updatedAt: DateTime.parse('2026-04-22T03:00:00Z'),
+          ),
+        },
+        projectContextSnapshots: {
+          'dev-1': DeviceProjectContextSnapshot(
+            deviceId: 'dev-1',
+            generatedAt: DateTime.parse('2026-04-22T03:05:00Z'),
+            candidates: const [
+              ProjectContextCandidate(
+                candidateId: 'cand-1',
+                deviceId: 'dev-1',
+                label: 'remote-control',
+                cwd: '/tmp/agent',
+                source: 'pinned_project',
+                toolHints: ['claude_code'],
+              ),
+            ],
+          ),
+        },
       );
 
       final json = config.toJson();
@@ -108,6 +144,16 @@ void main() {
             .length,
         1,
       );
+      expect(
+        (json['recentLaunchContexts'] as Map<String, dynamic>)
+            .containsKey('dev-1'),
+        isTrue,
+      );
+      expect(
+        (json['projectContextSnapshots'] as Map<String, dynamic>)
+            .containsKey('dev-1'),
+        isTrue,
+      );
 
       final restored = AppConfig.fromJson(json, serverUrl: config.serverUrl);
       expect(restored.serverUrl, config.serverUrl);
@@ -125,6 +171,51 @@ void main() {
       expect(restored.shortcutItems.single.id, 'claude_help');
       expect(restored.projectShortcutItems['project-a']!.single.id,
           'project_test');
+      expect(
+        restored.recentLaunchContexts['dev-1']!.lastTool,
+        TerminalLaunchTool.claudeCode,
+      );
+      expect(
+        restored
+            .recentLaunchContexts['dev-1']!.lastSuccessfulPlan.postCreateInput,
+        'claude\n',
+      );
+      expect(
+        restored.projectContextSnapshots['dev-1']!.candidates.single.label,
+        'remote-control',
+      );
+    });
+
+    test('fromJson degrades unknown recent launch tool safely', () {
+      final config = AppConfig.fromJson({
+        'recentLaunchContexts': {
+          'dev-1': {
+            'device_id': 'dev-1',
+            'last_tool': 'unknown',
+            'last_cwd': '/tmp/work',
+            'last_successful_plan': {
+              'tool': 'codex',
+              'title': '',
+              'cwd': '/tmp/work',
+              'command': '',
+              'entry_strategy': 'unknown',
+              'post_create_input': '',
+              'source': 'unknown',
+            },
+            'updated_at': 'invalid',
+          },
+        },
+      });
+
+      final context = config.recentLaunchContexts['dev-1']!;
+      expect(context.lastTool, TerminalLaunchTool.codex);
+      expect(
+        context.lastSuccessfulPlan.entryStrategy,
+        TerminalEntryStrategy.shellBootstrap,
+      );
+      expect(context.lastSuccessfulPlan.command, '/bin/bash');
+      expect(context.lastSuccessfulPlan.title, 'Codex / work');
+      expect(context.updatedAt, DateTime.fromMillisecondsSinceEpoch(0));
     });
 
     test('fromJson handles missing fields', () {

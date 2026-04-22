@@ -28,18 +28,30 @@
 ### 启动服务
 
 ```bash
-# 标准部署（通过 Traefik 网关，地址 ws://localhost/rc）
+# 标准部署（通过 Traefik 网关，地址 wss://localhost/rc）
 ./deploy/deploy.sh
 
 # 或手动启动
 docker compose -f deploy/docker-compose.yml up -d
 ```
 
+补充约定：
+
+- 默认 compose 不启动 `rc-agent` 容器
+- 桌面端默认依赖 client 侧 managed-agent
+- 如需独立 Agent 容器，显式启用 profile：
+
+```bash
+docker compose --env-file .env -f deploy/docker-compose.yml --profile standalone-agent up -d agent
+```
+
+- 启用前需要在 `.env` 配置真实可登录的 `AGENT_USERNAME` / `AGENT_PASSWORD`
+
 ### 服务地址
 
-- HTTP API: `http://localhost/rc/`
-- WebSocket: `ws://localhost/rc`
-- 健康检查: `http://localhost/rc/health`
+- HTTP API: `https://localhost/rc/`
+- WebSocket: `wss://localhost/rc`
+- 健康检查: `https://localhost/rc/health`
 
 ### 必需环境变量
 

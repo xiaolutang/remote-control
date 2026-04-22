@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../models/project_context_settings.dart';
+import '../models/project_context_snapshot.dart';
 import '../models/runtime_device.dart';
 import '../models/runtime_terminal.dart';
 import 'auth_service.dart';
@@ -168,5 +170,76 @@ class RuntimeDeviceService {
       _throwError(response, '更新终端标题失败');
     }
     return RuntimeTerminal.fromJson(data);
+  }
+
+  Future<ProjectContextSettings> getProjectContextSettings(
+    String token,
+    String deviceId,
+  ) async {
+    final response = await _client.get(
+      Uri.parse(
+          '$_httpUrl/api/runtime/devices/$deviceId/project-context/settings'),
+      headers: _headers(token),
+    );
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.statusCode != 200) {
+      _throwError(response, '加载项目来源配置失败');
+    }
+    return ProjectContextSettings.fromJson(data);
+  }
+
+  Future<ProjectContextSettings> saveProjectContextSettings(
+    String token,
+    String deviceId,
+    ProjectContextSettings settings,
+  ) async {
+    final response = await _client.put(
+      Uri.parse(
+          '$_httpUrl/api/runtime/devices/$deviceId/project-context/settings'),
+      headers: _headers(token),
+      body: jsonEncode({
+        'pinned_projects':
+            settings.pinnedProjects.map((item) => item.toJson()).toList(),
+        'approved_scan_roots':
+            settings.approvedScanRoots.map((item) => item.toJson()).toList(),
+        'planner_config': settings.plannerConfig.toJson(),
+      }),
+    );
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.statusCode != 200) {
+      _throwError(response, '保存项目来源配置失败');
+    }
+    return ProjectContextSettings.fromJson(data);
+  }
+
+  Future<DeviceProjectContextSnapshot> getProjectContextSnapshot(
+    String token,
+    String deviceId,
+  ) async {
+    final response = await _client.get(
+      Uri.parse('$_httpUrl/api/runtime/devices/$deviceId/project-context'),
+      headers: _headers(token),
+    );
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.statusCode != 200) {
+      _throwError(response, '加载项目候选失败');
+    }
+    return DeviceProjectContextSnapshot.fromJson(data);
+  }
+
+  Future<DeviceProjectContextSnapshot> refreshProjectContextSnapshot(
+    String token,
+    String deviceId,
+  ) async {
+    final response = await _client.post(
+      Uri.parse(
+          '$_httpUrl/api/runtime/devices/$deviceId/project-context:refresh'),
+      headers: _headers(token),
+    );
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.statusCode != 200) {
+      _throwError(response, '刷新项目候选失败');
+    }
+    return DeviceProjectContextSnapshot.fromJson(data);
   }
 }

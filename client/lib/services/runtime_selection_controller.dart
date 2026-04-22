@@ -3,11 +3,17 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 
 import '../models/config.dart';
+import '../models/project_context_settings.dart';
+import '../models/project_context_snapshot.dart';
+import '../models/recent_launch_context.dart';
 import '../models/runtime_device.dart';
 import '../models/runtime_terminal.dart';
+import '../models/terminal_launch_plan.dart';
 import 'auth_service.dart';
 import 'config_service.dart';
+import 'planner_provider.dart';
 import 'runtime_device_service.dart';
+import 'terminal_launch_plan_service.dart';
 import 'websocket_service.dart';
 
 class RuntimeSelectionController extends ChangeNotifier {
@@ -16,15 +22,19 @@ class RuntimeSelectionController extends ChangeNotifier {
     required this.token,
     required RuntimeDeviceService runtimeService,
     ConfigService? configService,
+    TerminalLaunchPlanService? terminalLaunchPlanService,
     List<RuntimeDevice> initialDevices = const <RuntimeDevice>[],
   })  : _runtimeService = runtimeService,
         _configService = configService ?? ConfigService(),
+        _terminalLaunchPlanService =
+            terminalLaunchPlanService ?? TerminalLaunchPlanService(),
         _initialDevices = List<RuntimeDevice>.unmodifiable(initialDevices);
 
   final String serverUrl;
   final String token;
   final RuntimeDeviceService _runtimeService;
   final ConfigService _configService;
+  final TerminalLaunchPlanService _terminalLaunchPlanService;
   final String? _localHostname = _resolveLocalHostname();
   final List<RuntimeDevice> _initialDevices;
 
@@ -37,6 +47,11 @@ class RuntimeSelectionController extends ChangeNotifier {
   AuthException? _authError;
   String? _selectedDeviceId;
   AppConfig _config = const AppConfig();
+  ProjectContextSettings? _projectContextSettings;
+  DeviceProjectContextSnapshot? _projectContextSnapshot;
+  bool _loadingProjectContextSettings = false;
+  bool _savingProjectContextSettings = false;
+  bool _loadingProjectContextSnapshot = false;
 
   List<RuntimeDevice> get devices => _devices;
   List<RuntimeTerminal> get terminals => _terminals;
@@ -48,6 +63,83 @@ class RuntimeSelectionController extends ChangeNotifier {
   /// 401 认证错误（被踢/过期），UI 层据此弹窗并跳转登录页
   AuthException? get authError => _authError;
   String? get selectedDeviceId => _selectedDeviceId;
+  ProjectContextSettings? get projectContextSettings => _projectContextSettings;
+  DeviceProjectContextSnapshot? get projectContextSnapshot =>
+      _projectContextSnapshot;
+  bool get loadingProjectContextSettings => _loadingProjectContextSettings;
+  bool get savingProjectContextSettings => _savingProjectContextSettings;
+  bool get loadingProjectContextSnapshot => _loadingProjectContextSnapshot;
+  RecentLaunchContext? get recentLaunchContextForSelectedDevice {
+    final deviceId = _selectedDeviceId;
+    if (deviceId == null || deviceId.isEmpty) {
+      return null;
+    }
+    return _config.recentLaunchContexts[deviceId];
+  }
+
+  List<TerminalLaunchPlan> get recommendedLaunchPlans =>
+      _terminalLaunchPlanService.buildRecommendedPlans(
+        deviceId: _selectedDeviceId,
+        terminals: _terminals,
+        recentContext: recentLaunchContextForSelectedDevice,
+        projectContextSnapshot: _projectContextSnapshot,
+      );
+
+  Future<PlannerResolutionResult> resolveLaunchIntent(String intent) async {
+    final deviceId = _selectedDeviceId;
+    if (deviceId != null &&
+        (_projectContextSettings == null ||
+            _projectContextSettings!.deviceId != deviceId)) {
+      await loadProjectContextSettings();
+    }
+    return _terminalLaunchPlanService.resolveIntent(
+      intent: intent,
+      deviceId: deviceId,
+      terminals: _terminals,
+      recentContext: recentLaunchContextForSelectedDevice,
+      projectContextSnapshot: _projectContextSnapshot,
+      projectContextSettings: _projectContextSettings,
+    );
+  }
+
+  Future<TerminalLaunchPlan> resolveLaunchPlanFromIntent(String intent) async {
+    final result = await resolveLaunchIntent(intent);
+    return result.plan;
+  }
+
+  TerminalLaunchPlan normalizeLaunchPlan(TerminalLaunchPlan plan) {
+    return _terminalLaunchPlanService.normalizePlan(plan);
+  }
+
+  TerminalLaunchPlan finalizeLaunchPlan(TerminalLaunchPlan plan) {
+    return _terminalLaunchPlanService.finalizePlan(
+      plan: plan,
+      deviceId: _selectedDeviceId,
+      projectContextSnapshot: _projectContextSnapshot,
+    );
+  }
+
+  ProjectContextCandidate? resolveCandidateForCwd(String? cwd) {
+    return _terminalLaunchPlanService.resolveCandidateForCwd(
+      deviceId: _selectedDeviceId,
+      projectContextSnapshot: _projectContextSnapshot,
+      cwd: cwd,
+    );
+  }
+
+  bool requiresManualConfirmationForCwd(
+    String cwd, {
+    String? currentCwd,
+    bool currentRequiresManualConfirmation = false,
+  }) {
+    return _terminalLaunchPlanService.requiresManualConfirmationForCwd(
+      cwd: cwd,
+      deviceId: _selectedDeviceId,
+      projectContextSnapshot: _projectContextSnapshot,
+      currentCwd: currentCwd,
+      currentRequiresManualConfirmation: currentRequiresManualConfirmation,
+    );
+  }
 
   RuntimeDevice? get selectedDevice {
     for (final device in _devices) {
@@ -70,6 +162,9 @@ class RuntimeSelectionController extends ChangeNotifier {
     _config = config;
     _selectedDeviceId =
         config.preferredDeviceId.isEmpty ? null : config.preferredDeviceId;
+    _projectContextSnapshot = _selectedDeviceId == null
+        ? null
+        : config.projectContextSnapshots[_selectedDeviceId];
     if (_initialDevices.isNotEmpty) {
       _devices = _initialDevices;
       final next = _selectedDeviceId;
@@ -117,8 +212,11 @@ class RuntimeSelectionController extends ChangeNotifier {
 
   Future<void> selectDevice(String deviceId, {bool notify = true}) async {
     _selectedDeviceId = deviceId;
+    _projectContextSettings = null;
+    _projectContextSnapshot = _config.projectContextSnapshots[deviceId];
     await _persistPreferredDevice(deviceId);
     await _loadTerminalsForDevice(deviceId, notify: notify);
+    await loadProjectContextSnapshot(forceRefresh: true, notify: notify);
   }
 
   /// 刷新当前设备的终端列表（用于跨平台同步等场景）
@@ -344,6 +442,163 @@ class RuntimeSelectionController extends ChangeNotifier {
     await _configService.saveConfig(
       _config,
     );
+  }
+
+  Future<void> rememberSuccessfulLaunchPlan(TerminalLaunchPlan plan) async {
+    final deviceId = _selectedDeviceId;
+    if (deviceId == null || deviceId.isEmpty) {
+      return;
+    }
+
+    final contexts = Map<String, RecentLaunchContext>.from(
+      _config.recentLaunchContexts,
+    );
+    contexts[deviceId] = _terminalLaunchPlanService.buildRecentLaunchContext(
+      deviceId: deviceId,
+      plan: plan,
+    );
+    _config = _config.copyWith(recentLaunchContexts: contexts);
+    await _configService.saveConfig(_config);
+    notifyListeners();
+  }
+
+  Future<DeviceProjectContextSnapshot?> loadProjectContextSnapshot({
+    bool forceRefresh = false,
+    bool notify = true,
+  }) async {
+    final deviceId = _selectedDeviceId;
+    if (deviceId == null || deviceId.isEmpty) {
+      return null;
+    }
+    if (!forceRefresh && _projectContextSnapshot?.deviceId == deviceId) {
+      return _projectContextSnapshot;
+    }
+
+    _loadingProjectContextSnapshot = true;
+    if (notify) {
+      notifyListeners();
+    }
+    try {
+      final snapshot = await _runtimeService.getProjectContextSnapshot(
+        token,
+        deviceId,
+      );
+      await _persistProjectContextSnapshot(snapshot);
+      return snapshot;
+    } catch (_) {
+      _projectContextSnapshot = _config.projectContextSnapshots[deviceId];
+      return _projectContextSnapshot;
+    } finally {
+      _loadingProjectContextSnapshot = false;
+      if (notify) {
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<DeviceProjectContextSnapshot?> refreshProjectContextSnapshot({
+    bool notify = true,
+  }) async {
+    final deviceId = _selectedDeviceId;
+    if (deviceId == null || deviceId.isEmpty) {
+      return null;
+    }
+    _loadingProjectContextSnapshot = true;
+    if (notify) {
+      notifyListeners();
+    }
+    try {
+      final snapshot = await _runtimeService.refreshProjectContextSnapshot(
+        token,
+        deviceId,
+      );
+      await _persistProjectContextSnapshot(snapshot);
+      return snapshot;
+    } catch (_) {
+      return _projectContextSnapshot;
+    } finally {
+      _loadingProjectContextSnapshot = false;
+      if (notify) {
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<ProjectContextSettings?> loadProjectContextSettings({
+    bool forceRefresh = false,
+  }) async {
+    final deviceId = _selectedDeviceId;
+    if (deviceId == null || deviceId.isEmpty) {
+      _errorMessage = '请先选择设备';
+      notifyListeners();
+      return null;
+    }
+    if (!forceRefresh && _projectContextSettings?.deviceId == deviceId) {
+      return _projectContextSettings;
+    }
+
+    _loadingProjectContextSettings = true;
+    _errorMessage = null;
+    _authError = null;
+    notifyListeners();
+    try {
+      final settings = await _runtimeService.getProjectContextSettings(
+        token,
+        deviceId,
+      );
+      _projectContextSettings = settings;
+      return settings;
+    } catch (error) {
+      _handleError(error);
+      return null;
+    } finally {
+      _loadingProjectContextSettings = false;
+      notifyListeners();
+    }
+  }
+
+  Future<ProjectContextSettings?> updateProjectContextSettings(
+    ProjectContextSettings settings,
+  ) async {
+    final deviceId = _selectedDeviceId;
+    if (deviceId == null || deviceId.isEmpty) {
+      _errorMessage = '请先选择设备';
+      notifyListeners();
+      return null;
+    }
+
+    _savingProjectContextSettings = true;
+    _errorMessage = null;
+    _authError = null;
+    notifyListeners();
+    try {
+      final saved = await _runtimeService.saveProjectContextSettings(
+        token,
+        deviceId,
+        settings.copyWith(deviceId: deviceId),
+      );
+      _projectContextSettings = saved;
+      await refreshProjectContextSnapshot(notify: false);
+      return saved;
+    } catch (error) {
+      _handleError(error);
+      return null;
+    } finally {
+      _savingProjectContextSettings = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _persistProjectContextSnapshot(
+    DeviceProjectContextSnapshot snapshot,
+  ) async {
+    final snapshots = Map<String, DeviceProjectContextSnapshot>.from(
+      _config.projectContextSnapshots,
+    );
+    snapshots[snapshot.deviceId] = snapshot;
+    _projectContextSnapshot = snapshot;
+    _config = _config.copyWith(projectContextSnapshots: snapshots);
+    await _configService.saveConfig(_config);
   }
 
   List<RuntimeTerminal> _sortTerminals(List<RuntimeTerminal> terminals) {

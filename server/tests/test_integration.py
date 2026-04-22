@@ -31,6 +31,17 @@ async def _cancelled_iter_text():
     raise asyncio.CancelledError
 
 
+def _build_mock_websocket(auth_message: dict) -> AsyncMock:
+    """构造默认走安全传输分支的 WebSocket mock。"""
+    mock_ws = AsyncMock()
+    mock_ws.receive_text = AsyncMock(return_value=json.dumps(auth_message))
+    mock_ws.iter_text = MagicMock(return_value=_cancelled_iter_text())
+    mock_ws.accept = AsyncMock()
+    mock_ws.scope = {"scheme": "wss"}
+    mock_ws.headers = {}
+    return mock_ws
+
+
 class TestIntegrationAgentConnection:
     """Agent 连接集成测试"""
 
@@ -46,10 +57,7 @@ class TestIntegrationAgentConnection:
         # 创建测试 token（含 token_version + view_type，符合 B062 校验）
         test_token = generate_token(session_id="test-session-1", token_version=1, view_type="mobile")
 
-        mock_ws = AsyncMock()
-        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": test_token}))
-        mock_ws.iter_text = MagicMock(return_value=_cancelled_iter_text())
-        mock_ws.accept = AsyncMock()
+        mock_ws = _build_mock_websocket({"type": "auth", "token": test_token})
 
         with patch('app.ws_agent.get_session', return_value={"session_id": "test-session-1", "owner": "test-user"}):
             with patch('app.ws_agent.set_session_online', new_callable=AsyncMock):
@@ -85,10 +93,7 @@ class TestIntegrationClientConnection:
         # 创建测试 token（含 token_version + view_type，符合 B062 校验）
         test_token = generate_token(session_id="test-session-2", token_version=1, view_type="mobile")
 
-        mock_ws = AsyncMock()
-        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": test_token}))
-        mock_ws.iter_text = MagicMock(return_value=_cancelled_iter_text())
-        mock_ws.accept = AsyncMock()
+        mock_ws = _build_mock_websocket({"type": "auth", "token": test_token})
 
         with patch('app.ws_client.get_session', return_value={"session_id": "test-session-2", "owner": "test-user"}):
             with patch('app.ws_client.update_session_view_count', new_callable=AsyncMock):
@@ -120,10 +125,7 @@ class TestIntegrationClientConnection:
         # 创建测试 token（含 token_version + view_type，符合 B062 校验）
         test_token = generate_token(session_id="test-session-3", token_version=1, view_type="desktop")
 
-        mock_ws = AsyncMock()
-        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": test_token}))
-        mock_ws.iter_text = MagicMock(return_value=_cancelled_iter_text())
-        mock_ws.accept = AsyncMock()
+        mock_ws = _build_mock_websocket({"type": "auth", "token": test_token})
 
         with patch('app.ws_client.get_session', return_value={"session_id": "test-session-3", "owner": "test-user"}):
             with patch('app.ws_client.update_session_view_count', new_callable=AsyncMock):
@@ -339,6 +341,281 @@ class TestRuntimeDeviceApi:
         data = response.json()
         assert data["device_online"] is True
         assert data["terminals"][0]["views"]["mobile"] == 1
+
+    def test_get_runtime_project_context_includes_recent_terminal_candidates(self):
+        """项目候选快照会读取当前设备 recent terminal。"""
+        session = {
+            "session_id": "runtime-session-1",
+            "owner": "user1",
+            "device": {"device_id": "mbp-01"},
+        }
+        terminals = [
+            {
+                "terminal_id": "term-1",
+                "title": "Claude / remote-control",
+                "cwd": "/Users/demo/project/remote-control",
+                "command": "claude",
+                "status": "live",
+                "updated_at": "2026-04-22T12:00:00+00:00",
+            }
+        ]
+
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
+            with patch("app.runtime_api.list_session_terminals", new=AsyncMock(return_value=terminals)):
+                with patch("app.runtime_api.get_pinned_projects", new=AsyncMock(return_value=[])):
+                    with patch("app.runtime_api.get_approved_scan_roots", new=AsyncMock(return_value=[])):
+                        response = self.client.get(
+                            "/api/runtime/devices/mbp-01/project-context",
+                            headers=self.headers,
+                        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["device_id"] == "mbp-01"
+        assert len(data["candidates"]) == 1
+        assert data["candidates"][0]["cwd"] == "/Users/demo/project/remote-control"
+        assert data["candidates"][0]["source"] == "recent_terminal"
+        assert data["candidates"][0]["tool_hints"] == ["claude_code", "shell"]
+
+    def test_get_runtime_project_context_includes_pinned_projects_and_dedupes_cwd(self):
+        """固定项目会补入候选，重复 cwd 只保留一份。"""
+        session = {
+            "session_id": "runtime-session-1",
+            "owner": "user1",
+            "device": {"device_id": "mbp-01"},
+        }
+        terminals = [
+            {
+                "terminal_id": "term-1",
+                "title": "Codex / remote-control",
+                "cwd": "/Users/demo/project/remote-control",
+                "command": "codex",
+                "status": "live",
+                "updated_at": "2026-04-22T12:00:00+00:00",
+            }
+        ]
+        pinned_projects = [
+            {
+                "label": "remote-control pinned",
+                "cwd": "/Users/demo/project/remote-control",
+                "updated_at": "2026-04-22T11:00:00+00:00",
+                "created_at": "2026-04-22T11:00:00+00:00",
+            },
+            {
+                "label": "ai_rules",
+                "cwd": "/Users/demo/project/ai_rules",
+                "updated_at": "2026-04-22T10:00:00+00:00",
+                "created_at": "2026-04-22T10:00:00+00:00",
+            },
+        ]
+
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
+            with patch("app.runtime_api.list_session_terminals", new=AsyncMock(return_value=terminals)):
+                with patch("app.runtime_api.get_pinned_projects", new=AsyncMock(return_value=pinned_projects)):
+                    with patch("app.runtime_api.get_approved_scan_roots", new=AsyncMock(return_value=[])):
+                        response = self.client.get(
+                            "/api/runtime/devices/mbp-01/project-context",
+                            headers=self.headers,
+                        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert [candidate["cwd"] for candidate in data["candidates"]] == [
+            "/Users/demo/project/remote-control",
+            "/Users/demo/project/ai_rules",
+        ]
+        assert data["candidates"][1]["source"] == "pinned_project"
+
+    def test_get_runtime_project_context_returns_empty_candidates(self):
+        """无候选时返回 200 + 空列表。"""
+        session = {
+            "session_id": "runtime-session-1",
+            "owner": "user1",
+            "device": {"device_id": "mbp-01"},
+        }
+
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
+            with patch("app.runtime_api.list_session_terminals", new=AsyncMock(return_value=[])):
+                with patch("app.runtime_api.get_pinned_projects", new=AsyncMock(return_value=[])):
+                    with patch("app.runtime_api.get_approved_scan_roots", new=AsyncMock(return_value=[])):
+                        response = self.client.get(
+                            "/api/runtime/devices/mbp-01/project-context",
+                            headers=self.headers,
+                        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["device_id"] == "mbp-01"
+        assert data["candidates"] == []
+
+    def test_refresh_runtime_project_context_recomputes_snapshot(self):
+        """refresh 直接返回新的轻量快照，不改 terminal 主链路。"""
+        session = {
+            "session_id": "runtime-session-1",
+            "owner": "user1",
+            "device": {"device_id": "mbp-01"},
+        }
+        pinned_projects = [
+            {
+                "label": "remote-control",
+                "cwd": "/Users/demo/project/remote-control",
+                "updated_at": "2026-04-22T12:30:00+00:00",
+                "created_at": "2026-04-22T12:00:00+00:00",
+            }
+        ]
+        list_terminals = AsyncMock(return_value=[])
+        get_pinned = AsyncMock(return_value=pinned_projects)
+        get_scan_roots = AsyncMock(return_value=[{"root_path": "/Users/demo/project", "enabled": 1}])
+
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
+            with patch("app.runtime_api.list_session_terminals", new=list_terminals):
+                with patch("app.runtime_api.get_pinned_projects", new=get_pinned):
+                    with patch("app.runtime_api.get_approved_scan_roots", new=get_scan_roots):
+                        response = self.client.post(
+                            "/api/runtime/devices/mbp-01/project-context:refresh",
+                            headers=self.headers,
+                        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["candidates"][0]["label"] == "remote-control"
+        list_terminals.assert_awaited_once_with("runtime-session-1")
+        get_pinned.assert_awaited_once_with("user1", "mbp-01")
+        get_scan_roots.assert_awaited_once_with("user1", "mbp-01")
+
+    def test_get_runtime_project_context_settings(self):
+        """settings 接口返回项目来源和 planner 配置。"""
+        session = {
+            "session_id": "runtime-session-1",
+            "owner": "user1",
+            "device": {"device_id": "mbp-01"},
+        }
+
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
+            with patch(
+                "app.runtime_api.get_pinned_projects",
+                new=AsyncMock(
+                    return_value=[
+                        {"label": "remote-control", "cwd": "/Users/demo/project/remote-control"},
+                    ],
+                ),
+            ):
+                with patch(
+                    "app.runtime_api.get_approved_scan_roots",
+                    new=AsyncMock(
+                        return_value=[
+                            {"root_path": "/Users/demo/project", "scan_depth": 2, "enabled": 1},
+                        ],
+                    ),
+                ):
+                    with patch(
+                        "app.runtime_api.get_planner_config",
+                        new=AsyncMock(
+                            return_value={
+                                "provider": "llm",
+                                "llm_enabled": 1,
+                                "endpoint_profile": "openai_compatible",
+                                "credentials_mode": "client_secure_storage",
+                                "requires_explicit_opt_in": 1,
+                            },
+                        ),
+                    ):
+                        response = self.client.get(
+                            "/api/runtime/devices/mbp-01/project-context/settings",
+                            headers=self.headers,
+                        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["pinned_projects"][0]["cwd"] == "/Users/demo/project/remote-control"
+        assert data["approved_scan_roots"][0]["root_path"] == "/Users/demo/project"
+        assert data["planner_config"]["provider"] == "llm"
+        assert data["planner_config"]["llm_enabled"] is True
+
+    def test_put_runtime_project_context_settings(self):
+        """settings 保存会分别写入 pinned/scan_root/planner。"""
+        session = {
+            "session_id": "runtime-session-1",
+            "owner": "user1",
+            "device": {"device_id": "mbp-01"},
+        }
+        replace_pinned = AsyncMock()
+        replace_scan_roots = AsyncMock()
+        save_planner = AsyncMock()
+
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
+            with patch("app.runtime_api.replace_pinned_projects", new=replace_pinned):
+                with patch("app.runtime_api.replace_approved_scan_roots", new=replace_scan_roots):
+                    with patch("app.runtime_api.save_planner_config", new=save_planner):
+                        with patch(
+                            "app.runtime_api.get_pinned_projects",
+                            new=AsyncMock(
+                                return_value=[
+                                    {"label": "remote-control", "cwd": "/Users/demo/project/remote-control"},
+                                ],
+                            ),
+                        ):
+                            with patch(
+                                "app.runtime_api.get_approved_scan_roots",
+                                new=AsyncMock(
+                                    return_value=[
+                                        {"root_path": "/Users/demo/project", "scan_depth": 2, "enabled": 1},
+                                    ],
+                                ),
+                            ):
+                                with patch(
+                                    "app.runtime_api.get_planner_config",
+                                    new=AsyncMock(
+                                        return_value={
+                                            "provider": "llm",
+                                            "llm_enabled": 1,
+                                            "endpoint_profile": "openai_compatible",
+                                            "credentials_mode": "client_secure_storage",
+                                            "requires_explicit_opt_in": 1,
+                                        },
+                                    ),
+                                ):
+                                    response = self.client.put(
+                                        "/api/runtime/devices/mbp-01/project-context/settings",
+                                        headers=self.headers,
+                                        json={
+                                            "pinned_projects": [
+                                                {
+                                                    "label": "remote-control",
+                                                    "cwd": "/Users/demo/project/remote-control",
+                                                }
+                                            ],
+                                            "approved_scan_roots": [
+                                                {
+                                                    "root_path": "/Users/demo/project",
+                                                    "scan_depth": 2,
+                                                    "enabled": True,
+                                                }
+                                            ],
+                                            "planner_config": {
+                                                "provider": "llm",
+                                                "llm_enabled": True,
+                                                "endpoint_profile": "openai_compatible",
+                                                "credentials_mode": "client_secure_storage",
+                                                "requires_explicit_opt_in": True,
+                                            },
+                                        },
+                                    )
+
+        assert response.status_code == 200
+        replace_pinned.assert_awaited_once()
+        replace_scan_roots.assert_awaited_once()
+        save_planner.assert_awaited_once_with(
+            "user1",
+            "mbp-01",
+            {
+                "provider": "llm",
+                "llm_enabled": True,
+                "endpoint_profile": "openai_compatible",
+                "credentials_mode": "client_secure_storage",
+                "requires_explicit_opt_in": True,
+            },
+        )
 
     def test_runtime_device_listing_falls_back_to_session_user_id(self):
         """owner 为空时，runtime 鉴权回退到 session.user_id。"""
@@ -759,10 +1036,7 @@ class TestIntegrationContracts:
         active_agents.clear()
         test_token = generate_token(session_id="contract-test-1", token_version=1, view_type="mobile")
 
-        mock_ws = AsyncMock()
-        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": test_token}))
-        mock_ws.iter_text = MagicMock(return_value=_cancelled_iter_text())
-        mock_ws.accept = AsyncMock()
+        mock_ws = _build_mock_websocket({"type": "auth", "token": test_token})
 
         with patch('app.ws_agent.get_session', return_value={"session_id": "contract-test-1", "owner": "owner-1"}):
             with patch('app.ws_agent.set_session_online', new_callable=AsyncMock):
@@ -791,10 +1065,7 @@ class TestIntegrationContracts:
         active_clients.clear()
         test_token = generate_token(session_id="contract-test-2", token_version=1, view_type="mobile")
 
-        mock_ws = AsyncMock()
-        mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": test_token}))
-        mock_ws.iter_text = MagicMock(return_value=_cancelled_iter_text())
-        mock_ws.accept = AsyncMock()
+        mock_ws = _build_mock_websocket({"type": "auth", "token": test_token})
 
         with patch('app.ws_client.get_session', return_value={"session_id": "contract-test-2", "owner": "owner-2"}):
             with patch('app.ws_client.update_session_view_count', new_callable=AsyncMock):

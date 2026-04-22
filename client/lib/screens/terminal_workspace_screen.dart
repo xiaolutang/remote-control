@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../models/runtime_device.dart';
 import '../models/runtime_terminal.dart';
+import '../models/terminal_launch_plan.dart';
 import '../navigation/account_menu_actions.dart';
 import '../services/account_menu_action_handler.dart';
 import '../services/auth_service.dart';
@@ -15,10 +16,13 @@ import '../services/desktop_workspace_controller.dart';
 import '../services/environment_service.dart';
 import '../services/logout_helper.dart';
 import '../services/runtime_device_service.dart';
+import '../services/terminal_launch_session_service.dart';
 import '../services/runtime_selection_controller.dart';
 import '../services/terminal_session_manager.dart';
 import '../services/ui_helpers.dart';
 import '../services/websocket_service.dart';
+import '../widgets/project_context_settings_dialog.dart';
+import '../widgets/smart_terminal_create_dialog.dart';
 import 'login_screen.dart';
 import 'terminal_screen.dart';
 
@@ -337,11 +341,7 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
         actionLabel: state.deviceReady ? '新建终端' : '启动并创建终端',
         actionKey: const Key('workspace-empty-create-action'),
         onAction: () {
-          if (state.deviceReady) {
-            unawaited(_showCreateDialog(context, controller, device));
-            return;
-          }
-          unawaited(_bootstrapAndCreate(context, device));
+          unawaited(_showCreateDialog(context, controller, device));
         },
       );
     }
@@ -411,84 +411,42 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
     RuntimeSelectionController controller,
     RuntimeDevice device,
   ) async {
-    final titleController = TextEditingController(
-      text: 'Claude / ${device.name.isEmpty ? device.deviceId : device.name}',
-    );
-    final cwdController = TextEditingController(text: '~');
-    final commandController = TextEditingController(text: '/bin/bash');
-
-    final terminal = await showDialog<RuntimeTerminal>(
+    final sessionManager = context.read<TerminalSessionManager>();
+    TerminalLaunchPlan? createdPlan;
+    final terminal = await showSmartTerminalCreateDialog<RuntimeTerminal>(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('新建终端'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  key: const Key('workspace-create-terminal-title'),
-                  controller: titleController,
-                  decoration: const InputDecoration(labelText: '标题'),
-                ),
-                TextField(
-                  key: const Key('workspace-create-terminal-cwd'),
-                  controller: cwdController,
-                  decoration: const InputDecoration(labelText: '工作目录'),
-                ),
-                TextField(
-                  key: const Key('workspace-create-terminal-command'),
-                  controller: commandController,
-                  decoration: const InputDecoration(labelText: '启动命令'),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              key: const Key('workspace-create-terminal-submit'),
-              onPressed: () async {
-                final result = await _workspaceController.createTerminal(
-                  title: titleController.text.trim(),
-                  cwd: cwdController.text.trim(),
-                  command: commandController.text.trim(),
-                );
-                if (!context.mounted) return;
-                Navigator.of(context).pop(result);
-              },
-              child: const Text('创建'),
-            ),
-          ],
+      controller: controller,
+      title: '新建终端',
+      onOpenProjectSettings: () async {
+        await showProjectContextSettingsDialog(
+          context: context,
+          controller: controller,
         );
+      },
+      onCreate: (TerminalLaunchPlan plan) async {
+        final normalizedPlan = controller.finalizeLaunchPlan(plan);
+        final result = await _workspaceController.createTerminal(
+          title: normalizedPlan.title,
+          cwd: normalizedPlan.cwd,
+          command: normalizedPlan.command,
+        );
+        if (result != null) {
+          createdPlan = normalizedPlan;
+          await controller.rememberSuccessfulLaunchPlan(normalizedPlan);
+        }
+        return result;
       },
     );
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      titleController.dispose();
-      cwdController.dispose();
-      commandController.dispose();
-    });
-
     if (terminal != null && mounted) {
+      const TerminalLaunchSessionService().ensureSession(
+        sessionManager: sessionManager,
+        deviceId: controller.selectedDeviceId,
+        terminalId: terminal.terminalId,
+        serviceFactory: () => controller.buildTerminalService(terminal),
+        plan: createdPlan,
+      );
       _workspaceController.selectTerminal(terminal.terminalId);
-    }
-  }
-
-  Future<void> _bootstrapAndCreate(
-    BuildContext context,
-    RuntimeDevice device,
-  ) async {
-    final terminal = await _workspaceController.createTerminal(
-      title: 'Claude / ${device.name.isEmpty ? device.deviceId : device.name}',
-      cwd: '~',
-      command: '/bin/bash',
-    );
-    if (terminal == null || !mounted) {
-      return;
     }
   }
 
