@@ -77,21 +77,21 @@ remote-control
     └── 🧪 F038 端到端测试：完整生命周期验证
 │
 ├── 智能终端进入 [模块] 🆕
-│   ├── 📋 S077 智能终端进入产品基线
-│   ├── 🎨 F077 智能创建入口 UI
-│   ├── 🧠 F078 启动方案推荐服务
-│   ├── 🧠 F079 一句话意图到 TerminalLaunchPlan
-│   ├── 🔗 F080 创建链路统一收口
+│   ├── 📋 S077 Claude-only 命令序列产品基线
+│   ├── 🎨 F077 单输入框 + 步骤预览 UI
+│   ├── 🧠 F078 输入辅助与默认提示
+│   ├── 🧠 F079 一句话意图到 CommandSequence
+│   ├── 🔗 F080 创建 terminal 并执行命令序列
 │   └── 🧪 F081 自动化与首用 smoke
 │
-├── 设备感知智能终端进入 [模块] 🆕
-│   ├── 📋 S078 项目来源管理与 Planner 配置基线
-│   ├── 📋 B074 设备项目上下文采集与摘要
-│   ├── ⚙️ F086 项目来源管理与 Planner 配置 UI
-│   ├── 🧠 F082 候选项目上下文缓存与排序
-│   ├── 🤖 F083 候选约束 LLM Planner
-│   ├── 🎨 F084 候选项目确认流与可解释反馈
-│   └── 🧪 F085 设备感知智能回归与隐私 smoke
+├── 命令规划 provider 隔离 [模块] 🆕
+│   ├── 📋 S078 CommandPlanner 隔离基线
+│   ├── 📋 B074 本地 planner bridge
+│   ├── ⚙️ F086 planner 状态与失败反馈 UI
+│   ├── 🧠 F082 命令序列预览状态与用户编辑
+│   ├── 🤖 F083 Claude CLI planner provider
+│   ├── 🎨 F084 PlannerCoordinator + fallback
+│   └── 🧪 F085 端到端回归与真实设备 smoke
 │
 ├── 环境选择 [模块] ✅
 │   ├── 📋 F059 环境模型与选择服务
@@ -127,21 +127,21 @@ graph LR
     F037 --> F038[端到端测试]
 
     %% Phase: intelligent-terminal-entry
-    S077[智能终端进入产品基线] --> F077[智能创建入口 UI]
-    S077 --> F078[启动方案推荐服务]
-    F078 --> F079[一句话意图到 Plan]
-    F077 --> F080[创建链路统一收口]
-    F079 --> F080
+    S077[Claude-only 命令序列产品基线] --> F077[单输入框 + 步骤预览 UI]
+    S077 --> F078[输入辅助与默认提示]
+    F078 --> F079[一句话意图到 CommandSequence]
+    F077 --> F082[命令序列预览与用户编辑]
+    F079 --> F082
+    F082 --> F080[创建 terminal 并执行命令序列]
     F080 --> F081[自动化与首用 smoke]
-    F081 --> S078[项目来源/Planner配置基线]
-    S078 --> B074[设备项目上下文采集]
-    S078 --> F086[来源管理与Planner配置UI]
-    B074 --> F082[候选项目上下文缓存与排序]
-    F086 --> F082
-    F082 --> F083[候选约束 LLM Planner]
-    F086 --> F083
-    F083 --> F084[候选项目确认流]
-    F084 --> F085[设备感知智能回归]
+
+    %% Phase: planner-provider-isolation
+    S078[CommandPlanner 隔离基线] --> B074[本地 planner bridge]
+    S078 --> F086[planner 状态与失败反馈 UI]
+    B074 --> F083[Claude CLI planner provider]
+    F083 --> F084[PlannerCoordinator + fallback]
+    F086 --> F084
+    F084 --> F085[端到端回归与真实设备 smoke]
 ```
 
 ## 模块依赖关系
@@ -153,8 +153,8 @@ graph LR
 | Agent | 服务端 | Flutter 客户端（桌面端） |
 | Flutter 客户端 | 共享会话、服务端、Agent | 无 |
 | **Agent 生命周期管理** | **DesktopAgentSupervisor、DesktopAgentManager** | **AuthService、App 启动** |
-| **智能终端进入** | **RuntimeSelectionController、DesktopWorkspaceController、terminal 历史上下文** | **runtime selection、workspace 创建链路** |
-| **设备感知智能终端进入** | **项目来源配置、Agent 项目候选摘要、RecentLaunchContext、PlannerProvider** | **智能创建面板、确认流、创建链路** |
+| **智能终端进入** | **RuntimeSelectionController、DesktopWorkspaceController、recent terminal 上下文** | **runtime selection、workspace 创建与执行链路** |
+| **命令规划 provider 隔离** | **CommandPlanner、PlannerCoordinator、本地 planner bridge、Client 安全存储** | **命令预览、确认执行、fallback 反馈** |
 
 ## 关键路径
 
@@ -219,18 +219,18 @@ F032: AgentLifecycleManager.onLogout()
 | Flutter 客户端 | 25 | 25 | 100% |
 | 日志集成 | 7 | 7 | 100% |
 | **Agent 生命周期管理** | **8** | **7** | **87.5%** |
-| **智能终端进入** | **6** | **2** | **33.3%** |
-| **设备感知智能终端进入** | **7** | **0** | **0%** |
+| **智能终端进入** | **6** | **1** | **16.7%** |
+| **命令规划 provider 隔离** | **7** | **1** | **14.3%** |
 | **环境选择** | **2** | **2** | **100%** |
 | **IP 直连 + 加密** | **2** | **1** | **50%** |
-| **合计** | **83** | **63** | **75.9%** |
+| **合计** | **83** | **54** | **65.1%** |
 
 ## 优先级分布
 
 | 优先级 | 数量 | 功能 |
 |--------|------|------|
 | P0 | 2 | S063 URL 修复 + 直连端口, S064 部署验证 |
-| P1 | 13 | 智能终端进入 + 设备感知智能终端进入 |
+| P1 | 13 | 智能终端进入 + 命令规划 provider 隔离 |
 | P2 | 8 | Agent 生命周期管理全部任务 |
 
 ## 缺陷回流记录

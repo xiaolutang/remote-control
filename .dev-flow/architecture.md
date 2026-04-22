@@ -34,8 +34,9 @@ Docker Agent（辅助）：显式启用 profile 后与 Server 同一 docker-comp
 | Client desktop | UI 状态 + 本地 Agent 配置 + 后台运行开关 | 只管理自己启动的 Agent |
 | DesktopAgentManager | Agent 发现/启动/停止/所有权/退出/App 生命周期 | 其他组件不得绕过 DAM |
 | DesktopWorkspaceController | 工作台状态机（空态/创建链/正常态） | 页面不得直接拼接状态 |
-| Client Intelligent Entry | terminal 启动方案推荐、意图到 `title/cwd/command` 的编排 | Server/Agent 不得解析自然语言需求 |
-| Agent Project Context | 当前设备项目候选采集与摘要 | Server/LLM 不得发明本地路径 |
+| Client Terminal Assistant UI | 聊天式智能助手、过程轨迹、命令卡片、确认执行 | 不得直接拼接 provider 或推理策略 |
+| Server Planning Service | LLM 规划、上下文聚合、planner memory、评估 trace | Client/Agent 不得绕过服务端主规划链路 |
+| Planner Provider | 生成 `CommandSequence`，并暴露 provider/source/fallback 元数据 | UI 不得直接硬编码 `claude -p`、LLM SDK 或未来 provider 细节 |
 
 ## 不变量
 
@@ -80,12 +81,18 @@ Docker Agent（辅助）：显式启用 profile 后与 Server 同一 docker-comp
 39. terminal 的 switch / reconnect / recover 必须是三个独立事件，不得复用同一套恢复逻辑
 40. 同一 client view 同时只能有一个 active terminal transport；inactive terminal 只保留本地 renderer cache，不维持同 view 的额外 live WS
 41. Agent 是 terminal 内容恢复的主权威源；Server 维护 metadata / ownership / routing 真相，output history 只可作为诊断级辅助材料，不能与 agent snapshot 形成双主恢复源
-42. 智能识别使用的项目上下文必须是“当前设备作用域”的事实源；不得复用其他设备的候选项目污染当前计划
-43. 设备项目候选必须来自 recent terminal、用户固定项目、已授权扫描根目录或用户显式输入路径；模型不得发明未出现过的本地路径
-44. 若接入 LLM，输出必须收口为 `TerminalLaunchPlan`，且应附带候选来源、置信度与确认标记
-45. 不在候选集内且非用户显式输入的路径，一律要求 `requires_manual_confirmation=true`，不得静默提交
-46. `pinned_project` 与 `approved_scan_root` 属于用户可管理配置，必须有显式新增/删除/撤销入口，不能只靠隐式发现
-47. LLM planner 默认关闭；若启用，其 provider 凭证只允许保存在 Client 安全存储，不允许透传给 Agent
+42. 智能终端进入只能使用“当前设备事实 + recent terminal 上下文 + planner memory + 用户输入”作为规划输入；不得复用其他设备上下文污染当前计划
+43. 智能规划的最终产物必须收口为 `CommandSequence`，而不是直接执行动作或 `TerminalLaunchPlan`
+44. `CommandSequence` 至少包含 `summary`、`steps[]`、`provider`、`source`、`need_confirm`；其中每个 `step` 必须是用户可读、可审查的单条 shell 命令
+45. `CommandSequence` 必须在同一个 terminal shell session 内顺序执行；前一步失败时停止后续步骤，且失败输出必须对用户可见
+46. 产品层当前只暴露 Claude 模式，但架构层必须通过 `PlannerService/CommandPlanner` 抽象隔离 `service_llm` / `claude_cli` / `local_rules`；页面/UI 不得直接拼接 `claude -p`
+47. Planner 只能基于当前设备已有事实、planner memory 或 shell 可发现命令生成步骤；不得臆造本地路径、项目名或环境结构
+48. 所有 AI 生成的 `CommandSequence` 都必须在执行前得到用户显式确认；禁止静默自动执行
+49. 服务端 LLM provider 的凭证只允许保存在服务端受控环境变量或密钥管理中；客户端只允许保存开发态 fallback 所需的本机配置，且不得下发到 Agent
+50. 聊天式智能助手只展示结构化阶段、工具结果、fallback 与命令卡片，不展示模型原始 chain-of-thought
+51. 每次智能规划都必须产出可回放 trace（输入摘要、上下文摘要、工具调用、provider、fallback、最终命令、执行结果），供评估与审计使用
+52. 服务端 `assistant/plan` 必须具备用户级限流、provider timeout 与预算/配额防护；超限或超时时返回稳定错误语义，不得无限阻塞客户端
+53. 智能命令执行完成后，客户端必须把执行结果按 `conversation/message` 维度回写服务端；planner memory 的成功/失败学习只能基于回写结果更新
 
 ## 禁止模式
 
@@ -96,11 +103,17 @@ Docker Agent（辅助）：显式启用 profile 后与 Server 同一 docker-comp
 - ✗ 在 TerminalScreen / TerminalWorkspaceScreen 中直接编排 reconnect / snapshot 恢复 / geometry owner 策略
 - ✗ 让 WebSocketService 同时承担 transport 和 renderer/recovery 职责
 - ✗ 把 switch terminal 当作 reconnect 或 recover 处理
-- ✗ 让 LLM 直接生成当前设备上未出现过的本地路径并自动执行
-- ✗ 把 A 设备的项目候选用于 B 设备的智能识别
+- ✗ 让 planner 直接执行命令而不经过用户确认
+- ✗ 在页面/UI 层直接拼接 `claude -p`、LLM SDK 或其他 provider 命令
+- ✗ 把 `CommandSequence` 的步骤拆到多个独立 terminal session 中执行
+- ✗ 让模型生成当前设备上未出现过、也无法由 shell 发现命令推导出的本地路径并自动执行
+- ✗ 把 A 设备的上下文用于 B 设备的智能规划
 - ✗ Server 持久化完整本地文件树或源码索引作为智能输入
-- ✗ 默认静默开启 LLM planner，或在未显式 opt-in 时发送用户短句到外部模型
-- ✗ 把外部 LLM API key 下发到 Agent 或落到服务端候选摘要缓存里
+- ✗ 在没有用户点击“开始智能创建”的情况下静默调用外部 planner
+- ✗ 向用户展示模型原始 chain-of-thought、完整内部 prompt 或敏感工具返回
+- ✗ 把外部 provider 凭证下发到 Agent 或落到客户端明文缓存里
+- ✗ 服务端 planner 调用无超时、无限重试或无用户级限流直接暴露计费型 LLM
+- ✗ 仅凭本地聊天 UI 成功态就更新 planner memory，而不等待真实执行结果回写
 - ✗ JWT Secret 硬编码/空值/随机回退
 - ✗ 密码使用无盐哈希（SHA-256/MD5）
 - ✗ CORS allow_origins=*
@@ -132,7 +145,14 @@ Agent 注册：Local Agent → ws://server/ws/agent | 数据流：Agent PTY → 
 | RSA+AES 混合加密 | RSA 解决密钥分发，AES 解决对称加密性能 | 预共享密钥 |
 | 直连暴露 Server 端口 | 不修改共享 Traefik，零影响其他项目 | 修改 Traefik 添加非 TLS 入口 |
 | 加密按连接协议判断 | ws:// 必须加密，wss:// 不加密（TLS 已保护） | 全部加密 |
-| 智能进入前移到创建链路 | 手机端输入不便，需在进入 terminal 前生成启动方案 | 先进 shell 再手输 codex/claude |
+| 智能入口前移到创建链路 | 手机端输入不便，应先生成可确认的命令序列，再创建 terminal 执行 | 先进 shell 再手输长命令 |
+| 产品只暴露 Claude 模式 | 首用心智要极简，避免用户在 Codex/Claude/Shell 之间做无意义选择 | 多工具并列选择 UI |
+| provider 必须策略隔离 | 当前主路径是服务端 LLM，仍需保留 `claude_cli` / `local_rules` fallback，不能把实现细节写死在 UI | 在页面层直接调用 `claude -p` 或 LLM SDK |
+| 聊天式助手承载分析过程 | 用户需要看到对话、阶段推进、工具结果和最终命令卡片，弹窗式表单不足以承载 | 继续堆叠更多表单字段和调试标签 |
+| 命令序列先展示再执行 | 用户需要看见并确认将要发生的动作，尤其是 `pwd/find/cd/claude` 这类步骤 | 黑盒 plan 或自动执行 |
+| 服务端聚合上下文与记忆 | 每个用户、每台设备、每次输入都不同，服务端更适合汇总设备事实、历史成功序列与评估 trace | 让用户每次手动补全上下文，或让模型直接猜本地目录 |
+| 执行结果回写后再更新记忆 | 只有真实执行成功/失败才有资格影响 planner memory 和评估指标，不能把“用户看到了命令卡片”误当成成功 | 仅依赖前端本地状态更新 memory |
+| 计费型 planner 必须受保护 | 服务端 LLM 是默认主路径，必须先定义限流、timeout、配额和错误语义，才能进入真实用户流量 | 先接外部 LLM，再靠人工观察补防护 |
 | TTL 判定离线（90s） | 网络抖动不应立即断开 | 心跳超时即断 |
 | 桌面管 Agent / 手机只看 | 本地 Agent 只能被本机控制 | 双端都能管理 |
 | Server 中转数据流 | 多端同步、权限控制 | Client 直连 Agent |
@@ -143,9 +163,10 @@ Agent 注册：Local Agent → ws://server/ws/agent | 数据流：Agent PTY → 
 ## 模块职责
 
 - **Agent**：PTY 管理，terminal 多实例隔离，进程组清理，本地 HTTP 控制面
-- **Server**：设备注册、terminal 中转、认证、在线态权威、TTL 状态管理、RSA 密钥管理与 AES 会话密钥存储
+- **Server**：设备注册、terminal 中转、认证、在线态权威、TTL 状态管理、RSA 密钥管理、AES 会话密钥存储、LLM planner、planner memory 与评估 trace
 - **Client mobile**：远程 terminal 查看器 + 软键盘快捷键 + 命令面板
 - **Client desktop**：本机 Agent 控制台 + terminal 工作台 + 后台运行开关
+- **Terminal Assistant UI**：聊天消息流、工具轨迹、命令卡片、确认执行
 
 ## Terminal 交互目标分层
 

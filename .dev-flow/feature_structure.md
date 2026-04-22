@@ -233,40 +233,36 @@ flowchart TB
 - Flutter: `desktop_agent_http_client.dart` - DesktopAgentHttpClient
 - Flutter: `desktop_agent_supervisor.dart` - `_tryHttpStop()`, HTTP 发现与控制
 
-#### 3.1.6 智能终端进入编排（已规划）
+#### 3.1.6 Claude 智能终端进入编排（已规划）
 
 ```mermaid
 flowchart LR
     D1[新建终端]
-    D2[推荐项: Claude/Codex/Shell/自定义]
-    D3[一句话输入]
-    D3a[设备项目候选]
-    D3s[项目来源管理]
-    D3b[PlannerProvider: rules/llm]
-    D4[TerminalLaunchPlan]
-    D5[高级配置兜底]
-    D6[统一 createTerminal]
+    D2[一句话输入]
+    D3[CommandPlanner]
+    D4[CommandSequence]
+    D5[步骤预览与确认]
+    D6[高级配置兜底]
+    D7[统一 createTerminal]
+    D8[同一 shell session 执行步骤]
     D1 --> D2
-    D1 --> D3
-    D1 --> D3a
-    D1 --> D3s
-    D3s --> D3a
-    D2 --> D4
-    D3 --> D3b
-    D3a --> D3b
-    D3b --> D4
+    D2 --> D3
+    D3 --> D4
     D4 --> D5
     D5 --> D6
+    D5 --> D7
+    D6 --> D7
+    D7 --> D8
 ```
 
 功能点：
-- 在进入 terminal 前提供智能创建入口，减少手机端输入成本
-- 推荐式入口与一句话意图输入共用同一份 `TerminalLaunchPlan`
-- 高级配置只做兜底和覆盖，不再单独承载主创建路径
-- runtime selection 与 workspace 两个入口共用同一 create 主链路
-- 固定项目与扫描根目录是正式配置源，不是临时实现细节
-- 后续智能识别必须先拿“当前设备项目候选”，再决定是否调用 `PlannerProvider`
-- `PlannerProvider` 默认关闭，且只允许在候选事实上做选择，不得发明本地路径
+- 在进入 terminal 前提供 Claude 智能入口，减少手机端输入成本
+- 智能输出统一为 `CommandSequence`，不再以 `TerminalLaunchPlan` 作为主契约
+- 用户在执行前能看到 `summary / provider / steps`，并显式确认
+- 高级配置只做兜底和覆盖，不再承载独立的主创建路径
+- runtime selection 与 workspace 两个入口共用同一 create + execute 主链路
+- `CommandPlanner` 必须隔离 `claude -p` 等 provider 实现细节
+- 命令步骤必须在同一个 shell session 中执行，失败时停止后续步骤
 
 #### 3.1.7 桌面端与手机端行为差异（已完成）
 

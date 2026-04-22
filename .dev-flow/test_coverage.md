@@ -1,8 +1,8 @@
 # 测试覆盖清单
 
 > 项目：remote-control
-> 更新时间：2026-04-17
-> 状态：terminal-p0-fixes 执行中；terminal-interaction-refactor 已规划
+> 更新时间：2026-04-22
+> 状态：版本 2 规划已对齐；`chat-terminal-assistant` 为下一执行阶段
 
 ## 测试统计
 
@@ -30,9 +30,11 @@
 | **部署标准化 (deploy-standardization)** | manual, L3 | 已完成 | ✅ |
 | **安全加固 (security-hardening)** | unit, integration, manual | 待开始 | 🔶 |
 | **环境选择 (env-selector)** | unit | 24 passed | ✅ |
-| **终端 P0 修复 (terminal-p0-fixes)** | unit, widget, integration, smoke | 已规划 | 🔶 |
-| **终端交互架构重构 (terminal-interaction-refactor)** | design, unit, integration, widget, smoke | 已规划 | 🔶 |
-| **智能终端进入 (intelligent-terminal-entry)** | design, unit, widget, integration, manual | 已规划 | 🔶 |
+| **终端 P0 修复 (terminal-p0-fixes)** | unit, widget, integration, smoke | 已完成 | ✅ |
+| **终端交互架构重构 (terminal-interaction-refactor)** | design, unit, integration, widget, smoke | 已完成 | ✅ |
+| **智能终端进入 (intelligent-terminal-entry)** | design, unit, widget, integration, manual | 已完成 | ✅ |
+| **命令规划隔离 (planner-provider-isolation)** | design, unit, integration, manual | 已完成 | ✅ |
+| **聊天式智能终端助手 (chat-terminal-assistant)** | design, contract, unit, integration, manual, smoke | 已规划 | 🔶 |
 
 ## 模块覆盖详情
 
@@ -166,12 +168,12 @@
 | UI 瘦身迁移 | F074 | widget,smoke | 页面只做展示/焦点/快捷键/IME；不再直接管 recover | 🔶 |
 | 桌面端 Agent 断连恢复编排 | F075 | integration,smoke | agent 断连 TTL 恢复；app 前后台；app 重启；agent 重启与 terminal 恢复 | 🔶 |
 | 客户端生命周期恢复编排 | F076 | integration,smoke | foreground/cold start/network restore 统一恢复链 | 🔶 |
-| 智能终端进入产品基线 | S077 | design | 推荐/意图/高级配置三路径边界；TerminalLaunchPlan；统一 create 主链路 | 🔶 |
-| 智能创建入口 UI | F077 | widget,manual | 推荐卡片；一句话输入；高级配置折叠；移动端首用理解成本 | 🔶 |
-| 启动方案推荐服务 | F078 | unit | 最近工具/最近 cwd 排序；本地 RecentLaunchContext；空缓存/坏缓存回退；closed terminal 历史复用 | 🔶 |
-| 一句话意图编排 | F079 | unit,integration | 短句 -> tool/title/cwd/command；确认分支；边界输入；无新服务端 LLM 依赖 | 🔶 |
-| 创建链路统一收口 | F080 | integration | runtime/workspace 双入口共用 createTerminal；offline/上限/5xx 失败保留 plan；bootstrap 自动进入 | 🔶 |
-| 智能终端进入验证 | F081 | widget,integration,manual | 推荐/意图/自定义三链路；手机端 Claude/Codex/Shell 首用 smoke | 🔶 |
+| 智能终端进入产品基线 | S077 | design | Claude-only 入口；`CommandSequence` 字段稳定；先确认后执行 | 🔶 |
+| 智能创建入口 UI | F077 | widget,manual | 单输入框；命令步骤预览；确认按钮；移动端首用理解成本 | 🔶 |
+| 输入辅助与默认提示 | F078 | unit | recent terminal 提示；默认文案；空缓存/坏缓存回退 | 🔶 |
+| 一句话意图编排 | F079 | unit,integration | 短句 -> `CommandSequence`；确认分支；边界输入；无新服务端 LLM 依赖 | 🔶 |
+| 创建链路统一收口 | F080 | integration | runtime/workspace 双入口共用 createTerminal + execute sequence；offline/上限/5xx 失败保留输入 | 🔶 |
+| 智能终端进入验证 | F081 | widget,integration,manual | 命令预览/确认/手动回退三链路；手机端 Claude 首用 smoke | 🔶 |
 
 #### 终端交互重构关键场景
 
@@ -190,38 +192,75 @@
 
 | Module | Task IDs | Test Type | Required Scenarios | Status |
 |--------|----------|-----------|--------------------|--------|
-| 智能终端进入产品基线 | S077 | design | 推荐式/意图式/高级配置边界；TerminalLaunchPlan 字段稳定；同一 create 主链路 | 🔶 |
-| 智能创建入口 UI | F077 | widget,manual | 推荐项可直接创建；一句话输入可见；高级配置可覆盖自动结果；移动端布局稳定 | 🔶 |
-| 启动方案推荐服务 | F078 | unit | 最近 terminal/cwd/tool 推荐；RecentLaunchContext 持久化；空缓存/坏缓存/未知 tool 回退 | 🔶 |
-| 一句话意图编排 | F079 | unit,integration | Claude/Codex/Shell 意图识别；模糊意图确认；超长/特殊字符输入；路径线索缺失时要求确认 | 🔶 |
-| 创建链路收口 | F080 | integration | workspace/runtime 两入口一致；offline/上限/5xx 失败保留输入；shell_bootstrap 自动进入 terminal | 🔶 |
-| 自动化与首用 smoke | F081 | widget,integration,manual | 推荐/意图/自定义三链路回归；手机端首用不依赖手输长命令 | 🔶 |
-| 项目来源与 Planner 配置基线 | S078 | design | pinned_project、approved_scan_root、planner opt-in、client 凭证归属 | 🔶 |
-| 设备项目上下文采集 | B074 | integration | 当前设备 recent/pinned/approved_scan 候选；无完整文件树上传；扫描失败不阻断创建 | 🔶 |
-| 项目来源管理与 Planner 配置 UI | F086 | widget,integration | 固定项目增删；扫描根目录授权/撤销；planner 默认关闭与显式开启 | 🔶 |
-| 候选项目缓存与排序 | F082 | unit,integration | 按设备隔离缓存；候选排序稳定；空候选回退 F078 默认推荐 | 🔶 |
-| 候选约束 LLM Planner | F083 | unit,integration | 只允许匹配候选或用户显式路径；provider 失败回退 local_rules；低置信度需确认 | 🔶 |
-| 候选确认流与可解释反馈 | F084 | widget,integration | 显示匹配候选、原因、确认态；用户可覆盖 cwd/tool；模糊路径不自动提交 | 🔶 |
-| 设备感知智能验证 | F085 | integration,manual | 跨设备隔离、隐私约束、LLM fallback、首次无候选场景 | 🔶 |
+| 智能终端进入产品基线 | S077 | design | Claude-only 主路径；`CommandSequence`；确认后执行；高级配置兜底 | 🔶 |
+| 智能创建入口 UI | F077 | widget,manual | 单输入框、命令步骤预览、确认按钮、移动端小屏稳定 | 🔶 |
+| 输入辅助与默认提示 | F078 | unit | recent terminal 提示；默认文案；空历史/坏缓存安全回退 | 🔶 |
+| 一句话意图编排 | F079 | unit,integration | 自然语言转 `CommandSequence`；步骤可读；超长/特殊字符输入安全处理 | 🔶 |
+| 创建与执行链路收口 | F080 | integration | workspace/runtime 两入口一致；创建 terminal 后执行同一命令序列；失败保留输入 | 🔶 |
+| 自动化与首用 smoke | F081 | widget,integration,manual | 确认执行、失败停后续步骤、手动回退、手机端首用不依赖长输入 | 🔶 |
+
+### 命令规划隔离（planner-provider-isolation phase）
+
+| Module | Task IDs | Test Type | Required Scenarios | Status |
+|--------|----------|-----------|--------------------|--------|
+| provider 隔离基线 | S078 | design | `CommandPlanner` / `PlannerCoordinator` 边界；product 与 provider 解耦 | 🔶 |
+| 本地 planner bridge | B074 | integration | 当前设备侧调用 Claude CLI；Server/Agent 不解析自然语言 | 🔶 |
+| planner 状态与失败反馈 UI | F086 | widget,integration | 展示 provider/fallback/unavailable 原因；主 UI 不暴露 provider 选择 | 🔶 |
+| 命令序列预览与用户编辑 | F082 | unit,integration | 用户编辑步骤后执行以编辑结果为准；确认态稳定 | 🔶 |
+| Claude CLI planner provider | F083 | unit,integration | `claude -p` 输出归一化为 `CommandSequence`；命令越界被拦截 | 🔶 |
+| planner coordinator 与 fallback | F084 | unit,integration | `claude -p` 不可用/超时/违规时回退 `local_rules` | 🔶 |
+| 端到端回归与真实设备 smoke | F085 | integration,manual | macOS/Android 真机验证确认执行与 fallback 链路 | 🔶 |
 
 #### 智能终端进入关键测试场景
 
-- [ ] 不输入任何文字时，用户可直接点击 `Claude Code` 创建 terminal
-- [ ] 输入“进入 codex 修一下登录问题”后可生成 Codex plan
-- [ ] 输入模糊文本时回退推荐方案，而不是静默乱猜
-- [ ] 输入模糊但带路径线索时，系统要求用户确认，而不是直接提交
-- [ ] 高级配置覆盖后，最终 createTerminal 使用的是用户修改后的 plan
-- [ ] runtime selection 与 workspace 两个入口创建行为一致
-- [ ] `RecentLaunchContext` 为空、损坏、未知版本时都能安全回退默认推荐
-- [ ] createTerminal 在 `offline` / `terminal 上限` / `5xx` 下都保留 intent 文本和已生成方案
-- [ ] `claude` / `codex` bootstrap 命令不存在时，用户仍留在 shell 且能看到失败回显
+- [ ] 输入“进入 remote-control 项目修登录问题”后可生成 `pwd -> find -> cd -> claude` 这类 `CommandSequence`
+- [ ] 命令预览包含 `summary/provider/steps/need_confirm`，且用户确认前不会执行
+- [ ] 高级配置或手动编辑步骤后，最终执行使用用户编辑结果，而不是覆盖回 planner 原结果
+- [ ] runtime selection 与 workspace 两个入口的创建和执行行为一致
+- [ ] `createTerminal` 在 `offline` / `terminal 上限` / `5xx` 下都会保留原输入与命令序列
+- [ ] 执行时 `cd` 对后续步骤生效，证明所有步骤处于同一个 shell session
+- [ ] 任一步返回失败时停止后续步骤，不会继续执行 `claude`
+- [ ] `claude` 命令不存在时，用户仍留在 shell 且能看到失败回显
 - [ ] 手机端首用场景中，用户不必手输完整 `cwd/command`
-- [ ] 用户可显式新增/删除 pinned project，且修改后会触发候选刷新
-- [ ] 用户可授权/撤销 approved scan root，撤销后不再参与候选生成
-- [ ] 当前设备候选项目不能污染其他设备的智能识别结果
-- [ ] LLM 返回候选外路径时不会直接创建，而是进入确认态
-- [ ] Agent/Server 不上传完整本地文件树，只有候选摘要参与智能识别
-- [ ] LLM planner 默认关闭，未显式 opt-in 时不会发送用户短句到外部 provider
+
+#### 命令规划隔离关键测试场景
+
+- [ ] `claude -p` 输出可以稳定归一化为 `CommandSequence`
+- [ ] `claude -p` 不可用、超时、空输出或非法输出时会稳定回退 `local_rules`
+- [ ] provider 返回危险命令、越界路径或不可解释步骤时，不会直接执行
+- [ ] UI 不暴露 provider 选择，但调试信息能显示当前使用的 provider/fallback
+- [ ] planner 不会依赖开发机固定目录；不同用户机器上都通过 shell 发现步骤定位项目
+- [ ] 真机与桌面端联调时，用户确认后能成功进入 Claude，失败链路也能回退手动创建
+
+### 聊天式智能终端助手（chat-terminal-assistant phase）
+
+| Module | Task IDs | Test Type | Required Scenarios | Status |
+|--------|----------|-----------|--------------------|--------|
+| 聊天式助手产品与评估基线 | S079, S080 | design | 聊天流 + 命令卡片；结构化 trace；智能体评估指标与验收口径 | ⬜ |
+| 服务端 LLM planner API | B075 | integration,contract | `assistant/plan` 契约；结构化 trace；限流/timeout/预算错误；fallback 透传 | ⬜ |
+| planner memory / trace / 评估日志 | B076 | unit,integration | recent project 命中；跨设备隔离；规划 trace 可回放 | ⬜ |
+| 执行结果回写与记忆更新 | B077, F093 | integration,contract | `executions/report` 契约；执行结果回写；memory 只在回写后更新 | ⬜ |
+| 聊天式助手 UI 骨架 | F087 | widget,manual | 对话流；输入区；状态消息；桌面/移动端布局稳定 | ⬜ |
+| 分析轨迹与命令卡片 | F088 | widget,integration | 阶段状态；工具消息；命令卡片；编辑/确认执行 | ⬜ |
+| 服务端规划接入与 fallback | F089 | integration | `service_llm -> claude_cli -> local_rules` 路由；失败文案与结果一致 | ⬜ |
+| 聊天流执行闭环 | F090 | integration,manual | 命令卡片确认后创建 terminal；执行状态回流聊天；失败停止；结果回写触发 | ⬜ |
+| 智能体 benchmark 与回放 harness | F091 | unit,integration,manual | benchmark 数据集；trace 回放；fixture/runner；指标汇总 | ⬜ |
+| 真机与线上验收 | F092 | manual,smoke | macOS / Android / 线上服务端全链路；对比不同输入的命令分化 | ⬜ |
+
+#### 聊天式智能终端助手关键测试场景
+
+- [ ] 输入“进入 remote-control 修登录问题”后，对话流会展示“读取上下文 -> 调用 LLM -> 安全校验 -> 生成命令”阶段
+- [ ] 聊天流只展示结构化分析摘要和工具结果，不展示模型原始 chain-of-thought
+- [ ] 同一个目标在命中 recent project、pinned project、无记忆三种上下文下，最终命令序列按预期分化
+- [ ] `service_llm` 成功时，命令卡片来自服务端规划结果；`claude_cli`/`local_rules` fallback 时，聊天流会显示明确回退节点
+- [ ] `assistant/plan` 触发限流、预算/配额受限、provider timeout 时，客户端能收到稳定错误并继续 fallback 或手动创建
+- [ ] 命令卡片支持编辑，用户编辑后的命令序列才是最终执行产物
+- [ ] 用户确认后，聊天流会追加“创建 terminal / 执行命令 / 已进入 Claude”状态，而不是静默跳转
+- [ ] `cd` 对后续 `claude` 生效，证明仍在同一个 shell session 中执行
+- [ ] 执行完成后会调用 `executions/report` 回写最终状态；服务端只在回写成功后更新 planner memory
+- [ ] 同一句输入在不同设备上会依据各自 planner memory / current-device context 生成不同命令，不会串用其他设备历史
+- [ ] benchmark 数据集能输出至少这些指标：命中率、fallback 率、命令安全拦截率、执行成功率、平均规划耗时
+- [ ] 每次规划都能被 trace 回放，支持人工核对“输入 -> 上下文 -> trace -> 命令 -> 执行结果”
 
 ### CONTRACT-002: Agent Connected 消息
 - [x] 消息包含 type, session_id, owner, views, timestamp

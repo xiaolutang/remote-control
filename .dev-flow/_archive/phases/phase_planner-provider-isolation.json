@@ -1,0 +1,360 @@
+{
+  "phase": "planner-provider-isolation",
+  "branch": "feat/R040-intelligent-terminal-entry",
+  "status": "completed",
+  "archived_at": "2026-04-23",
+  "completed_at": "2026-04-23",
+  "summary": {
+    "total": 7,
+    "completed": 7,
+    "cancelled": 0
+  },
+  "tasks": [
+    {
+      "id": "S078",
+      "phase": "planner-provider-isolation",
+      "module": "shared",
+      "name": "架构基线：CommandPlanner provider 隔离",
+      "description": "定义 `CommandPlanner`、`PlannerCoordinator`、provider fallback 和执行语义，确保产品层只展示 Claude，但底层不把 `claude -p` 写死在 UI。",
+      "verification": "F2",
+      "depends_on": [
+        "S077"
+      ],
+      "status": "completed",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "明确 `CommandPlanner` / `PlannerCoordinator` 边界",
+        "明确 `claude_cli` 与 `local_rules` provider 的职责",
+        "明确 provider 不可用时的 fallback 链路",
+        "明确命令步骤执行语义：同一 shell session、顺序执行、失败即停",
+        "明确 UI 不直接拼接 `claude -p`"
+      ],
+      "contract_refs": [
+        "CONTRACT-044"
+      ],
+      "files": [
+        ".dev-flow/architecture.md",
+        ".dev-flow/api_contracts.md",
+        ".dev-flow/feature_map.md",
+        ".dev-flow/feature_structure.md"
+      ],
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 0,
+        "waiting_for_external": false
+      },
+      "execution_notes": "已完成规划层隔离基线收口，后续实现必须遵守 provider abstraction 与 fallback 规则。",
+      "evidence_file": ".dev-flow/evidence/S078.md"
+    },
+    {
+      "id": "B074",
+      "phase": "planner-provider-isolation",
+      "module": "platform",
+      "name": "本地 planner bridge：在当前设备调用 Claude CLI 或本地规则",
+      "description": "提供当前设备侧的 planner 执行桥接层，让 `claude -p` 与本地规则都在用户机器上运行；Server 不解析自然语言，也不保存 provider 凭证。",
+      "verification": "F2",
+      "depends_on": [
+        "S078"
+      ],
+      "status": "completed",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "planner 调用发生在当前设备侧，而不是服务端",
+        "Server/Agent 不解析自然语言，只承担 terminal 连接与命令执行",
+        "bridge 能返回标准化 `PlannerResult`",
+        "bridge 失败不会阻断手动创建"
+      ],
+      "contract_refs": [
+        "CONTRACT-044"
+      ],
+      "risk_tags": [
+        "startup",
+        "config"
+      ],
+      "test_tasks": [
+        {
+          "type": "integration",
+          "description": "本地 bridge",
+          "scenarios": [
+            "当前设备可调用 Claude CLI planner",
+            "bridge 失败时回退 local_rules",
+            "服务端侧不接收自然语言 payload"
+          ]
+        }
+      ],
+      "smoke_required": true,
+      "files": [
+        "client/lib/services/**",
+        "agent/**"
+      ],
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 0,
+        "waiting_for_external": false
+      },
+      "execution_notes": "已把 planner bridge 固定在 client/当前设备侧，Claude CLI 通过本地进程调用执行，失败时回退 local_rules；Server/Agent 不接收自然语言 payload，只负责 terminal 连接与执行。",
+      "evidence_file": ".dev-flow/evidence/B074.md"
+    },
+    {
+      "id": "F086",
+      "phase": "planner-provider-isolation",
+      "module": "client-ui",
+      "name": "planner 状态与失败反馈 UI",
+      "description": "在不暴露 provider 选择的前提下，向用户展示当前使用的 provider、是否发生 fallback 以及不可用原因。",
+      "verification": "F2",
+      "depends_on": [
+        "S078"
+      ],
+      "status": "completed",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "UI 可展示 `provider` / `fallback_used` / `unavailable_reason`",
+        "主流程仍然是 Claude-only，不新增 provider 切换入口",
+        "planner 不可用时用户能理解当前已回退到本地规则",
+        "错误信息不泄露敏感配置"
+      ],
+      "contract_refs": [
+        "CONTRACT-044"
+      ],
+      "risk_tags": [
+        "first_use",
+        "config"
+      ],
+      "test_tasks": [
+        {
+          "type": "widget",
+          "description": "状态展示",
+          "scenarios": [
+            "正常使用 `claude_cli` 时展示当前 provider",
+            "fallback 到 `local_rules` 时展示原因",
+            "失败文案不暴露敏感配置"
+          ]
+        }
+      ],
+      "smoke_required": false,
+      "files": [
+        "client/lib/widgets/**",
+        "client/lib/screens/**"
+      ],
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 0,
+        "waiting_for_external": false
+      },
+      "execution_notes": "已在命令步骤预览中展示 provider/source/user-edited/fallback reason，并将设置页文案收口为 Claude CLI；用户仍无 provider 切换入口。",
+      "evidence_file": ".dev-flow/evidence/F086.md"
+    },
+    {
+      "id": "F082",
+      "phase": "planner-provider-isolation",
+      "module": "client-domain",
+      "name": "命令序列预览状态与用户编辑",
+      "description": "建立 `CommandSequence` 的本地状态模型，支持步骤编辑、标题编辑、命令覆写，并保证最终执行以用户编辑后的结果为准。",
+      "verification": "F1",
+      "depends_on": [
+        "F077",
+        "F079"
+      ],
+      "status": "completed",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "用户可以编辑步骤文案和命令文本",
+        "用户编辑后不会被 planner 结果再次覆盖",
+        "预览状态支持 `provider/source/need_confirm` 展示",
+        "步骤增删改规则可单测"
+      ],
+      "contract_refs": [
+        "CONTRACT-043",
+        "CONTRACT-044"
+      ],
+      "risk_tags": [
+        "config",
+        "first_use"
+      ],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "序列编辑",
+          "scenarios": [
+            "用户修改步骤后执行数据同步更新",
+            "用户删除某一步后顺序保持稳定",
+            "重新生成时不会覆盖明确的用户编辑"
+          ]
+        }
+      ],
+      "smoke_required": false,
+      "files": [
+        "client/lib/models/**",
+        "client/lib/services/**"
+      ],
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 0,
+        "waiting_for_external": false
+      },
+      "execution_notes": "已引入 CommandSequenceDraft 本地状态模型，支持步骤增删改、标题/cwd/shell 覆写，并保证最终执行以用户编辑后的命令序列为准。",
+      "evidence_file": ".dev-flow/evidence/F082.md"
+    },
+    {
+      "id": "F083",
+      "phase": "planner-provider-isolation",
+      "module": "client-domain",
+      "name": "Claude CLI planner provider",
+      "description": "实现 `ClaudeCliCommandPlanner`，负责调用 `claude -p` 并把结果归一化为 `CommandSequence`。",
+      "verification": "F1",
+      "depends_on": [
+        "B074",
+        "S078"
+      ],
+      "status": "completed",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "`claude -p` 输出可稳定归一化为 `CommandSequence`",
+        "provider 返回非法步骤、危险命令或不可解释结果时会被拒绝",
+        "provider 不直接执行命令，只返回规划结果",
+        "provider 细节不泄露到 UI 层"
+      ],
+      "contract_refs": [
+        "CONTRACT-044"
+      ],
+      "risk_tags": [
+        "config",
+        "first_use"
+      ],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "Claude CLI 归一化",
+          "scenarios": [
+            "`claude -p` 正常返回时生成合法 `CommandSequence`",
+            "非法输出或空输出被拦截",
+            "危险命令不会直接进入执行链路"
+          ]
+        }
+      ],
+      "smoke_required": false,
+      "files": [
+        "client/lib/services/command_planner/**"
+      ],
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 0,
+        "waiting_for_external": false
+      },
+      "execution_notes": "已实现 ClaudeCliCommandPlanner，通过 `claude -p` 产生命令步骤 JSON，过滤非法/空输出与危险命令，并输出标准 CommandSequenceDraft。",
+      "evidence_file": ".dev-flow/evidence/F083.md"
+    },
+    {
+      "id": "F084",
+      "phase": "planner-provider-isolation",
+      "module": "client-domain",
+      "name": "PlannerCoordinator 与 local_rules fallback",
+      "description": "实现 `PlannerCoordinator`，统一协调 `claude_cli` 与 `local_rules`，处理不可用、超时、空输出、非法输出等回退路径。",
+      "verification": "F1",
+      "depends_on": [
+        "F083",
+        "F086"
+      ],
+      "status": "completed",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "`claude_cli` 不可用、超时、空输出或非法输出时会稳定回退 `local_rules`",
+        "回退结果仍然输出标准 `CommandSequence`",
+        "回退原因可传给 UI 展示",
+        "协调层不依赖开发机固定目录"
+      ],
+      "contract_refs": [
+        "CONTRACT-043",
+        "CONTRACT-044"
+      ],
+      "risk_tags": [
+        "config",
+        "first_use"
+      ],
+      "test_tasks": [
+        {
+          "type": "integration",
+          "description": "fallback 链路",
+          "scenarios": [
+            "`claude -p` 不可用 -> 回退 `local_rules`",
+            "`claude -p` 超时 -> 回退 `local_rules`",
+            "非法步骤被拒绝并回退",
+            "回退原因可以被 UI 消费"
+          ]
+        }
+      ],
+      "smoke_required": false,
+      "files": [
+        "client/lib/services/command_planner/**"
+      ],
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 0,
+        "waiting_for_external": false
+      },
+      "execution_notes": "已实现 PlannerCoordinator，统一处理 claude_cli unavailable/invalid/failed 回退 local_rules，并把 fallbackUsed/fallbackReason 透传给 UI 预览。",
+      "evidence_file": ".dev-flow/evidence/F084.md"
+    },
+    {
+      "id": "F085",
+      "phase": "planner-provider-isolation",
+      "module": "client-test",
+      "name": "端到端回归与真实设备 smoke",
+      "description": "补齐命令规划隔离与真实设备联调验证，重点覆盖确认执行、失败停止、fallback 和多设备环境差异。",
+      "verification": "F2",
+      "depends_on": [
+        "F080",
+        "F084"
+      ],
+      "status": "completed",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "macOS / Android 真机至少各有一条确认执行主路径",
+        "`claude -p` 不可用时有真实 fallback 验证",
+        "`pwd -> find -> cd -> claude` 主路径有端到端覆盖",
+        "失败链路验证用户仍可退回手动创建"
+      ],
+      "contract_refs": [
+        "CONTRACT-043",
+        "CONTRACT-044"
+      ],
+      "risk_tags": [
+        "first_use",
+        "config"
+      ],
+      "test_tasks": [
+        {
+          "type": "integration",
+          "description": "主路径与 fallback",
+          "scenarios": [
+            "确认后顺序执行命令步骤",
+            "失败步骤会停止后续执行",
+            "`claude -p` 失败后回退 `local_rules`",
+            "用户仍可改命令并手动继续"
+          ]
+        },
+        {
+          "type": "manual",
+          "description": "真实设备 smoke",
+          "scenarios": [
+            "macOS 桌面端确认执行后进入 Claude",
+            "Android 真机触发同一主路径并看到执行回显",
+            "本地环境差异不会导致规划依赖开发机固定目录"
+          ]
+        }
+      ],
+      "smoke_required": true,
+      "files": [
+        "client/test/**",
+        "integration_test/**"
+      ],
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 0,
+        "waiting_for_external": false
+      },
+      "execution_notes": "已补齐 fallback UI -> 手动继续创建的组合回归、`pwd -> find -> cd -> claude` 同 shell 链路验证，并完成 macOS + Android 真机 `smart_terminal_create_smoke_test`。",
+      "evidence_file": ".dev-flow/evidence/F085.md"
+    }
+  ]
+}

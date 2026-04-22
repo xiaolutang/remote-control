@@ -1,0 +1,295 @@
+{
+  "phase": "intelligent-terminal-entry",
+  "branch": "feat/R040-intelligent-terminal-entry",
+  "status": "completed",
+  "archived_at": "2026-04-23",
+  "completed_at": "2026-04-23",
+  "summary": {
+    "total": 6,
+    "completed": 6,
+    "cancelled": 0
+  },
+  "tasks": [
+    {
+      "id": "S077",
+      "phase": "intelligent-terminal-entry",
+      "module": "shared",
+      "name": "产品基线：Claude-only 命令序列智能进入",
+      "description": "把“新建终端”主路径改为 Claude-only 智能进入：用户输入一句话，系统生成 `CommandSequence`，用户确认后再创建 terminal 并执行。\n\n约束：\n- 产品层不再暴露 `Claude / Codex / Shell / 自定义` 的并列工具选择\n- 智能输出统一收口为 `CommandSequence`\n- 高级配置仍保留，但只作为兜底与覆盖，不再是另一套主流程",
+      "verification": "F2",
+      "depends_on": [],
+      "status": "completed",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "明确主路径为一句话输入 -> 命令序列预览 -> 用户确认执行",
+        "定义 `CommandSequence` / `CommandStep` 作为当前产品主契约",
+        "明确所有 AI 生成结果都要求执行前确认",
+        "明确产品层仅暴露 Claude 模式，provider 细节不进入 UI 心智",
+        "runtime selection 与 workspace 共享同一主链路"
+      ],
+      "contract_refs": [
+        "CONTRACT-043"
+      ],
+      "files": [
+        ".dev-flow/architecture.md",
+        ".dev-flow/project_spec.md",
+        ".dev-flow/api_contracts.md",
+        ".dev-flow/feature_map.md"
+      ],
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 0,
+        "waiting_for_external": false
+      },
+      "execution_notes": "已完成规划重定义，旧的 `TerminalLaunchPlan / 多工具入口 / 项目来源管理 UI` 不再是当前主线。",
+      "evidence_file": ".dev-flow/evidence/S077.md"
+    },
+    {
+      "id": "F077",
+      "phase": "intelligent-terminal-entry",
+      "module": "client-ui",
+      "name": "智能创建入口 UI：单输入框 + 命令步骤预览 + 确认",
+      "description": "重构 runtime selection 与 workspace 内的“新建终端”入口，只保留一句话输入、命令步骤预览和确认按钮，并保留高级配置兜底。",
+      "verification": "F2",
+      "depends_on": [
+        "S077"
+      ],
+      "status": "completed",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "默认展示一句话输入，而不是多工具选择",
+        "用户输入后能看到命令步骤预览与摘要",
+        "确认前不执行任何命令",
+        "高级配置可修改标题、shell 与命令步骤",
+        "runtime selection 与 workspace 两入口视觉与交互一致"
+      ],
+      "contract_refs": [
+        "CONTRACT-043"
+      ],
+      "risk_tags": [
+        "first_use"
+      ],
+      "test_tasks": [
+        {
+          "type": "widget",
+          "description": "主结构与布局",
+          "scenarios": [
+            "默认展示输入框、步骤预览区、确认按钮与高级配置入口",
+            "移动端窄屏下布局不溢出",
+            "runtime selection 与 workspace 入口结构一致"
+          ]
+        },
+        {
+          "type": "widget",
+          "description": "确认前状态",
+          "scenarios": [
+            "有步骤预览时确认按钮可用",
+            "无输入或生成失败时不误执行",
+            "切回高级配置后保留用户已编辑内容"
+          ]
+        }
+      ],
+      "smoke_required": true,
+      "files": [
+        "client/lib/screens/runtime_selection_screen.dart",
+        "client/lib/screens/terminal_workspace_screen.dart",
+        "client/lib/widgets/smart_terminal_create_dialog.dart"
+      ],
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 0,
+        "waiting_for_external": false
+      },
+      "execution_notes": "已切换为单输入 + 命令步骤预览 UI，两处入口共用同一创建对话框，并补齐窄屏布局回归。",
+      "evidence_file": ".dev-flow/evidence/F077.md"
+    },
+    {
+      "id": "F078",
+      "phase": "intelligent-terminal-entry",
+      "module": "client-domain",
+      "name": "输入辅助与默认提示",
+      "description": "提供轻量输入辅助，不再做多工具推荐，而是基于 recent terminal 与当前设备历史给出默认提示和快捷意图文案。",
+      "verification": "F1",
+      "depends_on": [
+        "S077"
+      ],
+      "status": "completed",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "可基于 recent terminal 生成默认提示文案",
+        "无历史时有稳定兜底文案，不阻断主流程",
+        "损坏缓存或未知版本时可安全回退",
+        "输入辅助只影响首屏体验，不改变 `CommandSequence` 契约"
+      ],
+      "contract_refs": [
+        "CONTRACT-043"
+      ],
+      "risk_tags": [
+        "first_use",
+        "config"
+      ],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "默认提示生成",
+          "scenarios": [
+            "有 recent terminal 时展示对应默认提示",
+            "无历史时使用保守默认提示",
+            "坏缓存时回退默认提示"
+          ]
+        }
+      ],
+      "smoke_required": false,
+      "files": [
+        "client/lib/services/runtime_selection_controller.dart",
+        "client/lib/services/desktop_workspace_controller.dart"
+      ],
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 0,
+        "waiting_for_external": false
+      },
+      "execution_notes": "已引入 CommandSequenceDraft 本地状态模型，支持 provider/source/need_confirm 展示与用户编辑，并补齐模型单测。",
+      "evidence_file": ".dev-flow/evidence/F082.md"
+    },
+    {
+      "id": "F079",
+      "phase": "intelligent-terminal-entry",
+      "module": "client-domain",
+      "name": "一句话意图到 CommandSequence 编排",
+      "description": "把用户自然语言目标解析为可执行的 `CommandSequence`，例如 `pwd -> find -> cd -> claude`，并附带 `provider/source/need_confirm` 元数据。",
+      "verification": "F1",
+      "depends_on": [
+        "F078"
+      ],
+      "status": "completed",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "用户输入一句话后可生成命令步骤列表，而不是 `TerminalLaunchPlan`",
+        "步骤对用户可读、可编辑、可解释",
+        "超长输入、特殊字符输入和模糊输入都不会导致崩溃",
+        "任何 AI 结果都带 `need_confirm=true`"
+      ],
+      "contract_refs": [
+        "CONTRACT-043"
+      ],
+      "risk_tags": [
+        "first_use",
+        "config"
+      ],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "命令序列生成",
+          "scenarios": [
+            "“进入 remote-control 项目修改登录问题” -> 生成含 `pwd/find/cd/claude` 的命令序列",
+            "模糊输入时仍返回可编辑步骤而不是空白",
+            "特殊字符输入被安全归一化"
+          ]
+        }
+      ],
+      "smoke_required": false,
+      "files": [
+        "client/lib/services/command_planner/**",
+        "client/test/services/**"
+      ],
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 0,
+        "waiting_for_external": false
+      },
+      "execution_notes": "已将一句话输入解析收口为 CommandSequenceDraft，生成可读可编辑的步骤序列，并携带 provider/source/confidence/requires_manual_confirmation 元数据接入共享创建弹窗。",
+      "evidence_file": ".dev-flow/evidence/F079.md"
+    },
+    {
+      "id": "F080",
+      "phase": "intelligent-terminal-entry",
+      "module": "client-integration",
+      "name": "创建链路收口：创建 terminal 并执行命令序列",
+      "description": "把 runtime selection 与 workspace 两条创建链路统一为 `createTerminal -> execute CommandSequence`，执行时保证同一 shell session、顺序执行、失败即停。",
+      "verification": "F2",
+      "depends_on": [
+        "F077",
+        "F079",
+        "F082",
+        "F084"
+      ],
+      "status": "completed",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "两个入口共用一套 create + execute 主链路",
+        "命令步骤在同一 shell session 中生效，`cd` 会影响后续步骤",
+        "任一步失败时停止后续步骤并保留输出",
+        "createTerminal 失败后保留用户输入和步骤预览，方便重试",
+        "创建成功后自动进入新 terminal，不需要再次手动连接"
+      ],
+      "contract_refs": [
+        "CONTRACT-043",
+        "CONTRACT-044"
+      ],
+      "risk_tags": [
+        "first_use",
+        "config"
+      ],
+      "test_tasks": [
+        {
+          "type": "integration",
+          "description": "执行主链路",
+          "scenarios": [
+            "生成步骤后创建 terminal 并顺序执行",
+            "`cd` 对后续 `claude` 步骤生效",
+            "失败命令会停止后续步骤",
+            "workspace 与 runtime selection 执行行为一致"
+          ]
+        }
+      ],
+      "smoke_required": true,
+      "files": [
+        "client/lib/services/terminal_launch_session_service.dart",
+        "client/lib/services/runtime_selection_controller.dart",
+        "client/lib/services/desktop_workspace_controller.dart"
+      ],
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 0,
+        "waiting_for_external": false
+      },
+      "execution_notes": "已统一 runtime selection / workspace 为 createTerminal -> same-shell bootstrap execute 主链路；创建成功后自动进入新 terminal，失败时保留草稿；macOS integration smoke 已通过。",
+      "evidence_file": ".dev-flow/evidence/F080.md"
+    },
+    {
+      "id": "F081",
+      "phase": "intelligent-terminal-entry",
+      "module": "client-test",
+      "name": "智能终端进入自动化与首用 smoke",
+      "description": "补齐 Claude-only 智能入口的自动化与手工验证，重点覆盖确认执行、失败停止、手动回退和手机端首用体验。",
+      "verification": "F2",
+      "depends_on": [
+        "F080"
+      ],
+      "status": "completed",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "一句话输入、步骤预览、确认执行主链路有自动化覆盖",
+        "失败停止、保留输入和手动编辑路径有回归测试",
+        "手机端首用不依赖手打完整 `cwd/command`",
+        "桌面端与移动端真实 smoke 至少各一条主路径"
+      ],
+      "contract_refs": [
+        "CONTRACT-043",
+        "CONTRACT-044"
+      ],
+      "files": [
+        "client/test/**",
+        "integration_test/**"
+      ],
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 0,
+        "waiting_for_external": false
+      },
+      "execution_notes": "已补齐 analyze + 86 条 widget/service/model 自动化，并通过 macOS + Android 真机 `smart_terminal_create_smoke_test` 完成移动端/桌面端真实主路径验证。",
+      "evidence_file": ".dev-flow/evidence/F081.md"
+    }
+  ]
+}

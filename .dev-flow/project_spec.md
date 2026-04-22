@@ -18,8 +18,11 @@
 - **新增：跨平台状态文件路径**，使用平台标准目录，处理权限和沙盒问题。
 - **新增：终端 P0 稳定性修复**，优先收敛 CPR 坐标、渲染闪烁、移动端键盘 resize 干扰和多 terminal 切换白屏。
 - **新增：终端交互架构重构**，把 terminal 交互收口为 UI / Coordinator / Transport / Renderer 四层，统一 switch / reconnect / recover 语义，并让 Agent 成为 terminal 内容恢复主权威源。
-- **新增：智能终端进入编排**，在创建 terminal 到进入 `Codex / Claude Code / Shell` 之间加入推荐式和一句话意图式智能，减少手机端输入成本。
-- **新增：设备感知智能识别路线**，后续智能识别必须基于“当前用户 + 当前设备 + 当前项目候选事实”，而不是按开发机固定目录或模型臆测路径执行。
+- **新增：Claude-only 智能终端进入**，在创建 terminal 前提供一句话输入，生成可确认的命令序列，减少手机端输入成本。
+- **新增：命令序列执行模型**，智能输出不再是 `TerminalLaunchPlan`，而是用户可审查、可确认的 `CommandSequence`。
+- **新增：命令规划 provider 隔离**，产品层只暴露 Claude，但架构层必须隔离 `claude -p`、服务端 LLM 与本地规则，为后续 provider 扩展保留边界。
+- **新增：聊天式智能终端助手**，把当前“智能创建弹窗”升级为聊天式交互，展示对话、分析阶段、工具执行轨迹和最终命令卡片。
+- **新增：服务端 LLM 规划与上下文记忆**，在服务端聚合当前设备事实、近期项目、历史成功序列与评估日志，作为主规划链路。
 
 ## 范围
 - 包含：
@@ -43,13 +46,18 @@
   - 当前项目快捷命令选择
   - `核心固定区 + 智能区` 排序策略
   - Claude Code 导航语义校准为 `上一项 / 下一项 / 确认`
-  - 智能终端创建入口：推荐启动方式 + 一句话意图输入
-  - 基于最近 terminal / 最近 cwd / 最近工具的启动方案推荐
-  - 智能创建与高级配置双轨并存，始终可回退为手动表单
-  - 设备级项目候选上下文：最近目录、固定项目、已授权根目录扫描、Agent 可发现 git 仓库摘要
-  - 项目来源管理：固定项目维护、扫描根目录授权/撤销、候选刷新
-  - 基于候选项目的可选 LLM 规划层：只做 tool/cwd 选择与补全，不得发明设备路径
-  - Planner 配置：provider 开关、显式 opt-in、客户端安全存储凭证、provider 不可用时回退本地规则
+  - Claude 智能终端创建入口：一句话意图输入 + 轻量快捷提示
+  - 聊天式智能终端助手：对话流、分析阶段、工具轨迹、命令卡片、确认执行
+  - `CommandSequence` 预览：展示最终命令、分析摘要与确认动作
+  - 用户确认后创建 terminal，并在同一 shell session 中执行命令序列
+  - 高级配置兜底：允许用户手动调整 terminal 标题、启动 shell 和执行命令
+  - `PlannerService` 抽象：`service_llm` 主路径 + `claude_cli` / `local_rules` fallback
+  - 服务端上下文聚合：当前设备事实、recent terminal、pinned projects、planner memory、评估日志
+  - 服务端 planner 防护：用户级限流、provider timeout、预算/配额错误语义
+  - provider 不可用时稳定回退，不阻断手动创建
+  - 当前设备事实约束：命令序列只能基于当前设备上下文、近期记忆与 shell 可发现命令生成
+  - 执行结果回写：planner memory 与评估日志只基于真实执行结果更新
+  - 智能体评估：benchmark 数据集、回放评测、trace 指标、真实设备验收
   - 手动主题切换与主题持久化
   - 移动端 `更多` 命令面板与终端浅深色主题适配
   - terminal 关闭原因与短线 grace period 语义
@@ -69,6 +77,9 @@
   - 多个独立 Agent 实例调度
   - 文件传输
   - Web 公网终端页面
+  - 多工具并列选择型智能入口（`Claude / Codex / Shell / 自定义`）
+  - 完整公开通用聊天助手能力（开放问答、任意联网搜索、原始推理全文展示）
+  - 服务端持久化完整本地文件树或源码索引
 
 ## 用户路径
 1. 用户在电脑上启动 Agent，服务端将该电脑注册为一个在线设备。
@@ -92,13 +103,16 @@
 19. 移动端软键盘弹起/收起只影响本地视图，不得改变共享 PTY 的全局尺寸，也不得干扰桌面端正在查看的同一 terminal。
 20. 多 terminal 切换必须保留各自 buffer/scrollback，切回已存在 terminal 时不得出现白屏等待远端重新推流。
 21. app 从后台回前台、app 被杀后重启、网络异常恢复、agent 与 server 断连恢复必须走统一 terminal recovery 状态机，不再依赖页面层或临时刷新补偿。
-22. 用户点击“新建终端”后，应先看到智能进入入口，可直接选择 `Claude Code / Codex / Shell / 自定义`，也可输入一句目标。
-23. 系统应根据最近 terminal、最近 cwd、最近工具和用户短句，自动生成 `title / cwd / command / tool` 启动方案，再一键创建 terminal。
-24. 如果智能推荐不准确，用户必须能在同一入口中展开高级配置，回退到手动创建，不得被智能链路阻塞。
-25. 在后续版本中，系统应优先展示“当前设备可用的项目候选”，并明确告诉用户本次计划基于哪个候选项目生成。
-26. 若接入 LLM，模型只能在“当前设备候选项目 + 用户显式输入路径”范围内生成 plan；不在候选内的路径必须要求确认。
-27. 用户必须能显式管理固定项目、已授权扫描根目录和候选刷新，而不是只能依赖隐式历史目录。
-28. 用户未开启或未配置 LLM planner 时，系统默认只使用本地规则；若开启 LLM，相关凭证只能保存在客户端安全存储。
+22. 用户点击“新建终端”后，应进入聊天式 Claude 智能助手：输入框、对话区、分析阶段、工具轨迹和命令卡片，不再先暴露多工具选项。
+23. 用户输入一句目标后，系统先展示“已接收目标 -> 读取上下文 -> 调用规划器 -> 安全校验 -> 生成命令”的可观测过程，再给出 `CommandSequence`。
+24. `CommandSequence` 仍是唯一执行产物；用户确认后，系统创建 terminal，并在同一个 shell session 中顺序执行这些命令；任一步失败时停止后续步骤。
+25. 如果智能生成不准确，用户必须能在同一入口中改写命令、重新生成或退回“直接进入 Claude”，不得被智能链路阻塞。
+26. 智能规划必须优先基于当前设备事实、recent terminal 上下文、planner memory 与 shell 可发现命令；不允许直接臆测本地目录结构。
+27. 产品层当前只展示 Claude 模式，但底层规划器必须允许未来切换到其他 provider，而不改 UI 主流程。
+28. 服务端 LLM 是默认主规划链路；`claude_cli` 与 `local_rules` 作为 fallback。用户点击“开始智能创建”即视为本次规划的显式授权，不再要求预先打开开关。
+29. 聊天流中只展示结构化分析摘要、工具执行结果和状态轨迹，不展示模型原始 chain-of-thought。
+30. 智能体评估必须可回放、可量化、可跨设备对比；每次规划至少记录输入、上下文摘要、trace、最终命令、fallback 与执行结果。
+31. 命令执行结束后，客户端必须把执行结果、失败步骤、输出摘要与最终状态回写服务端，再由服务端决定是否更新 planner memory 与评估日志。
 
 ## 技术约束
 - 后端与 Agent：Python + FastAPI + WebSocket + PTY
@@ -107,9 +121,14 @@
 - 部署：Docker Compose（标准化：Traefik 网关 + 三网模式）
 - 日志：log-service-sdk（Python SDK）→ 基础设施层 log-service（SQLite）
 - 认证：账号登录 + Access Token / Refresh Token
-- 智能终端进入 v1 不引入新的服务端 LLM 依赖，优先使用客户端本地规则、最近上下文和可解释的方案生成
-- 智能终端进入后续若接入 LLM，必须以设备级项目候选作为输入约束；禁止上传完整本地文件树，禁止生成未在候选或用户输入中出现的路径
-- LLM planner 默认关闭，只有用户显式开启后才允许参与意图解析；provider 凭证默认保存在 Client 安全存储，不下发到 Agent
+- 智能终端进入 v2 以服务端 LLM 为主规划器，采用 OpenAI-compatible API；`claude_cli` 与 `local_rules` 作为 fallback
+- 产品主流程只面向 Claude，但规划实现必须通过 provider abstraction 隔离 `service_llm` / `claude_cli` / `local_rules`
+- 智能规划输出统一为 `CommandSequence`；执行前必须显式确认，执行时保证同一 shell session、顺序执行、失败即停
+- LLM provider 凭证优先保存在服务端受控环境变量；客户端只保留调试/开发态 fallback 所需的本机配置，不下发到 Agent
+- planner 输入只能来自当前设备事实、recent terminal 上下文、planner memory、候选项目与用户输入；禁止上传完整本地文件树，禁止生成无法被 shell 发现命令支撑的路径
+- 智能创建过程需要结构化 trace（阶段、工具、摘要、fallback），供聊天 UI 展示和评估回放使用
+- 服务端 `assistant/plan` 必须定义用户级限流、provider timeout、预算/配额和稳定错误语义；超限/超时不能阻断用户回退到本地 fallback 或手动创建
+- planner memory 与评估日志只能在收到执行结果回写后更新；命令卡片生成成功不等于规划成功
 - 当前验收基线：本地 Docker + Android 真机 + macOS 本地桌面端
 - 本轮执行顺序：优先完成可 mock 的逻辑、状态机、协议和选择流程测试，再进入真实 PTY 与手工 smoke
 - 桌面端后台 Agent 模式需优先完成本地配置、生命周期和“自己启动/外部已存在”所有权逻辑，再进入真实桌面退出 smoke
@@ -118,15 +137,17 @@
 ## 交付边界
 - 后端：
   - 设备状态、terminal 状态、附着信息、消息转发、认证与归属校验
+  - 服务端 LLM planner API、上下文聚合、planner memory、trace、执行结果回写与评估日志
 - Agent：
   - 多 terminal PTY 生命周期、配置与登录恢复、宿主终端隔离
 - 前端：
   - 共享终端组件、terminal workspace 主入口、桌面端本地窗口、移动端交互完善、移动端快捷键层、快捷项配置与项目命令、主题模式切换、命令面板与终端主题适配
-  - 智能终端进入入口、启动方案推荐、短句意图到 terminal plan 编排、高级配置兜底
-  - 项目来源管理、设备级项目候选采集、候选排序、可选 LLM Planner、确认流与隐私约束
+  - 聊天式智能终端助手 UI、分析轨迹、工具消息、命令卡片、确认执行、高级配置兜底
+  - `PlannerService` 协调层、provider fallback、失败反馈、trace 展示与当前设备事实约束
 - 桌面控制台：
   - 本机 Agent 状态探测、后台运行开关、退出桌面端后的 Agent 生命周期控制
   - `DesktopAgentManager` 统一负责 Agent 发现/启动/停止/所有权/退出语义
   - `DesktopWorkspaceController` 统一负责工作台状态机、首个 terminal 创建链与桌面空态
 - 集成：
   - 多 terminal 主链路、在线 gating、关闭原因、重连、尺寸同步、关键键位、后端权威状态刷新、桌面端 Agent 后台模式、Agent 发现模型与云端发布验证
+  - 智能体 benchmark、trace 回放、真实设备对比验收与 fallback 评估

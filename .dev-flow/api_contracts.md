@@ -48,8 +48,10 @@
 | CONTRACT-040 | 1519 | Server terminal metadata / ownership / lifecycle truth | B071, F075 |
 | CONTRACT-041 | 1560 | Agent terminal snapshot authority | B072, F075 |
 | CONTRACT-042 | 1590 | Terminal recovery WebSocket protocol | S072, S073, B071, B072, B073, F071, F072, F075, F076 |
-| CONTRACT-043 | 1652 | 智能终端创建编排 | S077, F077, F078, F079, F080, F081 |
-| CONTRACT-044 | 1737 | 设备感知智能终端规划 | S078, B074, F086, F082, F083, F084, F085 |
+| CONTRACT-043 | 1652 | Claude 智能终端命令编排 | S077, F077, F078, F079, F080, F081 |
+| CONTRACT-044 | 1737 | 命令规划 provider 隔离与执行语义 | S078, B074, F086, F082, F083, F084, F085 |
+| CONTRACT-045 | TBD | 聊天式智能终端助手规划接口 | S079, S080, B075, B076, F087, F088, F089, F090, F091, F092 |
+| CONTRACT-046 | TBD | 聊天式智能终端助手执行结果回写 | B076, B077, F090, F091, F092, F093 |
 
 ## 日志集成
 
@@ -240,13 +242,7 @@
 }
 ```
 
-```json
-{
-  "type": "resize",
-  "rows": 40,
-  "cols": 120
-}
-```
+#### Presence Update
 
 ```json
 {
@@ -266,6 +262,205 @@
 | 403 | 会话不属于当前用户 |
 | 404 | 会话不存在 |
 | 4503 | 视图数量超过限制 |
+
+## 智能终端助手
+
+### 智能终端助手规划接口
+
+| 字段 | 值 |
+|------|----|
+| ID | CONTRACT-045 |
+| Method | POST |
+| Path | /api/runtime/devices/{device_id}/assistant/plan |
+| Auth | Bearer Token |
+| Related Tasks | S079, S080, B075, B076, F087, F088, F089, F090, F091, F092 |
+
+#### Request
+
+```json
+{
+  "intent": "进入 remote-control 修登录问题",
+  "conversation_id": "assistant-session-001",
+  "message_id": "msg-001",
+  "fallback_policy": {
+    "allow_claude_cli": true,
+    "allow_local_rules": true
+  }
+}
+```
+
+#### Request Rules
+
+| Rule | Meaning |
+|------|---------|
+| User-scoped throttling | 同一用户对 `assistant/plan` 的调用必须受速率限制保护 |
+| Provider timeout bounded | 服务端对外部 LLM/provider 调用必须设置硬超时，超时后返回稳定错误而不是无限等待 |
+| Budget aware | 达到当日/当期预算或配额上限时，必须直接返回可解释错误 |
+| Fallback friendly | `assistant/plan` 失败时必须允许客户端继续走 `claude_cli` / `local_rules` / 手动创建 |
+
+#### Response 200
+
+```json
+{
+  "conversation_id": "assistant-session-001",
+  "message_id": "msg-001",
+  "assistant_messages": [
+    {
+      "type": "assistant",
+      "text": "我先帮你定位目标项目，再生成执行命令。"
+    }
+  ],
+  "trace": [
+    {
+      "stage": "context",
+      "title": "读取上下文",
+      "status": "completed",
+      "summary": "命中最近项目 remote-control"
+    },
+    {
+      "stage": "planner",
+      "title": "调用服务端 LLM",
+      "status": "completed",
+      "summary": "已生成合法命令序列"
+    },
+    {
+      "stage": "validation",
+      "title": "安全校验",
+      "status": "completed",
+      "summary": "未发现危险命令"
+    }
+  ],
+  "command_sequence": {
+    "summary": "进入 remote-control 并启动 Claude",
+    "provider": "service_llm",
+    "source": "intent",
+    "need_confirm": true,
+    "steps": [
+      {
+        "id": "step_1",
+        "label": "进入项目目录",
+        "command": "cd /Users/demo/project/remote-control"
+      },
+      {
+        "id": "step_2",
+        "label": "启动 Claude",
+        "command": "claude"
+      }
+    ]
+  },
+  "fallback_used": false,
+  "fallback_reason": null,
+  "limits": {
+    "rate_limited": false,
+    "budget_blocked": false,
+    "provider_timeout_ms": 12000
+  },
+  "evaluation_context": {
+    "matched_candidate_id": "cand_123",
+    "memory_hits": 1,
+    "tool_calls": 2
+  }
+}
+```
+
+#### Rules
+
+| Rule | Meaning |
+|------|---------|
+| Server-side planning | 主规划链路由服务端 LLM 完成，客户端只负责发起、展示、确认与执行 |
+| Structured trace only | 返回结构化 `trace` 与 `assistant_messages`，不返回模型原始 chain-of-thought |
+| Current-device context only | 输入上下文只能来自当前设备事实、recent terminal、planner memory、候选项目与用户输入 |
+| Single execution artifact | 最终执行产物必须收口为 `command_sequence` |
+| Explicit confirm required | `need_confirm=true` 时客户端必须等待用户确认后才能创建 terminal 执行 |
+| Fallback visible | 若发生 `service_llm -> claude_cli -> local_rules` 回退，必须通过 `fallback_used/fallback_reason` 返回 |
+| Rate limit visible | 若触发用户级限流，必须返回稳定的限流错误与可重试信息 |
+| Timeout bounded | provider 超时必须在服务端受控时间内失败，不得让客户端无限等待 |
+| Budget visible | 若达到预算/配额上限，必须返回明确错误，便于客户端走 fallback 或手动路径 |
+| Evaluation trace persisted | 服务端必须为本次规划写入可回放 trace 与评估上下文，供 benchmark / 回放 / 人工验收使用 |
+
+#### Errors
+
+| Code | Meaning |
+|------|---------|
+| 400 | intent 为空或超出长度限制 |
+| 401 | token 无效或过期 |
+| 403 | 当前用户无权访问该 device_id |
+| 409 | 当前设备未在线，无法生成可执行终端方案 |
+| 429 | 用户触发 planner 限流或预算/配额受限 |
+| 422 | planner 返回无效命令结构且 fallback 也失败 |
+| 504 | provider 调用超时 |
+| 503 | 服务端 LLM planner 不可用，且没有可用 fallback |
+
+### 智能终端助手执行结果回写
+
+| 字段 | 值 |
+|------|----|
+| ID | CONTRACT-046 |
+| Method | POST |
+| Path | /api/runtime/devices/{device_id}/assistant/executions/report |
+| Auth | Bearer Token |
+| Related Tasks | B076, B077, F090, F091, F092, F093 |
+
+#### Request
+
+```json
+{
+  "conversation_id": "assistant-session-001",
+  "message_id": "msg-001",
+  "terminal_id": "term_123",
+  "execution_status": "succeeded",
+  "failed_step_id": null,
+  "output_summary": "已进入 remote-control 并启动 Claude",
+  "command_sequence": {
+    "summary": "进入 remote-control 并启动 Claude",
+    "provider": "service_llm",
+    "source": "intent",
+    "need_confirm": true,
+    "steps": [
+      {
+        "id": "step_1",
+        "label": "进入项目目录",
+        "command": "cd /Users/demo/project/remote-control"
+      },
+      {
+        "id": "step_2",
+        "label": "启动 Claude",
+        "command": "claude"
+      }
+    ]
+  }
+}
+```
+
+#### Response 200
+
+```json
+{
+  "acknowledged": true,
+  "memory_updated": true,
+  "evaluation_recorded": true
+}
+```
+
+#### Rules
+
+| Rule | Meaning |
+|------|---------|
+| Execution result required | 只有收到执行结果回写后，服务端才允许更新 planner memory 与评估结果 |
+| Conversation scoped | 回写必须基于 `conversation_id + message_id + device_id` 关联到单次规划 |
+| User-edited sequence wins | 若用户编辑过命令卡片，回写必须以上报的最终 `command_sequence` 为准 |
+| Failure visible | 失败时必须携带 `failed_step_id` 与输出摘要，供 trace 回放和失败分类 |
+| Idempotent enough | 重复上报同一 `conversation/message` 不得产生重复记忆写入 |
+
+#### Errors
+
+| Code | Meaning |
+|------|---------|
+| 400 | 缺少执行状态或 command_sequence 结构非法 |
+| 401 | token 无效或过期 |
+| 403 | 当前用户无权访问该 device_id |
+| 404 | 找不到对应的规划会话 |
+| 409 | 规划已被新的 message 覆盖或已终态关闭 |
 
 ## 认证
 
@@ -1654,20 +1849,36 @@ live -> detached_recoverable -> closed
 | Scope | Client orchestration |
 | Related Tasks | S077, F077, F078, F079, F080, F081 |
 
-#### TerminalLaunchPlan
+#### CommandSequence
 
 ```json
 {
-  "tool": "claude_code",
-  "title": "Claude / My Mac",
-  "cwd": "~/project/remote-control",
-  "command": "/bin/bash",
-  "entry_strategy": "shell_bootstrap",
-  "post_create_input": "claude\n",
-  "source": "recommended",
-  "intent": "帮我进入 Claude 看这个项目",
-  "confidence": "high",
-  "requires_manual_confirmation": false
+  "summary": "进入 remote-control 并启动 Claude Code",
+  "provider": "service_llm",
+  "source": "intent",
+  "need_confirm": true,
+  "steps": [
+    {
+      "id": "step_1",
+      "label": "确认当前目录",
+      "command": "pwd"
+    },
+    {
+      "id": "step_2",
+      "label": "查找项目目录",
+      "command": "find ~/project -maxdepth 4 -type d -name remote-control 2>/dev/null | head -n 1"
+    },
+    {
+      "id": "step_3",
+      "label": "进入项目目录",
+      "command": "cd /Users/demo/project/remote-control"
+    },
+    {
+      "id": "step_4",
+      "label": "启动 Claude Code",
+      "command": "claude"
+    }
+  ]
 }
 ```
 
@@ -1675,205 +1886,136 @@ live -> detached_recoverable -> closed
 
 | Field | Meaning |
 |-------|---------|
-| `tool` | 目标工具类型：`claude_code` / `codex` / `shell` / `custom` |
-| `title` | terminal 标题 |
-| `cwd` | 启动目录 |
-| `command` | terminal 创建时的启动命令 |
-| `entry_strategy` | 进入目标工具的策略：`direct_exec` / `shell_bootstrap` |
-| `post_create_input` | terminal 创建成功并连通后，由 Client 自动发送的首条输入，可为空 |
-| `source` | 方案来源：`recommended` / `intent` / `custom` |
-| `intent` | 用户输入的一句话目标，可为空 |
-| `confidence` | 方案置信度：`high` / `medium` / `low` |
-| `requires_manual_confirmation` | 是否需要用户在高级配置中确认 |
+| `summary` | 对即将执行动作的用户可读摘要 |
+| `provider` | 生成该序列的 planner：`service_llm` / `claude_cli` / `local_rules` |
+| `source` | 生成来源：`intent` / `suggested_prompt` / `manual_edit` |
+| `need_confirm` | 是否需要在执行前显式确认；当前 AI 生成序列一律为 `true` |
+| `steps[]` | 顺序执行的命令步骤 |
 
-#### Entry Strategy
-
-| Tool | Default Strategy | Create Command | Post Create Input |
-|------|------------------|----------------|-------------------|
-| `claude_code` | `shell_bootstrap` | `/bin/bash` | `claude\n` |
-| `codex` | `shell_bootstrap` | `/bin/bash` | `codex\n` |
-| `shell` | `direct_exec` | `/bin/bash` | `""` |
-| `custom` | 用户决定 | 用户填写 | 用户填写/留空 |
-
-说明：
-
-- v1 为了保持 Server/Agent 创建契约不变，`claude_code` 和 `codex` 默认不直接修改 agent 侧 PTY 启动协议，而是先创建 shell，再由 Client 在 terminal 连接成功后自动发送 `post_create_input`
-- `direct_exec` 仅表示 terminal 创建完成后无需额外 bootstrap 输入
-- 若本机环境缺少 `claude` / `codex` 命令，bootstrap 失败必须回显错误，且用户仍可留在 shell 中手动修正
-
-#### RecentLaunchContext
+#### CommandStep
 
 ```json
 {
-  "device_id": "dev_123",
-  "last_tool": "claude_code",
-  "last_cwd": "~/project/remote-control",
-  "last_successful_plan": {
-    "tool": "claude_code",
-    "cwd": "~/project/remote-control",
-    "command": "/bin/bash",
-    "entry_strategy": "shell_bootstrap",
-    "post_create_input": "claude\n"
-  },
-  "updated_at": "2026-04-22T12:00:00+0800"
+  "id": "step_2",
+  "label": "查找项目目录",
+  "command": "find ~/project -maxdepth 4 -type d -name remote-control 2>/dev/null | head -n 1"
 }
 ```
 
-`RecentLaunchContext` 由 Client 本地持久化，是推荐服务的权威数据源；不写入 Server runtime terminal metadata。
+| Field | Meaning |
+|-------|---------|
+| `id` | 稳定步骤标识，供编辑和回放使用 |
+| `label` | 面向用户的步骤说明 |
+| `command` | 单条 shell 命令，不包含隐藏副作用 |
+
+#### ManualFallbackDraft
+
+```json
+{
+  "title": "Claude / My Mac",
+  "shell": "/bin/zsh",
+  "commands": [
+    "cd /Users/demo/project/remote-control",
+    "claude"
+  ]
+}
+```
+
+`ManualFallbackDraft` 用于高级配置兜底。用户可以直接修改标题、shell 和命令步骤；一旦用户编辑，最终执行必须以用户编辑后的结果为准。
 
 #### Rules
 
 | Rule | Meaning |
 |------|---------|
-| client only orchestration | 智能编排只发生在 Client；Server/Agent 只接收最终 `title/cwd/command/env/terminal_id` |
-| no new server llm in v1 | v1 不引入新的服务端 LLM 依赖 |
-| explainable recommendation | 推荐与意图结果必须可解释，基于最近 terminal / 最近 cwd / 最近工具和短句规则生成 |
-| custom fallback required | 任意推荐或意图结果都必须可回退到手动高级配置 |
-| one create path | 推荐、意图、自定义三条路径最终必须收口到同一个 `createTerminal` 主链路 |
-| explicit entry semantics | `tool` 必须映射到明确的 `entry_strategy + command + post_create_input`，不能只停留在抽象枚举 |
-| local recent source | 最近工具/最近计划由 Client 本地 `RecentLaunchContext` 持久化，缓存损坏或为空时必须回退默认推荐 |
-| bootstrap failure visible | `shell_bootstrap` 失败时必须让用户看到终端回显，并保留当前 shell 继续操作，不得直接吞错 |
+| client executes, server may plan | terminal 创建与命令执行闭环由 Client 协调；规划结果可以来自服务端 planner 或本地 fallback |
+| claude only product surface | 产品主路径只展示 Claude 模式，不在 UI 层暴露多工具选择 |
+| command sequence only | AI 输出统一为 `CommandSequence`，不再使用 `TerminalLaunchPlan` 作为主契约 |
+| confirm before execute | 所有 AI 生成序列都必须先展示给用户确认，再执行 |
+| editable fallback required | 任意 planner 结果都必须可回退到手动编辑命令步骤 |
+| one create path | runtime selection 与 workspace 两条路径最终必须收口到同一个 create + execute 主链路 |
+| explainable output | provider、summary、steps 必须对用户可见，不允许黑盒执行 |
 
-### 设备感知智能终端规划
+### 命令规划 provider 隔离与执行语义
 
 | 字段 | 值 |
 |------|----|
 | ID | CONTRACT-044 |
-| Scope | Agent discovery + Client orchestration |
+| Scope | Planner abstraction + terminal execution |
 | Related Tasks | S078, B074, F086, F082, F083, F084, F085 |
 
-#### ProjectContextCandidate
-
-```json
-{
-  "candidate_id": "cand_recent_remote_control",
-  "device_id": "dev_123",
-  "label": "remote-control",
-  "cwd": "/Users/demo/project/remote-control",
-  "source": "recent_terminal",
-  "tool_hints": ["claude_code", "codex", "shell"],
-  "last_used_at": "2026-04-22T12:00:00+0800",
-  "requires_confirmation": false
-}
-```
-
-#### DeviceProjectContextSnapshot
+#### CommandPlannerRequest
 
 ```json
 {
   "device_id": "dev_123",
-  "generated_at": "2026-04-22T12:05:00+0800",
-  "candidates": [
+  "intent": "进入 remote-control 项目修改登录问题",
+  "recent_terminals": [
     {
-      "candidate_id": "cand_recent_remote_control",
-      "label": "remote-control",
       "cwd": "/Users/demo/project/remote-control",
-      "source": "recent_terminal"
+      "title": "Claude / remote-control"
     }
-  ]
+  ],
+  "default_shell": "/bin/zsh"
 }
 ```
 
-#### IntentResolutionResult
+#### PlannerResult
 
 ```json
 {
-  "provider": "llm",
-  "matched_candidate_id": "cand_recent_remote_control",
-  "plan": {
-    "tool": "codex",
-    "title": "Codex / remote-control",
-    "cwd": "/Users/demo/project/remote-control",
-    "command": "/bin/bash",
-    "entry_strategy": "shell_bootstrap",
-    "post_create_input": "codex\n",
+  "provider": "service_llm",
+  "fallback_used": false,
+  "sequence": {
+    "summary": "进入 remote-control 并启动 Claude Code",
+    "provider": "service_llm",
     "source": "intent",
-    "confidence": "medium",
-    "requires_manual_confirmation": false
-  },
-  "reasoning_kind": "candidate_match"
+    "need_confirm": true,
+    "steps": [
+      {
+        "id": "step_1",
+        "label": "确认当前目录",
+        "command": "pwd"
+      },
+      {
+        "id": "step_2",
+        "label": "进入项目目录",
+        "command": "cd /Users/demo/project/remote-control"
+      },
+      {
+        "id": "step_3",
+        "label": "启动 Claude Code",
+        "command": "claude"
+      }
+    ]
+  }
 }
 ```
-
-#### Candidate Source
-
-| Source | Meaning |
-|--------|---------|
-| `recent_terminal` | 来自当前设备最近 terminal 的 `cwd` |
-| `recent_launch` | 来自当前设备最近成功启动 plan |
-| `pinned_project` | 用户主动固定/收藏的项目 |
-| `approved_scan` | Agent 在用户已授权根目录内发现的项目候选 |
-| `explicit_input` | 用户本次输入里明确写出的路径 |
 
 #### Planner Provider
 
 | Provider | Meaning |
 |----------|---------|
-| `local_rules` | 客户端本地规则解析 |
-| `llm` | 在候选项目约束下运行的可选 LLM planner |
+| `service_llm` | 通过服务端受控 LLM planner 生成命令序列，带结构化 trace、限流和 timeout 防护 |
+| `claude_cli` | 通过隔离的 `ClaudeCliCommandPlanner` 调用 `claude -p` 生成命令序列 |
+| `local_rules` | 通过本地规则模板与 recent terminal 上下文生成命令序列 |
 
-#### ProjectSourceSettings
-
-```json
-{
-  "device_id": "dev_123",
-  "pinned_projects": [
-    {
-      "label": "remote-control",
-      "cwd": "/Users/demo/project/remote-control"
-    }
-  ],
-  "approved_scan_roots": [
-    {
-      "root_path": "/Users/demo/project",
-      "scan_depth": 2,
-      "enabled": true
-    }
-  ]
-}
-```
-
-#### PlannerRuntimeConfig
-
-```json
-{
-  "provider": "local_rules",
-  "llm_enabled": false,
-  "endpoint_profile": "openai_compatible",
-  "credentials_mode": "client_secure_storage",
-  "requires_explicit_opt_in": true
-}
-```
-
-#### Retrieval Protocol
-
-| Step | Behavior |
-|------|----------|
-| snapshot fetch | Client 通过 `GET /api/runtime/devices/{device_id}/project-context` 获取当前设备候选快照 |
-| manual refresh | Client 通过 `POST /api/runtime/devices/{device_id}/project-context:refresh` 主动触发重采集 |
-| post-config refresh | 固定项目、扫描根目录或 planner 配置变更后，必须触发一次候选刷新 |
-| stale fallback | 快照为空、过期、损坏或刷新失败时，Client 回退到本地缓存或 `F078` 默认推荐 |
-| update event | Server 可通过 `project_context_updated` 事件通知当前设备候选已刷新，Client 只按 `device_id` 局部更新 |
-
-#### Settings Protocol
-
-| Step | Behavior |
-|------|----------|
-| settings fetch | Client 通过 `GET /api/runtime/devices/{device_id}/project-context/settings` 获取 `ProjectSourceSettings + PlannerRuntimeConfig` |
-| settings save | Client 通过 `PUT /api/runtime/devices/{device_id}/project-context/settings` 更新 pinned project、scan root 和 planner 配置 |
-| secure credential write | 外部 LLM 凭证不进入该 settings payload，仍由 Client 写入安全存储 |
-| settings scope | settings 以 `user_id + device_id` 为作用域，不跨用户、不跨设备共享 |
-
-#### Rules
+#### Execution Semantics
 
 | Rule | Meaning |
 |------|---------|
-| user managed sources | `pinned_project` 与 `approved_scan_root` 必须有显式管理入口，不能只依赖隐式历史 |
-| device scoped context | 只能使用当前 `device_id` 的项目候选，不得跨设备污染 |
-| no path invention | `cwd` 必须来自 `ProjectContextCandidate.cwd` 或用户显式输入路径 |
-| server relay only | Server 只中转/缓存候选摘要，不存完整文件树，不做自然语言理解 |
-| agent fact source | Agent 负责采集设备本地项目候选摘要，但不解析用户意图 |
-| planner fallback chain | `llm` 不可用或结果无效时，必须回退到 `local_rules` 或默认推荐 |
-| confirmation on ambiguity | 候选不唯一、路径不在候选中或置信度不足时，必须 `requires_manual_confirmation=true` |
-| llm opt-in required | `llm` provider 默认关闭，只有用户显式开启后才能参与规划 |
-| client credential ownership | planner 凭证默认保存在 Client 安全存储；Agent 不得持有外部 LLM key |
+| same shell session | 所有步骤必须在同一个 terminal shell session 中执行，保证 `cd` 等上下文对后续步骤生效 |
+| sequential execution | 按 `steps[]` 顺序执行，不允许乱序或并发注入 |
+| fail fast | 任一步失败时停止后续步骤，并向用户展示失败输出 |
+| visible output | 执行过程中命令与输出对用户可见，不允许隐藏执行 |
+| guarded payload allowed | 执行层可以把步骤编译成受控 shell payload，但用户预览的仍然是原始步骤列表 |
+
+#### PlannerCoordinator Rules
+
+| Rule | Meaning |
+|------|---------|
+| provider isolated | UI 只能依赖 `CommandPlanner` / `PlannerCoordinator`，不得直接调用 `claude -p` |
+| current device facts only | planner 输入只能使用当前设备事实、recent terminal 上下文和用户输入 |
+| no path invention | provider 不得发明无法由当前设备事实或 shell 发现命令支撑的路径 |
+| fallback required | `service_llm` 不可用/限流/超时/非法输出时先回退 `claude_cli`，再回退 `local_rules` |
+| server creds first | 服务端 LLM provider 凭证优先保存在服务端；客户端只保存开发态 fallback 所需的本地配置 |
+| server planning allowed | Server 可以做自然语言规划，但不得绕过当前设备事实约束；Agent 仍只负责 terminal 生命周期与执行承载 |
