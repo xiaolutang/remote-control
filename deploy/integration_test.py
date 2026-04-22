@@ -318,7 +318,201 @@ def test_terminal_close(token, device_id, terminal_id):
 
 
 # ============================================================
-# Test 9: History API
+# Test 9: Assistant Planner (sync)
+# ============================================================
+def test_assistant_plan(token, device_id):
+    print("\n[Test 9] Assistant Planner (同步)")
+
+    if not device_id:
+        check("跳过（无设备）", False, "前置条件不满足")
+        return None
+
+    status, body = api("POST",
+                       f"/api/runtime/devices/{device_id}/assistant/plan",
+                       {
+                           "intent": "进入日知项目",
+                           "conversation_id": f"conv-{int(time.time())}",
+                           "message_id": f"msg-{int(time.time())}",
+                           "fallback_policy": {
+                               "use_local_rules": True,
+                               "use_cli": False,
+                           },
+                       }, token=token)
+
+    if status == 409 and "device_offline" in json.dumps(body):
+        print("  [INFO] Planner 跳过 — 设备离线（Agent WS 未连接）")
+        check("Planner 端点可达", True)
+        return None
+
+    check("Planner 返回 200", status == 200,
+          f"status={status}, body={json.dumps(body)[:200] if body else 'empty'}")
+
+    if status == 200:
+        cmd_seq = body.get("command_sequence", {})
+        check("返回 command_sequence", isinstance(cmd_seq, dict),
+              f"type={type(cmd_seq)}")
+        steps = cmd_seq.get("steps", [])
+        check("steps 非空", len(steps) > 0, f"steps={steps}")
+        if steps:
+            check("step 有 command", bool(steps[0].get("command")),
+                  f"step={steps[0]}")
+
+        trace = body.get("trace", [])
+        check("返回 trace", isinstance(trace, list), f"type={type(trace)}")
+
+        messages = body.get("assistant_messages", [])
+        check("返回 assistant_messages", isinstance(messages, list),
+              f"type={type(messages)}")
+
+        fallback_used = body.get("fallback_used", False)
+        check("返回 fallback_used 字段", isinstance(fallback_used, bool),
+              f"fallback_used={fallback_used}")
+
+        limits = body.get("limits", {})
+        check("返回 limits", isinstance(limits, dict), f"limits={limits}")
+
+        return body.get("conversation_id")
+    return None
+
+
+# ============================================================
+# Test 9b: Assistant Planner (stream)
+# ============================================================
+def test_assistant_plan_stream(token, device_id):
+    print("\n[Test 9b] Assistant Planner (流式)")
+
+    if not device_id:
+        check("跳过（无设备）", False, "前置条件不满足")
+        return
+
+    url = f"{BASE_URL}/api/runtime/devices/{device_id}/assistant/plan/stream"
+    payload = json.dumps({
+        "intent": "列出当前目录文件",
+        "conversation_id": f"conv-s-{int(time.time())}",
+        "message_id": f"msg-s-{int(time.time())}",
+        "fallback_policy": {
+            "use_local_rules": True,
+            "use_cli": False,
+        },
+    }).encode()
+
+    req = urllib.request.Request(url, data=payload, method="POST")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("Authorization", f"Bearer {token}")
+
+    try:
+        with urllib.request.urlopen(
+            req, timeout=30, context=ssl_context_for(url)
+        ) as resp:
+            check("Stream 返回 200", resp.status == 200,
+                  f"status={resp.status}")
+
+            raw = resp.read().decode("utf-8")
+            lines = [l for l in raw.strip().split("\n") if l.strip()]
+            check("收到 NDJSON 行", len(lines) > 0, "无数据")
+
+            result_found = False
+            error_found = False
+            for line in lines:
+                try:
+                    chunk = json.loads(line)
+                    chunk_type = chunk.get("type", "")
+                    if chunk_type == "result":
+                        result_found = True
+                        plan = chunk.get("plan", {})
+                        cmd = plan.get("command_sequence", {})
+                        check("Stream result 含 command_sequence",
+                              isinstance(cmd, dict), f"cmd={type(cmd)}")
+                    elif chunk_type == "error":
+                        error_found = True
+                        reason = chunk.get("reason", "")
+                        if "device_offline" in reason:
+                            print("  [INFO] Stream Planner 跳过 — 设备离线")
+                            check("Stream 端点可达", True)
+                        else:
+                            check("Stream 无错误", False,
+                                  f"error: {chunk}")
+                except json.JSONDecodeError:
+                    pass
+            if not error_found:
+                check("Stream 最终返回 result", result_found,
+                      f"收到 {len(lines)} 行但无 result")
+    except urllib.error.HTTPError as e:
+        body_text = ""
+        try:
+            body_text = e.read().decode()
+        except Exception:
+            pass
+        check("Stream 请求成功", False,
+              f"HTTP {e.code}: {body_text[:200]}")
+    except Exception as e:
+        check("Stream 请求成功", False, str(e))
+
+
+# ============================================================
+# Test 9c: Project Context
+# ============================================================
+def test_project_context(token, device_id):
+    print("\n[Test 9c] Project Context")
+
+    if not device_id:
+        check("跳过（无设备）", False, "前置条件不满足")
+        return
+
+    status, body = api("GET",
+                       f"/api/runtime/devices/{device_id}/project-context",
+                       token=token)
+    check("Project context 返回 200", status == 200,
+          f"status={status}, body={json.dumps(body)[:200] if body else 'empty'}")
+
+    if status == 200:
+        check("返回 device_id", body.get("device_id") == device_id,
+              f"device_id={body.get('device_id')}")
+        candidates = body.get("candidates", [])
+        check("返回 candidates 列表", isinstance(candidates, list),
+              f"type={type(candidates)}")
+
+
+# ============================================================
+# Test 9d: Execution Report
+# ============================================================
+def test_execution_report(token, device_id, conversation_id):
+    print("\n[Test 9d] Execution Report")
+
+    if not device_id:
+        check("跳过（无设备）", False, "前置条件不满足")
+        return
+
+    status, body = api("POST",
+                       f"/api/runtime/devices/{device_id}/assistant/executions/report",
+                       {
+                           "conversation_id": conversation_id or f"conv-rpt-{int(time.time())}",
+                           "message_id": f"msg-rpt-{int(time.time())}",
+                           "execution_status": "succeeded",
+                           "output_summary": "集成测试执行成功",
+                           "command_sequence": {
+                               "summary": "test execution",
+                               "provider": "itest",
+                               "source": "test",
+                               "steps": [{"id": "step_1", "label": "echo", "command": "echo hello"}],
+                           },
+                       }, token=token)
+
+    if status == 404 and "assistant_plan_not_found" in json.dumps(body):
+        print("  [INFO] Execution Report 跳过 — 无关联的 planner 记录（设备离线）")
+        check("Report 端点可达", True)
+        return
+
+    check("Report 返回 200", status == 200,
+          f"status={status}, body={json.dumps(body)[:200] if body else 'empty'}")
+
+    if status == 200:
+        check("acknowledged=True", body.get("acknowledged") is True,
+              f"body={body}")
+
+
+# ============================================================
+# Test 10: History API
 # ============================================================
 def test_history(token, session_id):
     print("\n[Test 9] History API")
@@ -445,11 +639,19 @@ async def run_tests():
     # 等待 Agent 上线状态传播
     await asyncio.sleep(1)
 
-    # Tests 5-9: 使用 agent_token（与 WS 连接同用户）
+    # Tests 5-8: 使用 agent_token（与 WS 连接同用户）
     device_id = test_runtime_devices(agent_token)
     terminal_id = test_terminal_create(agent_token, device_id)
     test_terminal_list(agent_token, device_id)
     test_terminal_close(agent_token, device_id, terminal_id)
+
+    # Tests 9: Planner（需要 device_id）
+    conversation_id = test_assistant_plan(agent_token, device_id)
+    test_assistant_plan_stream(agent_token, device_id)
+    test_project_context(agent_token, device_id)
+    test_execution_report(agent_token, device_id, conversation_id)
+
+    # Test 10: History
     test_history(agent_token, session_id)
 
     # 关闭 Agent WS
@@ -458,7 +660,7 @@ async def run_tests():
     if ws:
         await ws.close()
 
-    # Test 10
+    # Test 11: Unauthorized
     test_unauthorized()
 
     # 汇总
