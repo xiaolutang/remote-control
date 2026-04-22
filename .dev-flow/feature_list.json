@@ -2,7 +2,7 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-23T01:43:12.717603Z",
+  "updated_at": "2026-04-23T01:52:26.024215Z",
   "status": "in_progress",
   "active_requirement_cycle": {
     "id": "R040",
@@ -22,9 +22,9 @@
   },
   "summary": {
     "total": 29,
-    "pending": 9,
+    "pending": 8,
     "in_progress": 0,
-    "completed": 20,
+    "completed": 21,
     "blocked": 0,
     "cancelled": 0
   },
@@ -1355,7 +1355,7 @@
         "S079",
         "F094"
       ],
-      "status": "pending",
+      "status": "completed",
       "priority": "P1",
       "acceptance_criteria": [
         "桌面端 TerminalScreen(embedded) 内右下角显示 FAB 悬浮按钮",
@@ -1410,7 +1410,13 @@
         "client/lib/widgets/smart_terminal_side_panel.dart",
         "client/lib/widgets/smart_terminal_side_panel_content.dart",
         "client/lib/screens/terminal_screen.dart"
-      ]
+      ],
+      "started_at": "2026-04-23T13:15:00Z",
+      "completed_at": "2026-04-23T01:52:26.024204Z",
+      "actual_minutes": 25,
+      "execution_notes": "侧滑式智能终端助手 UI 骨架完成：SmartTerminalSidePanel 含 FAB + AnimatedSlide 面板；面板内含会话消息流、意图输入框、命令预览卡片和执行按钮；首次引导提示；点击遮罩/关闭按钮收起；WebSocket 断连时执行按钮禁用。",
+      "evidence_file": ".dev-flow/evidence/F087.md",
+      "commit": "pending"
     },
     {
       "id": "F088",
