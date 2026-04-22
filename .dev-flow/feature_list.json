@@ -2,7 +2,7 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-22T16:50:20Z",
+  "updated_at": "2026-04-23T01:43:12.717603Z",
   "status": "in_progress",
   "active_requirement_cycle": {
     "id": "R040",
@@ -21,10 +21,10 @@
     "risk_provider": "local"
   },
   "summary": {
-    "total": 28,
+    "total": 29,
     "pending": 9,
     "in_progress": 0,
-    "completed": 19,
+    "completed": 20,
     "blocked": 0,
     "cancelled": 0
   },
@@ -1282,23 +1282,92 @@
       "evidence_file": ".dev-flow/evidence/B077.md"
     },
     {
-      "id": "F087",
+      "id": "F094",
       "phase": "chat-terminal-assistant",
       "module": "client-ui",
-      "name": "聊天式智能终端助手 UI 骨架",
-      "description": "把现有智能创建弹窗重构为聊天式助手 UI，支持消息流、输入框、状态消息、桌面双栏/移动单列布局，并保留“直接进入 Claude”快捷路径。",
+      "name": "桌面端终端创建流程改造：先创建空终端",
+      "description": "改造 TerminalWorkspaceScreen 的终端创建入口：点击新建终端时立即创建空 shell 终端（cwd=~, command=/bin/bash），不再经过弹窗。创建成功后通过 DesktopWorkspaceController.selectTerminal() 显示终端，建立 WebSocket 连接但不注入 postCreateInput。手机端 RuntimeSelectionScreen 保持弹窗流程不变。\n\n同时修改 TerminalScreen(embedded) 的 build 方法，在 embedded 模式下用 SmartTerminalSidePanel 包裹终端内容，使 FAB 和侧滑面板在终端内可用。",
       "verification": "F2",
       "depends_on": [
         "S079"
       ],
+      "status": "completed",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "桌面端工作区点击新建终端后立即创建空 shell 终端（cwd=~, /bin/bash），无弹窗打断",
+        "空终端创建后通过 DesktopWorkspaceController.selectTerminal() 自动选中并显示",
+        "空终端建立 WebSocket 连接但不注入任何 postCreateInput",
+        "空终端创建失败时工作台显示错误状态，不进入异常态",
+        "TerminalScreen(embedded) 在有 RuntimeSelectionController 和 WebSocket 连接时包裹 SmartTerminalSidePanel",
+        "TerminalScreen(embedded) 在无 RuntimeSelectionController 时直接返回内容不包裹",
+        "手机端 RuntimeSelectionScreen 的创建流程不变（仍使用弹窗）",
+        "终端菜单中的新建终端按钮调用新流程",
+        "空状态的创建终端按钮调用新流程"
+      ],
+      "contract_refs": [
+        "CONTRACT-043"
+      ],
+      "risk_tags": [
+        "first_use"
+      ],
+      "test_tasks": [
+        {
+          "type": "integration",
+          "description": "空终端创建流程",
+          "scenarios": [
+            "点击新建后空终端创建成功并自动选中",
+            "创建失败时工作台显示错误且不卡死",
+            "空终端 WebSocket 连接成功且 shell 可交互",
+            "多次点击新建可创建多个空终端"
+          ]
+        },
+        {
+          "type": "widget",
+          "description": "TerminalScreen 包裹逻辑",
+          "scenarios": [
+            "embedded 模式有 RuntimeSelectionController 时包裹 SmartTerminalSidePanel",
+            "embedded 模式无 RuntimeSelectionController 时直接返回内容",
+            "非 embedded 模式（standalone）不受影响"
+          ]
+        }
+      ],
+      "smoke_required": true,
+      "files": [
+        "client/lib/screens/terminal_workspace_screen.dart",
+        "client/lib/screens/terminal_screen.dart",
+        "client/lib/services/desktop_workspace_controller.dart"
+      ],
+      "started_at": "2026-04-23T13:00:00Z",
+      "completed_at": "2026-04-23T01:43:12.717589Z",
+      "actual_minutes": 15,
+      "execution_notes": "桌面端终端创建流程改造完成：新增 _createEmptyTerminal() 直接创建空终端并建立 WebSocket 连接；TerminalScreen(embedded) 添加 _wrapWithSidePanel() 包裹 SmartTerminalSidePanel 骨架；手机端流程不变。",
+      "evidence_file": ".dev-flow/evidence/F094.md",
+      "commit": "pending"
+    },
+    {
+      "id": "F087",
+      "phase": "chat-terminal-assistant",
+      "module": "client-ui",
+      "name": "侧滑式智能终端助手 UI 骨架",
+      "description": "新建 SmartTerminalSidePanel 容器 widget（Stack + FAB + AnimatedSlide），在桌面端 TerminalScreen(embedded) 内从右侧滑出覆盖终端的交互面板。面板内包含意图输入框、会话消息流、命令预览卡片和执行按钮。手机端保持弹窗流程不变。\n\n复用策略：侧滑面板内容独立实现，通过 RuntimeSelectionController.resolveLaunchIntent() 复用现有 planner 链路，不复用弹窗的 private widget。面板内容会话管理参考现有 _SmartTerminalCreateDialogHandlers 的状态管理模式但独立维护。",
+      "verification": "F2",
+      "depends_on": [
+        "S079",
+        "F094"
+      ],
       "status": "pending",
       "priority": "P1",
       "acceptance_criteria": [
-        "桌面端可展示聊天流 + 命令卡片布局，移动端可展示单列聊天流",
-        "主操作改为“开始智能创建”，次操作为“直接进入 Claude”",
-        "聊天流支持 user/assistant/system/tool/command_plan 五类消息",
-        "不再以表单型弹窗作为主信息结构",
-        "窄屏、长内容和键盘弹起下布局稳定"
+        "桌面端 TerminalScreen(embedded) 内右下角显示 FAB 悬浮按钮",
+        "点击 FAB 后侧滑面板从右侧滑入（AnimatedSlide），覆盖终端上方，宽度 320-420px",
+        "面板内包含：关闭按钮、会话消息流区域、底部意图输入框 + 发送按钮",
+        "面板支持首次引导提示文字",
+        "点击面板外部遮罩或关闭按钮可收起面板",
+        "终端切换（terminalId 变化）时面板自动收起",
+        "终端 WebSocket 断连时 FAB 仍可见但面板内执行按钮禁用",
+        "手机端 RuntimeSelectionScreen 不显示 FAB 和侧滑面板，继续使用弹窗",
+        "FAB 点击视为 planner 调用的显式授权入口",
+        "侧滑面板不触碰 terminal 恢复/reconnect/snapshot 逻辑（纯 UI 层）"
       ],
       "contract_refs": [
         "CONTRACT-045"
@@ -1309,18 +1378,38 @@
       "test_tasks": [
         {
           "type": "widget",
-          "description": "聊天式骨架",
+          "description": "侧滑面板 UI 骨架",
           "scenarios": [
-            "消息流、输入框、发送按钮和快捷入口可见",
-            "桌面/移动布局符合预期",
-            "长 trace 内容不遮挡命令卡片"
+            "FAB 可见且点击后面板滑入动画流畅",
+            "面板内输入框、发送按钮和会话区域布局正确",
+            "点击遮罩或关闭按钮后面板滑出",
+            "terminalId 切换时面板自动收起"
+          ]
+        },
+        {
+          "type": "widget",
+          "description": "桌面/手机端双路径",
+          "scenarios": [
+            "桌面端 embedded 模式显示 FAB + 侧滑面板",
+            "手机端 RuntimeSelectionScreen 不显示 FAB，仍使用弹窗",
+            "非 embedded TerminalScreen（standalone）不显示 FAB"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "异常与边界场景",
+          "scenarios": [
+            "WebSocket 未连接时面板执行按钮禁用并显示提示",
+            "面板展开时终端仍可接收输出（不被阻断）",
+            "键盘弹起时面板内输入框不被遮挡"
           ]
         }
       ],
       "smoke_required": true,
       "files": [
-        "client/lib/screens/**",
-        "client/lib/widgets/**"
+        "client/lib/widgets/smart_terminal_side_panel.dart",
+        "client/lib/widgets/smart_terminal_side_panel_content.dart",
+        "client/lib/screens/terminal_screen.dart"
       ]
     },
     {
@@ -1417,10 +1506,11 @@
       "id": "F090",
       "phase": "chat-terminal-assistant",
       "module": "client-integration",
-      "name": "聊天流执行闭环：确认并执行命令卡片",
-      "description": "把“确认并执行”接入聊天流：用户确认后创建 terminal，在同一 shell session 执行命令，并把创建、执行、失败、进入 Claude 的状态追加回聊天流。",
+      "name": "命令注入闭环：确认后注入命令到已创建终端",
+      "description": "桌面端侧滑面板确认执行后，将 CommandSequence 编译为 shell 命令，通过已建立的 WebSocketService.send() 注入到空终端。不再创建新终端，而是直接向已存在的终端 shell session 发送编译后的命令序列。注入完成后面板自动收起。\n\n手机端仍使用弹窗流程：确认后创建终端 + WebSocket 连接 + 命令注入（保持原有路径）。\n\n两种路径的命令编译逻辑共享 CommandSequenceDraft.toLaunchPlan().postCreateInput。",
       "verification": "F2",
       "depends_on": [
+        "F087",
         "F088",
         "F089",
         "B077"
@@ -1428,12 +1518,14 @@
       "status": "pending",
       "priority": "P1",
       "acceptance_criteria": [
-        "确认命令卡片后会创建 terminal 并在同一 shell session 中执行步骤",
-        "执行状态会以 system message 形式回流聊天",
-        "失败步骤会停止后续执行并显示输出",
-        "执行成功后能明确反馈“已进入 Claude”",
-        "workspace 与 runtime selection 入口共用同一闭环",
-        "执行结束后会把最终状态回写服务端，供 planner memory 与评估使用"
+        "桌面端：确认命令卡片后通过 WebSocketService.send() 注入编译后的命令到当前终端",
+        "桌面端：命令注入完成后侧滑面板自动收起",
+        "桌面端：WebSocket 未连接时面板内显示等待提示并禁用执行按钮",
+        "手机端：确认后仍走创建终端 + WebSocket 连接 + 命令注入的弹窗路径",
+        "失败步骤会停止后续执行（set -e），失败输出在终端中对用户可见",
+        "执行成功后终端显示命令执行结果",
+        "桌面端和手机端共用 CommandSequenceDraft 编译逻辑",
+        "执行结束后触发 execution result 回写到服务端"
       ],
       "contract_refs": [
         "CONTRACT-043",
@@ -1442,24 +1534,44 @@
       ],
       "risk_tags": [
         "first_use",
-        "config"
+        "network"
       ],
       "test_tasks": [
         {
           "type": "integration",
-          "description": "命令卡片确认执行",
+          "description": "桌面端命令注入",
           "scenarios": [
-            "确认后创建 terminal 并执行",
-            "失败后聊天流展示错误",
-            "执行成功后显示进入 Claude",
-            "执行结束后触发 execution result 回写"
+            "确认后命令通过 WebSocket 注入到已创建终端",
+            "WebSocket 未连接时执行按钮禁用并显示提示",
+            "命令注入后面板自动收起",
+            "注入失败时面板内展示错误而非收起"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "手机端弹窗执行（回归）",
+          "scenarios": [
+            "确认后创建终端并注入命令（原有路径不受影响）",
+            "执行成功后弹窗关闭并跳转终端"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "命令编译与执行语义",
+          "scenarios": [
+            "多步命令按顺序执行，前一步失败时停止",
+            "用户编辑过的命令卡片以最终版本注入",
+            "空命令序列不会触发注入"
           ]
         }
       ],
       "smoke_required": true,
       "files": [
-        "client/lib/services/**",
-        "client/lib/screens/**",
+        "client/lib/widgets/smart_terminal_side_panel_content.dart",
+        "client/lib/widgets/smart_terminal_create_dialog_handlers.dart",
+        "client/lib/screens/terminal_workspace_screen.dart",
+        "client/lib/screens/runtime_selection_screen.dart",
+        "client/lib/services/terminal_launch_session_service.dart",
         "client/test/**"
       ]
     },

@@ -341,7 +341,7 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
         actionLabel: state.deviceReady ? '新建终端' : '启动并创建终端',
         actionKey: const Key('workspace-empty-create-action'),
         onAction: () {
-          unawaited(_showCreateDialog(context, controller, device));
+          unawaited(_createEmptyTerminal(context, controller));
         },
       );
     }
@@ -404,6 +404,29 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
     await controller.closeTerminal(terminal.terminalId);
     if (!mounted) return;
     await _workspaceController.onTerminalClosed(terminal.terminalId);
+  }
+
+  Future<void> _createEmptyTerminal(
+    BuildContext context,
+    RuntimeSelectionController controller,
+  ) async {
+    final sessionManager = context.read<TerminalSessionManager>();
+    final result = await _workspaceController.createTerminal(
+      title: '终端',
+      cwd: '~',
+      command: '/bin/bash',
+    );
+    if (result == null || !mounted) {
+      return;
+    }
+    // 建立 WebSocket 连接，不注入 postCreateInput
+    final service = sessionManager.getOrCreate(
+      controller.selectedDeviceId,
+      result.terminalId,
+      () => controller.buildTerminalService(result),
+    );
+    await service.connect();
+    _workspaceController.selectTerminal(result.terminalId);
   }
 
   Future<void> _showCreateDialog(
@@ -847,7 +870,7 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
     }
     switch (selectedAction.kind) {
       case _TerminalMenuActionKind.create:
-        await _showCreateDialog(context, controller, device);
+        await _createEmptyTerminal(context, controller);
         break;
       case _TerminalMenuActionKind.rename:
         if (selectedTerminal != null) {

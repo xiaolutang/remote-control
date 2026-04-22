@@ -14,7 +14,9 @@ import '../services/runtime_device_service.dart';
 import '../services/shortcut_config_service.dart';
 import '../services/terminal_session_manager.dart';
 import '../services/ui_helpers.dart';
+import '../services/runtime_selection_controller.dart';
 import '../services/websocket_service.dart';
+import '../widgets/smart_terminal_side_panel.dart';
 import '../widgets/terminal_shortcut_bar.dart';
 import '../widgets/tui_selector.dart';
 import 'login_screen.dart';
@@ -1610,7 +1612,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
     );
 
     if (widget.embedded) {
-      return content;
+      return _wrapWithSidePanel(context, content);
     }
 
     return Scaffold(
@@ -1633,6 +1635,18 @@ class _TerminalScreenState extends State<TerminalScreen> {
       ),
       body: content,
     );
+  }
+
+  Widget _wrapWithSidePanel(BuildContext context, Widget content) {
+    try {
+      final controller = context.read<RuntimeSelectionController>();
+      if (controller.isDesktopPlatform) {
+        return SmartTerminalSidePanel(child: content);
+      }
+    } on ProviderNotFoundException {
+      // 无 RuntimeSelectionController（如 standalone 模式），不包裹
+    }
+    return content;
   }
 
   String _getErrorMessage(WebSocketService service) {
