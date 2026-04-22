@@ -168,6 +168,13 @@ cd client
 RC_TEST_SERVER_IP=YOUR_SERVER_IP dart run tool/production_network_e2e.dart
 ```
 
+如果要额外验证“在线设备枚举 + 终端创建/清理”真实链路：
+
+```bash
+cd client
+./run_production_e2e.sh --server-ip YOUR_SERVER_IP --probe-runtime-terminal --require-online-device
+```
+
 ## Project Structure
 
 ```text

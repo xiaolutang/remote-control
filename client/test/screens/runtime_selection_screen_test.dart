@@ -1,14 +1,16 @@
+import 'package:rc_client/models/command_sequence_draft.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:rc_client/models/assistant_plan.dart';
 import 'package:rc_client/models/project_context_settings.dart';
-import 'package:rc_client/models/project_context_snapshot.dart';
 import 'package:rc_client/models/runtime_device.dart';
 import 'package:rc_client/models/runtime_terminal.dart';
 import 'package:rc_client/models/terminal_launch_plan.dart';
 import 'package:rc_client/screens/runtime_selection_screen.dart';
 import 'package:rc_client/services/environment_service.dart';
 import 'package:rc_client/services/planner_credentials_service.dart';
+import 'package:rc_client/services/planner_provider.dart';
 import 'package:rc_client/services/runtime_device_service.dart';
 import 'package:rc_client/services/runtime_selection_controller.dart';
 import 'package:rc_client/services/terminal_session_manager.dart';
@@ -22,7 +24,7 @@ import '../mocks/mock_websocket_service.dart';
 class _FakeSelectionController extends RuntimeSelectionController {
   _FakeSelectionController({
     this.failCreateAttempts = 0,
-    this.snapshot,
+    this.resolveLaunchIntentHandler,
   }) : super(
           serverUrl: 'ws://localhost:8888',
           token: 'token',
@@ -42,8 +44,11 @@ class _FakeSelectionController extends RuntimeSelectionController {
 
   TerminalLaunchPlan? lastRememberedPlan;
   RuntimeTerminal? lastCreatedTerminal;
+  MockWebSocketService? lastBuiltService;
+  Map<String, dynamic>? lastExecutionReport;
   final int failCreateAttempts;
-  final DeviceProjectContextSnapshot? snapshot;
+  final Future<PlannerResolutionResult> Function(String intent)?
+      resolveLaunchIntentHandler;
   int createAttemptCount = 0;
   String? _errorMessage;
   ProjectContextSettings settings = const ProjectContextSettings(
@@ -75,9 +80,6 @@ class _FakeSelectionController extends RuntimeSelectionController {
   List<RuntimeTerminal> get terminals => List.unmodifiable(_terminals);
 
   @override
-  DeviceProjectContextSnapshot? get projectContextSnapshot => snapshot;
-
-  @override
   Future<void> initialize() async {}
 
   @override
@@ -85,6 +87,25 @@ class _FakeSelectionController extends RuntimeSelectionController {
 
   @override
   Future<void> selectDevice(String deviceId, {bool notify = true}) async {}
+
+  @override
+  Future<PlannerResolutionResult> resolveLaunchIntent(
+    String intent, {
+    String? conversationId,
+    String? messageId,
+    void Function(AssistantPlanProgressEvent event)? onProgress,
+  }) async {
+    final handler = resolveLaunchIntentHandler;
+    if (handler != null) {
+      return handler(intent);
+    }
+    return super.resolveLaunchIntent(
+      intent,
+      conversationId: conversationId,
+      messageId: messageId,
+      onProgress: onProgress,
+    );
+  }
 
   @override
   Future<RuntimeTerminal?> createTerminal({
@@ -136,13 +157,87 @@ class _FakeSelectionController extends RuntimeSelectionController {
 
   @override
   WebSocketService buildTerminalService(RuntimeTerminal terminal) {
-    return MockWebSocketService();
+    final service = MockWebSocketService(
+      deviceId: selectedDeviceId,
+      terminalId: terminal.terminalId,
+    );
+    lastBuiltService = service;
+    return service;
+  }
+
+  @override
+  Future<void> reportAssistantExecution({
+    required CommandSequenceDraft draft,
+    required String executionStatus,
+    String? terminalId,
+    String? failedStepId,
+    String? outputSummary,
+  }) async {
+    lastExecutionReport = {
+      'conversationId': draft.assistantConversationId,
+      'messageId': draft.assistantMessageId,
+      'executionStatus': executionStatus,
+      'terminalId': terminalId,
+      'failedStepId': failedStepId,
+      'outputSummary': outputSummary,
+    };
   }
 }
 
 class _FakeDesktopLocalController extends _FakeSelectionController {
   @override
   bool get isLocalDeviceSelected => true;
+}
+
+class _StreamingSelectionController extends _FakeSelectionController {
+  _StreamingSelectionController({
+    required this.result,
+  });
+
+  final PlannerResolutionResult result;
+
+  @override
+  Future<PlannerResolutionResult> resolveLaunchIntent(
+    String intent, {
+    String? conversationId,
+    String? messageId,
+    void Function(AssistantPlanProgressEvent event)? onProgress,
+  }) async {
+    onProgress?.call(
+      const AssistantPlanProgressEvent(
+        type: 'assistant_message',
+        assistantMessage: AssistantMessage(
+          type: 'assistant',
+          text: '先读取项目上下文。',
+        ),
+      ),
+    );
+    onProgress?.call(
+      const AssistantPlanProgressEvent(
+        type: 'trace_item',
+        traceItem: AssistantTraceItem(
+          stage: 'context',
+          title: '定位项目',
+          status: 'completed',
+          summary: '已找到 remote-control 对应目录',
+        ),
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    onProgress?.call(
+      const AssistantPlanProgressEvent(
+        type: 'trace_item',
+        traceItem: AssistantTraceItem(
+          stage: 'tool',
+          title: '生成命令',
+          status: 'running',
+          summary: '正在拼接进入目录和启动 Claude 的步骤',
+        ),
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    return result;
+  }
 }
 
 class _TestRuntimeDeviceService extends RuntimeDeviceService {
@@ -225,11 +320,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('选择设备与终端'), findsOneWidget);
+    expect(find.text('远程终端'), findsOneWidget);
     expect(find.byKey(const Key('device-mbp-01')), findsOneWidget);
     expect(find.text('Claude / ai_rules'), findsOneWidget);
     expect(find.text('连接'), findsOneWidget);
-    expect(find.text('可创建终端'), findsOneWidget);
+    expect(find.text('新建智能终端'), findsOneWidget);
   });
 
   testWidgets('shows local desktop title when local device is selected',
@@ -255,8 +350,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('本机终端'), findsOneWidget);
-    expect(find.text('选择设备与终端'), findsNothing);
-    expect(find.text('本机电脑在线，可直接创建并管理终端'), findsOneWidget);
+    expect(find.text('远程终端'), findsNothing);
+    expect(
+      find.text('这台本机已经在线。直接说出你要进入哪个项目、用什么工具即可。'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('shows connect action for available terminals', (tester) async {
@@ -372,7 +470,7 @@ void main() {
     await openAccountMenuAndExpectCommonEntries(tester);
   });
 
-  testWidgets('create terminal dialog exposes smart entry actions',
+  testWidgets('create terminal dialog exposes command sequence actions',
       (tester) async {
     final controller = _FakeSelectionController();
 
@@ -382,44 +480,72 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('smart-create-intent-input')), findsOneWidget);
-    expect(
-      find.byKey(const Key('smart-create-recommend-claude_code')),
-      findsOneWidget,
-    );
-    expect(
-        find.byKey(const Key('smart-create-recommend-custom')), findsOneWidget);
+    expect(find.byKey(const Key('smart-create-generate')), findsOneWidget);
+    expect(find.byKey(const Key('smart-create-quick-claude')), findsNothing);
+    expect(find.byKey(const Key('smart-create-advanced')), findsNothing);
+    expect(find.byKey(const Key('smart-create-preview-summary')), findsNothing);
   });
 
-  testWidgets('smart create dialog can open and save project context settings',
+  testWidgets('smart create dialog shows first-use guide only once',
       (tester) async {
+    SharedPreferences.setMockInitialValues({});
     final controller = _FakeSelectionController();
 
     await pumpRuntimeSelectionScreen(tester, controller);
 
     await tester.tap(find.byKey(const Key('create-terminal')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('smart-create-project-settings')));
+
+    expect(
+        find.byKey(const Key('smart-create-first-use-hint')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('smart-create-cancel')));
     await tester.pumpAndSettle();
 
-    expect(find.byType(AlertDialog), findsOneWidget);
-    await tester.enterText(
-      find.byKey(const Key('project-settings-pinned-label')),
-      'remote-control',
-    );
-    await tester.enterText(
-      find.byKey(const Key('project-settings-pinned-cwd')),
-      '/Users/demo/project/remote-control',
-    );
-    await tester.tap(find.byKey(const Key('project-settings-pinned-add')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('project-settings-save')));
+    await tester.tap(find.byKey(const Key('create-terminal')));
     await tester.pumpAndSettle();
 
-    expect(controller.settings.pinnedProjects.single.cwd,
-        '/Users/demo/project/remote-control');
+    expect(find.byKey(const Key('smart-create-first-use-hint')), findsNothing);
   });
 
-  testWidgets('intent generation can create codex terminal and remember plan',
+  testWidgets('smart create dialog hides first-use guide when already seen',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'smart_terminal_create_first_use_guide_seen_v2': true,
+    });
+    final controller = _FakeSelectionController();
+
+    await pumpRuntimeSelectionScreen(tester, controller);
+
+    await tester.tap(find.byKey(const Key('create-terminal')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('smart-create-first-use-hint')), findsNothing);
+  });
+
+  testWidgets('smart create first-use hint hides when user starts typing',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final controller = _FakeSelectionController();
+
+    await pumpRuntimeSelectionScreen(tester, controller);
+
+    await tester.tap(find.byKey(const Key('create-terminal')));
+    await tester.pumpAndSettle();
+
+    expect(
+        find.byKey(const Key('smart-create-first-use-hint')), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const Key('smart-create-intent-input')),
+      '进入日知项目',
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('smart-create-first-use-hint')), findsNothing);
+  });
+
+  testWidgets('intent generation creates claude plan and remembers shell steps',
       (tester) async {
     final controller = _FakeSelectionController();
 
@@ -431,46 +557,136 @@ void main() {
       find.byKey(const Key('smart-create-intent-input')),
       '进入 codex 修一下登录问题',
     );
+    await tester.ensureVisible(find.byKey(const Key('smart-create-generate')));
     await tester.tap(find.byKey(const Key('smart-create-generate')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Codex'), findsWidgets);
+    expect(
+        find.byKey(const Key('smart-create-preview-summary')), findsOneWidget);
 
     await tester.ensureVisible(find.byKey(const Key('smart-create-submit')));
     await tester.tap(find.byKey(const Key('smart-create-submit')));
     await tester.pumpAndSettle();
 
     expect(controller.lastCreatedTerminal, isNotNull);
-    expect(controller.lastRememberedPlan?.tool, TerminalLaunchTool.codex);
+    expect(controller.lastRememberedPlan?.tool, TerminalLaunchTool.claudeCode);
     expect(
       controller.lastRememberedPlan?.entryStrategy,
       TerminalEntryStrategy.shellBootstrap,
     );
+    expect(controller.lastRememberedPlan?.postCreateInput, contains('claude'));
+  });
+
+  testWidgets('real intent "我想进入日知项目" generates rizhi command draft',
+      (tester) async {
+    final controller = _FakeSelectionController(
+      resolveLaunchIntentHandler: (intent) async {
+        expect(intent, '我想进入日知项目');
+        return PlannerResolutionResult(
+          provider: 'service_llm',
+          plan: const TerminalLaunchPlan(
+            tool: TerminalLaunchTool.claudeCode,
+            title: 'Claude / 日知',
+            cwd: '/Users/demo/project/rizhi',
+            command: '/bin/bash',
+            entryStrategy: TerminalEntryStrategy.shellBootstrap,
+            postCreateInput: 'set -e\ncd /Users/demo/project/rizhi\nclaude\n',
+            source: TerminalLaunchPlanSource.intent,
+          ),
+          sequence: const CommandSequenceDraft(
+            summary: '进入日知项目并启动 Claude',
+            provider: 'service_llm',
+            tool: TerminalLaunchTool.claudeCode,
+            title: 'Claude / 日知',
+            cwd: '/Users/demo/project/rizhi',
+            shellCommand: '/bin/bash',
+            steps: [
+              CommandSequenceStep(
+                id: 'step_1',
+                label: '进入项目目录',
+                command: 'cd /Users/demo/project/rizhi',
+              ),
+              CommandSequenceStep(
+                id: 'step_2',
+                label: '启动 Claude',
+                command: 'claude',
+              ),
+            ],
+            source: TerminalLaunchPlanSource.intent,
+            assistantConversationId: 'assistant-mbp-01',
+            assistantMessageId: 'msg-rizhi-001',
+          ),
+          reasoningKind: 'service_llm',
+        );
+      },
+    );
+
+    await pumpRuntimeSelectionScreen(tester, controller);
+
+    await tester.tap(find.byKey(const Key('create-terminal')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('smart-create-intent-input')),
+      '我想进入日知项目',
+    );
+    await tester.ensureVisible(find.byKey(const Key('smart-create-generate')));
+    await tester.tap(find.byKey(const Key('smart-create-generate')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('进入日知项目并启动 Claude'), findsOneWidget);
+    expect(
+        find.byKey(const Key('smart-create-preview-summary')), findsOneWidget);
+
+    await tester.ensureVisible(find.byKey(const Key('smart-create-submit')));
+    await tester.tap(find.byKey(const Key('smart-create-submit')));
+    await tester.pumpAndSettle();
+
+    expect(controller.lastCreatedTerminal, isNotNull);
+    expect(controller.lastCreatedTerminal?.cwd, '/Users/demo/project/rizhi');
+    expect(controller.lastRememberedPlan?.cwd, '/Users/demo/project/rizhi');
+    expect(controller.lastRememberedPlan?.postCreateInput, contains('claude'));
   });
 
   testWidgets(
-      'smart create preview shows explanation metadata and supports candidate switch',
+      'assistant-backed create reports execution after bootstrap dispatch',
       (tester) async {
     final controller = _FakeSelectionController(
-      snapshot: DeviceProjectContextSnapshot(
-        deviceId: 'mbp-01',
-        generatedAt: DateTime.parse('2026-04-22T12:00:00Z'),
-        candidates: const [
-          ProjectContextCandidate(
-            candidateId: 'cand-1',
-            deviceId: 'mbp-01',
-            label: 'remote-control',
-            cwd: '/Users/demo/project/remote-control',
-            source: 'pinned_project',
-          ),
-          ProjectContextCandidate(
-            candidateId: 'cand-2',
-            deviceId: 'mbp-01',
-            label: 'device-two',
-            cwd: '/Users/demo/project/device-two',
-            source: 'recent_terminal',
-          ),
-        ],
+      resolveLaunchIntentHandler: (_) async => PlannerResolutionResult(
+        provider: 'service_llm',
+        plan: const TerminalLaunchPlan(
+          tool: TerminalLaunchTool.claudeCode,
+          title: 'Claude / remote-control',
+          cwd: '/Users/demo/project/remote-control',
+          command: '/bin/bash',
+          entryStrategy: TerminalEntryStrategy.shellBootstrap,
+          postCreateInput:
+              'set -e\ncd /Users/demo/project/remote-control\nclaude\n',
+          source: TerminalLaunchPlanSource.intent,
+        ),
+        sequence: const CommandSequenceDraft(
+          summary: '进入 remote-control 并启动 Claude',
+          provider: 'service_llm',
+          tool: TerminalLaunchTool.claudeCode,
+          title: 'Claude / remote-control',
+          cwd: '/Users/demo/project/remote-control',
+          shellCommand: '/bin/bash',
+          steps: [
+            CommandSequenceStep(
+              id: 'step_1',
+              label: '进入项目目录',
+              command: 'cd /Users/demo/project/remote-control',
+            ),
+            CommandSequenceStep(
+              id: 'step_2',
+              label: '启动 Claude',
+              command: 'claude',
+            ),
+          ],
+          source: TerminalLaunchPlanSource.intent,
+          assistantConversationId: 'assistant-mbp-01',
+          assistantMessageId: 'msg-001',
+        ),
+        reasoningKind: 'service_llm',
       ),
     );
 
@@ -478,70 +694,31 @@ void main() {
 
     await tester.tap(find.byKey(const Key('create-terminal')));
     await tester.pumpAndSettle();
-
-    expect(
-        find.byKey(const Key('smart-create-preview-source')), findsOneWidget);
-    expect(
-      find.byKey(const Key('smart-create-preview-provider')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const Key('smart-create-candidate-cand-2')),
-      findsOneWidget,
-    );
-
-    await tester.ensureVisible(
-      find.byKey(const Key('smart-create-candidate-cand-2')),
-    );
-    await tester.tap(find.byKey(const Key('smart-create-candidate-cand-2')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('/Users/demo/project/device-two'), findsWidgets);
-    expect(
-      find.byKey(const Key('smart-create-preview-candidate')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const Key('smart-create-preview-user-edited')),
-      findsOneWidget,
-    );
-  });
-
-  testWidgets('custom advanced flow can create custom terminal',
-      (tester) async {
-    final controller = _FakeSelectionController();
-
-    await pumpRuntimeSelectionScreen(tester, controller);
-
-    await tester.tap(find.byKey(const Key('create-terminal')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('smart-create-recommend-custom')));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byKey(const Key('smart-create-title')));
     await tester.enterText(
-      find.byKey(const Key('smart-create-title')),
-      'Custom Runner',
+      find.byKey(const Key('smart-create-intent-input')),
+      '进入 remote-control 修一下登录问题',
     );
-    await tester.enterText(
-      find.byKey(const Key('smart-create-cwd')),
-      '/tmp/custom-project',
-    );
-    await tester.enterText(
-      find.byKey(const Key('smart-create-command')),
-      '/bin/zsh',
-    );
+    await tester.ensureVisible(find.byKey(const Key('smart-create-generate')));
+    await tester.tap(find.byKey(const Key('smart-create-generate')));
+    await tester.pumpAndSettle();
     await tester.ensureVisible(find.byKey(const Key('smart-create-submit')));
     await tester.tap(find.byKey(const Key('smart-create-submit')));
     await tester.pumpAndSettle();
 
-    expect(controller.lastCreatedTerminal?.title, 'Custom Runner');
-    expect(controller.lastCreatedTerminal?.cwd, '/tmp/custom-project');
-    expect(controller.lastCreatedTerminal?.command, '/bin/zsh');
-    expect(controller.lastRememberedPlan?.tool, TerminalLaunchTool.custom);
+    expect(controller.lastBuiltService, isNotNull);
+    controller.lastBuiltService!.simulateConnectedEvent();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
+
+    expect(controller.lastExecutionReport, isNotNull);
+    expect(
+        controller.lastExecutionReport!['conversationId'], 'assistant-mbp-01');
+    expect(controller.lastExecutionReport!['executionStatus'], 'succeeded');
+    expect(controller.lastExecutionReport!['terminalId'], 'term-created');
   });
 
   testWidgets(
-      'manual relative cwd override requires confirmation before create',
+      'smart create preview shows only user-facing command content after intent generation',
       (tester) async {
     final controller = _FakeSelectionController();
 
@@ -549,36 +726,101 @@ void main() {
 
     await tester.tap(find.byKey(const Key('create-terminal')));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byKey(const Key('smart-create-advanced')));
-    await tester.tap(find.byKey(const Key('smart-create-advanced')));
-    await tester.pumpAndSettle();
     await tester.enterText(
-      find.byKey(const Key('smart-create-cwd')),
-      'project/app',
+      find.byKey(const Key('smart-create-intent-input')),
+      '进入 remote-control 项目修一下登录问题',
     );
+    await tester.ensureVisible(find.byKey(const Key('smart-create-generate')));
+    await tester.tap(find.byKey(const Key('smart-create-generate')));
     await tester.pumpAndSettle();
 
     expect(
-      find.byKey(const Key('smart-create-confirm-manual')),
+        find.byKey(const Key('smart-create-preview-summary')), findsOneWidget);
+    expect(
+      find.byKey(const Key('smart-create-preview-info')),
       findsOneWidget,
     );
+    expect(find.byKey(const Key('smart-create-preview-step-0')), findsNothing);
     expect(
-      tester
-          .widget<FilledButton>(find.byKey(const Key('smart-create-submit')))
-          .onPressed,
-      isNull,
+      find.byKey(const Key('smart-create-preview-source')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const Key('smart-create-preview-provider')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const Key('smart-create-preview-reasoning')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const Key('smart-create-preview-command')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('smart create streams thinking and tool events as chat items',
+      (tester) async {
+    final controller = _StreamingSelectionController(
+      result: PlannerResolutionResult(
+        provider: 'service_llm',
+        plan: const TerminalLaunchPlan(
+          tool: TerminalLaunchTool.claudeCode,
+          title: 'Claude / remote-control',
+          cwd: '/Users/demo/project/remote-control',
+          command: '/bin/bash',
+          entryStrategy: TerminalEntryStrategy.shellBootstrap,
+          postCreateInput:
+              'set -e\ncd /Users/demo/project/remote-control\nclaude\n',
+          source: TerminalLaunchPlanSource.intent,
+        ),
+        sequence: const CommandSequenceDraft(
+          summary: '进入 remote-control 并启动 Claude',
+          provider: 'service_llm',
+          tool: TerminalLaunchTool.claudeCode,
+          title: 'Claude / remote-control',
+          cwd: '/Users/demo/project/remote-control',
+          shellCommand: '/bin/bash',
+          steps: [
+            CommandSequenceStep(
+              id: 'step_1',
+              label: '进入项目目录',
+              command: 'cd /Users/demo/project/remote-control',
+            ),
+            CommandSequenceStep(
+              id: 'step_2',
+              label: '启动 Claude',
+              command: 'claude',
+            ),
+          ],
+          source: TerminalLaunchPlanSource.intent,
+        ),
+        reasoningKind: 'service_llm',
+      ),
     );
 
-    await tester.ensureVisible(
-      find.byKey(const Key('smart-create-confirm-manual')),
-    );
-    await tester.tap(find.byKey(const Key('smart-create-confirm-manual')));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byKey(const Key('smart-create-submit')));
-    await tester.tap(find.byKey(const Key('smart-create-submit')));
-    await tester.pumpAndSettle();
+    await pumpRuntimeSelectionScreen(tester, controller);
 
-    expect(controller.lastCreatedTerminal?.cwd, 'project/app');
+    await tester.tap(find.byKey(const Key('create-terminal')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('smart-create-intent-input')),
+      '进入 remote-control',
+    );
+    await tester.tap(find.byKey(const Key('smart-create-generate')));
+    await tester.pump();
+
+    expect(find.text('先读取项目上下文。'), findsOneWidget);
+    expect(find.text('定位项目'), findsOneWidget);
+    expect(find.text('上下文读取'), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(find.text('生成命令'), findsOneWidget);
+    expect(find.text('工具调用'), findsOneWidget);
+
+    await tester.pumpAndSettle();
+    expect(
+        find.byKey(const Key('smart-create-preview-summary')), findsOneWidget);
   });
 
   testWidgets('failed create keeps intent and allows retry', (tester) async {
@@ -592,6 +834,7 @@ void main() {
       find.byKey(const Key('smart-create-intent-input')),
       '进入 codex 修一下登录问题',
     );
+    await tester.ensureVisible(find.byKey(const Key('smart-create-generate')));
     await tester.tap(find.byKey(const Key('smart-create-generate')));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.byKey(const Key('smart-create-submit')));
@@ -605,7 +848,7 @@ void main() {
           .widget<TextField>(find.byKey(const Key('smart-create-intent-input')))
           .controller
           ?.text,
-      '进入 codex 修一下登录问题',
+      '',
     );
 
     await tester.ensureVisible(find.byKey(const Key('smart-create-submit')));
@@ -614,10 +857,114 @@ void main() {
 
     expect(controller.createAttemptCount, 2);
     expect(controller.lastCreatedTerminal, isNotNull);
-    expect(controller.lastRememberedPlan?.tool, TerminalLaunchTool.codex);
+    expect(controller.lastRememberedPlan?.tool, TerminalLaunchTool.claudeCode);
   });
 
-  testWidgets('mobile first-use smoke covers Claude, Codex and Shell paths',
+  testWidgets(
+      'fallback planner result still allows manual create with same-shell claude sequence',
+      (tester) async {
+    final fallbackSequence = CommandSequenceDraft(
+      summary: '定位项目后启动 Claude',
+      provider: 'local_rules',
+      tool: TerminalLaunchTool.claudeCode,
+      title: 'Claude / remote-control',
+      cwd: '~',
+      shellCommand: '/bin/bash',
+      steps: const [
+        CommandSequenceStep(
+          id: 'step_1',
+          label: '确认当前目录',
+          command: 'pwd',
+        ),
+        CommandSequenceStep(
+          id: 'step_2',
+          label: '查找目标项目',
+          command: 'find ~/project -maxdepth 2 -name remote-control',
+        ),
+        CommandSequenceStep(
+          id: 'step_3',
+          label: '进入目标项目',
+          command: 'cd /Users/demo/project/remote-control',
+        ),
+        CommandSequenceStep(
+          id: 'step_4',
+          label: '启动 Claude',
+          command: 'claude',
+        ),
+      ],
+      source: TerminalLaunchPlanSource.intent,
+      confidence: TerminalLaunchConfidence.medium,
+    );
+    final controller = _FakeSelectionController(
+      resolveLaunchIntentHandler: (_) async => PlannerResolutionResult(
+        provider: 'local_rules',
+        plan: fallbackSequence.toLaunchPlan(),
+        sequence: fallbackSequence,
+        reasoningKind: 'fallback',
+        fallbackUsed: true,
+        fallbackReason: 'claude_cli_unavailable',
+      ),
+    );
+
+    await pumpRuntimeSelectionScreen(tester, controller);
+
+    await tester.tap(find.byKey(const Key('create-terminal')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('smart-create-intent-input')),
+      '进入 remote-control 修一下登录问题',
+    );
+    await tester.ensureVisible(find.byKey(const Key('smart-create-generate')));
+    await tester.tap(find.byKey(const Key('smart-create-generate')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('smart-create-preview-warning')),
+      findsOneWidget,
+    );
+    expect(find.text('这是一组兜底命令，建议先看一眼再执行。'), findsOneWidget);
+    expect(
+        find.byKey(const Key('smart-create-preview-summary')), findsOneWidget);
+
+    await tester.ensureVisible(find.byKey(const Key('smart-create-submit')));
+    await tester.tap(find.byKey(const Key('smart-create-submit')));
+    await tester.pumpAndSettle();
+
+    expect(controller.lastCreatedTerminal?.title, 'Claude / remote-control');
+    expect(controller.lastRememberedPlan?.tool, TerminalLaunchTool.claudeCode);
+    expect(controller.lastRememberedPlan?.entryStrategy,
+        TerminalEntryStrategy.shellBootstrap);
+    expect(
+      controller.lastRememberedPlan?.postCreateInput,
+      'set -e\npwd\nfind ~/project -maxdepth 2 -name remote-control\ncd /Users/demo/project/remote-control\nclaude\n',
+    );
+  });
+
+  testWidgets('mobile first-use smoke covers intent path', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final controller = _FakeSelectionController();
+
+    await pumpRuntimeSelectionScreen(tester, controller);
+
+    await tester.tap(find.byKey(const Key('create-terminal')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('smart-create-intent-input')),
+      '进入 codex 修一下登录问题',
+    );
+    await tester.ensureVisible(find.byKey(const Key('smart-create-generate')));
+    await tester.tap(find.byKey(const Key('smart-create-generate')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('smart-create-submit')));
+    await tester.tap(find.byKey(const Key('smart-create-submit')));
+    await tester.pumpAndSettle();
+
+    expect(controller.lastRememberedPlan?.tool, TerminalLaunchTool.claudeCode);
+  });
+
+  testWidgets(
+      'mobile smart create dialog adapts actions and supports manual confirmation',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(390, 844));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -627,95 +974,23 @@ void main() {
 
     await tester.tap(find.byKey(const Key('create-terminal')));
     await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const Key('smart-create-recommend-claude_code')),
-    );
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byKey(const Key('smart-create-submit')));
-    await tester.tap(find.byKey(const Key('smart-create-submit')));
-    await tester.pumpAndSettle();
 
-    expect(controller.lastRememberedPlan?.tool, TerminalLaunchTool.claudeCode);
-    await tester.pageBack();
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byKey(const Key('create-terminal')));
-    await tester.pumpAndSettle();
-    await tester.enterText(
-      find.byKey(const Key('smart-create-intent-input')),
-      '进入 codex 修一下登录问题',
-    );
-    await tester.tap(find.byKey(const Key('smart-create-generate')));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byKey(const Key('smart-create-submit')));
-    await tester.tap(find.byKey(const Key('smart-create-submit')));
-    await tester.pumpAndSettle();
-
-    expect(controller.lastRememberedPlan?.tool, TerminalLaunchTool.codex);
-    await tester.pageBack();
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byKey(const Key('create-terminal')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('smart-create-recommend-shell')));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byKey(const Key('smart-create-submit')));
-    await tester.tap(find.byKey(const Key('smart-create-submit')));
-    await tester.pumpAndSettle();
-
-    expect(controller.lastRememberedPlan?.tool, TerminalLaunchTool.shell);
-  });
-
-  testWidgets(
-      'mobile first-use smoke covers candidate select, confirmation and custom fallback',
-      (tester) async {
-    await tester.binding.setSurfaceSize(const Size(390, 844));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    final controller = _FakeSelectionController(
-      snapshot: DeviceProjectContextSnapshot(
-        deviceId: 'mbp-01',
-        generatedAt: DateTime.parse('2026-04-22T12:00:00Z'),
-        candidates: const [
-          ProjectContextCandidate(
-            candidateId: 'cand-1',
-            deviceId: 'mbp-01',
-            label: 'remote-control',
-            cwd: '/Users/demo/project/remote-control',
-            source: 'pinned_project',
-          ),
-        ],
-      ),
-    );
-
-    await pumpRuntimeSelectionScreen(tester, controller);
-
-    await tester.tap(find.byKey(const Key('create-terminal')));
-    await tester.pumpAndSettle();
-
-    await tester.ensureVisible(
-      find.byKey(const Key('smart-create-candidate-cand-1')),
-    );
-    await tester.tap(find.byKey(const Key('smart-create-candidate-cand-1')));
-    await tester.pumpAndSettle();
-    expect(find.text('/Users/demo/project/remote-control'), findsWidgets);
+    expect(find.byKey(const Key('smart-create-generate')), findsOneWidget);
+    expect(find.byKey(const Key('smart-create-quick-claude')), findsNothing);
+    expect(find.byKey(const Key('smart-create-advanced')), findsNothing);
 
     await tester.enterText(
       find.byKey(const Key('smart-create-intent-input')),
       '进 claude 到 project/app 看下',
     );
+    await tester.ensureVisible(find.byKey(const Key('smart-create-generate')));
     await tester.tap(find.byKey(const Key('smart-create-generate')));
     await tester.pumpAndSettle();
     expect(
       find.byKey(const Key('smart-create-confirm-manual')),
       findsOneWidget,
     );
-
-    await tester.tap(find.byKey(const Key('smart-create-recommend-custom')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('smart-create-title')), findsOneWidget);
     expect(
-      find.byKey(const Key('smart-create-preview-user-edited')),
-      findsOneWidget,
-    );
+        find.byKey(const Key('smart-create-preview-warning')), findsOneWidget);
   });
 }

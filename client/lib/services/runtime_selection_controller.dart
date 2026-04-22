@@ -2,6 +2,8 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 
+import '../models/assistant_plan.dart';
+import '../models/command_sequence_draft.dart';
 import '../models/config.dart';
 import '../models/project_context_settings.dart';
 import '../models/project_context_snapshot.dart';
@@ -85,21 +87,73 @@ class RuntimeSelectionController extends ChangeNotifier {
         projectContextSnapshot: _projectContextSnapshot,
       );
 
-  Future<PlannerResolutionResult> resolveLaunchIntent(String intent) async {
+  Future<PlannerResolutionResult> resolveLaunchIntent(
+    String intent, {
+    String? conversationId,
+    String? messageId,
+    void Function(AssistantPlanProgressEvent event)? onProgress,
+  }) async {
     final deviceId = _selectedDeviceId;
     if (deviceId != null &&
         (_projectContextSettings == null ||
             _projectContextSettings!.deviceId != deviceId)) {
       await loadProjectContextSettings();
     }
-    return _terminalLaunchPlanService.resolveIntent(
-      intent: intent,
-      deviceId: deviceId,
-      terminals: _terminals,
-      recentContext: recentLaunchContextForSelectedDevice,
-      projectContextSnapshot: _projectContextSnapshot,
-      projectContextSettings: _projectContextSettings,
-    );
+
+    if (deviceId == null || !_shouldUseServicePlanner()) {
+      return _terminalLaunchPlanService.resolveIntent(
+        intent: intent,
+        deviceId: deviceId,
+        terminals: _terminals,
+        recentContext: recentLaunchContextForSelectedDevice,
+        projectContextSnapshot: _projectContextSnapshot,
+        projectContextSettings: _projectContextSettings,
+      );
+    }
+
+    try {
+      final resolvedConversationId =
+          conversationId ?? _buildAssistantConversationId(deviceId);
+      final resolvedMessageId = messageId ?? _buildAssistantMessageId();
+      final remotePlan = onProgress == null
+          ? await _runtimeService.createAssistantPlan(
+              token,
+              deviceId,
+              intent: intent,
+              conversationId: resolvedConversationId,
+              messageId: resolvedMessageId,
+            )
+          : await _runtimeService.createAssistantPlanStream(
+              token,
+              deviceId,
+              intent: intent,
+              conversationId: resolvedConversationId,
+              messageId: resolvedMessageId,
+              onProgress: onProgress,
+            );
+      return _resolutionFromAssistantPlan(
+        remotePlan,
+        intent: intent,
+      );
+    } on AuthException {
+      rethrow;
+    } catch (error) {
+      final localResult = await _terminalLaunchPlanService.resolveIntent(
+        intent: intent,
+        deviceId: deviceId,
+        terminals: _terminals,
+        recentContext: recentLaunchContextForSelectedDevice,
+        projectContextSnapshot: _projectContextSnapshot,
+        projectContextSettings: _projectContextSettings,
+      );
+      final fallbackReason = _assistantFallbackReason(error);
+      return localResult.copyWith(
+        fallbackUsed: true,
+        fallbackReason: fallbackReason,
+        reasoningKind:
+            localResult.provider == 'local_rules' ? 'fallback' : 'claude_cli',
+      );
+    }
   }
 
   Future<TerminalLaunchPlan> resolveLaunchPlanFromIntent(String intent) async {
@@ -711,6 +765,109 @@ class RuntimeSelectionController extends ChangeNotifier {
       return null;
     }
     return trimmed;
+  }
+
+  bool _shouldUseServicePlanner() {
+    final config = _projectContextSettings?.plannerConfig;
+    return config?.llmEnabled ?? true;
+  }
+
+  PlannerResolutionResult _resolutionFromAssistantPlan(
+    AssistantPlanResult remotePlan, {
+    required String intent,
+  }) {
+    final sequence = CommandSequenceDraft.fromAssistantCommandSequence(
+      summary: remotePlan.commandSequence.summary,
+      provider: remotePlan.commandSequence.provider,
+      source: remotePlan.commandSequence.source,
+      steps: remotePlan.commandSequence.steps,
+      matchedCwd: remotePlan.evaluationContext['matched_cwd'] as String?,
+      matchedLabel: remotePlan.evaluationContext['matched_label'] as String?,
+      intent: PlannerIntentUtils.normalizeIntent(intent),
+      needConfirm: remotePlan.commandSequence.needConfirm,
+      conversationId: remotePlan.conversationId,
+      messageId: remotePlan.messageId,
+    );
+    final plan = normalizeLaunchPlan(
+      sequence.toLaunchPlan().copyWith(
+            source: TerminalLaunchPlanSource.intent,
+            intent: PlannerIntentUtils.normalizeIntent(intent),
+            requiresManualConfirmation: sequence.requiresManualConfirmation,
+          ),
+    );
+    return PlannerResolutionResult(
+      provider: remotePlan.commandSequence.provider,
+      plan: plan,
+      sequence: sequence,
+      matchedCandidateId:
+          remotePlan.evaluationContext['matched_candidate_id'] as String?,
+      reasoningKind: 'service_llm',
+      fallbackUsed: remotePlan.fallbackUsed,
+      fallbackReason: remotePlan.fallbackReason,
+      assistantMessages: remotePlan.assistantMessages,
+      trace: remotePlan.trace,
+      conversationId: remotePlan.conversationId,
+      messageId: remotePlan.messageId,
+      limits: remotePlan.limits,
+      evaluationContext: remotePlan.evaluationContext,
+    );
+  }
+
+  Future<void> reportAssistantExecution({
+    required CommandSequenceDraft draft,
+    required String executionStatus,
+    String? terminalId,
+    String? failedStepId,
+    String? outputSummary,
+  }) async {
+    final deviceId = _selectedDeviceId;
+    final conversationId = draft.assistantConversationId;
+    final messageId = draft.assistantMessageId;
+    if (deviceId == null ||
+        deviceId.isEmpty ||
+        conversationId == null ||
+        conversationId.isEmpty ||
+        messageId == null ||
+        messageId.isEmpty) {
+      return;
+    }
+
+    try {
+      await _runtimeService.reportAssistantExecution(
+        token,
+        deviceId,
+        conversationId: conversationId,
+        messageId: messageId,
+        terminalId: terminalId,
+        executionStatus: executionStatus,
+        failedStepId: failedStepId,
+        outputSummary: outputSummary,
+        commandSequence: draft.toAssistantCommandSequence(),
+      );
+    } on AuthException {
+      rethrow;
+    } catch (_) {
+      // 执行结果同步失败不影响本地终端进入，只在后续 UI 版本再做显式状态提示。
+    }
+  }
+
+  static String _buildAssistantConversationId(String deviceId) {
+    final normalizedDeviceId =
+        deviceId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '-');
+    return 'assistant-$normalizedDeviceId';
+  }
+
+  static String _buildAssistantMessageId() =>
+      'msg-${DateTime.now().microsecondsSinceEpoch}';
+
+  static String _assistantFallbackReason(Object error) {
+    if (error is RuntimeApiException) {
+      final reason = error.reason?.trim();
+      if (reason != null && reason.isNotEmpty) {
+        return reason;
+      }
+    }
+    return 'service_llm_unavailable';
   }
 
   /// 统一错误处理：AuthException 设置 _authError，其他设置 _errorMessage

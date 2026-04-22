@@ -1,15 +1,13 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:rc_client/models/project_context_snapshot.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:http/http.dart' as http;
-import 'package:http/testing.dart';
 import 'package:rc_client/models/project_context_settings.dart';
 import 'package:rc_client/models/recent_launch_context.dart';
 import 'package:rc_client/models/runtime_terminal.dart';
 import 'package:rc_client/models/terminal_launch_plan.dart';
 import 'package:rc_client/services/llm_planner_provider.dart';
-import 'package:rc_client/services/planner_credentials_service.dart';
 import 'package:rc_client/services/terminal_launch_plan_service.dart';
 
 void main() {
@@ -432,16 +430,20 @@ void main() {
       final service = TerminalLaunchPlanService(
         llmPlannerProvider: _buildLlmProvider(
           body: {
-            'choices': [
+            'summary': '进入 remote-control/client 并启动 Codex',
+            'source': 'intent',
+            'reasoning_kind': 'candidate_match',
+            'matched_candidate_id': 'cand-1',
+            'steps': [
               {
-                'message': {
-                  'content': jsonEncode({
-                    'tool': 'codex',
-                    'matched_candidate_id': 'cand-1',
-                    'cwd': '/Users/demo/project/remote-control/client',
-                    'reasoning_kind': 'candidate_match',
-                  }),
-                },
+                'id': 'step_1',
+                'label': '进入项目目录',
+                'command': 'cd /Users/demo/project/remote-control/client',
+              },
+              {
+                'id': 'step_2',
+                'label': '启动 Codex',
+                'command': 'codex',
               },
             ],
           },
@@ -486,16 +488,20 @@ void main() {
       final service = TerminalLaunchPlanService(
         llmPlannerProvider: _buildLlmProvider(
           body: {
-            'choices': [
+            'summary': '进入 escaped 并启动 Claude',
+            'source': 'intent',
+            'reasoning_kind': 'candidate_match',
+            'matched_candidate_id': 'cand-1',
+            'steps': [
               {
-                'message': {
-                  'content': jsonEncode({
-                    'tool': 'claude_code',
-                    'matched_candidate_id': 'cand-1',
-                    'cwd': '/tmp/escaped',
-                    'reasoning_kind': 'candidate_match',
-                  }),
-                },
+                'id': 'step_1',
+                'label': '进入临时目录',
+                'command': 'cd /tmp/escaped',
+              },
+              {
+                'id': 'step_2',
+                'label': '启动 Claude',
+                'command': 'claude',
               },
             ],
           },
@@ -574,7 +580,7 @@ void main() {
 
     test('llm provider falls back to local rules on empty result', () async {
       final service = TerminalLaunchPlanService(
-        llmPlannerProvider: _buildLlmProvider(body: const {'choices': []}),
+        llmPlannerProvider: _buildLlmProvider(body: const {}),
       );
 
       final plan = await service.resolvePlanFromIntent(
@@ -612,14 +618,14 @@ void main() {
       final service = TerminalLaunchPlanService(
         llmPlannerProvider: _buildLlmProvider(
           body: {
-            'choices': [
+            'summary': '慢速返回',
+            'source': 'intent',
+            'reasoning_kind': 'candidate_match',
+            'steps': [
               {
-                'message': {
-                  'content': jsonEncode({
-                    'tool': 'shell',
-                    'cwd': '/tmp/slow',
-                  }),
-                },
+                'id': 'step_1',
+                'label': '进入临时目录',
+                'command': 'cd /tmp/slow',
               },
             ],
           },
@@ -664,30 +670,32 @@ void main() {
       late Map<String, dynamic> requestBody;
       final service = TerminalLaunchPlanService(
         llmPlannerProvider: LlmPlannerProvider(
-          client: MockClient((request) async {
-            requestBody = jsonDecode(request.body) as Map<String, dynamic>;
-            return http.Response(
+          processRunner: (executable, arguments) async {
+            requestBody = _extractPromptPayload(arguments.last);
+            return ProcessResult(
+              1,
+              0,
               jsonEncode({
-                'choices': [
+                'summary': '进入 remote-control 并启动 Codex',
+                'source': 'intent',
+                'reasoning_kind': 'candidate_match',
+                'matched_candidate_id': 'cand-1',
+                'steps': [
                   {
-                    'message': {
-                      'content': jsonEncode({
-                        'tool': 'codex',
-                        'matched_candidate_id': 'cand-1',
-                        'cwd': '/Users/demo/project/remote-control',
-                        'reasoning_kind': 'candidate_match',
-                      }),
-                    },
+                    'id': 'step_1',
+                    'label': '进入项目目录',
+                    'command': 'cd /Users/demo/project/remote-control',
+                  },
+                  {
+                    'id': 'step_2',
+                    'label': '启动 Codex',
+                    'command': 'codex',
                   },
                 ],
               }),
-              200,
+              '',
             );
-          }),
-          credentialsService: _StubPlannerCredentialsService(),
-          endpointResolver: (_) =>
-              Uri.parse('https://planner.test/v1/chat/completions'),
-          model: 'test-model',
+          },
         ),
       );
 
@@ -742,10 +750,7 @@ void main() {
         ),
       );
 
-      final messages = requestBody['messages'] as List<dynamic>;
-      final userPayload = jsonDecode(
-        (messages.last as Map<String, dynamic>)['content'] as String,
-      ) as Map<String, dynamic>;
+      final userPayload = requestBody;
       expect(
         userPayload.keys.toSet(),
         {'intent', 'recent_context', 'candidates'},
@@ -770,33 +775,25 @@ LlmPlannerProvider _buildLlmProvider({
   Duration? delay,
   Duration timeout = const Duration(seconds: 4),
 }) {
-  final responseBody = rawContent != null
-      ? {
-          'choices': [
-            {
-              'message': {'content': rawContent},
-            },
-          ],
-        }
-      : (body ?? const <String, dynamic>{});
+  final responseBody =
+      rawContent ?? jsonEncode(body ?? const <String, dynamic>{});
   return LlmPlannerProvider(
-    client: MockClient((request) async {
+    processRunner: (executable, arguments) async {
       if (delay != null) {
         await Future<void>.delayed(delay);
       }
-      return http.Response(jsonEncode(responseBody), 200);
-    }),
+      return ProcessResult(1, 0, responseBody, '');
+    },
     timeout: timeout,
-    credentialsService: _StubPlannerCredentialsService(),
-    endpointResolver: (_) =>
-        Uri.parse('https://planner.test/v1/chat/completions'),
-    model: 'test-model',
   );
 }
 
-class _StubPlannerCredentialsService extends PlannerCredentialsService {
-  _StubPlannerCredentialsService();
-
-  @override
-  Future<String?> readApiKey(String deviceId) async => 'test-key';
+Map<String, dynamic> _extractPromptPayload(String prompt) {
+  final marker = '输入:\n';
+  final index = prompt.indexOf(marker);
+  if (index < 0) {
+    throw StateError('missing input marker in prompt');
+  }
+  return jsonDecode(prompt.substring(index + marker.length))
+      as Map<String, dynamic>;
 }

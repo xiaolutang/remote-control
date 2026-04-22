@@ -3,13 +3,15 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:rc_client/models/assistant_plan.dart';
 import 'package:rc_client/services/runtime_device_service.dart';
 
 void main() {
   group('RuntimeDeviceService', () {
     test('lists runtime devices', () async {
       final client = MockClient((request) async {
-        expect(request.url.toString(), 'http://localhost:8888/api/runtime/devices');
+        expect(request.url.toString(),
+            'http://localhost:8888/api/runtime/devices');
         return http.Response(
           jsonEncode({
             'devices': [
@@ -213,6 +215,139 @@ void main() {
 
       expect(terminal.terminalId, 'term-1');
       expect(terminal.title, 'New Title');
+    });
+
+    test('streams assistant planning progress and returns final result',
+        () async {
+      final client = MockClient.streaming((request, bodyStream) async {
+        expect(request.method, 'POST');
+        expect(
+          request.url.toString(),
+          'http://localhost:8888/api/runtime/devices/mbp-01/assistant/plan/stream',
+        );
+        final body = jsonDecode(await bodyStream.bytesToString());
+        expect(body['intent'], '进入 remote-control 并打开 Claude');
+
+        final lines = [
+          jsonEncode({
+            'type': 'assistant_message',
+            'assistant_message': {
+              'type': 'assistant',
+              'text': '我先读取当前设备上下文，再生成一组可确认的终端命令。',
+            },
+          }),
+          jsonEncode({
+            'type': 'trace',
+            'trace_item': {
+              'stage': 'context',
+              'title': '读取上下文',
+              'status': 'completed',
+              'summary': '已整理 2 个候选项目，准备匹配目标路径。',
+            },
+          }),
+          jsonEncode({
+            'type': 'assistant_delta',
+            'assistant_delta': {
+              'type': 'assistant',
+              'text_delta': '正在生成命令步骤...',
+              'replace': false,
+            },
+          }),
+          jsonEncode({
+            'type': 'tool_call',
+            'tool_call': {
+              'id': 'tool-1',
+              'tool_name': 'scan_projects',
+              'status': 'running',
+              'summary': '正在扫描项目目录',
+            },
+          }),
+          jsonEncode({
+            'type': 'status',
+            'status': {
+              'stage': 'planner',
+              'status': 'completed',
+              'title': '命令草案已生成',
+              'summary': '准备返回最终规划结果',
+            },
+          }),
+          jsonEncode({
+            'type': 'result',
+            'plan': {
+              'conversation_id': 'conv-1',
+              'message_id': 'msg-1',
+              'assistant_messages': [
+                {
+                  'type': 'assistant',
+                  'text': '我已为你生成进入项目并启动 Claude 的命令。',
+                },
+              ],
+              'trace': [
+                {
+                  'stage': 'planner',
+                  'title': '生成命令序列',
+                  'status': 'completed',
+                  'summary': '已生成 3 条可确认命令。',
+                },
+              ],
+              'command_sequence': {
+                'summary': '进入项目并启动 Claude',
+                'provider': 'service_llm',
+                'source': 'intent',
+                'need_confirm': true,
+                'steps': [
+                  {
+                    'id': 'step_1',
+                    'label': '确认当前位置',
+                    'command': 'pwd',
+                  },
+                ],
+              },
+              'fallback_used': false,
+              'fallback_reason': null,
+              'limits': {
+                'rate_limited': false,
+                'budget_blocked': false,
+                'provider_timeout_ms': 12000,
+                'retry_after': null,
+              },
+              'evaluation_context': {
+                'matched_cwd': '/Users/tangxiaolu/project/remote-control',
+              },
+            },
+          }),
+        ].join('\n');
+
+        return http.StreamedResponse(
+          Stream.value(utf8.encode(lines)),
+          200,
+          headers: const {'content-type': 'application/x-ndjson'},
+        );
+      });
+      final service = RuntimeDeviceService(
+        serverUrl: 'ws://localhost:8888',
+        client: client,
+      );
+      final progress = <AssistantPlanProgressEvent>[];
+
+      final result = await service.createAssistantPlanStream(
+        'token',
+        'mbp-01',
+        intent: '进入 remote-control 并打开 Claude',
+        conversationId: 'conv-1',
+        messageId: 'msg-1',
+        onProgress: progress.add,
+      );
+
+      expect(progress, hasLength(5));
+      expect(progress.first.assistantMessage?.text, contains('读取当前设备上下文'));
+      expect(progress[1].traceItem?.title, '读取上下文');
+      expect(progress[2].assistantDelta?.textDelta, '正在生成命令步骤...');
+      expect(progress[3].toolCall?.toolName, 'scan_projects');
+      expect(progress[4].statusUpdate?.title, '命令草案已生成');
+      expect(result.commandSequence.summary, '进入项目并启动 Claude');
+      expect(result.evaluationContext['matched_cwd'],
+          '/Users/tangxiaolu/project/remote-control');
     });
   });
 }

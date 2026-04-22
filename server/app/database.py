@@ -7,6 +7,7 @@ SQLite 数据库层 - 用户持久化存储
 """
 import os
 import logging
+import json
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import AsyncIterator, Optional, Dict, List, Any
@@ -90,11 +91,11 @@ class Database:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     username TEXT NOT NULL REFERENCES users(username),
                     device_id TEXT NOT NULL,
-                    provider TEXT NOT NULL DEFAULT 'local_rules',
-                    llm_enabled INTEGER NOT NULL DEFAULT 0,
+                    provider TEXT NOT NULL DEFAULT 'claude_cli',
+                    llm_enabled INTEGER NOT NULL DEFAULT 1,
                     endpoint_profile TEXT NOT NULL DEFAULT 'openai_compatible',
                     credentials_mode TEXT NOT NULL DEFAULT 'client_secure_storage',
-                    requires_explicit_opt_in INTEGER NOT NULL DEFAULT 1,
+                    requires_explicit_opt_in INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     UNIQUE(username, device_id)
@@ -103,6 +104,61 @@ class Database:
             await db.execute("""
                 CREATE INDEX IF NOT EXISTS idx_planner_configs_scope
                 ON project_source_planner_configs(username, device_id)
+            """)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS assistant_planner_runs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL REFERENCES users(username),
+                    device_id TEXT NOT NULL,
+                    conversation_id TEXT NOT NULL,
+                    message_id TEXT NOT NULL,
+                    intent TEXT NOT NULL,
+                    provider TEXT NOT NULL,
+                    fallback_used INTEGER NOT NULL DEFAULT 0,
+                    fallback_reason TEXT,
+                    matched_candidate_id TEXT,
+                    matched_cwd TEXT,
+                    matched_label TEXT,
+                    assistant_messages_json TEXT NOT NULL DEFAULT '[]',
+                    trace_json TEXT NOT NULL DEFAULT '[]',
+                    command_sequence_json TEXT,
+                    evaluation_context_json TEXT NOT NULL DEFAULT '{}',
+                    execution_status TEXT NOT NULL DEFAULT 'planned',
+                    terminal_id TEXT,
+                    failed_step_id TEXT,
+                    output_summary TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(username, device_id, conversation_id, message_id)
+                )
+            """)
+            await db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_assistant_runs_scope
+                ON assistant_planner_runs(username, device_id, created_at DESC)
+            """)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS assistant_planner_memory_entries (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL REFERENCES users(username),
+                    device_id TEXT NOT NULL,
+                    memory_type TEXT NOT NULL,
+                    memory_key TEXT NOT NULL,
+                    label TEXT,
+                    cwd TEXT,
+                    summary TEXT,
+                    command_sequence_json TEXT,
+                    metadata_json TEXT NOT NULL DEFAULT '{}',
+                    success_count INTEGER NOT NULL DEFAULT 0,
+                    failure_count INTEGER NOT NULL DEFAULT 0,
+                    last_status TEXT NOT NULL DEFAULT 'unknown',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(username, device_id, memory_type, memory_key)
+                )
+            """)
+            await db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_assistant_memory_scope
+                ON assistant_planner_memory_entries(username, device_id, memory_type, updated_at DESC)
             """)
             await db.commit()
             logger.info(f"Database initialized: {self.db_path}")
@@ -309,6 +365,266 @@ class Database:
             )
             await db.commit()
 
+    async def save_assistant_planner_run(
+        self,
+        username: str,
+        device_id: str,
+        payload: Dict[str, Any],
+    ) -> None:
+        """保存或更新单次智能规划记录。"""
+        now = datetime.now(timezone.utc).isoformat()
+        evaluation_context = payload.get("evaluation_context") or {}
+        async with self._connect() as db:
+            await db.execute(
+                """
+                INSERT INTO assistant_planner_runs (
+                    username, device_id, conversation_id, message_id, intent, provider,
+                    fallback_used, fallback_reason, matched_candidate_id, matched_cwd, matched_label,
+                    assistant_messages_json, trace_json, command_sequence_json, evaluation_context_json,
+                    execution_status, terminal_id, failed_step_id, output_summary, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(username, device_id, conversation_id, message_id) DO UPDATE SET
+                    provider = excluded.provider,
+                    fallback_used = excluded.fallback_used,
+                    fallback_reason = excluded.fallback_reason,
+                    matched_candidate_id = excluded.matched_candidate_id,
+                    matched_cwd = excluded.matched_cwd,
+                    matched_label = excluded.matched_label,
+                    assistant_messages_json = excluded.assistant_messages_json,
+                    trace_json = excluded.trace_json,
+                    command_sequence_json = excluded.command_sequence_json,
+                    evaluation_context_json = excluded.evaluation_context_json,
+                    execution_status = excluded.execution_status,
+                    terminal_id = COALESCE(excluded.terminal_id, assistant_planner_runs.terminal_id),
+                    failed_step_id = COALESCE(excluded.failed_step_id, assistant_planner_runs.failed_step_id),
+                    output_summary = COALESCE(excluded.output_summary, assistant_planner_runs.output_summary),
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    username,
+                    device_id,
+                    payload["conversation_id"],
+                    payload["message_id"],
+                    payload["intent"],
+                    payload["provider"],
+                    1 if payload.get("fallback_used", False) else 0,
+                    payload.get("fallback_reason"),
+                    evaluation_context.get("matched_candidate_id"),
+                    evaluation_context.get("matched_cwd"),
+                    evaluation_context.get("matched_label"),
+                    json.dumps(payload.get("assistant_messages", []), ensure_ascii=False),
+                    json.dumps(payload.get("trace", []), ensure_ascii=False),
+                    json.dumps(payload.get("command_sequence"), ensure_ascii=False)
+                    if payload.get("command_sequence") is not None
+                    else None,
+                    json.dumps(evaluation_context, ensure_ascii=False),
+                    payload.get("execution_status", "planned"),
+                    payload.get("terminal_id"),
+                    payload.get("failed_step_id"),
+                    payload.get("output_summary"),
+                    now,
+                    now,
+                ),
+            )
+            await db.commit()
+
+    async def get_assistant_planner_run(
+        self,
+        username: str,
+        device_id: str,
+        conversation_id: str,
+        message_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """读取单次智能规划记录。"""
+        async with self._connect() as db:
+            cursor = await db.execute(
+                """
+                SELECT *
+                FROM assistant_planner_runs
+                WHERE username = ? AND device_id = ? AND conversation_id = ? AND message_id = ?
+                """,
+                (username, device_id, conversation_id, message_id),
+            )
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+    async def list_assistant_planner_memory(
+        self,
+        username: str,
+        device_id: str,
+        memory_type: str,
+        *,
+        limit: int = 5,
+    ) -> List[Dict[str, Any]]:
+        """按类型读取最近的 planner memory。"""
+        async with self._connect() as db:
+            cursor = await db.execute(
+                """
+                SELECT *
+                FROM assistant_planner_memory_entries
+                WHERE username = ? AND device_id = ? AND memory_type = ?
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (username, device_id, memory_type, limit),
+            )
+            return [dict(row) for row in await cursor.fetchall()]
+
+    async def report_assistant_execution(
+        self,
+        username: str,
+        device_id: str,
+        conversation_id: str,
+        message_id: str,
+        *,
+        execution_status: str,
+        terminal_id: Optional[str],
+        failed_step_id: Optional[str],
+        output_summary: Optional[str],
+        command_sequence: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """回写单次执行结果，并更新 planner memory。"""
+        now = datetime.now(timezone.utc).isoformat()
+        async with self._connect() as db:
+            cursor = await db.execute(
+                """
+                SELECT *
+                FROM assistant_planner_runs
+                WHERE username = ? AND device_id = ? AND conversation_id = ? AND message_id = ?
+                """,
+                (username, device_id, conversation_id, message_id),
+            )
+            row = await cursor.fetchone()
+            if not row:
+                return None
+
+            existing = dict(row)
+            if existing.get("execution_status") in {"succeeded", "failed"}:
+                return existing
+
+            await db.execute(
+                """
+                UPDATE assistant_planner_runs
+                SET execution_status = ?,
+                    terminal_id = ?,
+                    failed_step_id = ?,
+                    output_summary = ?,
+                    command_sequence_json = ?,
+                    updated_at = ?
+                WHERE username = ? AND device_id = ? AND conversation_id = ? AND message_id = ?
+                """,
+                (
+                    execution_status,
+                    terminal_id,
+                    failed_step_id,
+                    output_summary,
+                    json.dumps(command_sequence, ensure_ascii=False),
+                    now,
+                    username,
+                    device_id,
+                    conversation_id,
+                    message_id,
+                ),
+            )
+
+            matched_cwd = existing.get("matched_cwd") or ""
+            matched_label = existing.get("matched_label") or ""
+            matched_candidate_id = existing.get("matched_candidate_id") or ""
+
+            async def upsert_memory(
+                memory_type: str,
+                memory_key: str,
+                *,
+                label: str,
+                cwd: str,
+                summary: str,
+                metadata: Dict[str, Any],
+                succeeded: bool,
+            ) -> None:
+                if not memory_key:
+                    return
+                await db.execute(
+                    """
+                    INSERT INTO assistant_planner_memory_entries (
+                        username, device_id, memory_type, memory_key, label, cwd, summary,
+                        command_sequence_json, metadata_json, success_count, failure_count,
+                        last_status, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(username, device_id, memory_type, memory_key) DO UPDATE SET
+                        label = excluded.label,
+                        cwd = excluded.cwd,
+                        summary = excluded.summary,
+                        command_sequence_json = excluded.command_sequence_json,
+                        metadata_json = excluded.metadata_json,
+                        success_count = assistant_planner_memory_entries.success_count + excluded.success_count,
+                        failure_count = assistant_planner_memory_entries.failure_count + excluded.failure_count,
+                        last_status = excluded.last_status,
+                        updated_at = excluded.updated_at
+                    """,
+                    (
+                        username,
+                        device_id,
+                        memory_type,
+                        memory_key,
+                        label,
+                        cwd,
+                        summary,
+                        json.dumps(command_sequence, ensure_ascii=False),
+                        json.dumps(metadata, ensure_ascii=False),
+                        1 if succeeded else 0,
+                        0 if succeeded else 1,
+                        execution_status,
+                        now,
+                        now,
+                    ),
+                )
+
+            metadata = {
+                "conversation_id": conversation_id,
+                "message_id": message_id,
+                "matched_candidate_id": matched_candidate_id,
+                "failed_step_id": failed_step_id,
+            }
+
+            if execution_status == "succeeded":
+                await upsert_memory(
+                    "recent_project",
+                    matched_cwd or f"{conversation_id}:{message_id}",
+                    label=matched_label,
+                    cwd=matched_cwd,
+                    summary=command_sequence.get("summary", ""),
+                    metadata=metadata,
+                    succeeded=True,
+                )
+                await upsert_memory(
+                    "successful_sequence",
+                    matched_cwd or f"{conversation_id}:{message_id}",
+                    label=matched_label,
+                    cwd=matched_cwd,
+                    summary=command_sequence.get("summary", ""),
+                    metadata=metadata,
+                    succeeded=True,
+                )
+            else:
+                await upsert_memory(
+                    "recent_failure",
+                    f"{conversation_id}:{message_id}",
+                    label=matched_label,
+                    cwd=matched_cwd,
+                    summary=output_summary or command_sequence.get("summary", ""),
+                    metadata=metadata,
+                    succeeded=False,
+                )
+
+            await db.commit()
+
+        return await self.get_assistant_planner_run(
+            username,
+            device_id,
+            conversation_id,
+            message_id,
+        )
+
 
 # ============ 默认实例 + 模块级便捷函数 ============
 
@@ -395,3 +711,65 @@ async def save_planner_config(
     config: Dict[str, Any],
 ) -> None:
     await _get_db().save_planner_config(username, device_id, config)
+
+
+async def save_assistant_planner_run(
+    username: str,
+    device_id: str,
+    payload: Dict[str, Any],
+) -> None:
+    await _get_db().save_assistant_planner_run(username, device_id, payload)
+
+
+async def get_assistant_planner_run(
+    username: str,
+    device_id: str,
+    conversation_id: str,
+    message_id: str,
+) -> Optional[Dict[str, Any]]:
+    return await _get_db().get_assistant_planner_run(
+        username,
+        device_id,
+        conversation_id,
+        message_id,
+    )
+
+
+async def list_assistant_planner_memory(
+    username: str,
+    device_id: str,
+    memory_type: str,
+    *,
+    limit: int = 5,
+) -> List[Dict[str, Any]]:
+    return await _get_db().list_assistant_planner_memory(
+        username,
+        device_id,
+        memory_type,
+        limit=limit,
+    )
+
+
+async def report_assistant_execution(
+    username: str,
+    device_id: str,
+    conversation_id: str,
+    message_id: str,
+    *,
+    execution_status: str,
+    terminal_id: Optional[str],
+    failed_step_id: Optional[str],
+    output_summary: Optional[str],
+    command_sequence: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    return await _get_db().report_assistant_execution(
+        username,
+        device_id,
+        conversation_id,
+        message_id,
+        execution_status=execution_status,
+        terminal_id=terminal_id,
+        failed_step_id=failed_step_id,
+        output_summary=output_summary,
+        command_sequence=command_sequence,
+    )

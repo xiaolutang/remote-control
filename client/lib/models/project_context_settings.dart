@@ -70,11 +70,11 @@ class ApprovedScanRoot {
 
 class PlannerRuntimeConfigModel {
   const PlannerRuntimeConfigModel({
-    this.provider = 'local_rules',
-    this.llmEnabled = false,
+    this.provider = 'claude_cli',
+    this.llmEnabled = true,
     this.endpointProfile = 'openai_compatible',
     this.credentialsMode = 'client_secure_storage',
-    this.requiresExplicitOptIn = true,
+    this.requiresExplicitOptIn = false,
   });
 
   final String provider;
@@ -110,13 +110,13 @@ class PlannerRuntimeConfigModel {
 
   factory PlannerRuntimeConfigModel.fromJson(Map<String, dynamic> json) {
     return PlannerRuntimeConfigModel(
-      provider: json['provider'] as String? ?? 'local_rules',
-      llmEnabled: json['llm_enabled'] as bool? ?? false,
+      provider: json['provider'] as String? ?? 'claude_cli',
+      llmEnabled: json['llm_enabled'] as bool? ?? true,
       endpointProfile:
           json['endpoint_profile'] as String? ?? 'openai_compatible',
       credentialsMode:
           json['credentials_mode'] as String? ?? 'client_secure_storage',
-      requiresExplicitOptIn: json['requires_explicit_opt_in'] as bool? ?? true,
+      requiresExplicitOptIn: json['requires_explicit_opt_in'] as bool? ?? false,
     );
   }
 }

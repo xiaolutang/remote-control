@@ -1,8 +1,9 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:http/http.dart' as http;
-import 'package:http/testing.dart';
+import 'package:rc_client/models/assistant_plan.dart';
+import 'package:rc_client/models/command_sequence_draft.dart';
 import 'package:rc_client/models/config.dart';
 import 'package:rc_client/models/project_context_settings.dart';
 import 'package:rc_client/models/project_context_snapshot.dart';
@@ -13,7 +14,6 @@ import 'package:rc_client/models/terminal_launch_plan.dart';
 import 'package:rc_client/services/config_service.dart';
 import 'package:rc_client/services/environment_service.dart';
 import 'package:rc_client/services/llm_planner_provider.dart';
-import 'package:rc_client/services/planner_credentials_service.dart';
 import 'package:rc_client/services/runtime_device_service.dart';
 import 'package:rc_client/services/runtime_selection_controller.dart';
 import 'package:rc_client/services/terminal_launch_plan_service.dart';
@@ -28,6 +28,9 @@ class _FakeRuntimeDeviceService extends RuntimeDeviceService {
       <String, ProjectContextSettings>{};
   final Map<String, DeviceProjectContextSnapshot> snapshotsByDevice =
       <String, DeviceProjectContextSnapshot>{};
+  AssistantPlanResult? assistantPlanResponse;
+  Object? assistantPlanError;
+  Map<String, dynamic>? lastExecutionReport;
 
   @override
   Future<List<RuntimeDevice>> listDevices(String token) async => devices;
@@ -145,13 +148,53 @@ class _FakeRuntimeDeviceService extends RuntimeDeviceService {
   ) async {
     return getProjectContextSnapshot(token, deviceId);
   }
-}
-
-class _AlwaysKeyPlannerCredentialsService extends PlannerCredentialsService {
-  _AlwaysKeyPlannerCredentialsService();
 
   @override
-  Future<String?> readApiKey(String deviceId) async => 'test-key';
+  Future<AssistantPlanResult> createAssistantPlan(
+    String token,
+    String deviceId, {
+    required String intent,
+    required String conversationId,
+    required String messageId,
+    bool allowClaudeCli = true,
+    bool allowLocalRules = true,
+  }) async {
+    if (assistantPlanError != null) {
+      throw assistantPlanError!;
+    }
+    if (assistantPlanResponse != null) {
+      return assistantPlanResponse!;
+    }
+    throw RuntimeApiException(
+      statusCode: 503,
+      message: '服务端智能规划不可用',
+      reason: 'service_llm_unavailable',
+    );
+  }
+
+  @override
+  Future<void> reportAssistantExecution(
+    String token,
+    String deviceId, {
+    required String conversationId,
+    required String messageId,
+    String? terminalId,
+    required String executionStatus,
+    String? failedStepId,
+    String? outputSummary,
+    required AssistantCommandSequence commandSequence,
+  }) async {
+    lastExecutionReport = {
+      'deviceId': deviceId,
+      'conversationId': conversationId,
+      'messageId': messageId,
+      'terminalId': terminalId,
+      'executionStatus': executionStatus,
+      'failedStepId': failedStepId,
+      'outputSummary': outputSummary,
+      'commandSequence': commandSequence.toJson(),
+    };
+  }
 }
 
 void main() {
@@ -266,6 +309,190 @@ void main() {
       expect(
         controller.recommendedLaunchPlans.first.postCreateInput,
         'codex\n',
+      );
+    });
+
+    test('resolveLaunchIntent prefers service planner when available',
+        () async {
+      runtimeService.devices = const [
+        RuntimeDevice(
+          deviceId: 'mbp-02',
+          name: 'Online',
+          owner: 'user1',
+          agentOnline: true,
+          maxTerminals: 2,
+          activeTerminals: 0,
+        ),
+      ];
+      runtimeService.settingsByDevice['mbp-02'] = const ProjectContextSettings(
+        deviceId: 'mbp-02',
+      );
+      runtimeService.assistantPlanResponse = AssistantPlanResult(
+        conversationId: 'assistant-mbp-02',
+        messageId: 'msg-001',
+        assistantMessages: const [
+          AssistantMessage(type: 'assistant', text: '我先读取当前设备上下文。'),
+        ],
+        trace: const [
+          AssistantTraceItem(
+            stage: 'context',
+            title: '读取上下文',
+            status: 'completed',
+            summary: '命中 remote-control',
+          ),
+        ],
+        commandSequence: const AssistantCommandSequence(
+          summary: '进入 remote-control 并启动 Claude',
+          provider: 'service_llm',
+          source: 'intent',
+          needConfirm: true,
+          steps: [
+            CommandSequenceStep(
+              id: 'step_1',
+              label: '进入项目目录',
+              command: 'cd /Users/demo/project/remote-control',
+            ),
+            CommandSequenceStep(
+              id: 'step_2',
+              label: '启动 Claude',
+              command: 'claude',
+            ),
+          ],
+        ),
+        fallbackUsed: false,
+        fallbackReason: null,
+        limits: const AssistantPlanLimits(
+          rateLimited: false,
+          budgetBlocked: false,
+          providerTimeoutMs: 12000,
+        ),
+        evaluationContext: const {
+          'matched_candidate_id': 'cand-1',
+          'matched_cwd': '/Users/demo/project/remote-control',
+          'matched_label': 'remote-control',
+        },
+      );
+
+      final controller = RuntimeSelectionController(
+        serverUrl: 'ws://localhost:8888',
+        token: 'token',
+        runtimeService: runtimeService,
+        configService: configService,
+      );
+      await controller.initialize();
+
+      final result = await controller.resolveLaunchIntent(
+        '进入 remote-control 修登录问题',
+      );
+
+      expect(result.provider, 'service_llm');
+      expect(result.sequence, isNotNull);
+      expect(result.sequence!.steps.first.command,
+          'cd /Users/demo/project/remote-control');
+      expect(result.trace.single.stage, 'context');
+      expect(result.conversationId, 'assistant-mbp-02');
+    });
+
+    test('resolveLaunchIntent falls back to local planner when service fails',
+        () async {
+      runtimeService.devices = const [
+        RuntimeDevice(
+          deviceId: 'mbp-02',
+          name: 'Online',
+          owner: 'user1',
+          agentOnline: true,
+          maxTerminals: 2,
+          activeTerminals: 0,
+        ),
+      ];
+      runtimeService.settingsByDevice['mbp-02'] = const ProjectContextSettings(
+        deviceId: 'mbp-02',
+      );
+      runtimeService.assistantPlanError = RuntimeApiException(
+        statusCode: 503,
+        message: '服务端智能规划不可用',
+        reason: 'service_llm_unavailable',
+      );
+
+      final controller = RuntimeSelectionController(
+        serverUrl: 'ws://localhost:8888',
+        token: 'token',
+        runtimeService: runtimeService,
+        configService: configService,
+      );
+      await controller.initialize();
+
+      final result = await controller.resolveLaunchIntent(
+        '进入 /Users/demo/project/remote-control',
+      );
+
+      expect(result.provider, anyOf('claude_cli', 'local_rules'));
+      expect(result.fallbackUsed, isTrue);
+      expect(result.fallbackReason, 'service_llm_unavailable');
+      expect(result.sequence, isNotNull);
+    });
+
+    test(
+        'reportAssistantExecution sends final command sequence when draft is assistant-backed',
+        () async {
+      runtimeService.devices = const [
+        RuntimeDevice(
+          deviceId: 'mbp-02',
+          name: 'Online',
+          owner: 'user1',
+          agentOnline: true,
+          maxTerminals: 2,
+          activeTerminals: 0,
+        ),
+      ];
+
+      final controller = RuntimeSelectionController(
+        serverUrl: 'ws://localhost:8888',
+        token: 'token',
+        runtimeService: runtimeService,
+        configService: configService,
+      );
+      await controller.initialize();
+
+      await controller.reportAssistantExecution(
+        draft: const CommandSequenceDraft(
+          summary: '进入 remote-control 并启动 Claude',
+          provider: 'service_llm',
+          tool: TerminalLaunchTool.claudeCode,
+          title: 'Claude / remote-control',
+          cwd: '/Users/demo/project/remote-control',
+          shellCommand: '/bin/bash',
+          steps: [
+            CommandSequenceStep(
+              id: 'step_1',
+              label: '进入项目目录',
+              command: 'cd /Users/demo/project/remote-control',
+            ),
+            CommandSequenceStep(
+              id: 'step_2',
+              label: '启动 Claude',
+              command: 'claude',
+            ),
+          ],
+          source: TerminalLaunchPlanSource.intent,
+          requiresManualConfirmation: true,
+          assistantConversationId: 'assistant-mbp-02',
+          assistantMessageId: 'msg-001',
+        ),
+        executionStatus: 'succeeded',
+        terminalId: 'term-1',
+        outputSummary: '终端已创建，并已发送命令序列',
+      );
+
+      expect(runtimeService.lastExecutionReport, isNotNull);
+      expect(runtimeService.lastExecutionReport!['conversationId'],
+          'assistant-mbp-02');
+      expect(
+          runtimeService.lastExecutionReport!['executionStatus'], 'succeeded');
+      expect(
+        (runtimeService.lastExecutionReport!['commandSequence']
+            as Map<String, dynamic>)['steps'],
+        hasLength(2),
       );
     });
 
@@ -800,12 +1027,8 @@ void main() {
 
       final plannerService = TerminalLaunchPlanService(
         llmPlannerProvider: LlmPlannerProvider(
-          client: MockClient((request) async {
-            final body = jsonDecode(request.body) as Map<String, dynamic>;
-            final messages = body['messages'] as List<dynamic>;
-            final userPayload = jsonDecode(
-              (messages.last as Map<String, dynamic>)['content'] as String,
-            ) as Map<String, dynamic>;
+          processRunner: (executable, arguments) async {
+            final userPayload = _extractPromptPayload(arguments.last);
             final candidates =
                 userPayload['candidates'] as List<dynamic>? ?? const [];
             expect(candidates.length, 1);
@@ -813,28 +1036,30 @@ void main() {
               (candidates.first as Map<String, dynamic>)['candidate_id'],
               'cand-dev2',
             );
-            return http.Response(
+            return ProcessResult(
+              1,
+              0,
               jsonEncode({
-                'choices': [
+                'summary': '进入 device-two 并启动 Codex',
+                'source': 'intent',
+                'reasoning_kind': 'candidate_match',
+                'matched_candidate_id': 'cand-dev2',
+                'steps': [
                   {
-                    'message': {
-                      'content': jsonEncode({
-                        'tool': 'codex',
-                        'matched_candidate_id': 'cand-dev2',
-                        'cwd': '/Users/demo/project/device-two',
-                        'reasoning_kind': 'candidate_match',
-                      }),
-                    },
+                    'id': 'step_1',
+                    'label': '进入项目目录',
+                    'command': 'cd /Users/demo/project/device-two',
+                  },
+                  {
+                    'id': 'step_2',
+                    'label': '启动 Codex',
+                    'command': 'codex',
                   },
                 ],
               }),
-              200,
+              '',
             );
-          }),
-          credentialsService: _AlwaysKeyPlannerCredentialsService(),
-          endpointResolver: (_) =>
-              Uri.parse('https://planner.test/v1/chat/completions'),
-          model: 'test-model',
+          },
         ),
       );
 
@@ -899,4 +1124,14 @@ void main() {
       // isLocalDeviceSelected 依赖于 hostname 匹配，可能为 true 或 false
     });
   });
+}
+
+Map<String, dynamic> _extractPromptPayload(String prompt) {
+  final marker = '输入:\n';
+  final index = prompt.indexOf(marker);
+  if (index < 0) {
+    throw StateError('missing input marker in prompt');
+  }
+  return jsonDecode(prompt.substring(index + marker.length))
+      as Map<String, dynamic>;
 }

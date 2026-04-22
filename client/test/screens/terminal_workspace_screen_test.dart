@@ -4,13 +4,17 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:rc_client/models/assistant_plan.dart';
+import 'package:rc_client/models/command_sequence_draft.dart';
 import 'package:rc_client/models/runtime_device.dart';
 import 'package:rc_client/models/runtime_terminal.dart';
+import 'package:rc_client/models/terminal_launch_plan.dart';
 import 'package:rc_client/screens/terminal_workspace_screen.dart';
 import 'package:rc_client/services/desktop_agent_bootstrap_service.dart';
 import 'package:rc_client/services/desktop_agent_manager.dart';
 import 'package:rc_client/services/desktop_agent_supervisor.dart';
 import 'package:rc_client/services/environment_service.dart';
+import 'package:rc_client/services/planner_provider.dart';
 import 'package:rc_client/services/runtime_device_service.dart';
 import 'package:rc_client/services/runtime_selection_controller.dart';
 import 'package:rc_client/services/terminal_session_manager.dart';
@@ -27,6 +31,7 @@ class _FakeWorkspaceController extends RuntimeSelectionController {
     required List<RuntimeTerminal> terminals,
     this.onLoadDevices,
     this.isDesktop = true,
+    this.resolveLaunchIntentHandler,
   })  : _devices = devices,
         _terminals = terminals,
         super(
@@ -39,6 +44,11 @@ class _FakeWorkspaceController extends RuntimeSelectionController {
   final List<RuntimeTerminal> _terminals;
   final Future<void> Function()? onLoadDevices;
   final bool isDesktop;
+  final Future<PlannerResolutionResult> Function(String intent)?
+      resolveLaunchIntentHandler;
+  TerminalLaunchPlan? lastRememberedPlan;
+  MockWebSocketService? lastBuiltService;
+  Map<String, dynamic>? lastExecutionReport;
 
   @override
   bool get isDesktopPlatform => isDesktop;
@@ -77,6 +87,25 @@ class _FakeWorkspaceController extends RuntimeSelectionController {
   Future<void> selectDevice(String deviceId, {bool notify = true}) async {}
 
   @override
+  Future<PlannerResolutionResult> resolveLaunchIntent(
+    String intent, {
+    String? conversationId,
+    String? messageId,
+    void Function(AssistantPlanProgressEvent event)? onProgress,
+  }) async {
+    final handler = resolveLaunchIntentHandler;
+    if (handler != null) {
+      return handler(intent);
+    }
+    return super.resolveLaunchIntent(
+      intent,
+      conversationId: conversationId,
+      messageId: messageId,
+      onProgress: onProgress,
+    );
+  }
+
+  @override
   Future<RuntimeTerminal?> createTerminal({
     required String title,
     required String cwd,
@@ -98,6 +127,11 @@ class _FakeWorkspaceController extends RuntimeSelectionController {
   void addTerminal(RuntimeTerminal terminal) {
     _terminals.add(terminal);
     notifyListeners();
+  }
+
+  @override
+  Future<void> rememberSuccessfulLaunchPlan(TerminalLaunchPlan plan) async {
+    lastRememberedPlan = plan;
   }
 
   @override
@@ -127,9 +161,30 @@ class _FakeWorkspaceController extends RuntimeSelectionController {
 
   @override
   WebSocketService buildTerminalService(RuntimeTerminal terminal) {
-    final service = MockWebSocketService();
-    service.simulateConnect();
+    final service = MockWebSocketService(
+      deviceId: selectedDeviceId,
+      terminalId: terminal.terminalId,
+    );
+    lastBuiltService = service;
     return service;
+  }
+
+  @override
+  Future<void> reportAssistantExecution({
+    required CommandSequenceDraft draft,
+    required String executionStatus,
+    String? terminalId,
+    String? failedStepId,
+    String? outputSummary,
+  }) async {
+    lastExecutionReport = {
+      'conversationId': draft.assistantConversationId,
+      'messageId': draft.assistantMessageId,
+      'executionStatus': executionStatus,
+      'terminalId': terminalId,
+      'failedStepId': failedStepId,
+      'outputSummary': outputSummary,
+    };
   }
 }
 
@@ -567,12 +622,102 @@ void main() {
     await tester.tap(find.byKey(const Key('workspace-empty-create-action')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
+    await tester.enterText(
+      find.byKey(const Key('smart-create-intent-input')),
+      '进入 remote-control',
+    );
+    await tester.tap(find.byKey(const Key('smart-create-generate')));
+    await tester.pumpAndSettle();
     await tester.ensureVisible(find.byKey(const Key('smart-create-submit')));
     await tester.tap(find.byKey(const Key('smart-create-submit')));
     await tester.pumpAndSettle();
 
     // 应该触发 bootstrap
     expect(startCalls, greaterThanOrEqualTo(1));
+  });
+
+  testWidgets(
+      'assistant-backed create reports execution after bootstrap dispatch',
+      (tester) async {
+    final controller = _FakeWorkspaceController(
+      devices: const [
+        RuntimeDevice(
+          deviceId: 'mbp-01',
+          name: 'mac-phone',
+          owner: 'user1',
+          agentOnline: true,
+          maxTerminals: 3,
+          activeTerminals: 0,
+        ),
+      ],
+      terminals: [],
+      resolveLaunchIntentHandler: (_) async => PlannerResolutionResult(
+        provider: 'service_llm',
+        plan: const TerminalLaunchPlan(
+          tool: TerminalLaunchTool.claudeCode,
+          title: 'Claude / remote-control',
+          cwd: '/Users/demo/project/remote-control',
+          command: '/bin/bash',
+          entryStrategy: TerminalEntryStrategy.shellBootstrap,
+          postCreateInput:
+              'set -e\ncd /Users/demo/project/remote-control\nclaude\n',
+          source: TerminalLaunchPlanSource.intent,
+        ),
+        sequence: const CommandSequenceDraft(
+          summary: '进入 remote-control 并启动 Claude',
+          provider: 'service_llm',
+          tool: TerminalLaunchTool.claudeCode,
+          title: 'Claude / remote-control',
+          cwd: '/Users/demo/project/remote-control',
+          shellCommand: '/bin/bash',
+          steps: [
+            CommandSequenceStep(
+              id: 'step_1',
+              label: '进入项目目录',
+              command: 'cd /Users/demo/project/remote-control',
+            ),
+            CommandSequenceStep(
+              id: 'step_2',
+              label: '启动 Claude',
+              command: 'claude',
+            ),
+          ],
+          source: TerminalLaunchPlanSource.intent,
+          assistantConversationId: 'assistant-mbp-01',
+          assistantMessageId: 'msg-001',
+        ),
+        reasoningKind: 'service_llm',
+      ),
+    );
+
+    await tester.pumpWidget(wrapWithApp(controller));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('workspace-empty-create-action')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('smart-create-intent-input')),
+      '进入 remote-control 修一下登录问题',
+    );
+    await tester.ensureVisible(find.byKey(const Key('smart-create-generate')));
+    await tester.tap(find.byKey(const Key('smart-create-generate')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('smart-create-submit')));
+    await tester.tap(find.byKey(const Key('smart-create-submit')));
+    await tester.pumpAndSettle();
+
+    expect(controller.lastBuiltService, isNotNull);
+    controller.lastBuiltService!.simulateConnectedEvent();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
+
+    expect(controller.lastExecutionReport, isNotNull);
+    expect(
+      controller.lastExecutionReport!['conversationId'],
+      'assistant-mbp-01',
+    );
+    expect(controller.lastExecutionReport!['executionStatus'], 'succeeded');
+    expect(controller.lastExecutionReport!['terminalId'], 'term-created');
   });
 
   // F035: 点击"启动并创建终端"后显示 bootstrapping 状态
@@ -611,6 +756,12 @@ void main() {
     await tester.tap(find.byKey(const Key('workspace-empty-create-action')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
+    await tester.enterText(
+      find.byKey(const Key('smart-create-intent-input')),
+      '进入 remote-control',
+    );
+    await tester.tap(find.byKey(const Key('smart-create-generate')));
+    await tester.pumpAndSettle();
     await tester.ensureVisible(find.byKey(const Key('smart-create-submit')));
     await tester.tap(find.byKey(const Key('smart-create-submit')));
     await tester.pump();
@@ -618,7 +769,7 @@ void main() {
 
     // 应该显示 bootstrapping 状态
     expect(find.text('正在启动本机 Agent'), findsWidgets);
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsAtLeastNWidgets(1));
 
     completer.complete(true);
   });
@@ -697,19 +848,21 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('workspace-menu-create')));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byKey(const Key('smart-create-advanced')));
-    await tester.tap(find.byKey(const Key('smart-create-advanced')));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byKey(const Key('smart-create-title')));
     await tester.enterText(
-      find.byKey(const Key('smart-create-title')),
-      'New Terminal',
+      find.byKey(const Key('smart-create-intent-input')),
+      '进入 remote-control',
     );
+    await tester.tap(find.byKey(const Key('smart-create-generate')));
+    await tester.pumpAndSettle();
     await tester.ensureVisible(find.byKey(const Key('smart-create-submit')));
     await tester.tap(find.byKey(const Key('smart-create-submit')));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('New Terminal'), findsWidgets);
+    expect(
+      controller.terminals.any((terminal) => terminal.terminalId == 'term-created'),
+      isTrue,
+    );
+    expect(controller.lastRememberedPlan?.tool, TerminalLaunchTool.claudeCode);
   });
 
   // F035: 创建第一个终端时，如果 Agent 不在线会先启动 Agent
@@ -779,8 +932,11 @@ void main() {
     // 点击"启动并创建终端"按钮
     await tester.tap(find.byKey(const Key('workspace-empty-create-action')));
     await tester.pumpAndSettle();
-    await tester
-        .tap(find.byKey(const Key('smart-create-recommend-claude_code')));
+    await tester.enterText(
+      find.byKey(const Key('smart-create-intent-input')),
+      '进入 remote-control',
+    );
+    await tester.tap(find.byKey(const Key('smart-create-generate')));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.byKey(const Key('smart-create-submit')));
     await tester.tap(find.byKey(const Key('smart-create-submit')));
@@ -789,7 +945,7 @@ void main() {
 
     // 应该触发 bootstrap 并创建终端
     expect(startCalls, greaterThanOrEqualTo(1));
-    expect(find.textContaining('Claude'), findsWidgets);
+    expect(controller.lastRememberedPlan?.tool, TerminalLaunchTool.claudeCode);
   });
 
   testWidgets('intent flow shows manual confirmation for relative path',
@@ -828,6 +984,7 @@ void main() {
       find.byKey(const Key('smart-create-intent-input')),
       '进 claude 到 project/app 看下',
     );
+    await tester.ensureVisible(find.byKey(const Key('smart-create-generate')));
     await tester.tap(find.byKey(const Key('smart-create-generate')));
     await tester.pumpAndSettle();
 
@@ -837,15 +994,15 @@ void main() {
     );
     expect(
       find.byKey(const Key('smart-create-preview-source')),
-      findsOneWidget,
+      findsNothing,
     );
     expect(
       find.byKey(const Key('smart-create-preview-provider')),
-      findsOneWidget,
+      findsNothing,
     );
     expect(
       find.byKey(const Key('smart-create-preview-reasoning')),
-      findsOneWidget,
+      findsNothing,
     );
     expect(
         find.byKey(const Key('smart-create-confirm-manual')), findsOneWidget);
@@ -853,61 +1010,10 @@ void main() {
       find.byKey(const Key('smart-create-submit')),
     );
     expect(submitButton.onPressed, isNull);
-    expect(find.text('project/app'), findsWidgets);
-  });
-
-  testWidgets('workspace custom advanced flow uses shared create path',
-      (tester) async {
-    final controller = _FakeWorkspaceController(
-      devices: const [
-        RuntimeDevice(
-          deviceId: 'mbp-01',
-          name: 'mac-phone',
-          owner: 'user1',
-          agentOnline: true,
-          maxTerminals: 3,
-          activeTerminals: 1,
-        ),
-      ],
-      terminals: [
-        const RuntimeTerminal(
-          terminalId: 'term-1',
-          title: 'Claude / ai_rules',
-          cwd: '~/project',
-          command: '/bin/bash',
-          status: 'attached',
-          views: {'mobile': 0, 'desktop': 0},
-        ),
-      ],
+    expect(
+      find.textContaining('目录 · project/app'),
+      findsOneWidget,
     );
-
-    await tester.pumpWidget(wrapWithApp(controller));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byKey(const Key('workspace-open-terminal-menu')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('workspace-menu-create')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('smart-create-recommend-custom')));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byKey(const Key('smart-create-title')));
-    await tester.enterText(
-      find.byKey(const Key('smart-create-title')),
-      'Workspace Custom',
-    );
-    await tester.enterText(
-      find.byKey(const Key('smart-create-cwd')),
-      '/tmp/workspace-custom',
-    );
-    await tester.enterText(
-      find.byKey(const Key('smart-create-command')),
-      '/bin/zsh',
-    );
-    await tester.ensureVisible(find.byKey(const Key('smart-create-submit')));
-    await tester.tap(find.byKey(const Key('smart-create-submit')));
-    await tester.pumpAndSettle();
-
-    expect(find.textContaining('Workspace Custom'), findsWidgets);
   });
 
   // TODO: This test has a ListView rendering issue in test environment

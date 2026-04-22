@@ -1,7 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../models/config.dart';
 import 'desktop_agent_exit_bridge.dart';
 import 'desktop_exit_policy_service.dart';
 

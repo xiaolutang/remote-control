@@ -105,5 +105,121 @@ void main() {
 
       expect(service.sentMessages, ['claude\n']);
     });
+
+    test('sends compiled command sequence payload in one shell bootstrap',
+        () async {
+      final sessionManager = TerminalSessionManager();
+      final service = MockWebSocketService(
+        deviceId: 'dev-1',
+        terminalId: 'term-2',
+      );
+      const launchService = TerminalLaunchSessionService(
+        bootstrapInputDelay: Duration.zero,
+      );
+
+      launchService.ensureSession(
+        sessionManager: sessionManager,
+        deviceId: 'dev-1',
+        terminalId: 'term-2',
+        serviceFactory: () => service,
+        plan: const TerminalLaunchPlan(
+          tool: TerminalLaunchTool.claudeCode,
+          title: 'Claude / remote-control',
+          cwd: '/Users/demo/project/remote-control',
+          command: '/bin/bash',
+          entryStrategy: TerminalEntryStrategy.shellBootstrap,
+          postCreateInput:
+              'set -e\ncd /Users/demo/project/remote-control\nclaude\n',
+          source: TerminalLaunchPlanSource.intent,
+        ),
+      );
+
+      service.simulateConnectedEvent();
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(service.sentMessages, [
+        'set -e\ncd /Users/demo/project/remote-control\nclaude\n',
+      ]);
+    });
+
+    test('invokes bootstrap dispatched callback after sending commands',
+        () async {
+      final sessionManager = TerminalSessionManager();
+      final service = MockWebSocketService(
+        deviceId: 'dev-1',
+        terminalId: 'term-3',
+      );
+      var dispatched = 0;
+      const launchService = TerminalLaunchSessionService(
+        bootstrapInputDelay: Duration.zero,
+      );
+
+      launchService.ensureSession(
+        sessionManager: sessionManager,
+        deviceId: 'dev-1',
+        terminalId: 'term-3',
+        serviceFactory: () => service,
+        plan: const TerminalLaunchPlan(
+          tool: TerminalLaunchTool.claudeCode,
+          title: 'Claude / remote-control',
+          cwd: '/Users/demo/project/remote-control',
+          command: '/bin/bash',
+          entryStrategy: TerminalEntryStrategy.shellBootstrap,
+          postCreateInput:
+              'set -e\ncd /Users/demo/project/remote-control\nclaude\n',
+          source: TerminalLaunchPlanSource.intent,
+        ),
+        onBootstrapDispatched: () {
+          dispatched += 1;
+        },
+      );
+
+      service.simulateConnectedEvent();
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(service.sentMessages, isNotEmpty);
+      expect(dispatched, 1);
+    });
+
+    test('captures first meaningful terminal output after bootstrap',
+        () async {
+      final sessionManager = TerminalSessionManager();
+      final service = MockWebSocketService(
+        deviceId: 'dev-1',
+        terminalId: 'term-4',
+      );
+      const launchService = TerminalLaunchSessionService(
+        bootstrapInputDelay: Duration.zero,
+        initialOutputObservationTimeout: Duration(milliseconds: 200),
+      );
+
+      final future = launchService.prepareConnectedSession(
+        sessionManager: sessionManager,
+        deviceId: 'dev-1',
+        terminalId: 'term-4',
+        serviceFactory: () => service,
+        plan: const TerminalLaunchPlan(
+          tool: TerminalLaunchTool.claudeCode,
+          title: 'Claude / remote-control',
+          cwd: '/Users/demo/project/remote-control',
+          command: '/bin/bash',
+          entryStrategy: TerminalEntryStrategy.shellBootstrap,
+          postCreateInput:
+              'set -e\ncd /Users/demo/project/remote-control\nclaude\n',
+          source: TerminalLaunchPlanSource.intent,
+        ),
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      service.simulateOutput('Claude Code ready in /Users/demo/project/remote-control');
+
+      final prepared = await future;
+      expect(prepared.connected, isTrue);
+      expect(prepared.bootstrapDispatched, isTrue);
+      expect(
+        prepared.observedOutputSummary,
+        contains('Claude Code ready'),
+      );
+    });
   });
 }

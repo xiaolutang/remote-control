@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/command_sequence_draft.dart';
 import '../models/runtime_device.dart';
 import '../models/runtime_terminal.dart';
 import '../models/terminal_launch_plan.dart';
@@ -21,7 +22,6 @@ import '../services/runtime_selection_controller.dart';
 import '../services/terminal_session_manager.dart';
 import '../services/ui_helpers.dart';
 import '../services/websocket_service.dart';
-import '../widgets/project_context_settings_dialog.dart';
 import '../widgets/smart_terminal_create_dialog.dart';
 import 'login_screen.dart';
 import 'terminal_screen.dart';
@@ -413,39 +413,125 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
   ) async {
     final sessionManager = context.read<TerminalSessionManager>();
     TerminalLaunchPlan? createdPlan;
+    CommandSequenceDraft? createdDraft;
+    var launchSessionPrepared = false;
     final terminal = await showSmartTerminalCreateDialog<RuntimeTerminal>(
       context: context,
       controller: controller,
       title: '新建终端',
-      onOpenProjectSettings: () async {
-        await showProjectContextSettingsDialog(
-          context: context,
-          controller: controller,
-        );
-      },
-      onCreate: (TerminalLaunchPlan plan) async {
+      onCreate: (
+        CommandSequenceDraft draft,
+        Future<void> Function(SmartTerminalExecutionEvent event) reportEvent,
+      ) async {
+        final plan = draft.toLaunchPlan();
         final normalizedPlan = controller.finalizeLaunchPlan(plan);
+        await reportEvent(
+          const SmartTerminalExecutionEvent(
+            title: '创建终端',
+            message: '正在创建新的工作终端。',
+          ),
+        );
         final result = await _workspaceController.createTerminal(
           title: normalizedPlan.title,
           cwd: normalizedPlan.cwd,
           command: normalizedPlan.command,
         );
-        if (result != null) {
-          createdPlan = normalizedPlan;
-          await controller.rememberSuccessfulLaunchPlan(normalizedPlan);
+        if (result == null) {
+          await reportEvent(
+            SmartTerminalExecutionEvent(
+              title: '创建终端',
+              message: controller.errorMessage ?? '终端创建失败，请稍后重试。',
+              status: 'error',
+            ),
+          );
+          return null;
+        }
+        createdPlan = normalizedPlan;
+        createdDraft = draft;
+        await controller.rememberSuccessfulLaunchPlan(normalizedPlan);
+        await reportEvent(
+          SmartTerminalExecutionEvent(
+            title: '创建终端',
+            message: '终端 ${result.title} 已创建，准备建立连接。',
+            status: 'success',
+          ),
+        );
+        await reportEvent(
+          const SmartTerminalExecutionEvent(
+            title: '连接终端',
+            message: '正在连接终端并准备注入启动命令。',
+          ),
+        );
+        final prepared =
+            await const TerminalLaunchSessionService().prepareConnectedSession(
+          sessionManager: sessionManager,
+          deviceId: controller.selectedDeviceId,
+          terminalId: result.terminalId,
+          serviceFactory: () => controller.buildTerminalService(result),
+          plan: normalizedPlan,
+          onBootstrapDispatched: () async {
+            await reportEvent(
+              const SmartTerminalExecutionEvent(
+                title: '发送命令',
+                message: '命令序列已发送到终端，正在同步执行结果。',
+                status: 'success',
+              ),
+            );
+            await controller.reportAssistantExecution(
+              draft: draft,
+              executionStatus: 'succeeded',
+              terminalId: result.terminalId,
+              outputSummary: '终端已创建，并已发送命令序列',
+            );
+            await reportEvent(
+              const SmartTerminalExecutionEvent(
+                title: '执行状态',
+                message: '执行结果已同步到服务端记忆，工作区会直接复用这条连接。',
+                status: 'success',
+              ),
+            );
+          },
+        );
+        launchSessionPrepared = prepared.bootstrapPrepared;
+        if (!prepared.connected) {
+          await reportEvent(
+            const SmartTerminalExecutionEvent(
+              title: '连接终端',
+              message: '终端已创建，但连接尚未完成；工作区会继续接管连接。',
+              status: 'warning',
+            ),
+          );
+        } else if ((prepared.observedOutputSummary ?? '').isNotEmpty) {
+          await reportEvent(
+            SmartTerminalExecutionEvent(
+              title: '终端输出',
+              message: '已收到终端首段输出：${prepared.observedOutputSummary}',
+              status: 'success',
+            ),
+          );
         }
         return result;
       },
     );
 
     if (terminal != null && mounted) {
-      const TerminalLaunchSessionService().ensureSession(
-        sessionManager: sessionManager,
-        deviceId: controller.selectedDeviceId,
-        terminalId: terminal.terminalId,
-        serviceFactory: () => controller.buildTerminalService(terminal),
-        plan: createdPlan,
-      );
+      if (!launchSessionPrepared) {
+        const TerminalLaunchSessionService().ensureSession(
+          sessionManager: sessionManager,
+          deviceId: controller.selectedDeviceId,
+          terminalId: terminal.terminalId,
+          serviceFactory: () => controller.buildTerminalService(terminal),
+          plan: createdPlan,
+          onBootstrapDispatched: createdDraft == null
+              ? null
+              : () => controller.reportAssistantExecution(
+                    draft: createdDraft!,
+                    executionStatus: 'succeeded',
+                    terminalId: terminal.terminalId,
+                    outputSummary: '终端已创建，并已发送命令序列',
+                  ),
+        );
+      }
       _workspaceController.selectTerminal(terminal.terminalId);
     }
   }

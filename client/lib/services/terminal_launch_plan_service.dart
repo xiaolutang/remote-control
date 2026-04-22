@@ -3,6 +3,7 @@ import '../models/project_context_snapshot.dart';
 import '../models/recent_launch_context.dart';
 import '../models/runtime_terminal.dart';
 import '../models/terminal_launch_plan.dart';
+import 'command_planner/planner_coordinator.dart';
 import 'llm_planner_provider.dart';
 import 'local_rules_planner_provider.dart';
 import 'planner_provider.dart';
@@ -13,15 +14,19 @@ class TerminalLaunchPlanService {
     DateTime Function()? clock,
     PlannerProvider? localRulesPlannerProvider,
     PlannerProvider? llmPlannerProvider,
+    PlannerCoordinator? plannerCoordinator,
   })  : _clock = clock ?? _systemClock,
         _localRulesPlannerProvider = localRulesPlannerProvider ??
             LocalRulesPlannerProvider(defaultCwd: defaultCwd),
-        _llmPlannerProvider = llmPlannerProvider ?? LlmPlannerProvider();
+        _plannerCoordinator = plannerCoordinator ??
+            PlannerCoordinator(
+              claudeCliPlanner: llmPlannerProvider ?? LlmPlannerProvider(),
+            );
 
   final String defaultCwd;
   final DateTime Function() _clock;
   final PlannerProvider _localRulesPlannerProvider;
-  final PlannerProvider _llmPlannerProvider;
+  final PlannerCoordinator _plannerCoordinator;
 
   List<TerminalLaunchPlan> buildRecommendedPlans({
     required String? deviceId,
@@ -125,9 +130,14 @@ class TerminalLaunchPlanService {
     ).first;
     final normalizedIntent = PlannerIntentUtils.normalizeIntent(intent);
     if (normalizedIntent == null) {
+      final sequence = PlannerIntentUtils.sequenceFromPlan(
+        fallback,
+        provider: 'local_rules',
+      );
       return PlannerResolutionResult(
         provider: 'local_rules',
         plan: fallback,
+        sequence: sequence,
         reasoningKind: 'empty_intent',
       );
     }
@@ -155,9 +165,13 @@ class TerminalLaunchPlanService {
         PlannerResolutionResult(
           provider: 'local_rules',
           plan: localFallback,
+          sequence: PlannerIntentUtils.sequenceFromPlan(
+            localFallback,
+            provider: 'local_rules',
+          ),
           reasoningKind: 'fallback',
         );
-    final providerResult = await _resolvePreferredProvider(
+    final providerResult = await _plannerCoordinator.resolve(
       request,
       localFallback: localResult,
     );
@@ -166,6 +180,9 @@ class TerminalLaunchPlanService {
       matchedCandidateId: providerResult.matchedCandidateId,
       reasoningKind: providerResult.reasoningKind,
       plan: normalizePlan(providerResult.plan),
+      sequence: providerResult.sequence,
+      fallbackUsed: providerResult.fallbackUsed,
+      fallbackReason: providerResult.fallbackReason,
     );
   }
 
@@ -479,21 +496,6 @@ class TerminalLaunchPlanService {
   }
 
   static DateTime _systemClock() => DateTime.now();
-
-  Future<PlannerResolutionResult> _resolvePreferredProvider(
-    PlannerResolutionRequest request, {
-    required PlannerResolutionResult localFallback,
-  }) async {
-    if (request.plannerConfig.provider != 'llm' ||
-        !request.plannerConfig.llmEnabled) {
-      return localFallback;
-    }
-    try {
-      return await _llmPlannerProvider.resolve(request) ?? localFallback;
-    } catch (_) {
-      return localFallback;
-    }
-  }
 
   TerminalLaunchPlan _buildFallbackIntentPlan({
     required TerminalLaunchPlan fallback,

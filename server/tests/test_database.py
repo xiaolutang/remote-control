@@ -41,6 +41,8 @@ async def test_init_db_creates_tables(db_with_tables):
             "project_source_pinned_projects",
             "project_source_scan_roots",
             "project_source_planner_configs",
+            "assistant_planner_runs",
+            "assistant_planner_memory_entries",
         ):
             cursor = await db.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
@@ -58,6 +60,8 @@ async def test_init_db_creates_index(db_with_tables):
             "idx_pinned_projects_scope",
             "idx_scan_roots_scope",
             "idx_planner_configs_scope",
+            "idx_assistant_runs_scope",
+            "idx_assistant_memory_scope",
         ):
             cursor = await db.execute(
                 "SELECT name FROM sqlite_master WHERE type='index' AND name=?",
@@ -267,3 +271,216 @@ async def test_save_and_get_planner_config(db_with_tables):
     assert config["provider"] == "llm"
     assert config["llm_enabled"] == 1
     assert config["credentials_mode"] == "client_secure_storage"
+
+
+@pytest.mark.asyncio
+async def test_save_and_get_assistant_planner_run(db_with_tables):
+    """智能规划记录可按 user + device + conversation/message 持久化。"""
+    from app.database import (
+        get_assistant_planner_run,
+        save_assistant_planner_run,
+        save_user,
+    )
+
+    await save_user("harry", "hash")
+    await save_assistant_planner_run(
+        "harry",
+        "device-a",
+        {
+            "conversation_id": "conv-1",
+            "message_id": "msg-1",
+            "intent": "进入 remote-control",
+            "provider": "service_llm",
+            "fallback_used": False,
+            "fallback_reason": None,
+            "assistant_messages": [{"type": "assistant", "text": "准备生成命令"}],
+            "trace": [{"stage": "planner", "title": "规划", "status": "completed", "summary": "已完成"}],
+            "command_sequence": {
+                "summary": "进入项目并启动 Claude",
+                "provider": "service_llm",
+                "source": "intent",
+                "need_confirm": True,
+                "steps": [
+                    {"id": "step_1", "label": "进入目录", "command": "cd /tmp/demo"},
+                    {"id": "step_2", "label": "启动 Claude", "command": "claude"},
+                ],
+            },
+            "evaluation_context": {
+                "matched_candidate_id": "cand-1",
+                "matched_cwd": "/tmp/demo",
+                "matched_label": "demo",
+            },
+            "execution_status": "planned",
+        },
+    )
+
+    row = await get_assistant_planner_run("harry", "device-a", "conv-1", "msg-1")
+
+    assert row is not None
+    assert row["intent"] == "进入 remote-control"
+    assert row["provider"] == "service_llm"
+    assert row["execution_status"] == "planned"
+    assert "step_1" in row["command_sequence_json"]
+    assert "cand-1" in row["evaluation_context_json"]
+
+
+@pytest.mark.asyncio
+async def test_report_assistant_execution_updates_memory_only_after_report(db_with_tables):
+    """planner memory 只在收到执行结果回写后更新。"""
+    from app.database import (
+        list_assistant_planner_memory,
+        report_assistant_execution,
+        save_assistant_planner_run,
+        save_user,
+    )
+
+    await save_user("ivy", "hash")
+    await save_assistant_planner_run(
+        "ivy",
+        "device-a",
+        {
+            "conversation_id": "conv-1",
+            "message_id": "msg-1",
+            "intent": "进入 remote-control",
+            "provider": "service_llm",
+            "assistant_messages": [],
+            "trace": [],
+            "command_sequence": {
+                "summary": "进入项目并启动 Claude",
+                "provider": "service_llm",
+                "source": "intent",
+                "need_confirm": True,
+                "steps": [
+                    {"id": "step_1", "label": "进入目录", "command": "cd /Users/demo/project/remote-control"},
+                    {"id": "step_2", "label": "启动 Claude", "command": "claude"},
+                ],
+            },
+            "evaluation_context": {
+                "matched_candidate_id": "cand-remote-control",
+                "matched_cwd": "/Users/demo/project/remote-control",
+                "matched_label": "remote-control",
+            },
+            "execution_status": "planned",
+        },
+    )
+
+    assert await list_assistant_planner_memory("ivy", "device-a", "recent_project") == []
+    assert await list_assistant_planner_memory("ivy", "device-a", "successful_sequence") == []
+
+    await report_assistant_execution(
+        "ivy",
+        "device-a",
+        "conv-1",
+        "msg-1",
+        execution_status="succeeded",
+        terminal_id="term-1",
+        failed_step_id=None,
+        output_summary="已进入项目并启动 Claude",
+        command_sequence={
+            "summary": "进入项目并启动 Claude",
+            "provider": "service_llm",
+            "source": "intent",
+            "need_confirm": True,
+            "steps": [
+                {"id": "step_1", "label": "进入目录", "command": "cd /Users/demo/project/remote-control"},
+                {"id": "step_2", "label": "启动 Claude", "command": "claude"},
+            ],
+        },
+    )
+
+    recent_projects = await list_assistant_planner_memory("ivy", "device-a", "recent_project")
+    successful_sequences = await list_assistant_planner_memory("ivy", "device-a", "successful_sequence")
+
+    assert len(recent_projects) == 1
+    assert recent_projects[0]["cwd"] == "/Users/demo/project/remote-control"
+    assert recent_projects[0]["success_count"] == 1
+    assert len(successful_sequences) == 1
+    assert successful_sequences[0]["last_status"] == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_report_assistant_execution_is_device_scoped_and_idempotent(db_with_tables):
+    """重复回写不会重复写 memory，且不同 device 不会串用。"""
+    from app.database import (
+        list_assistant_planner_memory,
+        report_assistant_execution,
+        save_assistant_planner_run,
+        save_user,
+    )
+
+    await save_user("jane", "hash")
+    await save_assistant_planner_run(
+        "jane",
+        "device-a",
+        {
+            "conversation_id": "conv-1",
+            "message_id": "msg-1",
+            "intent": "进入 ai_rules",
+            "provider": "service_llm",
+            "assistant_messages": [],
+            "trace": [],
+            "command_sequence": {
+                "summary": "进入 ai_rules",
+                "provider": "service_llm",
+                "source": "intent",
+                "need_confirm": True,
+                "steps": [
+                    {"id": "step_1", "label": "进入目录", "command": "cd /Users/demo/project/ai_rules"},
+                ],
+            },
+            "evaluation_context": {
+                "matched_candidate_id": "cand-ai-rules",
+                "matched_cwd": "/Users/demo/project/ai_rules",
+                "matched_label": "ai_rules",
+            },
+            "execution_status": "planned",
+        },
+    )
+
+    first = await report_assistant_execution(
+        "jane",
+        "device-a",
+        "conv-1",
+        "msg-1",
+        execution_status="failed",
+        terminal_id="term-1",
+        failed_step_id="step_1",
+        output_summary="目录不存在",
+        command_sequence={
+            "summary": "进入 ai_rules",
+            "provider": "service_llm",
+            "source": "intent",
+            "need_confirm": True,
+            "steps": [
+                {"id": "step_1", "label": "进入目录", "command": "cd /Users/demo/project/ai_rules"},
+            ],
+        },
+    )
+    second = await report_assistant_execution(
+        "jane",
+        "device-a",
+        "conv-1",
+        "msg-1",
+        execution_status="failed",
+        terminal_id="term-1",
+        failed_step_id="step_1",
+        output_summary="目录不存在",
+        command_sequence={
+            "summary": "进入 ai_rules",
+            "provider": "service_llm",
+            "source": "intent",
+            "need_confirm": True,
+            "steps": [
+                {"id": "step_1", "label": "进入目录", "command": "cd /Users/demo/project/ai_rules"},
+            ],
+        },
+    )
+
+    failures_a = await list_assistant_planner_memory("jane", "device-a", "recent_failure")
+    failures_b = await list_assistant_planner_memory("jane", "device-b", "recent_failure")
+
+    assert first is not None
+    assert second is not None
+    assert len(failures_a) == 1
+    assert failures_a[0]["failure_count"] == 1
+    assert failures_b == []

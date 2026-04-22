@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../models/assistant_plan.dart';
 import '../models/project_context_settings.dart';
 import '../models/project_context_snapshot.dart';
 import '../models/runtime_device.dart';
@@ -9,6 +10,23 @@ import '../models/runtime_terminal.dart';
 import 'auth_service.dart';
 import 'http_client_factory.dart';
 import 'server_url_helper.dart';
+
+class RuntimeApiException implements Exception {
+  RuntimeApiException({
+    required this.statusCode,
+    required this.message,
+    this.reason,
+    this.retryAfter,
+  });
+
+  final int statusCode;
+  final String message;
+  final String? reason;
+  final int? retryAfter;
+
+  @override
+  String toString() => 'Exception: $message';
+}
 
 class RuntimeDeviceService {
   RuntimeDeviceService({
@@ -40,7 +58,20 @@ class RuntimeDeviceService {
           throw AuthException(AuthErrorCode.tokenInvalid, '认证信息无效');
       }
     }
-    throw Exception(data['detail'] ?? defaultMessage);
+    final detail = data['detail'];
+    if (detail is Map<String, dynamic>) {
+      throw RuntimeApiException(
+        statusCode: response.statusCode,
+        message: (detail['message'] as String? ?? defaultMessage).trim(),
+        reason: (detail['reason'] as String?)?.trim(),
+        retryAfter: int.tryParse(response.headers['retry-after'] ?? ''),
+      );
+    }
+    throw RuntimeApiException(
+      statusCode: response.statusCode,
+      message: (detail as String? ?? defaultMessage).trim(),
+      retryAfter: int.tryParse(response.headers['retry-after'] ?? ''),
+    );
   }
 
   Future<List<RuntimeDevice>> listDevices(String token) async {
@@ -241,5 +272,150 @@ class RuntimeDeviceService {
       _throwError(response, '刷新项目候选失败');
     }
     return DeviceProjectContextSnapshot.fromJson(data);
+  }
+
+  Future<AssistantPlanResult> createAssistantPlan(
+    String token,
+    String deviceId, {
+    required String intent,
+    required String conversationId,
+    required String messageId,
+    bool allowClaudeCli = true,
+    bool allowLocalRules = true,
+  }) async {
+    final response = await _client.post(
+      Uri.parse('$_httpUrl/api/runtime/devices/$deviceId/assistant/plan'),
+      headers: _headers(token),
+      body: jsonEncode({
+        'intent': intent,
+        'conversation_id': conversationId,
+        'message_id': messageId,
+        'fallback_policy': {
+          'allow_claude_cli': allowClaudeCli,
+          'allow_local_rules': allowLocalRules,
+        },
+      }),
+    );
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.statusCode != 200) {
+      _throwError(response, '智能规划失败');
+    }
+    return AssistantPlanResult.fromJson(data);
+  }
+
+  Future<AssistantPlanResult> createAssistantPlanStream(
+    String token,
+    String deviceId, {
+    required String intent,
+    required String conversationId,
+    required String messageId,
+    bool allowClaudeCli = true,
+    bool allowLocalRules = true,
+    void Function(AssistantPlanProgressEvent event)? onProgress,
+  }) async {
+    final request = http.Request(
+      'POST',
+      Uri.parse(
+          '$_httpUrl/api/runtime/devices/$deviceId/assistant/plan/stream'),
+    )
+      ..headers.addAll(_headers(token))
+      ..body = jsonEncode({
+        'intent': intent,
+        'conversation_id': conversationId,
+        'message_id': messageId,
+        'fallback_policy': {
+          'allow_claude_cli': allowClaudeCli,
+          'allow_local_rules': allowLocalRules,
+        },
+      });
+
+    final response = await _client.send(request);
+    if (response.statusCode != 200) {
+      final body = await response.stream.bytesToString();
+      _throwError(
+        http.Response(
+          body,
+          response.statusCode,
+          headers: response.headers,
+          request: request,
+        ),
+        '智能规划失败',
+      );
+    }
+
+    AssistantPlanResult? result;
+    await for (final line in response.stream
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())) {
+      final trimmed = line.trim();
+      if (trimmed.isEmpty) {
+        continue;
+      }
+      final data = jsonDecode(trimmed) as Map<String, dynamic>;
+      final event = AssistantPlanProgressEvent.fromJson(data);
+      switch (event.type) {
+        case 'assistant_message':
+        case 'assistant_delta':
+        case 'trace':
+        case 'trace_item':
+        case 'tool_call':
+        case 'tool_result':
+        case 'status':
+        case 'status_update':
+          onProgress?.call(event);
+          break;
+        case 'error':
+          throw RuntimeApiException(
+            statusCode: 502,
+            message: event.message ?? '智能规划流执行失败',
+            reason: event.reason,
+            retryAfter: event.retryAfter,
+          );
+        case 'result':
+          result = event.result;
+          break;
+        default:
+          break;
+      }
+    }
+
+    if (result != null) {
+      return result;
+    }
+    throw RuntimeApiException(
+      statusCode: 502,
+      message: '智能规划流未返回最终结果',
+    );
+  }
+
+  Future<void> reportAssistantExecution(
+    String token,
+    String deviceId, {
+    required String conversationId,
+    required String messageId,
+    String? terminalId,
+    required String executionStatus,
+    String? failedStepId,
+    String? outputSummary,
+    required AssistantCommandSequence commandSequence,
+  }) async {
+    final response = await _client.post(
+      Uri.parse(
+        '$_httpUrl/api/runtime/devices/$deviceId/assistant/executions/report',
+      ),
+      headers: _headers(token),
+      body: jsonEncode({
+        'conversation_id': conversationId,
+        'message_id': messageId,
+        'terminal_id': terminalId,
+        'execution_status': executionStatus,
+        'failed_step_id': failedStepId,
+        'output_summary': outputSummary,
+        'command_sequence': commandSequence.toJson(),
+      }),
+    );
+    if (response.statusCode != 200) {
+      _throwError(response, '同步执行结果失败');
+    }
   }
 }

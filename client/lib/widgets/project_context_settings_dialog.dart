@@ -49,6 +49,7 @@ class _ProjectContextSettingsDialogState
   PlannerRuntimeConfigModel _plannerConfig = const PlannerRuntimeConfigModel();
   bool _loading = true;
   bool _saving = false;
+  bool _advancedExpanded = false;
   bool _hasStoredApiKey = false;
   String? _errorMessage;
 
@@ -149,12 +150,6 @@ class _ProjectContextSettingsDialogState
     }
 
     final apiKeyInput = _apiKeyController.text.trim();
-    if (_plannerConfig.llmEnabled && !_hasStoredApiKey && apiKeyInput.isEmpty) {
-      setState(() {
-        _errorMessage = '启用 LLM Planner 前需要先保存 API Key';
-      });
-      return;
-    }
 
     setState(() {
       _saving = true;
@@ -187,7 +182,7 @@ class _ProjectContextSettingsDialogState
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('项目来源设置'),
+      title: const Text('常用项目'),
       content: SizedBox(
         width: 560,
         child: _loading
@@ -200,14 +195,25 @@ class _ProjectContextSettingsDialogState
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      '这些配置会影响当前设备的智能识别候选和后续 planner 能力。',
-                      style: Theme.of(context).textTheme.bodyMedium,
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest
+                            .withValues(alpha: 0.42),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Text(
+                        '把你常进入的项目放在这里，智能终端会优先推荐这些目录。',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
                     ),
                     const SizedBox(height: 20),
                     _SectionTitle(
-                      title: '固定项目',
-                      subtitle: '显式固定后会优先进入当前设备候选。',
+                      title: '常用项目',
+                      subtitle: '这里越明确，智能推荐越容易一步到位。',
                     ),
                     const SizedBox(height: 8),
                     for (var index = 0; index < _pinnedProjects.length; index++)
@@ -243,142 +249,168 @@ class _ProjectContextSettingsDialogState
                     TextField(
                       key: const Key('project-settings-pinned-cwd'),
                       controller: _pinnedCwdController,
-                      decoration: const InputDecoration(labelText: '工作目录'),
+                      decoration: const InputDecoration(labelText: '项目目录'),
                     ),
                     const SizedBox(height: 8),
                     OutlinedButton.icon(
                       key: const Key('project-settings-pinned-add'),
                       onPressed: _saving ? null : _addPinnedProject,
                       icon: const Icon(Icons.add),
-                      label: const Text('添加固定项目'),
+                      label: const Text('添加常用项目'),
                     ),
                     const SizedBox(height: 20),
-                    _SectionTitle(
-                      title: '扫描根目录',
-                      subtitle: '后续 Agent 扫描只会在显式授权的根目录内进行。',
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('高级设置'),
+                      subtitle: const Text('只有需要扫描目录或接入 LLM 时再展开。'),
+                      trailing: Icon(
+                        _advancedExpanded
+                            ? Icons.expand_less
+                            : Icons.expand_more,
+                      ),
+                      onTap: _saving
+                          ? null
+                          : () {
+                              setState(() {
+                                _advancedExpanded = !_advancedExpanded;
+                              });
+                            },
                     ),
-                    const SizedBox(height: 8),
-                    for (var index = 0; index < _scanRoots.length; index++)
-                      Card(
-                        child: CheckboxListTile(
-                          key: Key('project-settings-scan-root-$index'),
-                          value: _scanRoots[index].enabled,
-                          onChanged: _saving
-                              ? null
-                              : (value) {
-                                  setState(() {
-                                    _scanRoots = [
-                                      for (var i = 0;
-                                          i < _scanRoots.length;
-                                          i++)
-                                        if (i == index)
-                                          _scanRoots[i].copyWith(
-                                            enabled: value ?? false,
-                                          )
-                                        else
-                                          _scanRoots[i],
-                                    ];
-                                  });
-                                },
-                          title: Text(_scanRoots[index].rootPath),
-                          subtitle: Text('扫描深度 ${_scanRoots[index].scanDepth}'),
-                          secondary: IconButton(
-                            key: Key(
-                              'project-settings-scan-root-remove-$index',
-                            ),
-                            onPressed: _saving
+                    if (_advancedExpanded) ...[
+                      const SizedBox(height: 8),
+                      _SectionTitle(
+                        title: '扫描目录',
+                        subtitle: 'Agent 只会在你显式授权的目录范围里扫描项目。',
+                      ),
+                      const SizedBox(height: 8),
+                      for (var index = 0; index < _scanRoots.length; index++)
+                        Card(
+                          child: CheckboxListTile(
+                            key: Key('project-settings-scan-root-$index'),
+                            value: _scanRoots[index].enabled,
+                            onChanged: _saving
                                 ? null
-                                : () {
+                                : (value) {
                                     setState(() {
                                       _scanRoots = [
                                         for (var i = 0;
                                             i < _scanRoots.length;
                                             i++)
-                                          if (i != index) _scanRoots[i],
+                                          if (i == index)
+                                            _scanRoots[i].copyWith(
+                                              enabled: value ?? false,
+                                            )
+                                          else
+                                            _scanRoots[i],
                                       ];
                                     });
                                   },
-                            icon: const Icon(Icons.delete_outline),
+                            title: Text(_scanRoots[index].rootPath),
+                            subtitle: Text(
+                              '扫描深度 ${_scanRoots[index].scanDepth}',
+                            ),
+                            secondary: IconButton(
+                              key: Key(
+                                'project-settings-scan-root-remove-$index',
+                              ),
+                              onPressed: _saving
+                                  ? null
+                                  : () {
+                                      setState(() {
+                                        _scanRoots = [
+                                          for (var i = 0;
+                                              i < _scanRoots.length;
+                                              i++)
+                                            if (i != index) _scanRoots[i],
+                                        ];
+                                      });
+                                    },
+                              icon: const Icon(Icons.delete_outline),
+                            ),
                           ),
                         ),
+                      TextField(
+                        key: const Key('project-settings-scan-root-path'),
+                        controller: _scanRootController,
+                        decoration: const InputDecoration(labelText: '根目录'),
                       ),
-                    TextField(
-                      key: const Key('project-settings-scan-root-path'),
-                      controller: _scanRootController,
-                      decoration: const InputDecoration(labelText: '根目录'),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      key: const Key('project-settings-scan-root-depth'),
-                      controller: _scanDepthController,
-                      decoration: const InputDecoration(labelText: '扫描深度'),
-                      keyboardType: TextInputType.number,
-                    ),
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      key: const Key('project-settings-scan-root-add'),
-                      onPressed: _saving ? null : _addScanRoot,
-                      icon: const Icon(Icons.add),
-                      label: const Text('添加扫描根目录'),
-                    ),
-                    const SizedBox(height: 20),
-                    _SectionTitle(
-                      title: 'LLM Planner',
-                      subtitle: '默认关闭。只有显式开启后才允许参与意图解析。',
-                    ),
-                    SwitchListTile(
-                      key: const Key('project-settings-planner-enabled'),
-                      value: _plannerConfig.llmEnabled,
-                      contentPadding: EdgeInsets.zero,
-                      onChanged: _saving
-                          ? null
-                          : (value) {
-                              setState(() {
-                                _plannerConfig = _plannerConfig.copyWith(
-                                  llmEnabled: value,
-                                  provider: value ? 'llm' : 'local_rules',
-                                );
-                              });
-                            },
-                      title: const Text('启用 LLM Planner（实验性）'),
-                      subtitle: const Text('未开启时智能创建始终只走本地规则。'),
-                    ),
-                    const SizedBox(height: 8),
-                    DropdownButtonFormField<String>(
-                      key: const Key('project-settings-endpoint-profile'),
-                      value: _plannerConfig.endpointProfile,
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'openai_compatible',
-                          child: Text('OpenAI Compatible'),
+                      const SizedBox(height: 8),
+                      TextField(
+                        key: const Key('project-settings-scan-root-depth'),
+                        controller: _scanDepthController,
+                        decoration: const InputDecoration(labelText: '扫描深度'),
+                        keyboardType: TextInputType.number,
+                      ),
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        key: const Key('project-settings-scan-root-add'),
+                        onPressed: _saving ? null : _addScanRoot,
+                        icon: const Icon(Icons.add),
+                        label: const Text('添加扫描目录'),
+                      ),
+                      const SizedBox(height: 20),
+                      _SectionTitle(
+                        title: '智能规划器',
+                        subtitle:
+                            '默认优先调用服务端 LLM，失败时自动回退 `claude -p` 和本地规则。',
+                      ),
+                      SwitchListTile(
+                        key: const Key('project-settings-planner-enabled'),
+                        value: _plannerConfig.llmEnabled,
+                        contentPadding: EdgeInsets.zero,
+                        onChanged: _saving
+                            ? null
+                            : (value) {
+                                setState(() {
+                                  _plannerConfig = _plannerConfig.copyWith(
+                                    llmEnabled: value,
+                                    provider:
+                                        value ? 'claude_cli' : 'local_rules',
+                                  );
+                                });
+                              },
+                        title: const Text('启用智能规划'),
+                        subtitle: const Text('关闭后，一句话创建只走本地规则。'),
+                      ),
+                      const SizedBox(height: 8),
+                      DropdownButtonFormField<String>(
+                        key: const Key('project-settings-endpoint-profile'),
+                        value: _plannerConfig.endpointProfile,
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'openai_compatible',
+                            child: Text('OpenAI Compatible'),
+                          ),
+                        ],
+                        onChanged: _saving || !_plannerConfig.llmEnabled
+                            ? null
+                            : (value) {
+                                if (value == null) {
+                                  return;
+                                }
+                                setState(() {
+                                  _plannerConfig = _plannerConfig.copyWith(
+                                    endpointProfile: value,
+                                  );
+                                });
+                              },
+                        decoration:
+                            const InputDecoration(labelText: 'Endpoint'),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        key: const Key('project-settings-planner-api-key'),
+                        controller: _apiKeyController,
+                        decoration: InputDecoration(
+                          labelText:
+                              _hasStoredApiKey ? '替换 API Key（可选）' : 'API Key（可选）',
+                          helperText: _hasStoredApiKey
+                              ? '已保存旧密钥；如果服务端已统一配置，这里可以留空。'
+                              : '通常由服务端统一配置；只有你要做客户端凭证覆盖时才需要填写。',
                         ),
-                      ],
-                      onChanged: _saving || !_plannerConfig.llmEnabled
-                          ? null
-                          : (value) {
-                              if (value == null) {
-                                return;
-                              }
-                              setState(() {
-                                _plannerConfig = _plannerConfig.copyWith(
-                                  endpointProfile: value,
-                                );
-                              });
-                            },
-                      decoration: const InputDecoration(labelText: 'Endpoint'),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      key: const Key('project-settings-planner-api-key'),
-                      controller: _apiKeyController,
-                      decoration: InputDecoration(
-                        labelText: _hasStoredApiKey ? '替换 API Key' : 'API Key',
-                        helperText: _hasStoredApiKey
-                            ? '已保存旧密钥；这里输入的新值会覆盖旧值，界面不会回显明文。'
-                            : '凭证只保存在当前设备安全存储，不会上传到 Agent。',
+                        obscureText: true,
                       ),
-                      obscureText: true,
-                    ),
+                    ],
                     if (_errorMessage != null) ...[
                       const SizedBox(height: 12),
                       Text(

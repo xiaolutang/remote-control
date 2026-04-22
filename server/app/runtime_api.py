@@ -1,25 +1,41 @@
 """
 多 terminal runtime REST API
 """
+import asyncio
 import hashlib
+import json
 import os
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, status, Depends, Request as FastAPIRequest
 from pydantic import BaseModel, Field
+from fastapi.responses import StreamingResponse
 
+from app.assistant_planner import (
+    AssistantPlannerRateLimited,
+    AssistantPlannerTimeout,
+    AssistantPlannerUnavailable,
+    plan_with_service_llm,
+    planner_timeout_ms,
+)
 from app.auth import get_current_user_id
 from app.database import (
+    get_assistant_planner_run,
     get_approved_scan_roots,
+    list_assistant_planner_memory,
     get_pinned_projects,
     get_planner_config,
+    report_assistant_execution,
     save_planner_config,
+    save_assistant_planner_run,
     replace_approved_scan_roots,
     replace_pinned_projects,
 )
 from app.session import (
     create_session_terminal,
+    get_redis,
     get_session_by_device_id,
     get_session_terminal,
     list_session_terminals,
@@ -122,11 +138,11 @@ class ApprovedScanRootItem(BaseModel):
 
 
 class PlannerRuntimeConfig(BaseModel):
-    provider: str = "local_rules"
-    llm_enabled: bool = False
+    provider: str = "claude_cli"
+    llm_enabled: bool = True
     endpoint_profile: str = "openai_compatible"
     credentials_mode: str = "client_secure_storage"
-    requires_explicit_opt_in: bool = True
+    requires_explicit_opt_in: bool = False
 
 
 class ProjectContextSettingsResponse(BaseModel):
@@ -156,6 +172,82 @@ class UpdateDeviceRequest(BaseModel):
 
 class UpdateTerminalRequest(BaseModel):
     title: str
+
+
+class AssistantFallbackPolicy(BaseModel):
+    allow_claude_cli: bool = True
+    allow_local_rules: bool = True
+
+
+class AssistantPlanRequest(BaseModel):
+    intent: str
+    conversation_id: str
+    message_id: str
+    fallback_policy: AssistantFallbackPolicy = Field(default_factory=AssistantFallbackPolicy)
+
+
+class AssistantMessageItem(BaseModel):
+    type: str = "assistant"
+    text: str
+
+
+class AssistantTraceItem(BaseModel):
+    stage: str
+    title: str
+    status: str
+    summary: str
+
+
+class AssistantCommandStep(BaseModel):
+    id: str
+    label: str
+    command: str
+
+
+class AssistantCommandSequence(BaseModel):
+    summary: str
+    provider: str
+    source: str
+    need_confirm: bool = True
+    steps: list[AssistantCommandStep]
+
+
+class AssistantPlanLimits(BaseModel):
+    rate_limited: bool = False
+    budget_blocked: bool = False
+    provider_timeout_ms: int
+    retry_after: Optional[int] = None
+
+
+class AssistantPlanResponse(BaseModel):
+    conversation_id: str
+    message_id: str
+    assistant_messages: list[AssistantMessageItem] = Field(default_factory=list)
+    trace: list[AssistantTraceItem] = Field(default_factory=list)
+    command_sequence: AssistantCommandSequence
+    fallback_used: bool = False
+    fallback_reason: Optional[str] = None
+    limits: AssistantPlanLimits
+    evaluation_context: dict = Field(default_factory=dict)
+
+
+class AssistantExecutionReportRequest(BaseModel):
+    conversation_id: str
+    message_id: str
+    terminal_id: Optional[str] = None
+    execution_status: str
+    failed_step_id: Optional[str] = None
+    output_summary: Optional[str] = None
+    command_sequence: dict
+
+
+class AssistantExecutionReportResponse(BaseModel):
+    acknowledged: bool
+    memory_updated: bool
+    evaluation_recorded: bool
+
+
+AssistantPlanProgressReporter = Optional[Callable[[dict[str, Any]], Awaitable[None]]]
 
 
 def _candidate_sort_key(candidate: ProjectContextCandidate) -> tuple[float, str]:
@@ -283,6 +375,33 @@ def _default_planner_config() -> PlannerRuntimeConfig:
     return PlannerRuntimeConfig()
 
 
+def _normalize_planner_config(config: Optional[dict]) -> PlannerRuntimeConfig:
+    if not config:
+        return _default_planner_config()
+
+    provider = config.get("provider")
+    llm_enabled = bool(config.get("llm_enabled", False))
+    endpoint_profile = config.get("endpoint_profile", "openai_compatible")
+    credentials_mode = config.get(
+        "credentials_mode", "client_secure_storage"
+    )
+    requires_explicit_opt_in = bool(
+        config.get("requires_explicit_opt_in", True)
+    )
+
+    # 升级旧版本默认值：此前默认关闭智能规划，这会让“一句话创建”看起来始终像规则兜底。
+    if (
+        provider == "local_rules"
+        and not llm_enabled
+        and endpoint_profile == "openai_compatible"
+        and credentials_mode == "client_secure_storage"
+        and requires_explicit_opt_in
+    ):
+        return _default_planner_config()
+
+    return PlannerRuntimeConfig(**config)
+
+
 async def _build_project_context_settings(
     *,
     session: dict,
@@ -312,10 +431,312 @@ async def _build_project_context_settings(
             for root in scan_roots
             if root.get("root_path")
         ],
-        planner_config=PlannerRuntimeConfig(**planner_config)
-        if planner_config
-        else _default_planner_config(),
+        planner_config=_normalize_planner_config(planner_config),
     )
+
+
+def _assistant_error(
+    status_code: int,
+    *,
+    reason: str,
+    message: str,
+    headers: Optional[dict[str, str]] = None,
+) -> HTTPException:
+    return HTTPException(
+        status_code=status_code,
+        detail={
+            "reason": reason,
+            "message": message,
+        },
+        headers=headers,
+    )
+
+
+def _model_dump(value: Any) -> Any:
+    if hasattr(value, "model_dump"):
+        return value.model_dump()
+    if hasattr(value, "dict"):
+        return value.dict()
+    return value
+
+
+def _json_loads(value: Any, default: Any) -> Any:
+    if not value:
+        return default
+    if isinstance(value, (dict, list)):
+        return value
+    try:
+        return json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return default
+
+
+def _normalize_assistant_message(raw: dict) -> dict[str, str]:
+    text = str(raw.get("text", "")).strip()
+    if not text:
+        text = "已生成可执行命令序列。"
+    return {
+        "type": str(raw.get("type", "assistant")).strip() or "assistant",
+        "text": text,
+    }
+
+
+def _normalize_trace_item(raw: dict) -> dict[str, str]:
+    return {
+        "stage": str(raw.get("stage", "planner")).strip() or "planner",
+        "title": str(raw.get("title", "规划")).strip() or "规划",
+        "status": str(raw.get("status", "completed")).strip() or "completed",
+        "summary": str(raw.get("summary", "已完成")).strip() or "已完成",
+    }
+
+
+def _progress_status_update(
+    *,
+    stage: str,
+    status: str,
+    title: str,
+    summary: str,
+) -> dict[str, Any]:
+    return {
+        "type": "status_update",
+        "status_update": {
+            "stage": stage,
+            "status": status,
+            "title": title,
+            "summary": summary,
+        },
+    }
+
+
+def _progress_tool_call(
+    *,
+    tool_id: str,
+    tool_name: str,
+    status: str,
+    summary: str,
+    input_summary: Optional[str] = None,
+    output_summary: Optional[str] = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "type": "tool_call",
+        "tool_call": {
+            "id": tool_id,
+            "tool_name": tool_name,
+            "status": status,
+            "summary": summary,
+        },
+    }
+    if input_summary:
+        payload["tool_call"]["input_summary"] = input_summary
+    if output_summary:
+        payload["tool_call"]["output_summary"] = output_summary
+    return payload
+
+
+def _ensure_assistant_trace(
+    trace: list[dict],
+    *,
+    matched_candidate: Optional[ProjectContextCandidate],
+    memory_hits: int,
+) -> list[dict]:
+    normalized = [_normalize_trace_item(item) for item in trace if isinstance(item, dict)]
+    existing = {item["stage"] for item in normalized}
+
+    context_summary = "已读取当前设备上下文"
+    if matched_candidate:
+        context_summary = f"命中候选项目 {matched_candidate.label}"
+    elif memory_hits > 0:
+        context_summary = f"已读取 {memory_hits} 条近期记忆"
+
+    if "context" not in existing:
+        normalized.insert(
+            0,
+            {
+                "stage": "context",
+                "title": "读取上下文",
+                "status": "completed",
+                "summary": context_summary,
+            },
+        )
+    if "validation" not in existing:
+        normalized.append(
+            {
+                "stage": "validation",
+                "title": "安全校验",
+                "status": "completed",
+                "summary": "命令结构校验通过",
+            }
+        )
+    return normalized
+
+
+def _validate_command_sequence(command_sequence: Any) -> dict[str, Any]:
+    if not isinstance(command_sequence, dict):
+        raise _assistant_error(
+            status.HTTP_400_BAD_REQUEST,
+            reason="invalid_command_sequence",
+            message="command_sequence 必须是对象",
+        )
+
+    summary = str(command_sequence.get("summary", "")).strip()
+    steps = command_sequence.get("steps")
+    if not summary:
+        raise _assistant_error(
+            status.HTTP_400_BAD_REQUEST,
+            reason="invalid_command_sequence",
+            message="command_sequence.summary 不能为空",
+        )
+    if not isinstance(steps, list) or not steps:
+        raise _assistant_error(
+            status.HTTP_400_BAD_REQUEST,
+            reason="invalid_command_sequence",
+            message="command_sequence.steps 不能为空",
+        )
+
+    normalized_steps: list[dict[str, str]] = []
+    for index, step in enumerate(steps, start=1):
+        if not isinstance(step, dict):
+            raise _assistant_error(
+                status.HTTP_400_BAD_REQUEST,
+                reason="invalid_command_sequence",
+                message=f"command_sequence.steps[{index - 1}] 非法",
+            )
+        command = str(step.get("command", "")).strip()
+        if not command:
+            raise _assistant_error(
+                status.HTTP_400_BAD_REQUEST,
+                reason="invalid_command_sequence",
+                message=f"command_sequence.steps[{index - 1}].command 不能为空",
+            )
+        normalized_steps.append(
+            {
+                "id": str(step.get("id", f"step_{index}")).strip() or f"step_{index}",
+                "label": str(step.get("label", f"步骤 {index}")).strip() or f"步骤 {index}",
+                "command": command,
+            }
+        )
+
+    return {
+        "summary": summary,
+        "provider": str(command_sequence.get("provider", "service_llm")).strip() or "service_llm",
+        "source": str(command_sequence.get("source", "intent")).strip() or "intent",
+        "need_confirm": bool(command_sequence.get("need_confirm", True)),
+        "steps": normalized_steps,
+    }
+
+
+async def _check_assistant_plan_rate_limit(user_id: str) -> Optional[int]:
+    limit = max(0, int(os.environ.get("ASSISTANT_PLAN_RATE_LIMIT_PER_MINUTE", "12")))
+    if limit <= 0:
+        return None
+
+    try:
+        redis = await get_redis()
+        key = f"assistant_plan_rate_limit:{user_id}"
+        current = await redis.incr(key)
+        if current == 1:
+            await redis.expire(key, 60)
+        if current > limit:
+            return 60
+    except Exception:
+        return None
+    return None
+
+
+def _match_candidate_from_intent(
+    intent: str,
+    candidates: list[ProjectContextCandidate],
+) -> Optional[ProjectContextCandidate]:
+    normalized_intent = intent.lower().strip()
+    if not normalized_intent:
+        return None
+
+    for candidate in candidates:
+        names = {
+            candidate.label.lower().strip(),
+            os.path.basename(candidate.cwd.rstrip("/")).lower().strip(),
+        }
+        for name in names:
+            if name and name in normalized_intent:
+                return candidate
+    return candidates[0] if candidates else None
+
+
+async def _build_assistant_project_context(
+    *,
+    session: dict,
+    user_id: str,
+) -> dict[str, Any]:
+    device_id = session.get("device", {}).get("device_id", session["session_id"])
+    terminals = await list_session_terminals(session["session_id"])
+    pinned_projects = await get_pinned_projects(user_id, device_id)
+    scan_roots = await get_approved_scan_roots(user_id, device_id)
+
+    candidates = _dedupe_candidates(
+        _build_recent_terminal_candidates(terminals, device_id=device_id)
+        + _build_pinned_project_candidates(pinned_projects, device_id=device_id)
+    )
+    device = session.get("device", {})
+    active_terminals = sum(1 for terminal in terminals if terminal.get("status") != "closed")
+    return {
+        "device": {
+            "device_id": device_id,
+            "name": device.get("name", ""),
+            "platform": device.get("platform", ""),
+            "hostname": device.get("hostname", ""),
+            "max_terminals": device.get("max_terminals", 3),
+            "active_terminals": active_terminals,
+        },
+        "recent_terminals": [
+            {
+                "terminal_id": terminal.get("terminal_id"),
+                "title": terminal.get("title", ""),
+                "cwd": terminal.get("cwd", ""),
+                "command": terminal.get("command", ""),
+                "status": terminal.get("status", ""),
+                "updated_at": terminal.get("updated_at") or terminal.get("created_at"),
+            }
+            for terminal in terminals
+            if terminal.get("cwd")
+        ][:5],
+        "candidate_projects": [_model_dump(candidate) for candidate in candidates],
+        "approved_scan_roots": [
+            {
+                "root_path": root.get("root_path", ""),
+                "scan_depth": int(root.get("scan_depth", 2) or 2),
+                "enabled": bool(root.get("enabled", True)),
+            }
+            for root in scan_roots
+            if root.get("root_path")
+        ],
+    }
+
+
+async def _build_assistant_planner_memory(
+    *,
+    user_id: str,
+    device_id: str,
+) -> dict[str, list[dict[str, Any]]]:
+    memory: dict[str, list[dict[str, Any]]] = {}
+    for memory_type in ("recent_project", "successful_sequence", "recent_failure"):
+        rows = await list_assistant_planner_memory(user_id, device_id, memory_type, limit=5)
+        memory[memory_type] = [
+            {
+                "memory_type": row.get("memory_type"),
+                "memory_key": row.get("memory_key"),
+                "label": row.get("label"),
+                "cwd": row.get("cwd"),
+                "summary": row.get("summary"),
+                "command_sequence": _json_loads(row.get("command_sequence_json"), None),
+                "metadata": _json_loads(row.get("metadata_json"), {}),
+                "success_count": int(row.get("success_count", 0) or 0),
+                "failure_count": int(row.get("failure_count", 0) or 0),
+                "last_status": row.get("last_status"),
+                "updated_at": row.get("updated_at"),
+            }
+            for row in rows
+        ]
+    return memory
 
 
 @router.get("/runtime/devices", response_model=RuntimeDeviceListResponse)
@@ -516,6 +937,504 @@ async def update_runtime_project_context_settings(
         },
     )
     return await _build_project_context_settings(session=session, user_id=user_id)
+
+
+@router.post(
+    "/runtime/devices/{device_id}/assistant/plan",
+    response_model=AssistantPlanResponse,
+)
+async def create_assistant_plan(
+    device_id: str,
+    request: AssistantPlanRequest,
+    http_request: FastAPIRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    return await _create_assistant_plan_impl(
+        device_id=device_id,
+        request=request,
+        http_request=http_request,
+        user_id=user_id,
+    )
+
+
+async def _create_assistant_plan_impl(
+    *,
+    device_id: str,
+    request: AssistantPlanRequest,
+    http_request: FastAPIRequest,
+    user_id: str,
+    progress_reporter: AssistantPlanProgressReporter = None,
+) -> AssistantPlanResponse:
+    """为当前在线设备生成聊天式终端执行计划。"""
+    del http_request  # 预留给后续请求级追踪与审计
+
+    async def report_progress(payload: dict[str, Any]) -> None:
+        if progress_reporter is not None:
+            await progress_reporter(payload)
+
+    intent = request.intent.strip()
+    if not intent:
+        raise _assistant_error(
+            status.HTTP_400_BAD_REQUEST,
+            reason="invalid_intent",
+            message="intent 不能为空",
+        )
+    max_length = max(32, int(os.environ.get("ASSISTANT_PLAN_INTENT_MAX_LENGTH", "500")))
+    if len(intent) > max_length:
+        raise _assistant_error(
+            status.HTTP_400_BAD_REQUEST,
+            reason="invalid_intent",
+            message=f"intent 长度不能超过 {max_length} 个字符",
+        )
+
+    session = await get_session_by_device_id(device_id, user_id)
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"device {device_id} 不存在",
+        )
+    if not _device_online(session):
+        raise _assistant_error(
+            status.HTTP_409_CONFLICT,
+            reason="device_offline",
+            message="当前设备未在线，无法生成终端方案",
+        )
+
+    retry_after = await _check_assistant_plan_rate_limit(user_id)
+    if retry_after is not None:
+        raise _assistant_error(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            reason="assistant_plan_rate_limited",
+            message="智能规划请求过于频繁，请稍后重试",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    planner_config = _normalize_planner_config(await get_planner_config(user_id, device_id))
+    project_context = await _build_assistant_project_context(session=session, user_id=user_id)
+    planner_memory = await _build_assistant_planner_memory(user_id=user_id, device_id=device_id)
+    candidate_models = [
+        ProjectContextCandidate(**candidate)
+        for candidate in project_context.get("candidate_projects", [])
+        if candidate.get("cwd")
+    ]
+    matched_candidate = _match_candidate_from_intent(intent, candidate_models)
+    memory_hits = sum(len(items) for items in planner_memory.values())
+
+    await report_progress(
+        _progress_status_update(
+            stage="context",
+            status="running",
+            title="读取上下文",
+            summary="正在整理当前设备、候选项目和活跃终端信息。",
+        )
+    )
+    await report_progress(
+        _progress_tool_call(
+            tool_id="collect_project_context",
+            tool_name="collect_project_context",
+            status="completed",
+            summary="已完成设备项目上下文整理。",
+            output_summary=f"候选项目 {len(candidate_models)} 个",
+        )
+    )
+    await report_progress(
+        {
+            "type": "assistant_message",
+            "assistant_message": {
+                "type": "assistant",
+                "text": "我先读取当前设备上下文，再生成一组可确认的终端命令。",
+            },
+        }
+    )
+    await report_progress(
+        {
+            "type": "trace",
+            "trace_item": {
+                "stage": "context",
+                "title": "读取上下文",
+                "status": "completed",
+                "summary": f"已整理 {len(candidate_models)} 个候选项目，准备匹配目标路径。",
+            },
+        }
+    )
+    await report_progress(
+        _progress_status_update(
+            stage="memory",
+            status="running",
+            title="读取历史记忆",
+            summary="正在检索最近规划和执行记录。",
+        )
+    )
+    await report_progress(
+        _progress_tool_call(
+            tool_id="load_planner_memory",
+            tool_name="load_planner_memory",
+            status="completed",
+            summary="已读取历史规划记忆。",
+            output_summary=f"命中 {memory_hits} 条记录",
+        )
+    )
+    await report_progress(
+        {
+            "type": "trace",
+            "trace_item": {
+                "stage": "memory",
+                "title": "读取历史记忆",
+                "status": "completed",
+                "summary": f"已命中 {memory_hits} 条历史规划或执行记录。",
+            },
+        }
+    )
+    await report_progress(
+        _progress_status_update(
+            stage="planner",
+            status="running",
+            title="生成命令序列",
+            summary="正在调用服务端 LLM 生成可确认的命令序列。",
+        )
+    )
+    await report_progress(
+        _progress_tool_call(
+            tool_id="plan_with_service_llm",
+            tool_name="plan_with_service_llm",
+            status="running",
+            summary="服务端 LLM 正在分析意图并生成命令。",
+            input_summary=f"intent={intent[:48]}",
+        )
+    )
+    await report_progress(
+        {
+            "type": "trace",
+            "trace_item": {
+                "stage": "planner",
+                "title": "生成命令序列",
+                "status": "running",
+                "summary": "正在调用服务端 LLM 生成可确认的命令序列。",
+            },
+        }
+    )
+
+    try:
+        result = await plan_with_service_llm(
+            intent=intent,
+            device_id=device_id,
+            project_context=project_context,
+            planner_memory=planner_memory,
+            planner_config=_model_dump(planner_config),
+            conversation_id=request.conversation_id,
+            message_id=request.message_id,
+        )
+    except AssistantPlannerRateLimited as exc:
+        raise _assistant_error(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            reason=exc.reason,
+            message=exc.detail,
+            headers={"Retry-After": str(exc.retry_after)},
+        ) from exc
+    except AssistantPlannerTimeout as exc:
+        raise _assistant_error(
+            status.HTTP_504_GATEWAY_TIMEOUT,
+            reason=exc.reason,
+            message=exc.detail,
+        ) from exc
+    except AssistantPlannerUnavailable as exc:
+        status_code = (
+            status.HTTP_422_UNPROCESSABLE_ENTITY
+            if exc.reason == "service_llm_invalid"
+            else status.HTTP_503_SERVICE_UNAVAILABLE
+        )
+        raise _assistant_error(
+            status_code,
+            reason=exc.reason,
+            message=exc.detail,
+        ) from exc
+
+    command_sequence = _validate_command_sequence(result.get("command_sequence"))
+    evaluation_context = dict(result.get("evaluation_context") or {})
+    if matched_candidate:
+        evaluation_context["matched_candidate_id"] = matched_candidate.candidate_id
+        evaluation_context["matched_cwd"] = matched_candidate.cwd
+        evaluation_context["matched_label"] = matched_candidate.label
+    evaluation_context["memory_hits"] = max(
+        int(evaluation_context.get("memory_hits", 0) or 0),
+        memory_hits,
+    )
+    evaluation_context.setdefault(
+        "tool_calls",
+        2 if memory_hits > 0 else 1,
+    )
+    evaluation_context["fallback_policy"] = _model_dump(request.fallback_policy)
+
+    assistant_messages = [
+        _normalize_assistant_message(item)
+        for item in (result.get("assistant_messages") or [])
+        if isinstance(item, dict)
+    ]
+    if not assistant_messages:
+        assistant_messages = [
+            {
+                "type": "assistant",
+                "text": "我先读取当前设备上下文，再生成可确认的终端命令。",
+            }
+        ]
+
+    trace = _ensure_assistant_trace(
+        [item for item in (result.get("trace") or []) if isinstance(item, dict)],
+        matched_candidate=matched_candidate,
+        memory_hits=memory_hits,
+    )
+
+    fallback_used = bool(result.get("fallback_used", False))
+    fallback_reason = result.get("fallback_reason")
+    provider = str(command_sequence.get("provider", "service_llm")).strip() or "service_llm"
+    limits = {
+        "rate_limited": False,
+        "budget_blocked": fallback_reason == "service_llm_budget_blocked",
+        "provider_timeout_ms": planner_timeout_ms(),
+        "retry_after": None,
+    }
+
+    await report_progress(
+        _progress_tool_call(
+            tool_id="plan_with_service_llm",
+            tool_name="plan_with_service_llm",
+            status="completed",
+            summary="服务端 LLM 已返回最终命令序列。",
+            output_summary=f"生成 {len(command_sequence['steps'])} 步命令",
+        )
+    )
+    await report_progress(
+        _progress_status_update(
+            stage="planner",
+            status="completed",
+            title="生成命令序列",
+            summary=f"已生成 {len(command_sequence['steps'])} 步命令，可交给用户确认。",
+        )
+    )
+    await report_progress(
+        {
+            "type": "trace",
+            "trace_item": {
+                "stage": "planner",
+                "title": "生成命令序列",
+                "status": "completed",
+                "summary": f"已生成 {len(command_sequence['steps'])} 步命令，可交给用户确认。",
+            },
+        }
+    )
+    if matched_candidate:
+        await report_progress(
+            {
+                "type": "trace",
+                "trace_item": {
+                    "stage": "context",
+                    "title": "匹配项目",
+                    "status": "completed",
+                    "summary": f"本轮命中项目 {matched_candidate.label}，目录为 {matched_candidate.cwd}。",
+                },
+            }
+        )
+    await report_progress(
+        _progress_status_update(
+            stage="validation",
+            status="completed",
+            title="整理执行方案",
+            summary=f"已整理终端标题、工作目录和 {len(command_sequence['steps'])} 条执行命令。",
+        )
+    )
+    await report_progress(
+        {
+            "type": "trace",
+            "trace_item": {
+                "stage": "validation",
+                "title": "整理执行方案",
+                "status": "completed",
+                "summary": f"已整理终端标题、工作目录和 {len(command_sequence['steps'])} 条执行命令。",
+            },
+        }
+    )
+    for message in assistant_messages:
+        await report_progress(
+            {
+                "type": "assistant_message",
+                "assistant_message": message,
+            }
+        )
+    for item in trace:
+        await report_progress(
+            {
+                "type": "trace",
+                "trace_item": item,
+            }
+        )
+
+    await save_assistant_planner_run(
+        user_id,
+        device_id,
+        {
+            "conversation_id": request.conversation_id,
+            "message_id": request.message_id,
+            "intent": intent,
+            "provider": provider,
+            "fallback_used": fallback_used,
+            "fallback_reason": fallback_reason,
+            "assistant_messages": assistant_messages,
+            "trace": trace,
+            "command_sequence": command_sequence,
+            "evaluation_context": evaluation_context,
+            "execution_status": "planned",
+        },
+    )
+
+    return AssistantPlanResponse(
+        conversation_id=request.conversation_id,
+        message_id=request.message_id,
+        assistant_messages=[AssistantMessageItem(**item) for item in assistant_messages],
+        trace=[AssistantTraceItem(**item) for item in trace],
+        command_sequence=AssistantCommandSequence(**command_sequence),
+        fallback_used=fallback_used,
+        fallback_reason=fallback_reason,
+        limits=AssistantPlanLimits(**limits),
+        evaluation_context=evaluation_context,
+    )
+
+
+@router.post("/runtime/devices/{device_id}/assistant/plan/stream")
+async def create_assistant_plan_stream(
+    device_id: str,
+    request: AssistantPlanRequest,
+    http_request: FastAPIRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    async def event_stream():
+        queue: asyncio.Queue[Optional[dict[str, Any]]] = asyncio.Queue()
+
+        async def report_progress(payload: dict[str, Any]) -> None:
+            await queue.put(payload)
+
+        async def run_plan() -> None:
+            try:
+                result = await _create_assistant_plan_impl(
+                    device_id=device_id,
+                    request=request,
+                    http_request=http_request,
+                    user_id=user_id,
+                    progress_reporter=report_progress,
+                )
+                await queue.put(
+                    {
+                        "type": "result",
+                        "plan": _model_dump(result),
+                    }
+                )
+            except HTTPException as exc:
+                detail = exc.detail if isinstance(exc.detail, dict) else {}
+                await queue.put(
+                    {
+                        "type": "error",
+                        "reason": detail.get("reason", "assistant_plan_failed"),
+                        "message": detail.get("message", "智能规划失败"),
+                        "retry_after": int((exc.headers or {}).get("Retry-After", "0") or 0)
+                        or None,
+                    }
+                )
+            except Exception:
+                await queue.put(
+                    {
+                        "type": "error",
+                        "reason": "assistant_plan_failed",
+                        "message": "智能规划执行失败",
+                    }
+                )
+            finally:
+                await queue.put(None)
+
+        task = asyncio.create_task(run_plan())
+        try:
+            while True:
+                item = await queue.get()
+                if item is None:
+                    break
+                yield json.dumps(item, ensure_ascii=False) + "\n"
+        finally:
+            await task
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="application/x-ndjson",
+    )
+
+
+@router.post(
+    "/runtime/devices/{device_id}/assistant/executions/report",
+    response_model=AssistantExecutionReportResponse,
+)
+async def create_assistant_execution_report(
+    device_id: str,
+    request: AssistantExecutionReportRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """回写聊天式智能终端计划的最终执行结果。"""
+    execution_status = request.execution_status.strip().lower()
+    if execution_status not in {"succeeded", "failed", "cancelled"}:
+        raise _assistant_error(
+            status.HTTP_400_BAD_REQUEST,
+            reason="invalid_execution_status",
+            message="execution_status 仅支持 succeeded / failed / cancelled",
+        )
+
+    session = await get_session_by_device_id(device_id, user_id)
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"device {device_id} 不存在",
+        )
+
+    command_sequence = _validate_command_sequence(request.command_sequence)
+    existing = await get_assistant_planner_run(
+        user_id,
+        device_id,
+        request.conversation_id,
+        request.message_id,
+    )
+    if not existing:
+        raise _assistant_error(
+            status.HTTP_404_NOT_FOUND,
+            reason="assistant_plan_not_found",
+            message="找不到对应的智能规划记录",
+        )
+
+    existing_status = str(existing.get("execution_status", "")).strip().lower()
+    if existing_status in {"succeeded", "failed", "cancelled"}:
+        return AssistantExecutionReportResponse(
+            acknowledged=True,
+            memory_updated=False,
+            evaluation_recorded=True,
+        )
+
+    updated = await report_assistant_execution(
+        user_id,
+        device_id,
+        request.conversation_id,
+        request.message_id,
+        execution_status=execution_status,
+        terminal_id=request.terminal_id,
+        failed_step_id=request.failed_step_id,
+        output_summary=request.output_summary,
+        command_sequence=command_sequence,
+    )
+    if not updated:
+        raise _assistant_error(
+            status.HTTP_404_NOT_FOUND,
+            reason="assistant_plan_not_found",
+            message="找不到对应的智能规划记录",
+        )
+
+    return AssistantExecutionReportResponse(
+        acknowledged=True,
+        memory_updated=True,
+        evaluation_recorded=True,
+    )
 
 
 @router.post("/runtime/devices/{device_id}/terminals", response_model=RuntimeTerminalItem)
