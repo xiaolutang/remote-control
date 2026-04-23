@@ -21,9 +21,9 @@
   },
   "summary": {
     "total": 41,
-    "pending": 4,
+    "pending": 3,
     "in_progress": 0,
-    "completed": 32,
+    "completed": 33,
     "blocked": 0,
     "cancelled": 5
   },
@@ -2284,8 +2284,14 @@
         "F095",
         "B083"
       ],
-      "status": "pending",
+      "status": "completed",
       "priority": "P1",
+      "started_at": "2026-04-23",
+      "completed_at": "2026-04-23",
+      "actual_minutes": 15,
+      "commit": "8c7de6b",
+      "evidence_file": ".dev-flow/evidence/F099.md",
+      "execution_notes": "Token 统计展示完成：模型解析 + UI 卡片 + 历史气泡 + 测试覆盖",
       "acceptance_criteria": [
         "AgentResultEvent 可解析 usage 字段（nullable）",
         "result 卡片底部出现可折叠 Token 统计区域",
