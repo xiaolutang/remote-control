@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/shortcut_item.dart';
+import 'mobile_bottom_inset.dart';
 
 class TerminalShortcutBar extends StatelessWidget {
   const TerminalShortcutBar({
@@ -22,13 +23,7 @@ class TerminalShortcutBar extends StatelessWidget {
 
     final colorScheme = Theme.of(context).colorScheme;
     final mediaQuery = MediaQuery.of(context);
-    final safeBottomInset =
-        mediaQuery.padding.bottom > mediaQuery.systemGestureInsets.bottom
-            ? mediaQuery.padding.bottom
-            : mediaQuery.systemGestureInsets.bottom;
-    final bottomInset = mediaQuery.viewInsets.bottom > 0
-        ? mediaQuery.viewInsets.bottom
-        : safeBottomInset;
+    final bottomInset = resolveMobileBottomInset(mediaQuery);
 
     return Container(
       color: colorScheme.surfaceContainerHigh,

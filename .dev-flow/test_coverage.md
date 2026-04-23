@@ -1,8 +1,8 @@
 # 测试覆盖清单
 
 > 项目：remote-control
-> 更新时间：2026-04-22
-> 状态：版本 2 规划已对齐；`chat-terminal-assistant` 为下一执行阶段
+> 更新时间：2026-04-24
+> 状态：版本 2 规划已对齐；`react-terminal-agent` 为当前执行阶段，`chat-terminal-assistant` 为已落地前置基线
 
 ## 测试统计
 
@@ -34,7 +34,9 @@
 | **终端交互架构重构 (terminal-interaction-refactor)** | design, unit, integration, widget, smoke | 已完成 | ✅ |
 | **智能终端进入 (intelligent-terminal-entry)** | design, unit, widget, integration, manual | 已完成 | ✅ |
 | **命令规划隔离 (planner-provider-isolation)** | design, unit, integration, manual | 已完成 | ✅ |
-| **聊天式智能终端助手 (chat-terminal-assistant)** | design, contract, unit, integration, manual, smoke | 已规划 | 🔶 |
+| **聊天式智能终端助手 (chat-terminal-assistant)** | design, contract, unit, integration, manual, smoke | 前置基线已收口，剩余验收并入当前阶段 | 🔶 |
+| **ReAct 智能体 (react-terminal-agent)** | design, unit, integration, widget, manual, smoke | 执行中 | 🔶 |
+| **Terminal-bound Agent 对话同步 (react-terminal-agent patch)** | contract, unit, integration, widget, e2e, smoke | 已规划 | ⬜ |
 
 ## 模块覆盖详情
 
@@ -232,24 +234,50 @@
 - [ ] planner 不会依赖开发机固定目录；不同用户机器上都通过 shell 发现步骤定位项目
 - [ ] 真机与桌面端联调时，用户确认后能成功进入 Claude，失败链路也能回退手动创建
 
-### 聊天式智能终端助手（chat-terminal-assistant phase）
+### 聊天式智能终端助手（chat-terminal-assistant phase，前置基线）
 
 | Module | Task IDs | Test Type | Required Scenarios | Status |
 |--------|----------|-----------|--------------------|--------|
-| 聊天式助手产品与评估基线 | S079, S080 | design | 聊天流 + 命令卡片；结构化 trace；智能体评估指标与验收口径 | ⬜ |
-| 服务端 LLM planner API | B075 | integration,contract | `assistant/plan` 契约；结构化 trace；限流/timeout/预算错误；fallback 透传 | ⬜ |
-| planner memory / trace / 评估日志 | B076 | unit,integration | recent project 命中；跨设备隔离；规划 trace 可回放 | ⬜ |
-| 执行结果回写与记忆更新 | B077, F093 | integration,contract | `executions/report` 契约；执行结果回写；memory 只在回写后更新 | ⬜ |
-| 聊天式助手 UI 骨架 | F087 | widget,manual | 对话流；输入区；状态消息；桌面/移动端布局稳定 | ⬜ |
-| 分析轨迹与命令卡片 | F088 | widget,integration | 阶段状态；工具消息；命令卡片；编辑/确认执行 | ⬜ |
-| 服务端规划接入与 fallback | F089 | integration | `service_llm -> claude_cli -> local_rules` 路由；失败文案与结果一致 | ⬜ |
-| 聊天流执行闭环 | F090 | integration,manual | 命令卡片确认后创建 terminal；执行状态回流聊天；失败停止；结果回写触发 | ⬜ |
-| 智能体 benchmark 与回放 harness | F091 | unit,integration,manual | benchmark 数据集；trace 回放；fixture/runner；指标汇总 | ⬜ |
-| 真机与线上验收 | F092 | manual,smoke | macOS / Android / 线上服务端全链路；对比不同输入的命令分化 | ⬜ |
-| Agent SSE 会话管理 | B080 | integration | SSE 事件流；trace/question/result/error 四种事件；超时/取消/错误降级 | ⬜ |
-| Agent SSE 事件模型 | F095 | unit | SSE event 解析；trace/question/result/error 四种类型；向后兼容 | ⬜ |
-| Agent token usage 追踪 | B083 | unit | `AgentRunOutcome` 返回值边界；`run_result.usage()` 提取；异常降级 usage 全 0；`AgentSession.result` 仍为 `AgentResult` | ⬜ |
-| Token 统计展示 | F099 | widget,unit | 可折叠卡片；历史气泡简要统计；`usage` null 不展示；`AgentUsageData` 解析 | ⬜ |
+| 产品与评估基线 | S079, S080 | design | 聊天流 + 命令卡片；结构化 trace；评估指标与人工验收口径 | S079 ✅ / S080 ⬜ |
+| 服务端 planner / memory / 回写契约 | B075, B076, B077 | integration,contract,unit | `assistant/plan`、`executions/report`、memory 只在真实回写后更新 | ✅ |
+| 桌面空终端与侧滑面板骨架 | F094, F087 | widget,integration,manual | 空终端创建；侧滑面板入口；桌面/移动端分流稳定 | ✅ |
+| 旧聊天流 UI / fallback / 注入链路 | F088, F089, F090, F093 | widget,integration | 已被 `react-terminal-agent` 收口替代，不再继续执行 | cancelled |
+| benchmark 与真机验收 | F091, F092 | unit,integration,manual,smoke | benchmark 数据集；trace 回放；全链路人工验收 | ⬜ |
+
+### ReAct 智能体（react-terminal-agent phase，当前执行阶段）
+
+| Module | Task IDs | Test Type | Required Scenarios | Status |
+|--------|----------|-----------|--------------------|--------|
+| 架构与只读探索基线 | S081 | design | 权威边界、只读探索安全边界、三层降级策略 | ✅ |
+| 只读探索协议与 Agent 核心 | B078, B079 | unit,integration | execute_command 白名单；Pydantic AI Agent；攻击向量拦截 | ✅ |
+| Agent 会话与 SSE 事件流 | B080, F095 | unit,integration | run/respond/cancel/resume；事件解析；断连恢复；降级到 planner | ✅ |
+| 侧滑面板 Agent 交互与命令注入 | F096, F097, F098 | widget,integration | exploring/asking/result/error；命令注入；执行结果回写与别名保存 | ✅ |
+| Agent 集成测试 | S082 | integration,manual | Happy path；安全边界；mobile 回归；per-device 隔离 | ✅ |
+| Token usage SSE 与前端兼容 | B083, F099 | unit,widget | SSE result usage；前端解析与兼容展示 | ✅ |
+| usage 汇总 API 与 Toast 浮层 | B084, F100 | unit,integration,widget | usage 落库；双 scope 汇总；Toast 浮层与自动刷新 | B084 ✅ / F100 ✅ |
+| Terminal-bound conversation 契约 | S083 | contract | conversation 与 terminal 一一对应；close 即销毁；手机端无本地工具 | ⬜ |
+| conversation 持久化与权限 | B085 | unit,integration | agent_conversations/events；event_index；跨用户/跨 terminal 隔离；client_event_id 幂等；question_id 冲突；tombstone cleanup | ✅ 29/29 |
+| Agent API terminal 绑定 | B086 | integration | run/respond/resume/cancel 绑定 device_id + terminal_id + session_id；旧 conversation_id 不作权威；question_id/client_event_id 幂等与冲突 | ✅ 7/7 targeted, 129/129 regression |
+| conversation fetch/stream | B087 | integration | GET 投影；SSE after_index；多端新增事件可见；无 conversation 空投影；权限边界 | ✅ 4 targeted, 133/133 regression |
+| message_history 与 close cleanup | B088 | integration | server events 重建 message_history；terminal close 删除 conversation 并取消 session；closed fetch 410；closed stream fanout | ✅ 4 targeted, 137/137 regression |
+| 客户端服务端投影 | F101 | widget,unit | 智能面板加载 server events；本地 history 仅做渲染缓存；active question 恢复；terminal 切换隔离；conversation_id 复用服务端权威值 | ✅ `test/services/agent_session_service_test.dart` + `test/widgets/smart_terminal_side_panel_agent_test.dart` passed |
+| 双端同步 UI | F102 | widget,manual | Android/macOS 同 terminal 对话同步；closed 后禁用智能输入；不冲突正常终端输入 | ✅ widget: `test/services/agent_session_service_test.dart` + `test/widgets/smart_terminal_side_panel_agent_test.dart` passed; manual smoke deferred to `S084` |
+| 全链路验收 | S084 | e2e,smoke | 本地 Docker + macOS + Android；权限隔离；多 terminal 隔离；close 销毁 | 🔄 automated: `server/tests/test_integration.py` targeted 7 passed + Flutter smart-panel tests passed; manual Android/macOS smoke in progress |
+
+#### Terminal-bound Agent 对话关键测试场景
+
+- [ ] 手机端发起 Agent 对话后，桌面端打开同一 terminal 能看到相同 `user_intent/question/answer/result` 事件
+- [ ] 桌面端回答 Agent 选项后，手机端刷新或订阅能看到该回答与后续 result
+- [x] 用户第一轮选择过项目后，第二轮输入“这个项目”时，服务端传给 `run_agent` 的 `message_history` 包含上一轮选择
+- [ ] terminal close 后，conversation events 被删除或标记不可用，旧 `respond/resume/fetch` 返回 closed/not_found 稳定错误
+- [x] terminal A/B 同时存在时，A 的对话历史不会进入 B 的 `message_history`
+- [x] 未授权用户不能 fetch/stream/respond 其他用户的 terminal conversation
+- [ ] respond/cancel/resume 必须校验 terminal-scoped `session_id`；其他 terminal 的 session_id 返回 404
+- [ ] 弱网重复提交同一 `client_event_id` 不会追加重复 answer 事件
+- [ ] 手机端和桌面端同时回答同一 `question_id` 时，只有第一个成功，第二个返回 409 `question_already_answered`
+- [ ] terminal close 先广播 `closed` 给 active stream，再取消 session 并进入短 tombstone；tombstone 期间 fetch 不返回历史
+- [ ] 移动端智能输入框弹出软键盘时不影响正常 terminal 输入焦点，不触发全局 PTY resize
+- [ ] 手机端不启动、不展示、不调用任何本地 ReAct 工具运行时；工具执行仍走 Server → 桌面设备 Agent
 
 #### 聊天式智能终端助手关键测试场景
 

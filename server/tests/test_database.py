@@ -2,6 +2,7 @@
 database.py 单元测试 — SQLite 用户持久化层
 """
 import os
+from contextlib import asynccontextmanager
 import pytest
 import pytest_asyncio
 import aiosqlite
@@ -43,6 +44,9 @@ async def test_init_db_creates_tables(db_with_tables):
             "project_source_planner_configs",
             "assistant_planner_runs",
             "assistant_planner_memory_entries",
+            "agent_usage_records",
+            "agent_conversations",
+            "agent_conversation_events",
         ):
             cursor = await db.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
@@ -62,6 +66,12 @@ async def test_init_db_creates_index(db_with_tables):
             "idx_planner_configs_scope",
             "idx_assistant_runs_scope",
             "idx_assistant_memory_scope",
+            "idx_agent_usage_records_user_device",
+            "idx_agent_usage_records_user_created_at",
+            "idx_agent_conversations_scope",
+            "idx_agent_conversation_events_conversation",
+            "idx_agent_conversation_events_client_event",
+            "idx_agent_conversation_events_answer_question",
         ):
             cursor = await db.execute(
                 "SELECT name FROM sqlite_master WHERE type='index' AND name=?",
@@ -168,6 +178,326 @@ async def test_init_db_creates_directory(tmp_path):
     configure_database(db_path)
     await init_db()
     assert os.path.exists(db_path)
+
+
+@pytest.mark.asyncio
+async def test_save_agent_usage_and_get_user_summary(db_with_tables):
+    """usage 记录可写入并按用户聚合。"""
+    from app.database import get_usage_summary, save_agent_usage
+
+    assert await save_agent_usage(
+        "sess-1",
+        "user-1",
+        "device-a",
+        input_tokens=10,
+        output_tokens=5,
+        total_tokens=15,
+        requests=2,
+        model_name="model-a",
+    ) is True
+    assert await save_agent_usage(
+        "sess-2",
+        "user-1",
+        "device-b",
+        input_tokens=20,
+        output_tokens=8,
+        total_tokens=28,
+        requests=3,
+        model_name="model-b",
+    ) is True
+
+    summary = await get_usage_summary("user-1")
+    assert summary == {
+        "total_sessions": 2,
+        "total_input_tokens": 30,
+        "total_output_tokens": 13,
+        "total_tokens": 43,
+        "total_requests": 5,
+        "latest_model_name": "model-b",
+    }
+
+
+@pytest.mark.asyncio
+async def test_get_usage_summary_can_filter_by_device(db_with_tables):
+    """device scope 只汇总指定设备。"""
+    from app.database import get_usage_summary, save_agent_usage
+
+    await save_agent_usage("sess-1", "user-1", "device-a", total_tokens=15, model_name="model-a")
+    await save_agent_usage("sess-2", "user-1", "device-a", total_tokens=5, requests=1, model_name="model-b")
+    await save_agent_usage("sess-3", "user-1", "device-b", total_tokens=99, requests=9, model_name="model-c")
+
+    summary = await get_usage_summary("user-1", "device-a")
+    assert summary == {
+        "total_sessions": 2,
+        "total_input_tokens": 0,
+        "total_output_tokens": 0,
+        "total_tokens": 20,
+        "total_requests": 1,
+        "latest_model_name": "model-b",
+    }
+
+
+@pytest.mark.asyncio
+async def test_get_usage_summary_returns_zero_defaults_without_records(db_with_tables):
+    """无 usage 记录时返回零值汇总。"""
+    from app.database import get_usage_summary
+
+    summary = await get_usage_summary("user-404", "device-x")
+    assert summary == {
+        "total_sessions": 0,
+        "total_input_tokens": 0,
+        "total_output_tokens": 0,
+        "total_tokens": 0,
+        "total_requests": 0,
+        "latest_model_name": "",
+    }
+
+
+@pytest.mark.asyncio
+async def test_save_agent_usage_failure_returns_false(db_with_tables, monkeypatch):
+    """写入失败时返回 False，不向上抛异常。"""
+    from app.database import _get_db, save_agent_usage
+
+    db = _get_db()
+
+    @asynccontextmanager
+    async def _boom():
+        raise RuntimeError("db unavailable")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(db, "_connect", _boom)
+
+    ok = await save_agent_usage("sess-fail", "user-1", "device-a", total_tokens=1)
+    assert ok is False
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_agent_conversation_is_terminal_scoped(db_with_tables):
+    """同一 user/device/terminal 复用同一个 conversation，不同 terminal 隔离。"""
+    from app.database import get_or_create_agent_conversation
+
+    first = await get_or_create_agent_conversation("user-1", "device-a", "term-1")
+    again = await get_or_create_agent_conversation("user-1", "device-a", "term-1")
+    other_terminal = await get_or_create_agent_conversation("user-1", "device-a", "term-2")
+
+    assert first["conversation_id"] == again["conversation_id"]
+    assert first["status"] == "active"
+    assert first["conversation_id"] != other_terminal["conversation_id"]
+
+
+@pytest.mark.asyncio
+async def test_append_agent_conversation_event_assigns_sequential_indexes(db_with_tables):
+    """事件 append 在同一 conversation 内分配连续 event_index。"""
+    from app.database import append_agent_conversation_event, list_agent_conversation_events
+
+    first = await append_agent_conversation_event(
+        "user-1",
+        "device-a",
+        "term-1",
+        event_type="user_intent",
+        role="user",
+        payload={"text": "进入项目"},
+        client_event_id="client-1",
+    )
+    second = await append_agent_conversation_event(
+        "user-1",
+        "device-a",
+        "term-1",
+        event_type="question",
+        role="assistant",
+        payload={"text": "请选择项目"},
+        session_id="sess-1",
+        question_id="q-1",
+    )
+
+    assert first["event_index"] == 0
+    assert second["event_index"] == 1
+
+    events = await list_agent_conversation_events("user-1", "device-a", "term-1")
+    assert [event["event_index"] for event in events] == [0, 1]
+    assert events[0]["payload"] == {"text": "进入项目"}
+
+
+@pytest.mark.asyncio
+async def test_append_agent_conversation_event_supports_after_index(db_with_tables):
+    """事件列表支持 after_index 增量读取。"""
+    from app.database import append_agent_conversation_event, list_agent_conversation_events
+
+    for index in range(3):
+        await append_agent_conversation_event(
+            "user-1",
+            "device-a",
+            "term-1",
+            event_type="trace",
+            role="assistant",
+            payload={"index": index},
+        )
+
+    events = await list_agent_conversation_events(
+        "user-1",
+        "device-a",
+        "term-1",
+        after_index=0,
+    )
+
+    assert [event["event_index"] for event in events] == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_append_agent_conversation_event_is_idempotent_by_client_event_id(db_with_tables):
+    """弱网重复提交同一 client_event_id 不新增事件。"""
+    from app.database import append_agent_conversation_event, list_agent_conversation_events
+
+    first = await append_agent_conversation_event(
+        "user-1",
+        "device-a",
+        "term-1",
+        event_type="answer",
+        role="user",
+        question_id="q-1",
+        client_event_id="client-1",
+        payload={"text": "remote-control"},
+    )
+    replay = await append_agent_conversation_event(
+        "user-1",
+        "device-a",
+        "term-1",
+        event_type="answer",
+        role="user",
+        question_id="q-1",
+        client_event_id="client-1",
+        payload={"text": "remote-control"},
+    )
+
+    events = await list_agent_conversation_events("user-1", "device-a", "term-1")
+    assert replay["event_id"] == first["event_id"]
+    assert len(events) == 1
+
+
+@pytest.mark.asyncio
+async def test_append_agent_conversation_event_rejects_second_answer_for_question(db_with_tables):
+    """同一 question_id 只能有一个有效 answer。"""
+    from app.database import (
+        AgentConversationConflict,
+        append_agent_conversation_event,
+        list_agent_conversation_events,
+    )
+
+    await append_agent_conversation_event(
+        "user-1",
+        "device-a",
+        "term-1",
+        event_type="answer",
+        role="user",
+        question_id="q-1",
+        client_event_id="client-1",
+        payload={"text": "remote-control"},
+    )
+
+    with pytest.raises(AgentConversationConflict) as exc_info:
+        await append_agent_conversation_event(
+            "user-1",
+            "device-a",
+            "term-1",
+            event_type="answer",
+            role="user",
+            question_id="q-1",
+            client_event_id="client-2",
+            payload={"text": "other"},
+        )
+
+    assert exc_info.value.code == "question_already_answered"
+    events = await list_agent_conversation_events("user-1", "device-a", "term-1")
+    assert len(events) == 1
+
+
+@pytest.mark.asyncio
+async def test_agent_conversation_close_tombstone_hides_history_then_cleanup(db_with_tables):
+    """close 后进入 tombstone，不返回历史；过期清理后物理删除。"""
+    from app.database import (
+        append_agent_conversation_event,
+        cleanup_agent_conversation_tombstones,
+        close_agent_conversation,
+        get_agent_conversation,
+        list_agent_conversation_events,
+    )
+
+    await append_agent_conversation_event(
+        "user-1",
+        "device-a",
+        "term-1",
+        event_type="user_intent",
+        role="user",
+        payload={"text": "hello"},
+    )
+    await close_agent_conversation(
+        "user-1",
+        "device-a",
+        "term-1",
+        payload={"reason": "terminal_closed"},
+        tombstone_seconds=-1,
+    )
+
+    conversation = await get_agent_conversation("user-1", "device-a", "term-1")
+    assert conversation is not None
+    assert conversation["status"] == "closed"
+    assert await list_agent_conversation_events("user-1", "device-a", "term-1") == []
+
+    deleted = await cleanup_agent_conversation_tombstones()
+    assert deleted == 1
+    assert await get_agent_conversation("user-1", "device-a", "term-1") is None
+
+
+@pytest.mark.asyncio
+async def test_delete_agent_conversation_removes_events(db_with_tables):
+    """物理删除 conversation 会级联删除 events。"""
+    from app.database import (
+        append_agent_conversation_event,
+        delete_agent_conversation,
+        get_or_create_agent_conversation,
+    )
+
+    conversation = await get_or_create_agent_conversation("user-1", "device-a", "term-1")
+    await append_agent_conversation_event(
+        "user-1",
+        "device-a",
+        "term-1",
+        event_type="user_intent",
+        role="user",
+        payload={"text": "hello"},
+    )
+
+    assert await delete_agent_conversation("user-1", "device-a", "term-1") is True
+
+    async with aiosqlite.connect(TEST_DB) as db:
+        cursor = await db.execute(
+            "SELECT COUNT(*) FROM agent_conversation_events WHERE conversation_id = ?",
+            (conversation["conversation_id"],),
+        )
+        row = await cursor.fetchone()
+    assert row[0] == 0
+
+
+@pytest.mark.asyncio
+async def test_agent_conversation_scope_prevents_cross_user_reads(db_with_tables):
+    """按 user/device/terminal 查询，其他用户不能读到 conversation/events。"""
+    from app.database import (
+        append_agent_conversation_event,
+        get_agent_conversation,
+        list_agent_conversation_events,
+    )
+
+    await append_agent_conversation_event(
+        "user-1",
+        "device-a",
+        "term-1",
+        event_type="user_intent",
+        role="user",
+        payload={"text": "secret"},
+    )
+
+    assert await get_agent_conversation("user-2", "device-a", "term-1") is None
+    assert await list_agent_conversation_events("user-2", "device-a", "term-1") == []
 
 
 @pytest.mark.asyncio

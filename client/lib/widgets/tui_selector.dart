@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'mobile_bottom_inset.dart';
+
 /// TUI 选项解析正则表达式（静态缓存）
 class TuiPatterns {
   TuiPatterns._();
@@ -158,13 +160,7 @@ class TuiSelectorState extends State<TuiSelector> {
     }
 
     final mediaQuery = MediaQuery.of(context);
-    final safeBottomInset =
-        mediaQuery.padding.bottom > mediaQuery.systemGestureInsets.bottom
-            ? mediaQuery.padding.bottom
-            : mediaQuery.systemGestureInsets.bottom;
-    final bottomInset = mediaQuery.viewInsets.bottom > 0
-        ? mediaQuery.viewInsets.bottom
-        : safeBottomInset;
+    final bottomInset = resolveMobileBottomInset(mediaQuery);
 
     return Container(
       decoration: BoxDecoration(

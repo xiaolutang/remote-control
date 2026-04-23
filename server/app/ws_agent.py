@@ -51,6 +51,62 @@ pending_execute_commands: dict[str, asyncio.Future] = {}  # request_id -> Future
 # B078: 频率限制追踪（每 session_id 的请求时间戳列表）
 _execute_command_rate_tracker: dict[str, list[float]] = defaultdict(list)
 
+
+async def _close_agent_conversation_for_terminal(
+    session_id: str,
+    terminal_id: str,
+    reason: str,
+) -> None:
+    """Best-effort cleanup for terminal-bound Agent conversation on Agent close events."""
+    try:
+        session = await get_session(session_id)
+        user_id = session.get("owner", "")
+        device_id = (session.get("device") or {}).get("device_id", "")
+        if not user_id or not device_id:
+            return
+
+        from app.agent_session_manager import get_agent_session_manager
+        from app.database import close_agent_conversation, get_agent_conversation
+
+        conversation = await get_agent_conversation(user_id, device_id, terminal_id)
+        if conversation is None or conversation.get("status") != "active":
+            return
+        await close_agent_conversation(
+            user_id,
+            device_id,
+            terminal_id,
+            payload={"reason": reason},
+        )
+        active_session = get_agent_session_manager().get_active_terminal_session(
+            user_id=user_id,
+            device_id=device_id,
+            terminal_id=terminal_id,
+            conversation_id=conversation["conversation_id"],
+        )
+        if active_session:
+            await get_agent_session_manager().cancel(active_session.id)
+    except Exception:
+        logger.warning(
+            "Failed to close terminal-bound Agent conversation: session_id=%s terminal_id=%s",
+            session_id,
+            terminal_id,
+            exc_info=True,
+        )
+
+
+async def _close_agent_conversations_for_session(session_id: str, reason: str) -> None:
+    """Best-effort cleanup for all terminal-bound Agent conversations in a session."""
+    try:
+        session = await get_session(session_id)
+    except Exception:
+        logger.warning("Failed to load session for Agent conversation cleanup: %s", session_id, exc_info=True)
+        return
+
+    for terminal in session.get("terminals", []) or []:
+        terminal_id = terminal.get("terminal_id")
+        if terminal_id and terminal.get("status") != "closed":
+            await _close_agent_conversation_for_terminal(session_id, terminal_id, reason)
+
 # Stale Agent 追踪（TTL 机制）
 # session_id -> 过期时间（datetime）
 stale_agents: dict[str, datetime] = {}
@@ -353,6 +409,7 @@ async def _handle_agent_message(websocket, session_id: str, message: dict):
                 terminal_status="closed",
                 disconnect_reason=reason,
             )
+            await _close_agent_conversation_for_terminal(session_id, terminal_id, reason)
             # 处理 create 等待中的 future（终端在创建过程中被关闭）
             create_future = pending_terminal_creates.pop((session_id, terminal_id), None)
             if create_future and not create_future.done():
@@ -538,6 +595,7 @@ async def _expire_stale_agent(session_id: str):
 
     # 原子更新：status=offline + agent_online=False + bulk close terminals
     try:
+        await _close_agent_conversations_for_session(session_id, CLEANUP_REASON_DEVICE_OFFLINE)
         await set_session_offline(session_id, reason=CLEANUP_REASON_DEVICE_OFFLINE)
         logger.info("Agent expired from stale to offline_expired: session_id=%s", session_id)
     except Exception as e:
@@ -587,6 +645,7 @@ async def _set_session_offline_immediately(
     """清除 stale 状态并立即把 session/terminals 收口到 offline_expired。"""
     _clear_agent_stale(session_id)
     try:
+        await _close_agent_conversations_for_session(session_id, reason)
         await set_session_offline(session_id, reason=reason)
     except Exception as exc:
         logger.error(

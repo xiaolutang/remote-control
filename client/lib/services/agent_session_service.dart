@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../models/agent_conversation_projection.dart';
 import '../models/agent_session_event.dart';
 import 'http_client_factory.dart';
 import 'server_url_helper.dart';
@@ -63,30 +64,104 @@ class AgentSessionService {
   /// 获取当前活跃会话 ID
   String? get activeSessionId => _activeSessionId;
 
+  Future<AgentConversationProjection> fetchConversation({
+    required String deviceId,
+    String? terminalId,
+    required String token,
+  }) async {
+    final resolvedTerminalId = _resolveTerminalId(terminalId);
+    final response = await _client.get(
+      Uri.parse('$_httpUrl/api/runtime/devices/$deviceId'
+          '/terminals/$resolvedTerminalId/assistant/conversation'),
+      headers: _jsonHeaders(token),
+    );
+    if (response.statusCode == 200) {
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      return AgentConversationProjection.fromJson(json);
+    }
+    _throwResponseException(
+      statusCode: response.statusCode,
+      responseBody: response.body,
+      fallbackMessage: '获取 Agent 对话失败',
+    );
+  }
+
+  Stream<AgentConversationEventItem> streamConversation({
+    required String deviceId,
+    String? terminalId,
+    required String token,
+    int afterIndex = -1,
+  }) {
+    final controller = StreamController<AgentConversationEventItem>();
+
+    () async {
+      try {
+        final resolvedTerminalId = _resolveTerminalId(terminalId);
+        final request = http.Request(
+          'GET',
+          Uri.parse('$_httpUrl/api/runtime/devices/$deviceId'
+              '/terminals/$resolvedTerminalId/assistant/conversation/stream'
+              '?after_index=$afterIndex'),
+        )..headers.addAll(_headers(token));
+
+        final response = await _client.send(request);
+
+        if (response.statusCode != 200) {
+          final responseBody = await response.stream.bytesToString();
+          controller.addError(
+            _buildResponseException(
+              statusCode: response.statusCode,
+              responseBody: responseBody,
+              fallbackMessage: '订阅 Agent 对话失败',
+            ),
+          );
+          await controller.close();
+          return;
+        }
+
+        await _processConversationStream(
+          response: response,
+          controller: controller,
+        );
+      } catch (e) {
+        if (!controller.isClosed) {
+          controller.addError(e);
+          await controller.close();
+        }
+      }
+    }();
+
+    return controller.stream;
+  }
+
   /// 启动 Agent 会话，返回 SSE 事件流
   ///
   /// 调用 POST /runtime/devices/{deviceId}/assistant/agent/run
   /// 成功时返回 SSE 事件流。
-  /// 设备离线等错误时通过流发射 [AgentFallbackEvent]，调用方可降级到 planner。
+  /// 非 200 响应统一转换为 [AgentErrorEvent]，由调用方直接展示错误。
   Stream<AgentSessionEvent> runSession({
     required String deviceId,
+    String? terminalId,
     required String intent,
     required String token,
     String? conversationId,
+    String? clientEventId,
   }) {
     final controller = StreamController<AgentSessionEvent>();
 
     () async {
       try {
+        final resolvedTerminalId = _resolveTerminalId(terminalId);
         final body = <String, dynamic>{
           'intent': intent,
+          'client_event_id': clientEventId ?? _newClientEventId('run'),
           if (conversationId != null) 'conversation_id': conversationId,
         };
 
         final request = http.Request(
           'POST',
-          Uri.parse(
-              '$_httpUrl/api/runtime/devices/$deviceId/assistant/agent/run'),
+          Uri.parse('$_httpUrl/api/runtime/devices/$deviceId'
+              '/terminals/$resolvedTerminalId/assistant/agent/run'),
         )
           ..headers.addAll(_headers(token))
           ..body = jsonEncode(body);
@@ -123,19 +198,27 @@ class AgentSessionService {
   /// POST /runtime/devices/{deviceId}/assistant/agent/{sessionId}/respond
   Future<bool> respond({
     required String deviceId,
+    String? terminalId,
     required String sessionId,
     required String answer,
     required String token,
+    String? questionId,
+    String? clientEventId,
   }) async {
+    final resolvedTerminalId = _resolveTerminalId(terminalId);
     final response = await _client.post(
-      Uri.parse(
-          '$_httpUrl/api/runtime/devices/$deviceId/assistant/agent/$sessionId/respond'),
+      Uri.parse('$_httpUrl/api/runtime/devices/$deviceId'
+          '/terminals/$resolvedTerminalId/assistant/agent/$sessionId/respond'),
       headers: _jsonHeaders(token),
-      body: jsonEncode({'answer': answer}),
+      body: jsonEncode({
+        'answer': answer,
+        'question_id': questionId,
+        'client_event_id': clientEventId ?? _newClientEventId('answer'),
+      }),
     );
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body) as Map<String, dynamic>;
-      return data['ok'] == true;
+      return data['ok'] == true || data['status'] == 'ok';
     }
     throw AgentSessionException(
       message: '回复 Agent 失败 (${response.statusCode})',
@@ -148,17 +231,19 @@ class AgentSessionService {
   /// POST /runtime/devices/{deviceId}/assistant/agent/{sessionId}/cancel
   Future<bool> cancel({
     required String deviceId,
+    String? terminalId,
     required String sessionId,
     required String token,
   }) async {
+    final resolvedTerminalId = _resolveTerminalId(terminalId);
     final response = await _client.post(
-      Uri.parse(
-          '$_httpUrl/api/runtime/devices/$deviceId/assistant/agent/$sessionId/cancel'),
+      Uri.parse('$_httpUrl/api/runtime/devices/$deviceId'
+          '/terminals/$resolvedTerminalId/assistant/agent/$sessionId/cancel'),
       headers: _jsonHeaders(token),
     );
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body) as Map<String, dynamic>;
-      return data['ok'] == true;
+      return data['ok'] == true || data['status'] == 'ok';
     }
     throw AgentSessionException(
       message: '取消会话失败 (${response.statusCode})',
@@ -176,6 +261,7 @@ class AgentSessionService {
   /// - expired/error → 返回 ErrorEvent
   Stream<AgentSessionEvent> resumeSession({
     required String deviceId,
+    String? terminalId,
     required String sessionId,
     required String token,
   }) {
@@ -183,12 +269,13 @@ class AgentSessionService {
 
     () async {
       try {
+        final resolvedTerminalId = _resolveTerminalId(terminalId);
         _activeSessionId = sessionId;
 
         final request = http.Request(
           'GET',
-          Uri.parse(
-              '$_httpUrl/api/runtime/devices/$deviceId/assistant/agent/$sessionId/resume'),
+          Uri.parse('$_httpUrl/api/runtime/devices/$deviceId'
+              '/terminals/$resolvedTerminalId/assistant/agent/$sessionId/resume'),
         )..headers.addAll(_headers(token));
 
         final response = await _client.send(request);
@@ -309,48 +396,164 @@ class AgentSessionService {
     required StreamController<AgentSessionEvent> controller,
   }) {
     final statusCode = response.statusCode;
+    final exception = _buildResponseException(
+      statusCode: statusCode,
+      responseBody: responseBody,
+      fallbackMessage: 'Agent 会话请求失败',
+    );
 
-    // 尝试解析服务端错误 JSON
-    Map<String, dynamic>? errorData;
-    try {
-      errorData = jsonDecode(responseBody) as Map<String, dynamic>;
-    } on FormatException {
-      // 非 JSON 响应
-    }
-
-    final errorCode = errorData?['code'] as String?;
-    final errorMessage =
-        errorData?['message'] as String? ?? errorData?['detail'] as String?;
-
-    // 409 Conflict：Agent 不可用（设备离线等），触发降级
-    if (statusCode == 409) {
-      controller.add(AgentFallbackEvent(
-        reason: errorMessage ?? 'Agent 不可用',
-        code: errorCode ?? 'AGENT_OFFLINE',
-      ));
-      controller.close();
-      return;
-    }
-
-    // 410 Gone：会话已过期
-    if (statusCode == 410) {
-      controller.add(AgentErrorEvent(
-        code: errorCode ?? 'SESSION_EXPIRED',
-        message: errorMessage ?? '会话已过期',
-      ));
-      controller.close();
-      return;
-    }
-
-    // 其他错误
-    controller.addError(
-      AgentSessionException(
-        message: errorMessage ?? 'Agent 会话请求失败 ($statusCode)',
-        code: errorCode,
+    controller.add(AgentErrorEvent(
+      code: exception.code ?? _defaultErrorCodeForStatus(statusCode),
+      message: _friendlyErrorMessage(
+        exception.message,
+        code: exception.code,
         statusCode: statusCode,
       ),
-    );
+    ));
     controller.close();
+  }
+
+  String _defaultErrorCodeForStatus(int statusCode) {
+    switch (statusCode) {
+      case 409:
+        return 'AGENT_UNAVAILABLE';
+      case 410:
+        return 'SESSION_EXPIRED';
+      case 429:
+        return 'RATE_LIMITED';
+      default:
+        return 'AGENT_REQUEST_FAILED';
+    }
+  }
+
+  String _friendlyErrorMessage(
+    String rawMessage, {
+    String? code,
+    required int statusCode,
+  }) {
+    final normalizedCode = (code ?? '').trim().toLowerCase();
+    final normalizedMessage = rawMessage.toLowerCase();
+    final tokenProblem = normalizedCode == 'service_llm_budget_blocked' ||
+        normalizedMessage.contains('token') ||
+        normalizedMessage.contains('api key') ||
+        normalizedMessage.contains('quota') ||
+        normalizedMessage.contains('billing') ||
+        normalizedMessage.contains('配额');
+    if (tokenProblem) {
+      return '智能服务 Token 或配额不可用，请联系开发者';
+    }
+    if (normalizedCode == 'device_offline') {
+      return '当前桌面设备未在线，无法启动智能交互';
+    }
+    if (statusCode == 429) {
+      return '智能服务当前不可用，请稍后重试';
+    }
+    return rawMessage;
+  }
+
+  Future<void> _processConversationStream({
+    required http.StreamedResponse response,
+    required StreamController<AgentConversationEventItem> controller,
+  }) async {
+    String? currentEvent;
+    StringBuffer? dataBuffer;
+
+    await for (final line in response.stream
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())) {
+      if (line.startsWith(':')) {
+        continue;
+      }
+      if (line.startsWith('event:')) {
+        currentEvent = line.substring(6).trim();
+        dataBuffer = StringBuffer();
+        continue;
+      }
+      if (line.startsWith('data:')) {
+        final dataContent = line.substring(5).trim();
+        if (dataBuffer != null) {
+          if (dataBuffer.isNotEmpty) dataBuffer.write('\n');
+          dataBuffer.write(dataContent);
+        }
+        continue;
+      }
+      if (line.isEmpty && currentEvent != null && dataBuffer != null) {
+        if (currentEvent == 'conversation_event') {
+          try {
+            final decoded = jsonDecode(dataBuffer.toString());
+            if (decoded is Map<String, dynamic>) {
+              final event = AgentConversationEventItem.fromJson(decoded);
+              controller.add(event);
+              if (event.type == 'closed') {
+                await controller.close();
+                return;
+              }
+            }
+          } on FormatException {
+            // Ignore malformed conversation frames.
+          }
+        }
+        currentEvent = null;
+        dataBuffer = null;
+      }
+    }
+
+    if (!controller.isClosed) {
+      await controller.close();
+    }
+  }
+
+  AgentSessionException _buildResponseException({
+    required int statusCode,
+    required String responseBody,
+    required String fallbackMessage,
+  }) {
+    try {
+      final decoded = jsonDecode(responseBody);
+      if (decoded is Map<String, dynamic>) {
+        final topLevelMessage = (decoded['message'] as String?)?.trim();
+        final topLevelCode = (decoded['code'] as String?)?.trim();
+        if (topLevelMessage != null && topLevelMessage.isNotEmpty) {
+          return AgentSessionException(
+            message: topLevelMessage,
+            code: topLevelCode,
+            statusCode: statusCode,
+          );
+        }
+        final detail = decoded['detail'];
+        if (detail is Map<String, dynamic>) {
+          return AgentSessionException(
+            message: (detail['message'] as String? ?? fallbackMessage).trim(),
+            code: (detail['reason'] as String?)?.trim(),
+            statusCode: statusCode,
+          );
+        }
+        if (detail is String && detail.trim().isNotEmpty) {
+          return AgentSessionException(
+            message: detail.trim(),
+            statusCode: statusCode,
+          );
+        }
+      }
+    } on FormatException {
+      // fall through
+    }
+    return AgentSessionException(
+      message: '$fallbackMessage ($statusCode)',
+      statusCode: statusCode,
+    );
+  }
+
+  Never _throwResponseException({
+    required int statusCode,
+    required String responseBody,
+    required String fallbackMessage,
+  }) {
+    throw _buildResponseException(
+      statusCode: statusCode,
+      responseBody: responseBody,
+      fallbackMessage: fallbackMessage,
+    );
   }
 
   /// 回写执行结果
@@ -395,5 +598,17 @@ class AgentSessionService {
   /// 释放资源
   void dispose() {
     _client.close();
+  }
+
+  String _newClientEventId(String prefix) {
+    return '$prefix-${DateTime.now().microsecondsSinceEpoch}';
+  }
+
+  String _resolveTerminalId(String? terminalId) {
+    final trimmed = terminalId?.trim();
+    if (trimmed != null && trimmed.isNotEmpty) {
+      return trimmed;
+    }
+    return 'terminal-legacy';
   }
 }

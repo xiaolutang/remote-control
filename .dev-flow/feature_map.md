@@ -142,6 +142,17 @@ graph LR
     F083 --> F084[PlannerCoordinator + fallback]
     F086 --> F084
     F084 --> F085[端到端回归与真实设备 smoke]
+
+    %% Phase: terminal-bound-agent-conversation
+    S083[Terminal-bound conversation 契约] --> B085[conversation 持久化与权限]
+    B085 --> B086[run/respond/resume 绑定 terminal]
+    B086 --> B087[fetch/stream 多端同步]
+    B087 --> B088[message_history + close cleanup]
+    B087 --> F101[客户端服务端投影]
+    B088 --> F102[双端同步 UI + close 清理]
+    F101 --> F102
+    B088 --> S084[全链路验收]
+    F102 --> S084
 ```
 
 ## 模块依赖关系
@@ -155,6 +166,7 @@ graph LR
 | **Agent 生命周期管理** | **DesktopAgentSupervisor、DesktopAgentManager** | **AuthService、App 启动** |
 | **智能终端进入** | **RuntimeSelectionController、DesktopWorkspaceController、recent terminal 上下文** | **runtime selection、workspace 创建与执行链路** |
 | **命令规划 provider 隔离** | **CommandPlanner、PlannerCoordinator、本地 planner bridge、Client 安全存储** | **命令预览、确认执行、fallback 反馈** |
+| **Terminal-bound Agent 对话** | **Agent SSE、terminal lifecycle、Server conversation events** | **手机端/桌面端同 terminal 智能对话同步、message_history、close cleanup** |
 
 ## 关键路径
 
@@ -221,6 +233,7 @@ F032: AgentLifecycleManager.onLogout()
 | **Agent 生命周期管理** | **8** | **7** | **87.5%** |
 | **智能终端进入** | **6** | **1** | **16.7%** |
 | **命令规划 provider 隔离** | **7** | **1** | **14.3%** |
+| **Terminal-bound Agent 对话同步** | **8** | **2** | **25%** |
 | **环境选择** | **2** | **2** | **100%** |
 | **IP 直连 + 加密** | **2** | **1** | **50%** |
 | **合计** | **83** | **54** | **65.1%** |

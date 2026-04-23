@@ -457,6 +457,34 @@ graph TB
 | PTY 进程组清理 | `agent/app/pty_wrapper.py` - stop() | ✅ |
 | 超时强制终止 | `agent/app/pty_wrapper.py` - SIGKILL | ✅ |
 | 资源清理完整性 | `agent/app/pty_wrapper.py` - _cleanup() | ✅ |
+| Terminal-bound Agent conversation | Server `agent_conversations/events` + Client assistant 投影 | ⬜ |
+
+## 3.2 Terminal-bound Agent Conversation（规划中）
+
+```mermaid
+flowchart LR
+    M[Mobile Client] --> C[Server conversation events]
+    D[Desktop Client] --> C
+    C --> H[message_history]
+    H --> R[Server ReAct Agent]
+    R --> T[Desktop Device Agent tools]
+    T --> R
+    R --> C
+    C --> M
+    C --> D
+    X[terminal close] --> Z[destroy conversation + cancel active session]
+```
+
+功能点：
+- `user_id + device_id + terminal_id` 唯一绑定一个 active Agent conversation
+- 手机端和桌面端共享同一事件投影，本地 history 只做渲染缓存
+- Server 从 conversation events 重建 `message_history`，不依赖客户端拼接 prompt
+- terminal close / device offline closed / logout 时销毁 conversation 并拒绝旧 respond/resume
+
+**规划任务：**
+- Shared: `S083` 契约与生命周期基线，`S084` 全链路验收
+- Backend: `B085` 持久化，`B086` run/respond/resume 绑定，`B087` fetch/stream，`B088` message_history + close cleanup
+- Client: `F101` 服务端投影接入，`F102` 双端同步 UI
 
 #### 3.1.9 PTY 进程组清理与资源完整性（规划中）
 

@@ -684,6 +684,53 @@ class TestAgentRunLoop:
         assert s.result.summary == "project entered"
 
     @pytest.mark.asyncio
+    async def test_run_loop_persists_usage_before_result_event(self, manager):
+        """usage 必须先落库，再推送 SSE result 事件。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="loop1b",
+        )
+
+        mock_result = _make_agent_result(summary="project entered")
+        mock_outcome = AgentRunOutcome(
+            result=mock_result,
+            input_tokens=100,
+            output_tokens=50,
+            total_tokens=150,
+            requests=2,
+            model_name="test-model",
+        )
+        execute_fn = AsyncMock(return_value=_make_execute_result(stdout="file.txt"))
+
+        ordering: list[str] = []
+        original_put = s.event_queue.put
+
+        async def _tracking_put(event):
+            if event is not None and event[0] == "result":
+                ordering.append("result")
+            await original_put(event)
+
+        async def _save_usage(*args, **kwargs):
+            ordering.append("saved")
+            return True
+
+        s.event_queue.put = _tracking_put  # type: ignore[assignment]
+
+        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, return_value=mock_outcome):
+            with patch("app.agent_session_manager.save_agent_usage", new_callable=AsyncMock, side_effect=_save_usage) as save_mock:
+                await manager.start_agent(s, execute_fn)
+                await asyncio.sleep(0.1)
+
+        assert save_mock.await_count == 1
+        assert ordering[:2] == ["saved", "result"]
+
+        events = []
+        while not s.event_queue.empty():
+            events.append(s.event_queue.get_nowait())
+        result_events = [event for event in events if event is not None and event[0] == "result"]
+        assert len(result_events) == 1
+        assert result_events[0][1]["usage"]["total_tokens"] == 150
+
+    @pytest.mark.asyncio
     async def test_run_loop_pushes_error_on_failure(self, manager):
         """Agent 出错应推送 ErrorEvent。"""
         s = await manager.create_session(
@@ -697,6 +744,68 @@ class TestAgentRunLoop:
             await asyncio.sleep(0.1)
 
         assert s.state == AgentSessionState.ERROR
+
+    @pytest.mark.asyncio
+    async def test_terminal_bound_session_persists_events(self, manager):
+        """terminal-bound session 应把 trace/question/result 写入 conversation events。"""
+        s = await manager.create_session(
+            intent="test",
+            device_id="d",
+            user_id="u",
+            session_id="loop-terminal",
+            terminal_id="term-1",
+            conversation_id="conv-1",
+        )
+
+        mock_result = _make_agent_result(summary="project entered")
+        mock_outcome = AgentRunOutcome(
+            result=mock_result,
+            input_tokens=100,
+            output_tokens=50,
+            total_tokens=150,
+            requests=2,
+            model_name="test-model",
+        )
+        execute_fn = AsyncMock(return_value=_make_execute_result(stdout="file.txt"))
+
+        async def _run_with_callbacks(**kwargs):
+            await kwargs["execute_command_fn"]("loop-terminal", "pwd")
+            answer = await kwargs["ask_user_fn"]("选择项目", ["remote-control"], False)
+            assert answer == "remote-control"
+            return mock_outcome
+
+        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_run_with_callbacks):
+            with patch("app.database.append_agent_conversation_event", new_callable=AsyncMock) as append_event:
+                await manager.start_agent(s, execute_fn)
+
+                question_event = None
+                for _ in range(5):
+                    event = await asyncio.wait_for(s.event_queue.get(), timeout=1.0)
+                    if event is not None and event[0] == "question":
+                        question_event = event
+                        break
+
+                assert question_event is not None
+                question_id = question_event[1]["question_id"]
+                assert question_id.startswith("q_")
+                assert s.pending_question_id == question_id
+
+                assert await manager.respond(
+                    "loop-terminal",
+                    "remote-control",
+                    question_id=question_id,
+                )
+                await asyncio.sleep(0.1)
+
+        event_types = [call.kwargs["event_type"] for call in append_event.await_args_list]
+        assert event_types.count("trace") == 2
+        assert "question" in event_types
+        assert "result" in event_types
+        question_calls = [
+            call for call in append_event.await_args_list
+            if call.kwargs["event_type"] == "question"
+        ]
+        assert question_calls[0].kwargs["question_id"] == question_id
 
     @pytest.mark.asyncio
     async def test_run_loop_cancelled(self, manager):

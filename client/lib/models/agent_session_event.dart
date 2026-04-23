@@ -7,13 +7,21 @@ sealed class AgentSessionEvent {
 
 /// Agent 会话创建事件
 class AgentSessionCreatedEvent extends AgentSessionEvent {
-  const AgentSessionCreatedEvent({required this.sessionId});
+  const AgentSessionCreatedEvent({
+    required this.sessionId,
+    this.conversationId,
+    this.terminalId,
+  });
 
   final String sessionId;
+  final String? conversationId;
+  final String? terminalId;
 
   factory AgentSessionCreatedEvent.fromJson(Map<String, dynamic> json) {
     return AgentSessionCreatedEvent(
       sessionId: (json['session_id'] as String? ?? '').trim(),
+      conversationId: (json['conversation_id'] as String?)?.trim(),
+      terminalId: (json['terminal_id'] as String?)?.trim(),
     );
   }
 }
@@ -45,14 +53,17 @@ class AgentQuestionEvent extends AgentSessionEvent {
     required this.question,
     required this.options,
     required this.multiSelect,
+    this.questionId,
   });
 
   final String question;
   final List<String> options;
   final bool multiSelect;
+  final String? questionId;
 
   factory AgentQuestionEvent.fromJson(Map<String, dynamic> json) {
     return AgentQuestionEvent(
+      questionId: (json['question_id'] as String?)?.trim(),
       question: (json['question'] as String? ?? '').trim(),
       options: (json['options'] as List<dynamic>? ?? const [])
           .whereType<String>()
@@ -145,7 +156,7 @@ class AgentResultEvent extends AgentSessionEvent {
       source: (json['source'] as String? ?? 'recommended').trim(),
       needConfirm: json['need_confirm'] as bool? ?? true,
       aliases: UnmodifiableMapView(
-        (json['aliases'] as Map<String, dynamic>? ?? const {})
+        Map<String, dynamic>.from(json['aliases'] as Map? ?? const {})
             .map((k, v) => MapEntry(k, v.toString())),
       ),
       usage: json['usage'] != null

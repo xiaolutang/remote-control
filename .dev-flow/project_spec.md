@@ -23,6 +23,7 @@
 - **新增：命令规划 provider 隔离**，产品层只暴露 Claude，但架构层必须隔离 `claude -p`、服务端 LLM 与本地规则，为后续 provider 扩展保留边界。
 - **新增：聊天式智能终端助手**，把当前“智能创建弹窗”升级为聊天式交互，展示对话、分析阶段、工具执行轨迹和最终命令卡片。
 - **新增：服务端 LLM 规划与上下文记忆**，在服务端聚合当前设备事实、近期项目、历史成功序列与评估日志，作为主规划链路。
+- **新增：terminal-bound Agent 对话同步**，Agent 对话由服务端按 terminal 一一维护，手机端和桌面端共享同一套对话事件与 `message_history`，terminal 关闭即销毁对应对话。
 
 ## 范围
 - 包含：
@@ -62,7 +63,7 @@
   - Agent 探索命令：只读白名单 + shell 元字符拦截 + 敏感路径过滤三重防护，Server+Agent 双重验证
   - Agent 会话管理：SSE 流推送（Trace/Question/Result/Error）、10min 超时、断连恢复
   - 项目别名持久化：SQLite 存储 Agent 发现的项目别名，跨终端跨会话复用
-  - 手机端保持无状态 planner 不变，Agent 仅桌面端侧滑面板
+  - 手机端可作为同一 terminal 的 Agent 对话视图/输入端；手机端不执行本地工具，所有 ReAct 工具仍通过 Server → 桌面设备 Agent 执行
   - 手动主题切换与主题持久化
   - 移动端 `更多` 命令面板与终端浅深色主题适配
   - terminal 关闭原因与短线 grace period 语义
@@ -118,6 +119,9 @@
 29. 聊天流中只展示结构化分析摘要、工具执行结果和状态轨迹，不展示模型原始 chain-of-thought。
 30. 智能体评估必须可回放、可量化、可跨设备对比；每次规划至少记录输入、上下文摘要、trace、最终命令、fallback 与执行结果。
 31. 命令执行结束后，客户端必须把执行结果、失败步骤、输出摘要与最终状态回写服务端，再由服务端决定是否更新 planner memory 与评估日志。
+32. 当手机端或桌面端在某个 terminal 中进行智能交互时，服务端必须把用户输入、AI 提问、用户回答、工具 trace、最终结果和错误作为该 terminal 的 conversation events 保存，并在下一轮 Agent 调用时重建 `message_history`。
+33. 手机端和桌面端同时查看同一 terminal 时，应看到同一套智能对话；任一端回答 Agent 追问后，另一端刷新或订阅后应看到该回答和后续结果。
+34. terminal 关闭后，该 terminal 的 Agent conversation 必须同步销毁；后续 resume/respond/fetch 都应返回关闭/不存在语义，不得继续沿用旧上下文。
 
 ## 技术约束
 - 后端与 Agent：Python + FastAPI + WebSocket + PTY
@@ -132,6 +136,7 @@
 - LLM provider 凭证优先保存在服务端受控环境变量；客户端只保留调试/开发态 fallback 所需的本机配置，不下发到 Agent
 - planner 输入只能来自当前设备事实、recent terminal 上下文、planner memory、候选项目与用户输入；禁止上传完整本地文件树，禁止生成无法被 shell 发现命令支撑的路径
 - 智能创建过程需要结构化 trace（阶段、工具、摘要、fallback），供聊天 UI 展示和评估回放使用
+- Agent 对话上下文的单一真相源是服务端 terminal conversation events；客户端本地历史只能做渲染缓存，不能拼接下一轮 AI prompt 的权威上下文
 - 服务端 `assistant/plan` 必须定义用户级限流、provider timeout、预算/配额和稳定错误语义；超限/超时不能阻断用户回退到本地 fallback 或手动创建
 - planner memory 与评估日志只能在收到执行结果回写后更新；命令卡片生成成功不等于规划成功
 - 当前验收基线：本地 Docker + Android 真机 + macOS 本地桌面端
@@ -142,7 +147,7 @@
 ## 交付边界
 - 后端：
   - 设备状态、terminal 状态、附着信息、消息转发、认证与归属校验
-  - 服务端 LLM planner API、上下文聚合、planner memory、trace、执行结果回写与评估日志
+  - 服务端 LLM planner API、上下文聚合、planner memory、trace、执行结果回写与评估日志、terminal-bound Agent conversation 生命周期
 - Agent：
   - 多 terminal PTY 生命周期、配置与登录恢复、宿主终端隔离
 - 前端：

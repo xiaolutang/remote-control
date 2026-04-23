@@ -242,6 +242,823 @@ class TestIntegrationMessageForwarding:
         # 验证 Agent 收到消息
         mock_agent_ws.send_json.assert_called_once()
         call_args = mock_agent_ws.send_json.call_args[0][0]
+        assert call_args["type"] == "data"
+        assert call_args["payload"] == "dGVNsbGl0"
+
+
+class TestTerminalBoundAgentApi:
+    """CONTRACT-049 terminal-bound Agent API tests."""
+
+    def setup_method(self):
+        self.client = TestClient(app)
+        self.token = generate_token("runtime-session-1")
+        self.headers = {"Authorization": f"Bearer {self.token}"}
+        app.dependency_overrides[get_current_user_id] = _mock_user_id
+
+    def teardown_method(self):
+        app.dependency_overrides.pop(get_current_user_id, None)
+
+    @staticmethod
+    def _session():
+        return {
+            "session_id": "runtime-session-1",
+            "owner": "user1",
+            "agent_online": True,
+            "device": {"device_id": "mbp-01"},
+        }
+
+    @staticmethod
+    def _terminal(terminal_id: str = "term-1"):
+        return {
+            "terminal_id": terminal_id,
+            "title": "Claude / remote-control",
+            "cwd": "/Users/demo/project/remote-control",
+            "command": "claude",
+            "status": "attached",
+            "disconnect_reason": None,
+            "updated_at": "2026-04-22T12:00:00+00:00",
+        }
+
+    @staticmethod
+    def _conversation(conversation_id: str = "conv-1"):
+        return {
+            "conversation_id": conversation_id,
+            "user_id": "user1",
+            "device_id": "mbp-01",
+            "terminal_id": "term-1",
+            "status": "active",
+        }
+
+    def test_terminal_agent_run_creates_terminal_bound_session(self):
+        from app.agent_session_manager import AgentSessionManager
+
+        manager = AgentSessionManager()
+        append_event = AsyncMock(
+            return_value={
+                "event_index": 0,
+                "event_type": "user_intent",
+                "client_event_id": "client-run-1",
+                "session_id": "agent-session-1",
+            }
+        )
+
+        async def _start_agent(agent_session, execute_cmd_fn):
+            await agent_session.event_queue.put(None)
+
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
+                with patch("app.runtime_api.get_or_create_agent_conversation", new=AsyncMock(return_value=self._conversation())):
+                    with patch("app.runtime_api.append_agent_conversation_event", new=append_event):
+                        with patch("app.runtime_api.list_agent_conversation_events", new=AsyncMock(return_value=[])):
+                            with patch("app.runtime_api.is_agent_connected", return_value=True):
+                                with patch("app.runtime_api.get_agent_session_manager", return_value=manager):
+                                    with patch.object(manager, "start_agent", new=AsyncMock(side_effect=_start_agent)):
+                                        response = self.client.post(
+                                            "/api/runtime/devices/mbp-01/terminals/term-1/assistant/agent/run",
+                                            headers=self.headers,
+                                            json={
+                                                "intent": "进入 remote-control",
+                                                "conversation_id": "client-local-conv",
+                                                "client_event_id": "client-run-1",
+                                                "session_id": "agent-session-1",
+                                            },
+                                        )
+
+        assert response.status_code == 200
+        assert "event: session_created" in response.text
+        assert '"conversation_id": "conv-1"' in response.text
+        append_event.assert_awaited_once()
+        assert append_event.await_args.kwargs["event_type"] == "user_intent"
+        assert append_event.await_args.kwargs["client_event_id"] == "client-run-1"
+        assert append_event.await_args.kwargs["session_id"] == "agent-session-1"
+
+    def test_terminal_agent_run_duplicate_client_event_reuses_active_session(self):
+        from app.agent_session_manager import AgentSessionManager
+
+        manager = AgentSessionManager()
+        agent_session = asyncio.run(
+            manager.create_session(
+                "进入 remote-control",
+                "mbp-01",
+                "user1",
+                session_id="agent-session-1",
+                terminal_id="term-1",
+                conversation_id="conv-1",
+            )
+        )
+        existing_event = {
+            "event_index": 0,
+            "event_type": "user_intent",
+            "client_event_id": "client-run-1",
+            "session_id": "agent-session-1",
+        }
+
+        async def _start_agent(agent_session, execute_cmd_fn):
+            raise AssertionError("duplicate run must not start a second Agent session")
+
+        await_none = asyncio.run(agent_session.event_queue.put(None))
+        assert await_none is None
+
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
+                with patch("app.runtime_api.get_or_create_agent_conversation", new=AsyncMock(return_value=self._conversation())):
+                    with patch("app.runtime_api.list_agent_conversation_events", new=AsyncMock(return_value=[existing_event])):
+                        with patch("app.runtime_api.is_agent_connected", return_value=True):
+                            with patch("app.runtime_api.get_agent_session_manager", return_value=manager):
+                                with patch.object(manager, "start_agent", new=AsyncMock(side_effect=_start_agent)):
+                                    response = self.client.post(
+                                        "/api/runtime/devices/mbp-01/terminals/term-1/assistant/agent/run",
+                                        headers=self.headers,
+                                        json={
+                                            "intent": "进入 remote-control",
+                                            "client_event_id": "client-run-1",
+                                        },
+                                    )
+
+        assert response.status_code == 200
+        assert '"session_id": "agent-session-1"' in response.text
+
+    def test_terminal_agent_run_returns_409_when_device_offline(self):
+        offline_session = {
+            **self._session(),
+            "agent_online": False,
+        }
+
+        append_event = AsyncMock(
+            return_value={
+                "event_index": 0,
+                "event_type": "user_intent",
+                "client_event_id": "client-run-offline",
+                "session_id": "agent-session-offline",
+            }
+        )
+
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=offline_session)):
+            with patch("app.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
+                with patch("app.runtime_api.get_or_create_agent_conversation", new=AsyncMock(return_value=self._conversation())):
+                    with patch("app.runtime_api.list_agent_conversation_events", new=AsyncMock(return_value=[])):
+                        with patch("app.runtime_api.append_agent_conversation_event", new=append_event):
+                            response = self.client.post(
+                                "/api/runtime/devices/mbp-01/terminals/term-1/assistant/agent/run",
+                                headers=self.headers,
+                                json={
+                                    "intent": "进入 remote-control",
+                                    "client_event_id": "client-run-offline",
+                                    "session_id": "agent-session-offline",
+                                },
+                            )
+
+        assert response.status_code == 409
+        assert response.json()["detail"]["reason"] == "device_offline"
+
+    def test_terminal_agent_respond_requires_current_question_and_records_answer(self):
+        from app.agent_session_manager import AgentSessionManager, AgentSessionState
+
+        manager = AgentSessionManager()
+        agent_session = asyncio.run(
+            manager.create_session(
+                "进入 remote-control",
+                "mbp-01",
+                "user1",
+                session_id="agent-session-1",
+                terminal_id="term-1",
+                conversation_id="conv-1",
+            )
+        )
+        agent_session.state = AgentSessionState.ASKING
+        agent_session.pending_question_id = "q-1"
+        pending_future = MagicMock()
+        pending_future.done.return_value = False
+        agent_session._pending_question_future = pending_future
+        append_event = AsyncMock(
+            return_value={
+                "event_index": 2,
+                "event_type": "answer",
+                "question_id": "q-1",
+                "client_event_id": "answer-1",
+                "session_id": "agent-session-1",
+            }
+        )
+
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
+                with patch("app.runtime_api.get_or_create_agent_conversation", new=AsyncMock(return_value=self._conversation())):
+                    with patch("app.runtime_api.append_agent_conversation_event", new=append_event):
+                        with patch("app.runtime_api.get_agent_session_manager", return_value=manager):
+                            response = self.client.post(
+                                "/api/runtime/devices/mbp-01/terminals/term-1/assistant/agent/agent-session-1/respond",
+                                headers=self.headers,
+                                json={
+                                    "answer": "remote-control",
+                                    "question_id": "q-1",
+                                    "client_event_id": "answer-1",
+                                },
+                            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["conversation_id"] == "conv-1"
+        assert data["event"]["event_type"] == "answer"
+        append_event.assert_awaited_once()
+        assert append_event.await_args.kwargs["question_id"] == "q-1"
+        pending_future.set_result.assert_called_once_with("remote-control")
+
+    def test_terminal_agent_respond_idempotent_client_event_after_state_changed(self):
+        from app.agent_session_manager import AgentSessionManager, AgentSessionState
+
+        manager = AgentSessionManager()
+        agent_session = asyncio.run(
+            manager.create_session(
+                "进入 remote-control",
+                "mbp-01",
+                "user1",
+                session_id="agent-session-1",
+                terminal_id="term-1",
+                conversation_id="conv-1",
+            )
+        )
+        agent_session.state = AgentSessionState.EXPLORING
+        existing_event = {
+            "event_index": 2,
+            "event_type": "answer",
+            "question_id": "q-1",
+            "client_event_id": "answer-1",
+            "session_id": "agent-session-1",
+        }
+
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
+                with patch("app.runtime_api.get_or_create_agent_conversation", new=AsyncMock(return_value=self._conversation())):
+                    with patch("app.runtime_api.list_agent_conversation_events", new=AsyncMock(return_value=[existing_event])):
+                        with patch("app.runtime_api.get_agent_session_manager", return_value=manager):
+                            response = self.client.post(
+                                "/api/runtime/devices/mbp-01/terminals/term-1/assistant/agent/agent-session-1/respond",
+                                headers=self.headers,
+                                json={
+                                    "answer": "remote-control",
+                                    "question_id": "q-1",
+                                    "client_event_id": "answer-1",
+                                },
+                            )
+
+        assert response.status_code == 200
+        assert response.json()["idempotent"] is True
+
+    def test_terminal_agent_respond_duplicate_answer_returns_409(self):
+        from app.agent_session_manager import AgentSessionManager, AgentSessionState
+        from app.database import AgentConversationConflict
+
+        manager = AgentSessionManager()
+        agent_session = asyncio.run(
+            manager.create_session(
+                "进入 remote-control",
+                "mbp-01",
+                "user1",
+                session_id="agent-session-1",
+                terminal_id="term-1",
+                conversation_id="conv-1",
+            )
+        )
+        agent_session.state = AgentSessionState.ASKING
+        agent_session.pending_question_id = "q-1"
+        agent_session._pending_question_future = MagicMock()
+        agent_session._pending_question_future.done.return_value = False
+
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
+                with patch("app.runtime_api.get_or_create_agent_conversation", new=AsyncMock(return_value=self._conversation())):
+                    with patch(
+                        "app.runtime_api.append_agent_conversation_event",
+                        new=AsyncMock(side_effect=AgentConversationConflict("question_already_answered")),
+                    ):
+                        with patch("app.runtime_api.get_agent_session_manager", return_value=manager):
+                            response = self.client.post(
+                                "/api/runtime/devices/mbp-01/terminals/term-1/assistant/agent/agent-session-1/respond",
+                                headers=self.headers,
+                                json={
+                                    "answer": "ai_rules",
+                                    "question_id": "q-1",
+                                    "client_event_id": "answer-2",
+                                },
+                            )
+
+        assert response.status_code == 409
+        assert response.json()["detail"]["reason"] == "question_already_answered"
+
+    def test_terminal_agent_wrong_terminal_cannot_resume_session(self):
+        from app.agent_session_manager import AgentSessionManager, AgentSessionState
+
+        manager = AgentSessionManager()
+        agent_session = asyncio.run(
+            manager.create_session(
+                "进入 remote-control",
+                "mbp-01",
+                "user1",
+                session_id="agent-session-1",
+                terminal_id="term-1",
+                conversation_id="conv-1",
+            )
+        )
+        agent_session.state = AgentSessionState.COMPLETED
+        agent_session._last_events = [("trace", {"tool": "think"})]
+
+        wrong_conversation = {
+            **self._conversation("conv-2"),
+            "terminal_id": "term-2",
+        }
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal("term-2"))):
+                with patch("app.runtime_api.get_or_create_agent_conversation", new=AsyncMock(return_value=wrong_conversation)):
+                    with patch("app.runtime_api.get_agent_session_manager", return_value=manager):
+                        response = self.client.get(
+                            "/api/runtime/devices/mbp-01/terminals/term-2/assistant/agent/agent-session-1/resume",
+                            headers=self.headers,
+                        )
+
+        assert response.status_code == 404
+
+    def test_old_agent_run_path_returns_terminal_required(self):
+        response = self.client.post(
+            "/api/runtime/devices/mbp-01/assistant/agent/run",
+            headers=self.headers,
+            json={"intent": "进入 remote-control", "client_event_id": "client-run-1"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"]["reason"] == "terminal_id_required"
+
+    def test_terminal_conversation_fetch_returns_projection(self):
+        from app.agent_session_manager import AgentSessionManager
+
+        manager = AgentSessionManager()
+        agent_session = asyncio.run(
+            manager.create_session(
+                "进入 remote-control",
+                "mbp-01",
+                "user1",
+                session_id="agent-session-1",
+                terminal_id="term-1",
+                conversation_id="conv-1",
+            )
+        )
+        events = [
+            {
+                "event_index": 0,
+                "event_id": "evt-0",
+                "event_type": "user_intent",
+                "role": "user",
+                "session_id": "agent-session-1",
+                "question_id": None,
+                "client_event_id": "client-run-1",
+                "payload": {"text": "进入 remote-control"},
+                "created_at": "2026-04-23T12:00:00+00:00",
+            },
+            {
+                "event_index": 1,
+                "event_id": "evt-1",
+                "event_type": "question",
+                "role": "assistant",
+                "session_id": "agent-session-1",
+                "question_id": "q-1",
+                "client_event_id": None,
+                "payload": {"question": "选择项目"},
+                "created_at": "2026-04-23T12:00:01+00:00",
+            },
+        ]
+
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
+                with patch("app.runtime_api.get_agent_conversation", new=AsyncMock(return_value=self._conversation())):
+                    with patch("app.runtime_api.list_agent_conversation_events", new=AsyncMock(return_value=events)):
+                        with patch("app.runtime_api.get_agent_session_manager", return_value=manager):
+                            response = self.client.get(
+                                "/api/runtime/devices/mbp-01/terminals/term-1/assistant/conversation",
+                                headers=self.headers,
+                            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["conversation_id"] == "conv-1"
+        assert data["active_session_id"] == agent_session.id
+        assert data["next_event_index"] == 2
+        assert [event["type"] for event in data["events"]] == ["user_intent", "question"]
+
+    def test_terminal_conversation_fetch_empty_projection(self):
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
+                with patch("app.runtime_api.get_agent_conversation", new=AsyncMock(return_value=None)):
+                    response = self.client.get(
+                        "/api/runtime/devices/mbp-01/terminals/term-1/assistant/conversation",
+                        headers=self.headers,
+                    )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["conversation_id"] is None
+        assert data["status"] == "empty"
+        assert data["events"] == []
+        assert data["next_event_index"] == 0
+
+    def test_terminal_conversation_fetch_unowned_device_returns_404(self):
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=None)):
+            response = self.client.get(
+                "/api/runtime/devices/other-device/terminals/term-1/assistant/conversation",
+                headers=self.headers,
+            )
+
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_terminal_conversation_stream_only_events_after_index(self):
+        from app.runtime_api import stream_terminal_agent_conversation
+
+        class FakeRequest:
+            async def is_disconnected(self):
+                return False
+
+        events = [
+            {
+                "event_index": 2,
+                "event_id": "evt-2",
+                "event_type": "answer",
+                "role": "user",
+                "session_id": "agent-session-1",
+                "question_id": "q-1",
+                "client_event_id": "answer-1",
+                "payload": {"text": "remote-control"},
+                "created_at": "2026-04-23T12:00:02+00:00",
+            }
+        ]
+
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
+                with patch("app.runtime_api.get_agent_conversation", new=AsyncMock(return_value=self._conversation())):
+                    with patch("app.runtime_api.list_agent_conversation_events", new=AsyncMock(return_value=events)) as list_events:
+                        response = await stream_terminal_agent_conversation(
+                            "mbp-01",
+                            "term-1",
+                            FakeRequest(),
+                            after_index=1,
+                            user_id="user1",
+                        )
+                        chunk = await response.body_iterator.__anext__()
+
+        assert "event: conversation_event" in chunk
+        assert '"event_index":2' in chunk
+        assert '"type":"answer"' in chunk
+        assert list_events.await_args.kwargs["after_index"] == 1
+
+    def test_terminal_agent_run_rebuilds_message_history_from_server_events(self):
+        from app.agent_session_manager import AgentSessionManager
+        from app.terminal_agent import AgentResult, AgentRunOutcome, CommandSequenceStep
+
+        manager = AgentSessionManager()
+        prior_events = [
+            {
+                "event_index": 0,
+                "event_id": "evt-0",
+                "event_type": "question",
+                "role": "assistant",
+                "session_id": "agent-session-old",
+                "question_id": "q-1",
+                "client_event_id": None,
+                "payload": {"question": "选择项目", "options": ["remote-control"]},
+                "created_at": "2026-04-23T12:00:00+00:00",
+            },
+            {
+                "event_index": 1,
+                "event_id": "evt-1",
+                "event_type": "answer",
+                "role": "user",
+                "session_id": "agent-session-old",
+                "question_id": "q-1",
+                "client_event_id": "answer-1",
+                "payload": {"text": "remote-control"},
+                "created_at": "2026-04-23T12:00:01+00:00",
+            },
+        ]
+        append_run_event = AsyncMock(
+            return_value={
+                "event_index": 2,
+                "event_type": "user_intent",
+                "client_event_id": "client-run-2",
+                "session_id": "agent-session-2",
+            }
+        )
+        outcome = AgentRunOutcome(
+            result=AgentResult(
+                summary="进入 remote-control",
+                steps=[CommandSequenceStep(id="step_1", label="pwd", command="pwd")],
+            ),
+            model_name="test-model",
+        )
+
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
+                with patch("app.runtime_api.get_or_create_agent_conversation", new=AsyncMock(return_value=self._conversation())):
+                    with patch("app.runtime_api.list_agent_conversation_events", new=AsyncMock(return_value=prior_events)):
+                        with patch("app.runtime_api.append_agent_conversation_event", new=append_run_event):
+                            with patch("app.runtime_api.is_agent_connected", return_value=True):
+                                with patch("app.runtime_api.get_agent_session_manager", return_value=manager):
+                                    with patch("app.database.append_agent_conversation_event", new=AsyncMock()):
+                                        with patch("app.agent_session_manager.save_agent_usage", new=AsyncMock(return_value=True)):
+                                            with patch("app.terminal_agent.run_agent", new=AsyncMock(return_value=outcome)) as run_agent:
+                                                response = self.client.post(
+                                                    "/api/runtime/devices/mbp-01/terminals/term-1/assistant/agent/run",
+                                                    headers=self.headers,
+                                                    json={
+                                                        "intent": "进入这个项目",
+                                                        "client_event_id": "client-run-2",
+                                                        "session_id": "agent-session-2",
+                                                    },
+                                                )
+
+        assert response.status_code == 200
+        message_history = run_agent.await_args.kwargs["message_history"]
+        assert len(message_history) == 2
+        assert "remote-control" in repr(message_history)
+
+    def test_terminal_agent_run_keeps_message_history_isolated_per_terminal(self):
+        from app.agent_session_manager import AgentSessionManager
+        from app.terminal_agent import AgentResult, AgentRunOutcome, CommandSequenceStep
+
+        manager = AgentSessionManager()
+        term_2_events = [
+            {
+                "event_index": 0,
+                "event_id": "evt-20",
+                "event_type": "question",
+                "role": "assistant",
+                "session_id": "agent-session-old-2",
+                "question_id": "q-2",
+                "client_event_id": None,
+                "payload": {"question": "选择项目", "options": ["personal-growth-assistant"]},
+                "created_at": "2026-04-23T12:05:00+00:00",
+            },
+            {
+                "event_index": 1,
+                "event_id": "evt-21",
+                "event_type": "answer",
+                "role": "user",
+                "session_id": "agent-session-old-2",
+                "question_id": "q-2",
+                "client_event_id": "answer-2",
+                "payload": {"text": "personal-growth-assistant"},
+                "created_at": "2026-04-23T12:05:01+00:00",
+            },
+        ]
+        append_run_event = AsyncMock(
+            return_value={
+                "event_index": 2,
+                "event_type": "user_intent",
+                "client_event_id": "client-run-term-2",
+                "session_id": "agent-session-2",
+            }
+        )
+        outcome = AgentRunOutcome(
+            result=AgentResult(
+                summary="进入另一个项目",
+                steps=[CommandSequenceStep(id="step_1", label="pwd", command="pwd")],
+            ),
+            model_name="test-model",
+        )
+
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal("term-2"))):
+                with patch(
+                    "app.runtime_api.get_or_create_agent_conversation",
+                    new=AsyncMock(return_value={**self._conversation("conv-2"), "terminal_id": "term-2"}),
+                ):
+                    with patch(
+                        "app.runtime_api.list_agent_conversation_events",
+                        new=AsyncMock(return_value=term_2_events),
+                    ) as list_events:
+                        with patch("app.runtime_api.append_agent_conversation_event", new=append_run_event):
+                            with patch("app.runtime_api.is_agent_connected", return_value=True):
+                                with patch("app.runtime_api.get_agent_session_manager", return_value=manager):
+                                    with patch("app.database.append_agent_conversation_event", new=AsyncMock()):
+                                        with patch("app.agent_session_manager.save_agent_usage", new=AsyncMock(return_value=True)):
+                                            with patch("app.terminal_agent.run_agent", new=AsyncMock(return_value=outcome)) as run_agent:
+                                                response = self.client.post(
+                                                    "/api/runtime/devices/mbp-01/terminals/term-2/assistant/agent/run",
+                                                    headers=self.headers,
+                                                    json={
+                                                        "intent": "进入这个项目",
+                                                        "client_event_id": "client-run-term-2",
+                                                        "session_id": "agent-session-2",
+                                                    },
+                                                )
+
+        assert response.status_code == 200
+        assert list_events.await_args.args == ("user1", "mbp-01", "term-2")
+        message_history = run_agent.await_args.kwargs["message_history"]
+        assert "personal-growth-assistant" in repr(message_history)
+        assert "remote-control" not in repr(message_history)
+
+    def test_terminal_agent_conversation_requires_owned_device(self):
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=None)):
+            response = self.client.get(
+                "/api/runtime/devices/mbp-01/terminals/term-1/assistant/conversation",
+                headers=self.headers,
+            )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "device mbp-01 不存在"
+
+    def test_close_terminal_closes_conversation_and_cancels_active_session(self):
+        from app.agent_session_manager import AgentSessionManager
+
+        manager = AgentSessionManager()
+        agent_session = asyncio.run(
+            manager.create_session(
+                "进入 remote-control",
+                "mbp-01",
+                "user1",
+                session_id="agent-session-1",
+                terminal_id="term-1",
+                conversation_id="conv-1",
+            )
+        )
+        terminal = self._terminal()
+        closed_event = {
+            "event_index": 3,
+            "event_id": "evt-closed",
+            "event_type": "closed",
+            "role": "system",
+            "session_id": None,
+            "question_id": None,
+            "client_event_id": None,
+            "payload": {"reason": "user_request"},
+            "created_at": "2026-04-23T12:00:03+00:00",
+        }
+
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.runtime_api.get_session_terminal", new=AsyncMock(return_value=terminal)):
+                with patch("app.runtime_api.request_agent_close_terminal_with_ack", new=AsyncMock()):
+                    with patch("app.runtime_api.get_agent_conversation", new=AsyncMock(return_value=self._conversation())):
+                        with patch("app.runtime_api.close_agent_conversation", new=AsyncMock(return_value=closed_event)) as close_conversation:
+                            with patch("app.runtime_api.get_agent_session_manager", return_value=manager):
+                                with patch("app.database.append_agent_conversation_event", new=AsyncMock()):
+                                    with patch(
+                                        "app.runtime_api.update_session_terminal_status",
+                                        new=AsyncMock(return_value={**terminal, "status": "closed", "disconnect_reason": "user_request"}),
+                                    ):
+                                        response = self.client.delete(
+                                            "/api/runtime/devices/mbp-01/terminals/term-1",
+                                            headers=self.headers,
+                                        )
+
+        assert response.status_code == 200
+        close_conversation.assert_awaited_once()
+        assert agent_session.state.value == "cancelled"
+
+    def test_closed_conversation_fetch_returns_410_without_history(self):
+        closed_conversation = {**self._conversation(), "status": "closed"}
+
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
+                with patch("app.runtime_api.get_agent_conversation", new=AsyncMock(return_value=closed_conversation)):
+                    response = self.client.get(
+                        "/api/runtime/devices/mbp-01/terminals/term-1/assistant/conversation",
+                        headers=self.headers,
+                    )
+
+        assert response.status_code == 410
+        assert response.json()["detail"]["reason"] == "closed_terminal"
+
+    @pytest.mark.asyncio
+    async def test_conversation_stream_receives_closed_event_from_close_fanout(self):
+        from app.runtime_api import (
+            _publish_conversation_stream_event,
+            stream_terminal_agent_conversation,
+        )
+
+        class FakeRequest:
+            async def is_disconnected(self):
+                return False
+
+        closed_event = {
+            "event_index": 3,
+            "event_id": "evt-closed",
+            "event_type": "closed",
+            "role": "system",
+            "session_id": None,
+            "question_id": None,
+            "client_event_id": None,
+            "payload": {"reason": "user_request"},
+            "created_at": "2026-04-23T12:00:03+00:00",
+        }
+
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
+                with patch("app.runtime_api.get_agent_conversation", new=AsyncMock(return_value=self._conversation())):
+                    with patch("app.runtime_api.list_agent_conversation_events", new=AsyncMock(return_value=[])):
+                        response = await stream_terminal_agent_conversation(
+                            "mbp-01",
+                            "term-1",
+                            FakeRequest(),
+                            after_index=2,
+                            user_id="user1",
+                        )
+                        next_chunk = asyncio.create_task(response.body_iterator.__anext__())
+                        await asyncio.sleep(0.01)
+                        await _publish_conversation_stream_event(
+                            "user1",
+                            "mbp-01",
+                            "term-1",
+                            closed_event,
+                        )
+                        chunk = await asyncio.wait_for(next_chunk, timeout=1.0)
+
+        assert "event: conversation_event" in chunk
+        assert '"type":"closed"' in chunk
+
+
+class TestAgentUsageSummaryApi:
+    """Agent usage 汇总 API 测试。"""
+
+    def setup_method(self):
+        self.client = TestClient(app)
+        self.token = generate_token("runtime-session-1")
+        self.headers = {"Authorization": f"Bearer {self.token}"}
+        app.dependency_overrides[get_current_user_id] = _mock_user_id
+
+    def teardown_method(self):
+        app.dependency_overrides.pop(get_current_user_id, None)
+
+    def test_usage_summary_requires_device_id(self):
+        response = self.client.get("/api/agent/usage/summary", headers=self.headers)
+        assert response.status_code == 400
+        assert response.json()["detail"] == "device_id is required"
+
+    def test_usage_summary_returns_dual_scope(self):
+        session = {
+            "session_id": "runtime-session-1",
+            "owner": "user1",
+            "device": {"device_id": "mbp-01"},
+        }
+
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
+            with patch(
+                "app.runtime_api.get_usage_summary",
+                new=AsyncMock(side_effect=[
+                    {
+                        "total_sessions": 2,
+                        "total_input_tokens": 120,
+                        "total_output_tokens": 30,
+                        "total_tokens": 150,
+                        "total_requests": 4,
+                        "latest_model_name": "model-device",
+                    },
+                    {
+                        "total_sessions": 5,
+                        "total_input_tokens": 500,
+                        "total_output_tokens": 120,
+                        "total_tokens": 620,
+                        "total_requests": 11,
+                        "latest_model_name": "model-user",
+                    },
+                ]),
+            ) as get_summary:
+                response = self.client.get(
+                    "/api/agent/usage/summary?device_id=mbp-01",
+                    headers=self.headers,
+                )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["device"]["total_tokens"] == 150
+        assert data["device"]["latest_model_name"] == "model-device"
+        assert data["user"]["total_tokens"] == 620
+        assert data["user"]["latest_model_name"] == "model-user"
+        assert get_summary.await_args_list[0].args == ("user1", "mbp-01")
+        assert get_summary.await_args_list[1].args == ("user1", None)
+
+    def test_usage_summary_for_unowned_device_returns_zero_device_scope(self):
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=None)):
+            with patch(
+                "app.runtime_api.get_usage_summary",
+                new=AsyncMock(
+                    return_value={
+                        "total_sessions": 3,
+                        "total_input_tokens": 300,
+                        "total_output_tokens": 90,
+                        "total_tokens": 390,
+                        "total_requests": 7,
+                        "latest_model_name": "model-user",
+                    },
+                ),
+            ) as get_summary:
+                response = self.client.get(
+                    "/api/agent/usage/summary?device_id=other-device",
+                    headers=self.headers,
+                )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["device"]["total_tokens"] == 0
+        assert data["user"]["total_tokens"] == 390
+        get_summary.assert_awaited_once_with("user1", None)
 
 
 class TestRuntimeDeviceApi:

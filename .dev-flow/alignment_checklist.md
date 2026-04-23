@@ -113,7 +113,17 @@
 | **命令规划隔离** | **Claude CLI planner provider** | **CONTRACT-044** | **not_applicable** | **pending** | **pending** | **F083: `ClaudeCliCommandPlanner` 负责把自然语言转换为命令序列** |
 | **命令规划隔离** | **planner coordinator 与 fallback** | **CONTRACT-043, CONTRACT-044** | **not_applicable** | **pending** | **pending** | **F084: `claude -p` 不可用、超时或违规时稳定回退 `local_rules`** |
 | **命令规划隔离** | **端到端回归与真实设备 smoke** | **CONTRACT-043, CONTRACT-044** | **not_applicable** | **pending** | **pending** | **F085: 真机/桌面端验证 `pwd -> find -> cd -> claude` 等链路** |
-| **聊天式智能助手** | **Agent SSE 会话管理** | **CONTRACT-045** | **completed** | **pending** | **pending** | **B080: SSE 事件流、trace/question/result/error 事件推送** |
-| **聊天式智能助手** | **Agent SSE 事件模型** | **CONTRACT-045** | **not_applicable** | **completed** | **pending** | **F095: SSE event 解析、四种事件类型、向后兼容** |
-| **聊天式智能助手** | **Agent token usage 追踪** | **CONTRACT-045** | **pending** | **not_applicable** | **pending** | **B083: AgentRunOutcome 返回值、usage 提取、异常降级、SSE result usage 字段** |
-| **聊天式智能助手** | **Token 统计展示** | **CONTRACT-045** | **not_applicable** | **pending** | **pending** | **F099: 可折叠卡片、历史气泡、AgentUsageData 解析、usage null 不展示** |
+| **ReAct 智能体** | **Agent SSE 会话管理** | **CONTRACT-047** | **completed** | **not_applicable** | **completed** | **B080: `/assistant/agent/run|respond|cancel|resume`、SSE 事件流与断连恢复已落地** |
+| **ReAct 智能体** | **Agent SSE 事件模型** | **CONTRACT-047** | **not_applicable** | **completed** | **completed** | **F095: SSE event 解析、四种事件类型、会话恢复与降级逻辑已接上服务端** |
+| **ReAct 智能体** | **Agent token usage 追踪** | **CONTRACT-047** | **completed** | **not_applicable** | **completed** | **B083: AgentRunOutcome、SSE result usage 字段与恢复回放已验证通过** |
+| **ReAct 智能体** | **Token 统计展示** | **CONTRACT-047** | **not_applicable** | **completed** | **completed** | **F099: usage 字段解析与兼容已完成；消息级展示已在 F100 收敛为底部汇总入口** |
+| **ReAct 智能体** | **Agent usage 持久化与汇总 API** | **CONTRACT-048** | **completed** | **not_applicable** | **completed** | **B084: agent_usage_records 表、双 scope 汇总 API、usage 先落库再发 SSE 已落地并通过定向测试** |
+| **ReAct 智能体** | **Token 汇总 Toast 浮层** | **CONTRACT-048** | **not_applicable** | **completed** | **completed** | **F100: 底部 Token 图标、Toast 浮层、3 秒自动消失、结果后自动刷新与失败降级均已落地** |
+| **Terminal-bound Agent 对话** | **契约与生命周期基线** | **CONTRACT-049** | **pending** | **pending** | **pending** | **S083: conversation 与 terminal 一一对应，terminal close 即销毁** |
+| **Terminal-bound Agent 对话** | **持久化模型与权限校验** | **CONTRACT-049** | **completed** | **not_applicable** | **completed** | **B085: agent_conversations/events 表、event_index、幂等写入、重复回答冲突、tombstone cleanup 与 user/device/terminal 隔离已通过数据库定向测试** |
+| **Terminal-bound Agent 对话** | **run/respond/resume terminal 绑定** | **CONTRACT-049** | **completed** | **not_applicable** | **completed** | **B086: terminal-scoped run/respond/cancel/resume 已落地，旧无 terminal API 稳定拒绝，question_id/client_event_id 幂等与冲突语义已通过集成测试** |
+| **Terminal-bound Agent 对话** | **fetch/stream 多端同步 API** | **CONTRACT-049** | **completed** | **pending** | **completed** | **B087: GET/stream conversation 投影已落地，空投影、after_index 增量和 device/terminal 权限边界已通过集成测试** |
+| **Terminal-bound Agent 对话** | **message_history 与 close cleanup** | **CONTRACT-049** | **completed** | **not_applicable** | **completed** | **B088: 从服务端 events 重建 message_history，terminal close 关闭 conversation、fanout closed event 并取消 active session** |
+| **Terminal-bound Agent 对话** | **客户端服务端投影接入** | **CONTRACT-049** | **not_applicable** | **completed** | **completed** | **F101: 智能面板进入 terminal 后先加载服务端 conversation projection，按 events 回放本地渲染缓存；run/respond/resume 走 terminal-scoped API，conversation_id 以服务端 fetch/session_created 返回值为准，terminal 切换会清空并重载缓存** |
+| **Terminal-bound Agent 对话** | **双端同步 UI 与关闭清理** | **CONTRACT-049** | **not_applicable** | **completed** | **completed** | **F102: 智能面板在无 active session 时订阅 terminal conversation stream，远端新增的 question/answer/result 会实时同步到当前端；terminal closed 会清空智能对话 UI、展示关闭态并禁用智能输入** |
+| **Terminal-bound Agent 对话** | **全链路验收** | **CONTRACT-049** | **in_progress** | **in_progress** | **pending** | **S084: 服务端集成与 Flutter 定向验证已通过，Android + macOS 本地真机 smoke 进行中，待补手工场景结果与关闭/隔离截图证据** |

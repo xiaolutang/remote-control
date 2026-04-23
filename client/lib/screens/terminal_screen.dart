@@ -1640,7 +1640,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
   Widget _wrapWithSidePanel(BuildContext context, Widget content) {
     try {
       final controller = context.read<RuntimeSelectionController>();
-      if (controller.isDesktopPlatform) {
+      if (controller.selectedDeviceId != null) {
         return SmartTerminalSidePanel(child: content);
       }
     } on ProviderNotFoundException {

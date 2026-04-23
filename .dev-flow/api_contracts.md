@@ -50,8 +50,11 @@
 | CONTRACT-042 | 1590 | Terminal recovery WebSocket protocol | S072, S073, B071, B072, B073, F071, F072, F075, F076 |
 | CONTRACT-043 | 1652 | Claude 智能终端命令编排 | S077, F077, F078, F079, F080, F081 |
 | CONTRACT-044 | 1737 | 命令规划 provider 隔离与执行语义 | S078, B074, F086, F082, F083, F084, F085 |
-| CONTRACT-045 | TBD | 聊天式智能终端助手规划接口 | S079, S080, B075, B076, F087, F088, F089, F090, F091, F092 |
-| CONTRACT-046 | TBD | 聊天式智能终端助手执行结果回写 | B076, B077, F090, F091, F092, F093 |
+| CONTRACT-045 | TBD | 智能终端助手规划接口 | S079, S080, B075, B076, F087, F088, F089, F090, F091, F092 |
+| CONTRACT-046 | TBD | 智能终端助手执行结果回写 | B076, B077, F090, F091, F092, F093 |
+| CONTRACT-047 | TBD | ReAct Agent SSE 事件流与只读探索协议 | B078, B079, B080, F095, B083, F099 |
+| CONTRACT-048 | TBD | Agent usage 汇总 API | B084, F100 |
+| CONTRACT-049 | TBD | Terminal-bound Agent conversation 同步与生命周期 | S083, B085, B086, B087, B088, F101, F102, S084 |
 
 ## 日志集成
 
@@ -2020,15 +2023,15 @@ live -> detached_recoverable -> closed
 | server creds first | 服务端 LLM provider 凭证优先保存在服务端；客户端只保存开发态 fallback 所需的本地配置 |
 | server planning allowed | Server 可以做自然语言规划，但不得绕过当前设备事实约束；Agent 仍只负责 terminal 生命周期与执行承载 |
 
-## 聊天式智能终端助手
+## ReAct 智能终端代理
 
 ### Agent SSE 事件流与 Token 统计
 
 | 字段 | 值 |
 |------|----|
-| ID | CONTRACT-045 |
+| ID | CONTRACT-047 |
 | Scope | Server Agent SSE → Client |
-| Related Tasks | B080, F095, B083, F099 |
+| Related Tasks | B078, B079, B080, F095, B083, F099 |
 
 #### SSE Event Types
 
@@ -2088,3 +2091,161 @@ live -> detached_recoverable -> closed
 | Model from config | `model_name` 取自 `planner_model()` 配置，不从 LLM 响应推断 |
 | Error zeros | Agent 运行异常时 `usage` 所有数值字段为 0，`model_name` 为空字符串 |
 | No sensitive data | usage 不包含 prompt 内容、响应内容或任何用户数据 |
+
+---
+
+### CONTRACT-048: Agent Usage Summary API
+
+| 字段 | 值 |
+|------|---|
+| ID | CONTRACT-048 |
+| 关联任务 | B084, F100 |
+| 方法 | `GET /api/agent/usage/summary` |
+| 认证 | `async_verify_token` 必需 |
+
+#### Query Parameters
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| device_id | string | 是 | 当前设备 ID；API 同时返回该设备的汇总和用户级总汇总 |
+
+#### Response 200
+
+```json
+{
+  "device": {
+    "total_sessions": 3,
+    "total_input_tokens": 5230,
+    "total_output_tokens": 1200,
+    "total_tokens": 6430,
+    "total_requests": 8,
+    "latest_model_name": "deepseek-chat"
+  },
+  "user": {
+    "total_sessions": 12,
+    "total_input_tokens": 28450,
+    "total_output_tokens": 8300,
+    "total_tokens": 36750,
+    "total_requests": 45,
+    "latest_model_name": "deepseek-chat"
+  }
+}
+```
+
+#### Response 400
+
+缺少 device_id 参数。
+
+#### Response 401
+
+未认证。
+
+#### Rules
+
+| Rule | Meaning |
+|------|---------|
+| User-scoped | 只返回当前认证用户的 usage，不得跨用户查询 |
+| Dual scope | device scope 按 device_id 过滤，user scope 聚合用户所有设备，一次返回 |
+| device_id required | device_id 必传，确保前端始终能拿到双 scope |
+| Zero defaults | 无记录时返回全零汇总（不返回 404） |
+| Write before push | usage 必须先落库再发 SSE result 事件 |
+
+---
+
+### CONTRACT-049: Terminal-bound Agent Conversation
+
+| 字段 | 值 |
+|------|---|
+| ID | CONTRACT-049 |
+| 关联任务 | S083, B085, B086, B087, B088, F101, F102, S084 |
+| Scope | Server + Client mobile + Client desktop + Agent |
+| 认证 | `async_verify_token` 必需 |
+
+#### Core Rule
+
+Agent conversation 与 terminal 一一对应：同一 `user_id + device_id + terminal_id` 只能有一个 active conversation。手机端和桌面端都是该 conversation 的视图/输入端；所有 ReAct 工具调用仍由 Server 调度到承载 terminal 的桌面设备 Agent 执行。
+
+#### APIs
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/runtime/devices/{device_id}/terminals/{terminal_id}/assistant/agent/run` | 在 terminal conversation 中追加用户输入并启动/继续 Agent SSE |
+| POST | `/api/runtime/devices/{device_id}/terminals/{terminal_id}/assistant/agent/{session_id}/respond` | 回答该 terminal conversation 中指定 session 的 Agent question |
+| POST | `/api/runtime/devices/{device_id}/terminals/{terminal_id}/assistant/agent/{session_id}/cancel` | 取消该 terminal conversation 的指定 active Agent session |
+| GET | `/api/runtime/devices/{device_id}/terminals/{terminal_id}/assistant/agent/{session_id}/resume` | 恢复并回放该 terminal conversation 中指定 session 的 SSE 事件 |
+| GET | `/api/runtime/devices/{device_id}/terminals/{terminal_id}/assistant/conversation` | 获取 conversation 元数据与事件投影 |
+| GET | `/api/runtime/devices/{device_id}/terminals/{terminal_id}/assistant/conversation/stream?after_index=N` | SSE 增量订阅 N 之后的 conversation events |
+
+#### Request Identity Fields
+
+| 字段 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| `session_id` | respond/cancel/resume path | 是 | 指定正在回答、取消或恢复的 Agent session；Server 必须校验其归属当前 terminal conversation |
+| `client_event_id` | run/respond body | 是 | 客户端生成的幂等 key；同一 conversation 内重复提交同一 key 必须返回已写入事件，不得重复追加 |
+| `question_id` | respond body | 是 | Agent question 事件的稳定 ID；同一 `question_id` 只能接受一次有效 answer |
+| `answer` | respond body | 是 | 用户选择或输入的回答 |
+
+#### Conversation Response
+
+```json
+{
+  "conversation_id": "conv_terminal_abc",
+  "device_id": "device-1",
+  "terminal_id": "terminal-1",
+  "status": "active",
+  "next_event_index": 4,
+  "active_session_id": "agent-session-1",
+  "events": [
+    {"event_index": 0, "event_id": "evt-0", "type": "user_intent", "role": "user", "client_event_id": "m-1", "payload": {"text": "进入 remote-control"}},
+    {"event_index": 1, "event_id": "evt-1", "type": "question", "role": "assistant", "question_id": "q-1", "session_id": "agent-session-1", "payload": {"text": "请选择项目", "options": ["remote-control"]}},
+    {"event_index": 2, "event_id": "evt-2", "type": "answer", "role": "user", "client_event_id": "m-2", "question_id": "q-1", "session_id": "agent-session-1", "payload": {"text": "remote-control"}},
+    {"event_index": 3, "event_id": "evt-3", "type": "result", "role": "assistant", "session_id": "agent-session-1", "payload": {"summary": "进入项目并启动 Claude"}}
+  ]
+}
+```
+
+#### Event Types
+
+| Event | Meaning |
+|-------|---------|
+| `user_intent` | 用户发起的新目标 |
+| `answer` | 用户对 Agent question 的回答 |
+| `trace` | Agent 只读工具调用 trace 摘要 |
+| `question` | Agent 需要用户补充选择或信息 |
+| `result` | Agent 最终 CommandSequence 与 usage |
+| `error` | Agent 错误、超时、取消或关闭 |
+| `closed` | terminal 已关闭，conversation 不再可写 |
+
+#### Rules
+
+| Rule | Meaning |
+|------|---------|
+| Server authoritative | Server conversation events 是下一轮 `message_history` 的唯一权威来源 |
+| Client cache only | 客户端本地历史只能做渲染缓存，不得拼接成下一轮 AI prompt 的权威上下文 |
+| Terminal scoped | conversation 不得跨 terminal 复用；terminal A 的历史不得进入 terminal B |
+| Multi-client sync | 任一客户端追加的 question/answer/result 事件，其他客户端 fetch/stream 后必须可见 |
+| Close destroys | terminal close、设备离线收口为 closed、登出或权限失效时，Server 必须销毁 conversation 并取消 active Agent session |
+| Closed rejection | closed terminal 的 run/respond/resume/fetch 返回 404/410 或稳定 `closed_terminal` 错误 |
+| Mobile no tools | 手机端可输入和展示同一 conversation，但不得拥有本地 ReAct 工具运行时或执行探索命令 |
+| Sensitive data | events 不保存完整本地文件树、敏感文件内容或模型原始 chain-of-thought |
+| Idempotent write | `client_event_id` 在同一 conversation 内唯一；重复提交同一 key 返回原事件，不新增 event_index |
+| Single answer | 同一 `question_id` 只能写入一次 answer；重复相同 `client_event_id` 幂等返回，其他客户端再次回答返回 409 `question_already_answered` |
+| Ordered append | event append 必须在事务/锁内分配 `event_index`，避免多客户端并发写入重复或乱序 |
+
+#### Close Teardown
+
+terminal close 的对外语义是 conversation 已销毁，不再可恢复。实现顺序必须可通知正在订阅的客户端：
+
+1. append ephemeral `closed` event 并广播给 active conversation stream。
+2. 取消该 terminal conversation 的 active Agent session。
+3. 标记 conversation `status=closed`，拒绝新的 run/respond/resume。
+4. 在 stream fanout 完成后删除 events，或保留不超过 30 秒 tombstone 只用于返回 410 `closed_terminal`，不得再返回历史事件。
+
+#### Error Semantics
+
+| 场景 | 响应 |
+|------|------|
+| closed terminal fetch/run/respond/resume | 410 `closed_terminal`；若 tombstone 已清理可返回 404 |
+| session 不属于当前 terminal conversation | 404，不泄漏真实 session 归属 |
+| question 已被其他客户端回答 | 409 `question_already_answered` |
+| 重复 `client_event_id` | 200/201 返回原事件，不重复写入 |

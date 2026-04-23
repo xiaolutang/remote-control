@@ -16,18 +16,19 @@ enum AgentPanelState {
 
   /// Agent 会话出错
   error,
-
-  /// Agent 不可用，已降级到 planner 模式
-  fallback,
 }
 
 /// 侧滑面板内部内容：会话消息流 + 意图输入框。
 class _SmartTerminalSidePanelContent extends StatefulWidget {
   const _SmartTerminalSidePanelContent({
     required this.onClose,
+    this.agentSessionServiceBuilder,
+    this.usageSummaryServiceBuilder,
   });
 
   final VoidCallback onClose;
+  final AgentSessionServiceFactory? agentSessionServiceBuilder;
+  final UsageSummaryServiceFactory? usageSummaryServiceBuilder;
 
   @override
   State<_SmartTerminalSidePanelContent> createState() =>
@@ -35,7 +36,7 @@ class _SmartTerminalSidePanelContent extends StatefulWidget {
 }
 
 class _SmartTerminalSidePanelContentState
-    extends State<_SmartTerminalSidePanelContent> {
+    extends State<_SmartTerminalSidePanelContent> with WidgetsBindingObserver {
   late final TextEditingController _intentController;
   late final FocusNode _intentFocusNode;
   late final ScrollController _scrollController;
@@ -57,7 +58,6 @@ class _SmartTerminalSidePanelContentState
   ));
   String? _fallbackReason;
   bool _executing = false;
-  bool _tokenStatsExpanded = false;
 
   // --- Agent SSE 模式状态 ---
   AgentPanelState _agentState = AgentPanelState.idle;
@@ -67,32 +67,104 @@ class _SmartTerminalSidePanelContentState
   AgentErrorEvent? _agentError;
   String? _activeSessionId;
   StreamSubscription<AgentSessionEvent>? _eventSubscription;
+  StreamSubscription<AgentConversationEventItem>?
+      _conversationStreamSubscription;
   final Set<String> _multiSelectChosen = {};
-  bool _isFallbackMode = false;
   String? _agentIntent; // 当前 Agent 正在处理的意图
   final List<_AgentHistoryEntry> _agentHistory = []; // Agent 对话历史
+  final List<_AgentAnswerEntry> _agentAnswers = []; // 当前 Agent 轮次内的问答
+  final List<AgentConversationEventItem> _serverConversationEvents = [];
+  String? _agentConversationId;
+  String? _loadedDeviceId;
+  String? _loadedTerminalId;
+  String? _loadedTerminalStatus;
+  int _projectionLoadSerial = 0;
+  int _nextConversationEventIndex = 0;
+  bool _terminalConversationClosed = false;
+  String? _terminalClosedReason;
 
   // --- 内联编辑状态 ---
   int? _editingHistoryIndex; // 正在编辑的历史条目索引 (null=无, -1=当前活跃意图)
   late final TextEditingController _editingController;
+  UsageSummaryData? _usageSummary;
+  String? _usageSummaryDeviceId;
+  String? _usageSummaryError;
+  bool _usageSummaryLoading = false;
+  bool _usageToastVisible = false;
+  int _usageRefreshSerial = 0;
+  Timer? _usageToastTimer;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _intentController = TextEditingController();
     _intentFocusNode = FocusNode();
+    _intentFocusNode.addListener(_handleIntentFocusChanged);
     _scrollController = ScrollController();
     _editingController = TextEditingController();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _eventSubscription?.cancel();
+    _conversationStreamSubscription?.cancel();
+    _intentFocusNode.removeListener(_handleIntentFocusChanged);
     _intentController.dispose();
     _intentFocusNode.dispose();
     _scrollController.dispose();
     _editingController.dispose();
+    _usageToastTimer?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final controller = Provider.of<RuntimeSelectionController?>(context);
+    final service = Provider.of<WebSocketService?>(context);
+    final deviceId = controller?.selectedDeviceId;
+    final terminalId = service?.terminalId;
+    final terminalStatus = service?.terminalStatus;
+    if (terminalStatus == 'closed' && terminalStatus != _loadedTerminalStatus) {
+      _loadedTerminalStatus = terminalStatus;
+      if (mounted) {
+        setState(() {
+          _markTerminalConversationClosed('当前 terminal 已关闭，智能对话已结束。');
+        });
+      }
+      return;
+    }
+    if (deviceId == _loadedDeviceId &&
+        terminalId == _loadedTerminalId &&
+        terminalStatus == _loadedTerminalStatus) {
+      return;
+    }
+    _loadedDeviceId = deviceId;
+    _loadedTerminalId = terminalId;
+    _loadedTerminalStatus = terminalStatus;
+    unawaited(
+      _loadConversationProjection(
+        deviceId: deviceId,
+        terminalId: terminalId,
+      ),
+    );
+  }
+
+  @override
+  void didChangeMetrics() {
+    if (_intentFocusNode.hasFocus) {
+      _scheduleScrollToLatest();
+    }
+  }
+
+  void _handleIntentFocusChanged() {
+    if (!mounted) return;
+    setState(() {});
+    if (_intentFocusNode.hasFocus) {
+      _scheduleScrollToLatest();
+    }
   }
 
   bool get _isConnected {
@@ -102,6 +174,22 @@ class _SmartTerminalSidePanelContentState
     } on ProviderNotFoundException {
       return false;
     }
+  }
+
+  AgentSessionService _agentSessionService(String serverUrl) {
+    final builder = widget.agentSessionServiceBuilder;
+    if (builder != null) {
+      return builder(serverUrl);
+    }
+    return AgentSessionService(serverUrl: serverUrl);
+  }
+
+  UsageSummaryService _usageSummaryService(String serverUrl) {
+    final builder = widget.usageSummaryServiceBuilder;
+    if (builder != null) {
+      return builder(serverUrl);
+    }
+    return UsageSummaryService(serverUrl: serverUrl);
   }
 
   void _scheduleScrollToLatest() {
@@ -115,11 +203,397 @@ class _SmartTerminalSidePanelContentState
     });
   }
 
+  CommandSequenceDraft _defaultDraft() {
+    return CommandSequenceDraft.fromLaunchPlan(const TerminalLaunchPlan(
+      tool: TerminalLaunchTool.claudeCode,
+      title: 'Claude',
+      cwd: '~',
+      command: '/bin/bash',
+      entryStrategy: TerminalEntryStrategy.shellBootstrap,
+      postCreateInput: '',
+      source: TerminalLaunchPlanSource.recommended,
+    ));
+  }
+
+  void _resetPanelStateForScopeChange() {
+    _eventSubscription?.cancel();
+    _eventSubscription = null;
+    _conversationStreamSubscription?.cancel();
+    _conversationStreamSubscription = null;
+
+    _resolvingIntent = false;
+    _pendingIntent = null;
+    _turns.clear();
+    _pendingItems.clear();
+    _draft = _defaultDraft();
+    _fallbackReason = null;
+    _executing = false;
+
+    _agentState = AgentPanelState.idle;
+    _traces.clear();
+    _currentQuestion = null;
+    _agentResult = null;
+    _agentError = null;
+    _activeSessionId = null;
+    _multiSelectChosen.clear();
+    _agentIntent = null;
+    _agentHistory.clear();
+    _agentAnswers.clear();
+    _serverConversationEvents.clear();
+    _agentConversationId = null;
+    _nextConversationEventIndex = 0;
+    _terminalConversationClosed = false;
+    _terminalClosedReason = null;
+
+    _editingHistoryIndex = null;
+    _editingController.clear();
+  }
+
+  void _markTerminalConversationClosed(String message) {
+    _eventSubscription?.cancel();
+    _eventSubscription = null;
+    _conversationStreamSubscription?.cancel();
+    _conversationStreamSubscription = null;
+    _turns.clear();
+    _pendingItems.clear();
+    _pendingIntent = null;
+    _resolvingIntent = false;
+    _fallbackReason = null;
+    _executing = false;
+    _draft = _defaultDraft();
+    _agentState = AgentPanelState.idle;
+    _traces.clear();
+    _currentQuestion = null;
+    _agentResult = null;
+    _agentError = null;
+    _activeSessionId = null;
+    _multiSelectChosen.clear();
+    _agentIntent = null;
+    _agentHistory.clear();
+    _agentAnswers.clear();
+    _serverConversationEvents.clear();
+    _agentConversationId = null;
+    _nextConversationEventIndex = 0;
+    _terminalConversationClosed = true;
+    _terminalClosedReason = message;
+    _intentController.clear();
+  }
+
+  Future<void> _loadConversationProjection({
+    required String? deviceId,
+    required String? terminalId,
+  }) async {
+    final requestSerial = ++_projectionLoadSerial;
+
+    if (deviceId == null ||
+        deviceId.isEmpty ||
+        terminalId == null ||
+        terminalId.isEmpty) {
+      if (!mounted || requestSerial != _projectionLoadSerial) return;
+      setState(_resetPanelStateForScopeChange);
+      return;
+    }
+
+    RuntimeSelectionController? controller;
+    try {
+      controller = context.read<RuntimeSelectionController>();
+    } on ProviderNotFoundException {
+      return;
+    }
+
+    final service = _agentSessionService(controller.serverUrl);
+
+    try {
+      final projection = await service.fetchConversation(
+        deviceId: deviceId,
+        terminalId: terminalId,
+        token: controller.token,
+      );
+      if (!mounted || requestSerial != _projectionLoadSerial) return;
+
+      setState(() {
+        _resetPanelStateForScopeChange();
+        _applyConversationProjection(projection);
+      });
+      _scheduleScrollToLatest();
+
+      final activeSessionId = projection.activeSessionId;
+      if (activeSessionId != null && activeSessionId.isNotEmpty) {
+        _resumeAgentSession(
+          controller: controller,
+          deviceId: deviceId,
+          terminalId: terminalId,
+          sessionId: activeSessionId,
+        );
+      } else {
+        _startConversationStream(
+          controller: controller,
+          deviceId: deviceId,
+          terminalId: terminalId,
+        );
+      }
+    } on AgentSessionException catch (error) {
+      if (!mounted || requestSerial != _projectionLoadSerial) return;
+      setState(() {
+        _resetPanelStateForScopeChange();
+        if (error.code == 'closed_terminal' || error.statusCode == 410) {
+          _markTerminalConversationClosed('当前 terminal 已关闭，智能对话已结束。');
+          return;
+        }
+        _agentState = AgentPanelState.error;
+        _agentError = AgentErrorEvent(
+          code: error.code ?? 'PROJECTION_LOAD_FAILED',
+          message: error.message,
+        );
+      });
+    }
+  }
+
+  void _applyConversationProjection(AgentConversationProjection projection) {
+    final renderState = _deriveAgentRenderState(projection.events);
+    _serverConversationEvents
+      ..clear()
+      ..addAll(projection.events);
+    _agentConversationId = projection.conversationId;
+    _nextConversationEventIndex = projection.nextEventIndex;
+    _terminalConversationClosed = false;
+    _terminalClosedReason = null;
+    _agentState = renderState.state;
+    _agentHistory.addAll(renderState.history);
+    _traces.addAll(renderState.traces);
+    _currentQuestion = renderState.currentQuestion;
+    _agentResult = renderState.result;
+    _agentError = renderState.error;
+    _activeSessionId = projection.activeSessionId;
+    _agentIntent = renderState.intent;
+    _agentAnswers.addAll(renderState.answers);
+    if (_agentResult != null) {
+      _draft = _buildDraftFromAgentResult(_agentResult!);
+    }
+  }
+
+  void _applyConversationEventItem(AgentConversationEventItem event) {
+    if (event.type == 'closed') {
+      final reason =
+          (event.payload['reason']?.toString() ?? 'terminal_closed').trim();
+      _markTerminalConversationClosed('当前 terminal 已关闭，智能对话已结束。($reason)');
+      return;
+    }
+
+    final existingIndex = _serverConversationEvents.indexWhere(
+      (item) => item.eventId == event.eventId,
+    );
+    if (existingIndex >= 0) {
+      _serverConversationEvents[existingIndex] = event;
+    } else {
+      _serverConversationEvents.add(event);
+      _serverConversationEvents.sort(
+        (left, right) => left.eventIndex.compareTo(right.eventIndex),
+      );
+    }
+    if (event.eventIndex + 1 > _nextConversationEventIndex) {
+      _nextConversationEventIndex = event.eventIndex + 1;
+    }
+
+    final renderState = _deriveAgentRenderState(_serverConversationEvents);
+    _terminalConversationClosed = false;
+    _terminalClosedReason = null;
+    _agentState = renderState.state;
+    _agentHistory
+      ..clear()
+      ..addAll(renderState.history);
+    _traces
+      ..clear()
+      ..addAll(renderState.traces);
+    _currentQuestion = renderState.currentQuestion;
+    _agentResult = renderState.result;
+    _agentError = renderState.error;
+    _agentIntent = renderState.intent;
+    _agentAnswers
+      ..clear()
+      ..addAll(renderState.answers);
+    if (_agentResult != null) {
+      _draft = _buildDraftFromAgentResult(_agentResult!);
+    }
+  }
+
+  void _startConversationStream({
+    required RuntimeSelectionController controller,
+    required String deviceId,
+    required String terminalId,
+  }) {
+    if (_terminalConversationClosed) {
+      return;
+    }
+    _conversationStreamSubscription?.cancel();
+    final service = _agentSessionService(controller.serverUrl);
+    final afterIndex = _nextConversationEventIndex - 1;
+    _conversationStreamSubscription = service
+        .streamConversation(
+      deviceId: deviceId,
+      terminalId: terminalId,
+      token: controller.token,
+      afterIndex: afterIndex,
+    )
+        .listen(
+      (event) {
+        if (!mounted) return;
+        setState(() {
+          _applyConversationEventItem(event);
+        });
+        _scheduleScrollToLatest();
+      },
+      onError: (Object error) {
+        if (!mounted || _terminalConversationClosed) return;
+        setState(() {
+          _agentState = AgentPanelState.error;
+          _agentError = AgentErrorEvent(
+            code: 'CONVERSATION_STREAM_FAILED',
+            message: '同步智能对话失败：$error',
+          );
+        });
+      },
+    );
+  }
+
+  void _restartConversationStreamForCurrentScope() {
+    RuntimeSelectionController? controller;
+    try {
+      controller = context.read<RuntimeSelectionController>();
+    } on ProviderNotFoundException {
+      return;
+    }
+    final deviceId = controller.selectedDeviceId;
+    final terminalId = _currentTerminalId();
+    if (deviceId == null ||
+        deviceId.isEmpty ||
+        terminalId == null ||
+        terminalId.isEmpty) {
+      return;
+    }
+    _startConversationStream(
+      controller: controller,
+      deviceId: deviceId,
+      terminalId: terminalId,
+    );
+  }
+
+  _AgentRenderState _deriveAgentRenderState(
+    List<AgentConversationEventItem> events,
+  ) {
+    final history = <_AgentHistoryEntry>[];
+    final traces = <AgentTraceEvent>[];
+    final answers = <_AgentAnswerEntry>[];
+    String? activeIntent;
+    String? lastQuestionText;
+    AgentQuestionEvent? currentQuestion;
+    AgentResultEvent? result;
+    AgentErrorEvent? error;
+    var state = AgentPanelState.idle;
+
+    void archiveCurrent({
+      AgentResultEvent? archivedResult,
+      AgentErrorEvent? archivedError,
+    }) {
+      final intent = activeIntent?.trim();
+      if (intent == null || intent.isEmpty) {
+        return;
+      }
+      history.add(_AgentHistoryEntry(
+        intent: intent,
+        traces: List.of(traces),
+        answers: List.of(answers),
+        result: archivedResult,
+        error: archivedError,
+      ));
+      activeIntent = null;
+      traces.clear();
+      answers.clear();
+      currentQuestion = null;
+      lastQuestionText = null;
+    }
+
+    for (final event in events) {
+      switch (event.type) {
+        case 'user_intent':
+          archiveCurrent();
+          final text = (event.payload['text']?.toString() ?? '').trim();
+          if (text.isEmpty) {
+            state = AgentPanelState.idle;
+            break;
+          }
+          activeIntent = text;
+          result = null;
+          error = null;
+          state = AgentPanelState.exploring;
+
+        case 'trace':
+          traces.add(AgentTraceEvent.fromJson(Map<String, dynamic>.from(
+            event.payload,
+          )));
+          result = null;
+          error = null;
+          state = AgentPanelState.exploring;
+
+        case 'question':
+          currentQuestion = AgentQuestionEvent.fromJson({
+            ...Map<String, dynamic>.from(event.payload),
+            if (event.questionId != null) 'question_id': event.questionId,
+          });
+          lastQuestionText = currentQuestion?.question;
+          result = null;
+          error = null;
+          state = AgentPanelState.asking;
+
+        case 'answer':
+          final answer = (event.payload['text']?.toString() ?? '').trim();
+          if (answer.isNotEmpty) {
+            answers.add(_AgentAnswerEntry(
+              question: lastQuestionText ?? '',
+              answer: answer,
+            ));
+          }
+          currentQuestion = null;
+          result = null;
+          error = null;
+          state = AgentPanelState.exploring;
+
+        case 'result':
+          result = AgentResultEvent.fromJson(
+            Map<String, dynamic>.from(event.payload),
+          );
+          error = null;
+          state = AgentPanelState.result;
+          archiveCurrent(archivedResult: result);
+
+        case 'error':
+          error = AgentErrorEvent.fromJson(
+            Map<String, dynamic>.from(event.payload),
+          );
+          result = null;
+          state = AgentPanelState.error;
+          archiveCurrent(archivedError: error);
+      }
+    }
+
+    return _AgentRenderState(
+      state: state,
+      history: history,
+      intent: activeIntent,
+      traces: List.of(traces),
+      answers: List.of(answers),
+      currentQuestion: currentQuestion,
+      result: result,
+      error: error,
+    );
+  }
+
   // ============================================================
   // Intent 提交入口：优先尝试 Agent SSE，降级走 planner
   // ============================================================
 
   Future<void> _handleResolveIntent({String? overrideIntent}) async {
+    if (_terminalConversationClosed) return;
     final intent = (overrideIntent ?? _intentController.text).trim();
     if (intent.isEmpty || _resolvingIntent) return;
 
@@ -136,24 +610,25 @@ class _SmartTerminalSidePanelContentState
       );
     }
 
-    // 已在降级模式，直接走 planner
-    if (_isFallbackMode) {
-      _resolveViaPlanner(intent);
-      return;
-    }
-
-    // 尝试通过 Agent SSE 路径
     RuntimeSelectionController? controller;
     try {
       controller = context.read<RuntimeSelectionController>();
     } on ProviderNotFoundException {
-      _resolveViaPlanner(intent);
+      _presentAgentError(
+        code: 'MISSING_CONTROLLER',
+        message: '当前页面状态异常，无法启动智能交互，请联系开发者',
+        intent: intent,
+      );
       return;
     }
 
     final deviceId = controller.selectedDeviceId;
     if (deviceId == null || deviceId.isEmpty) {
-      _resolveViaPlanner(intent);
+      _presentAgentError(
+        code: 'DEVICE_NOT_SELECTED',
+        message: '请先选择设备后再发起智能交互',
+        intent: intent,
+      );
       return;
     }
 
@@ -169,6 +644,15 @@ class _SmartTerminalSidePanelContentState
     required RuntimeSelectionController controller,
   }) async {
     final deviceId = controller.selectedDeviceId!;
+    final terminalId = _currentTerminalId();
+    if (terminalId == null || terminalId.isEmpty) {
+      _presentAgentError(
+        code: 'TERMINAL_NOT_READY',
+        message: '请先进入一个 terminal，再发起智能交互',
+        intent: intent,
+      );
+      return;
+    }
     final token = controller.token;
     final serverUrl = controller.serverUrl;
 
@@ -179,20 +663,25 @@ class _SmartTerminalSidePanelContentState
       _agentResult = null;
       _agentError = null;
       _multiSelectChosen.clear();
+      _agentAnswers.clear();
       _agentIntent = intent;
       _activeSessionId = null;
     });
     _scheduleScrollToLatest();
 
-    final service = AgentSessionService(serverUrl: serverUrl);
+    final service = _agentSessionService(serverUrl);
 
     try {
       final eventStream = service.runSession(
         deviceId: deviceId,
+        terminalId: terminalId,
         intent: intent,
         token: token,
+        conversationId: _agentConversationId,
       );
 
+      _conversationStreamSubscription?.cancel();
+      _conversationStreamSubscription = null;
       _eventSubscription?.cancel();
       _eventSubscription = eventStream.listen(
         (event) {
@@ -201,11 +690,15 @@ class _SmartTerminalSidePanelContentState
         },
         onError: (Object error) {
           if (!mounted) return;
-          // 网络或其他异常，降级
-          _fallbackToPlannerWithError(
+          final message = error is AgentSessionException
+              ? error.message
+              : '智能交互启动失败，请联系开发者';
+          _presentAgentError(
+            code: error is AgentSessionException
+                ? (error.code ?? 'AGENT_REQUEST_FAILED')
+                : 'AGENT_REQUEST_FAILED',
+            message: message,
             intent: intent,
-            controller: controller,
-            reason: 'Agent 连接失败',
           );
         },
         onDone: () {
@@ -220,15 +713,79 @@ class _SmartTerminalSidePanelContentState
               );
             });
           }
+          // Agent SSE 流结束后重启 conversation stream 订阅，
+          // 以接收其他端（手机/桌面）发起的后续消息。
+          _restartConversationStreamForCurrentScope();
         },
       );
     } catch (e) {
       if (!mounted) return;
-      _fallbackToPlannerWithError(
+      final message =
+          e is AgentSessionException ? e.message : '智能交互启动失败，请联系开发者';
+      _presentAgentError(
+        code: e is AgentSessionException
+            ? (e.code ?? 'AGENT_REQUEST_FAILED')
+            : 'AGENT_REQUEST_FAILED',
+        message: message,
         intent: intent,
-        controller: controller,
-        reason: 'Agent 请求失败',
       );
+    }
+  }
+
+  void _resumeAgentSession({
+    required RuntimeSelectionController controller,
+    required String deviceId,
+    required String terminalId,
+    required String sessionId,
+  }) {
+    final service = _agentSessionService(controller.serverUrl);
+    final eventStream = service.resumeSession(
+      deviceId: deviceId,
+      terminalId: terminalId,
+      sessionId: sessionId,
+      token: controller.token,
+    );
+
+    _conversationStreamSubscription?.cancel();
+    _conversationStreamSubscription = null;
+    _eventSubscription?.cancel();
+    _eventSubscription = eventStream.listen(
+      (event) {
+        if (!mounted) return;
+        _handleAgentEvent(event, controller: controller);
+      },
+      onError: (Object error) {
+        if (!mounted) return;
+        setState(() {
+          _agentState = AgentPanelState.error;
+          _agentError = AgentErrorEvent(
+            code: 'RESUME_FAILED',
+            message: '恢复智能会话失败：$error',
+          );
+        });
+      },
+      onDone: () {
+        if (!mounted) return;
+        if (_agentState == AgentPanelState.exploring) {
+          setState(() {
+            _agentState = AgentPanelState.error;
+            _agentError = const AgentErrorEvent(
+              code: 'STREAM_CLOSED',
+              message: 'Agent 会话意外关闭',
+            );
+          });
+        }
+        _restartConversationStreamForCurrentScope();
+      },
+    );
+  }
+
+  String? _currentTerminalId() {
+    try {
+      final service = context.read<WebSocketService>();
+      return service.terminalId;
+    } on ProviderNotFoundException {
+      return null;
     }
   }
 
@@ -240,6 +797,10 @@ class _SmartTerminalSidePanelContentState
       case AgentSessionCreatedEvent created:
         setState(() {
           _activeSessionId = created.sessionId;
+          final conversationId = created.conversationId?.trim();
+          if (conversationId != null && conversationId.isNotEmpty) {
+            _agentConversationId = conversationId;
+          }
         });
 
       case AgentTraceEvent trace:
@@ -265,33 +826,32 @@ class _SmartTerminalSidePanelContentState
         setState(() {
           _agentResult = result;
           _agentState = AgentPanelState.result;
+          _activeSessionId = null;
           // 从 AgentResult 构建 CommandSequenceDraft
           _draft = _buildDraftFromAgentResult(result);
           // 归档当前对话轮次到历史
           _archiveAgentTurn(result: result);
         });
+        _restartConversationStreamForCurrentScope();
+        unawaited(_refreshUsageSummary(controller: controller));
         _scheduleScrollToLatest();
 
       case AgentErrorEvent error:
         setState(() {
           _agentError = error;
           _agentState = AgentPanelState.error;
+          _activeSessionId = null;
           // 归档当前对话轮次到历史（错误也归档）
           _archiveAgentTurn(error: error);
         });
+        _restartConversationStreamForCurrentScope();
         _scheduleScrollToLatest();
 
       case AgentFallbackEvent fallback:
-        final intent = _agentIntent;
-        setState(() {
-          _isFallbackMode = true;
-          _agentState = AgentPanelState.fallback;
-          _agentIntent = null; // 清除避免重复显示
-        });
-        // 然后走 planner 链路（planner 会自己管理 turns）
-        if (intent != null && intent.isNotEmpty) {
-          _resolveViaPlanner(intent);
-        }
+        _presentAgentError(
+          code: fallback.code,
+          message: fallback.reason,
+        );
     }
   }
 
@@ -305,24 +865,29 @@ class _SmartTerminalSidePanelContentState
     _agentHistory.add(_AgentHistoryEntry(
       intent: intent,
       traces: List.of(_traces),
+      answers: List.of(_agentAnswers),
       result: result,
       error: error,
     ));
     _agentIntent = null;
   }
 
-  /// Agent 降级后用 planner 解析意图
-  Future<void> _fallbackToPlannerWithError({
-    required String intent,
-    required RuntimeSelectionController controller,
-    required String reason,
-  }) async {
+  void _presentAgentError({
+    required String code,
+    required String message,
+    String? intent,
+  }) {
+    if (!mounted) return;
     setState(() {
-      _isFallbackMode = true;
-      _agentState = AgentPanelState.fallback;
-      _agentIntent = null; // 清除避免重复显示
+      _agentState = AgentPanelState.error;
+      _agentError = AgentErrorEvent(code: code, message: message);
+      _activeSessionId = null;
+      _currentQuestion = null;
+      if (intent != null && intent.isNotEmpty) {
+        _agentIntent = intent;
+      }
     });
-    _resolveViaPlanner(intent);
+    _scheduleScrollToLatest();
   }
 
   /// 从 AgentResultEvent 构建 CommandSequenceDraft
@@ -349,6 +914,7 @@ class _SmartTerminalSidePanelContentState
 
   /// 用户回答 Agent 问题
   Future<void> _handleAgentRespond(String answer) async {
+    if (_terminalConversationClosed) return;
     if (_activeSessionId == null) return;
 
     RuntimeSelectionController? controller;
@@ -360,19 +926,30 @@ class _SmartTerminalSidePanelContentState
 
     final deviceId = controller.selectedDeviceId;
     if (deviceId == null) return;
+    final terminalId = _currentTerminalId();
+    if (terminalId == null || terminalId.isEmpty) return;
+    final question = _currentQuestion;
 
     setState(() {
+      if (question != null) {
+        _agentAnswers.add(_AgentAnswerEntry(
+          question: question.question,
+          answer: answer,
+        ));
+      }
       _agentState = AgentPanelState.exploring;
       _currentQuestion = null;
     });
 
     try {
-      final service = AgentSessionService(serverUrl: controller.serverUrl);
+      final service = _agentSessionService(controller.serverUrl);
       await service.respond(
         deviceId: deviceId,
+        terminalId: terminalId,
         sessionId: _activeSessionId!,
         answer: answer,
         token: controller.token,
+        questionId: question?.questionId,
       );
     } catch (e) {
       if (!mounted) return;
@@ -384,6 +961,26 @@ class _SmartTerminalSidePanelContentState
         _agentState = AgentPanelState.error;
       });
     }
+  }
+
+  void _handleInputSubmit() {
+    if (_terminalConversationClosed) {
+      return;
+    }
+    if (_agentState == AgentPanelState.asking) {
+      final text = _intentController.text.trim();
+      if (text.isEmpty) return;
+      _intentController.clear();
+      setState(() {});
+      _handleAgentRespond(text);
+      return;
+    }
+    if (_executing ||
+        _resolvingIntent ||
+        _agentState == AgentPanelState.exploring) {
+      return;
+    }
+    _handleResolveIntent();
   }
 
   /// 执行 Agent 结果（注入命令到终端）
@@ -422,7 +1019,11 @@ class _SmartTerminalSidePanelContentState
   // Planner 模式（原始逻辑，降级或 fallback 时使用）
   // ============================================================
 
+  // ignore: unused_element
   Future<void> _resolveViaPlanner(String intent) async {
+    if (_terminalConversationClosed) {
+      return;
+    }
     setState(() {
       _resolvingIntent = true;
       _pendingIntent = intent;
@@ -484,10 +1085,6 @@ class _SmartTerminalSidePanelContentState
       _pendingIntent = null;
       _pendingItems.clear();
       _draft = nextDraft;
-      // 如果之前是 fallback 状态，完成 planner 后切回 idle
-      if (_agentState == AgentPanelState.fallback) {
-        _agentState = AgentPanelState.idle;
-      }
     });
     _scheduleScrollToLatest();
   }
@@ -497,7 +1094,8 @@ class _SmartTerminalSidePanelContentState
     List<_SidePanelStreamItem> progress,
   ) {
     if (event.assistantMessage != null) {
-      final item = _SidePanelStreamItem.assistantMessage(event.assistantMessage!);
+      final item =
+          _SidePanelStreamItem.assistantMessage(event.assistantMessage!);
       progress.add(item);
       setState(() => _pendingItems.add(item));
     }
@@ -511,7 +1109,7 @@ class _SmartTerminalSidePanelContentState
 
   /// 原始执行（planner 模式）
   Future<void> _handleExecute() async {
-    if (_executing || !_isConnected) return;
+    if (_terminalConversationClosed || _executing || !_isConnected) return;
     setState(() => _executing = true);
 
     final plan = _draft.toLaunchPlan();
@@ -526,9 +1124,11 @@ class _SmartTerminalSidePanelContentState
         if (!mounted) return;
         _turns.add(_SidePanelConversationTurn(
           userText: '',
-          items: [_SidePanelStreamItem.assistantMessage(
-            AssistantMessage(type: 'error', text: '命令注入失败：$e'),
-          )],
+          items: [
+            _SidePanelStreamItem.assistantMessage(
+              AssistantMessage(type: 'error', text: '命令注入失败：$e'),
+            )
+          ],
         ));
       }
     }
@@ -557,19 +1157,6 @@ class _SmartTerminalSidePanelContentState
     }
   }
 
-  /// 切换到快速模式
-  void _switchToFallbackMode() {
-    final intent = _agentIntent;
-    if (intent != null) {
-      setState(() {
-        _isFallbackMode = true;
-        _agentState = AgentPanelState.fallback;
-        _agentIntent = null;
-      });
-      _resolveViaPlanner(intent);
-    }
-  }
-
   // ============================================================
   // UI 构建
   // ============================================================
@@ -578,6 +1165,10 @@ class _SmartTerminalSidePanelContentState
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final connected = _isConnected;
+    final compactLayout = MediaQuery.sizeOf(context).width < 600;
+    final keyboardInset = compactLayout && _intentFocusNode.hasFocus
+        ? resolveMobileBottomInset(MediaQuery.of(context), keyboardOnly: true)
+        : 0.0;
 
     return Container(
       decoration: BoxDecoration(
@@ -596,23 +1187,39 @@ class _SmartTerminalSidePanelContentState
           color: colorScheme.outlineVariant.withValues(alpha: 0.18),
         ),
       ),
-      child: Column(
+      child: Stack(
         children: [
-          // Header
-          _buildHeader(colorScheme),
+          AnimatedPadding(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            padding: EdgeInsets.only(bottom: keyboardInset),
+            child: Column(
+              children: [
+                // Header
+                _buildHeader(colorScheme),
 
-          // 消息体
-          Expanded(
-            child: SingleChildScrollView(
-              controller: _scrollController,
-              primary: false,
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-              child: _buildBody(colorScheme, connected),
+                // 消息体
+                Expanded(
+                  child: SingleChildScrollView(
+                    controller: _scrollController,
+                    primary: false,
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+                    child: _buildBody(colorScheme, connected),
+                  ),
+                ),
+
+                // 底部意图输入
+                _buildInputBar(colorScheme),
+              ],
             ),
           ),
-
-          // 底部意图输入
-          _buildInputBar(colorScheme),
+          if (_usageToastVisible)
+            Positioned(
+              left: 12,
+              right: 12,
+              top: 68,
+              child: _buildUsageToast(colorScheme),
+            ),
         ],
       ),
     );
@@ -640,7 +1247,7 @@ class _SmartTerminalSidePanelContentState
                   ),
             ),
           ),
-          if (_isFallbackMode)
+          if (_terminalConversationClosed)
             Container(
               margin: const EdgeInsets.only(right: 8),
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -649,7 +1256,7 @@ class _SmartTerminalSidePanelContentState
                 borderRadius: BorderRadius.circular(999),
               ),
               child: Text(
-                '快速模式',
+                '已关闭',
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
                       color: const Color(0xFFE65100),
                       fontWeight: FontWeight.w600,
@@ -657,6 +1264,28 @@ class _SmartTerminalSidePanelContentState
                     ),
               ),
             ),
+          TextButton(
+            key: const Key('side-panel-usage-button'),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              minimumSize: const Size(0, 36),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              foregroundColor: const Color(0xFF1F5EFF),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              backgroundColor: const Color(0xFFEAF0FF),
+            ),
+            onPressed: _handleUsageButtonTap,
+            child: Text(
+              'Token 汇总',
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFF1F5EFF),
+                  ),
+            ),
+          ),
+          const SizedBox(width: 4),
           IconButton(
             key: const Key('side-panel-close'),
             onPressed: widget.onClose,
@@ -672,6 +1301,9 @@ class _SmartTerminalSidePanelContentState
   }
 
   Widget _buildBody(ColorScheme colorScheme, bool connected) {
+    if (_terminalConversationClosed) {
+      return _buildClosedView(colorScheme);
+    }
     // Agent 模式（活跃或已归档历史）：按 agentState 分发
     if (_isAgentActive() || _agentHistory.isNotEmpty) {
       return _buildAgentBody(colorScheme, connected);
@@ -679,6 +1311,33 @@ class _SmartTerminalSidePanelContentState
 
     // Planner 模式 / 降级模式：显示 turns + pending
     return _buildPlannerBody(colorScheme, connected);
+  }
+
+  Widget _buildClosedView(ColorScheme colorScheme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildAssistantBubble(
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.lock_clock_outlined,
+                  size: 16, color: colorScheme.error),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _terminalClosedReason ?? '当前 terminal 已关闭，智能对话已结束。',
+                  key: const Key('side-panel-terminal-closed-message'),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: colorScheme.error,
+                      ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 
   bool _isAgentActive() {
@@ -770,15 +1429,6 @@ class _SmartTerminalSidePanelContentState
                   ),
             ),
           ],
-          if (result.usage != null) ...[
-            const SizedBox(height: 2),
-            Text(
-              result.usage!.shortLabel,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: colorScheme.outline,
-                  ),
-            ),
-          ],
         ],
       ),
     );
@@ -812,8 +1462,7 @@ class _SmartTerminalSidePanelContentState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (_traces.isNotEmpty)
-          _buildAgentTraceExpansionTile(colorScheme),
+        if (_traces.isNotEmpty) _buildAgentTraceExpansionTile(colorScheme),
         if (_traces.isNotEmpty) const SizedBox(height: 8),
         _buildLoadingBubble('Agent 正在分析...', colorScheme),
         const SizedBox(height: 10),
@@ -853,6 +1502,7 @@ class _SmartTerminalSidePanelContentState
         _agentHistory.add(_AgentHistoryEntry(
           intent: _agentIntent!,
           traces: List.of(_traces),
+          answers: List.of(_agentAnswers),
           error: const AgentErrorEvent(
             code: 'CANCELLED',
             message: '已取消',
@@ -863,6 +1513,7 @@ class _SmartTerminalSidePanelContentState
       _agentIntent = null;
       _activeSessionId = null;
     });
+    _restartConversationStreamForCurrentScope();
   }
 
   /// 网络层取消 Agent 会话（取消订阅 + 发送 cancel 请求）
@@ -879,10 +1530,13 @@ class _SmartTerminalSidePanelContentState
     }
     final deviceId = controller.selectedDeviceId;
     if (deviceId == null) return;
+    final terminalId = _currentTerminalId();
+    if (terminalId == null || terminalId.isEmpty) return;
     try {
-      final service = AgentSessionService(serverUrl: controller.serverUrl);
+      final service = _agentSessionService(controller.serverUrl);
       await service.cancel(
         deviceId: deviceId,
+        terminalId: terminalId,
         sessionId: sessionId,
         token: controller.token,
       );
@@ -961,9 +1615,9 @@ class _SmartTerminalSidePanelContentState
                     color: colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
                     height: 1.3,
                   ),
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                ),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
           ],
         ],
       ),
@@ -1145,8 +1799,7 @@ class _SmartTerminalSidePanelContentState
         children: [
           Row(
             children: [
-              Icon(Icons.check_circle,
-                  size: 16, color: colorScheme.primary),
+              Icon(Icons.check_circle, size: 16, color: colorScheme.primary),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
@@ -1212,9 +1865,8 @@ class _SmartTerminalSidePanelContentState
                   ),
                   backgroundColor: const Color(0xFF1F5EFF),
                 ),
-                onPressed: connected && !_executing
-                    ? _executeAgentResult
-                    : null,
+                onPressed:
+                    connected && !_executing ? _executeAgentResult : null,
                 child: _executing
                     ? const SizedBox(
                         width: 16,
@@ -1228,72 +1880,234 @@ class _SmartTerminalSidePanelContentState
               ),
             ),
           ],
-          // Token 统计
-          if (result.usage != null) ...[
-            const SizedBox(height: 10),
-            _buildTokenStatsTile(result.usage!, colorScheme),
-          ],
         ],
       ),
     );
   }
 
-  /// Token 统计可折叠卡片
-  Widget _buildTokenStatsTile(AgentUsageData usage, ColorScheme colorScheme) {
+  Widget _buildUsageToast(ColorScheme colorScheme) {
+    final summary = _usageSummary ?? const UsageSummaryData.empty();
     return Container(
+      key: const Key('side-panel-usage-toast'),
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
       decoration: BoxDecoration(
-        color: const Color(0xFFF5F7FA),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: ExpansionTile(
-        key: const Key('token-stats-tile'),
-        initiallyExpanded: _tokenStatsExpanded,
-        onExpansionChanged: (v) => setState(() => _tokenStatsExpanded = v),
-        tilePadding: const EdgeInsets.symmetric(horizontal: 12),
-        childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-        dense: true,
-        leading: Icon(Icons.data_usage_outlined,
-            size: 16, color: colorScheme.onSurfaceVariant),
-        title: Text(
-          'Token 统计 · ${usage.totalTokens}',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: colorScheme.onSurfaceVariant,
-              ),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.2),
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildStatsRow('模型', usage.modelName.isNotEmpty ? usage.modelName : '-', colorScheme),
-          _buildStatsRow('输入 Token', '${usage.inputTokens}', colorScheme),
-          _buildStatsRow('输出 Token', '${usage.outputTokens}', colorScheme),
-          _buildStatsRow('总 Token', '${usage.totalTokens}', colorScheme),
-          _buildStatsRow('请求次数', '${usage.requests}', colorScheme),
+          Row(
+            children: [
+              Icon(
+                Icons.data_usage_outlined,
+                size: 18,
+                color: colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Token 汇总',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ),
+              if (_usageSummaryLoading)
+                SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: colorScheme.primary,
+                  ),
+                ),
+            ],
+          ),
+          if (_usageSummaryError != null) ...[
+            const SizedBox(height: 8),
+            Container(
+              key: const Key('side-panel-usage-error'),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF5F2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                _usageSummaryError!,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFFB54708),
+                    ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 10),
+          _buildUsageSummarySection(
+            label: '当前终端',
+            scope: summary.device,
+            colorScheme: colorScheme,
+          ),
+          const SizedBox(height: 8),
+          _buildUsageSummarySection(
+            label: '我的总计',
+            scope: summary.user,
+            colorScheme: colorScheme,
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildStatsRow(String label, String value, ColorScheme colorScheme) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  Widget _buildUsageSummarySection({
+    required String label,
+    required UsageSummaryScope scope,
+    required ColorScheme colorScheme,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF6F8FC),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-              )),
-          Text(value, style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                fontWeight: FontWeight.w600,
-              )),
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: colorScheme.onSurfaceVariant,
+                ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${scope.totalTokens}',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ),
+              Text(
+                '${scope.totalRequests} 次请求',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '输入 ${scope.totalInputTokens}  输出 ${scope.totalOutputTokens}  会话 ${scope.totalSessions}',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            scope.latestModelName.isNotEmpty ? scope.latestModelName : '暂无模型数据',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: colorScheme.onSurfaceVariant,
+                ),
+          ),
         ],
       ),
     );
+  }
+
+  void _showUsageToast() {
+    _usageToastTimer?.cancel();
+    setState(() {
+      _usageToastVisible = true;
+    });
+    _usageToastTimer = Timer(const Duration(seconds: 3), () {
+      if (!mounted) return;
+      setState(() {
+        _usageToastVisible = false;
+      });
+    });
+  }
+
+  Future<void> _handleUsageButtonTap() async {
+    _showUsageToast();
+    RuntimeSelectionController? controller;
+    try {
+      controller = context.read<RuntimeSelectionController>();
+    } on ProviderNotFoundException {
+      return;
+    }
+    await _refreshUsageSummary(controller: controller);
+  }
+
+  Future<void> _refreshUsageSummary({
+    required RuntimeSelectionController controller,
+    bool forceRefresh = true,
+  }) async {
+    final deviceId = controller.selectedDeviceId;
+    if (deviceId == null || deviceId.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _usageSummary = const UsageSummaryData.empty();
+        _usageSummaryDeviceId = null;
+        _usageSummaryError = '请先选择设备';
+        _usageSummaryLoading = false;
+      });
+      return;
+    }
+    if (!forceRefresh &&
+        _usageSummary != null &&
+        _usageSummaryDeviceId == deviceId &&
+        _usageSummaryError == null) {
+      return;
+    }
+    final requestSerial = ++_usageRefreshSerial;
+    setState(() {
+      _usageSummaryLoading = true;
+      if (_usageSummary == null || _usageSummaryDeviceId != deviceId) {
+        _usageSummary = const UsageSummaryData.empty();
+      }
+    });
+    try {
+      final summary = await _usageSummaryService(controller.serverUrl)
+          .fetchSummary(token: controller.token, deviceId: deviceId);
+      if (!mounted || requestSerial != _usageRefreshSerial) {
+        return;
+      }
+      setState(() {
+        _usageSummary = summary;
+        _usageSummaryDeviceId = deviceId;
+        _usageSummaryError = null;
+        _usageSummaryLoading = false;
+      });
+    } catch (_) {
+      if (!mounted || requestSerial != _usageRefreshSerial) {
+        return;
+      }
+      setState(() {
+        _usageSummaryDeviceId = deviceId;
+        _usageSummaryError = '统计暂不可用，稍后会自动重试';
+        _usageSummaryLoading = false;
+      });
+    }
   }
 
   /// Error：错误提示 + 重试/切换模式按钮
   Widget _buildErrorView(ColorScheme colorScheme) {
     final error = _agentError;
-    final errorMsg =
-        error?.message ?? '未知错误';
+    final errorMsg = error?.message ?? '未知错误';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1302,8 +2116,7 @@ class _SmartTerminalSidePanelContentState
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.error_outline,
-                  size: 16, color: colorScheme.error),
+              Icon(Icons.error_outline, size: 16, color: colorScheme.error),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -1332,21 +2145,6 @@ class _SmartTerminalSidePanelContentState
                 child: const Text('重试'),
               ),
             ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: FilledButton(
-                key: const Key('agent-switch-fallback'),
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(36),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  backgroundColor: const Color(0xFF1F5EFF),
-                ),
-                onPressed: _switchToFallbackMode,
-                child: const Text('使用快速模式'),
-              ),
-            ),
           ],
         ),
       ],
@@ -1359,14 +2157,13 @@ class _SmartTerminalSidePanelContentState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (_turns.isEmpty && _pendingIntent == null && !_isFallbackMode)
+        if (_turns.isEmpty && _pendingIntent == null)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 4),
             child: Text(
               '直接说目标，我会生成命令，确认后再执行。',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onSurfaceVariant
-                        .withValues(alpha: 0.82),
+                    color: colorScheme.onSurfaceVariant.withValues(alpha: 0.82),
                   ),
             ),
           ),
@@ -1401,9 +2198,13 @@ class _SmartTerminalSidePanelContentState
 
   /// 底部输入栏
   Widget _buildInputBar(ColorScheme colorScheme) {
-    final isAgentBusy = _agentState == AgentPanelState.exploring ||
-        _agentState == AgentPanelState.asking;
-    final canSend = !_executing && !_resolvingIntent && !isAgentBusy;
+    final isExploring = _agentState == AgentPanelState.exploring;
+    final isAwaitingAnswer = _agentState == AgentPanelState.asking;
+    final isClosed = _terminalConversationClosed;
+    final canSend = !isClosed &&
+        (isAwaitingAnswer
+            ? !_executing && !_resolvingIntent
+            : !_executing && !_resolvingIntent && !isExploring);
 
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 14),
@@ -1426,12 +2227,15 @@ class _SmartTerminalSidePanelContentState
                   key: const Key('side-panel-intent-input'),
                   controller: _intentController,
                   focusNode: _intentFocusNode,
+                  enabled: !isClosed,
                   textInputAction: TextInputAction.send,
                   textAlignVertical: TextAlignVertical.center,
                   decoration: InputDecoration(
-                    hintText: _agentState == AgentPanelState.asking
-                        ? '输入回答...'
-                        : '说目标，例如：进入日知项目',
+                    hintText: isClosed
+                        ? 'terminal 已关闭，无法继续智能交互'
+                        : _agentState == AgentPanelState.asking
+                            ? '输入回答...'
+                            : '说目标，例如：进入日知项目',
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(16),
                       borderSide: BorderSide(
@@ -1460,15 +2264,7 @@ class _SmartTerminalSidePanelContentState
                   maxLines: 3,
                   style: Theme.of(context).textTheme.bodyMedium,
                   onSubmitted: (_) {
-                    if (_agentState == AgentPanelState.asking) {
-                      final text = _intentController.text.trim();
-                      if (text.isNotEmpty) {
-                        _intentController.clear();
-                        _handleAgentRespond(text);
-                      }
-                    } else if (canSend) {
-                      _handleResolveIntent();
-                    }
+                    _handleInputSubmit();
                   },
                 ),
               ),
@@ -1487,8 +2283,8 @@ class _SmartTerminalSidePanelContentState
                 ),
                 backgroundColor: const Color(0xFF1F5EFF),
               ),
-              onPressed: canSend ? _handleResolveIntent : null,
-              child: _resolvingIntent || isAgentBusy
+              onPressed: canSend ? _handleInputSubmit : null,
+              child: _resolvingIntent || isExploring
                   ? const SizedBox(
                       width: 16,
                       height: 16,
@@ -1526,8 +2322,7 @@ class _SmartTerminalSidePanelContentState
         child: GestureDetector(
           onTap: canEdit ? () => _startInlineEdit(historyIndex) : null,
           child: Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
               color: const Color(0xFFDCE8FF),
               borderRadius: const BorderRadius.only(
@@ -1541,8 +2336,8 @@ class _SmartTerminalSidePanelContentState
               mainAxisSize: MainAxisSize.min,
               children: [
                 Flexible(
-                  child: Text(text,
-                      style: Theme.of(context).textTheme.bodyMedium),
+                  child:
+                      Text(text, style: Theme.of(context).textTheme.bodyMedium),
                 ),
                 if (canEdit) ...[
                   const SizedBox(width: 6),
@@ -1592,8 +2387,8 @@ class _SmartTerminalSidePanelContentState
                 style: Theme.of(context).textTheme.bodyMedium,
                 decoration: InputDecoration(
                   isDense: true,
-                  contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 8, vertical: 6),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
                     borderSide: BorderSide(color: Colors.grey.shade300),
@@ -1791,8 +2586,7 @@ class _SmartTerminalSidePanelContentState
   }
 
   Widget _buildPreviewCard(ColorScheme colorScheme, bool connected) {
-    final summary =
-        _draft.summary.trim().isEmpty ? '准备执行命令' : _draft.summary;
+    final summary = _draft.summary.trim().isEmpty ? '准备执行命令' : _draft.summary;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
@@ -1907,12 +2701,46 @@ class _AgentHistoryEntry {
   const _AgentHistoryEntry({
     required this.intent,
     required this.traces,
+    this.answers = const [],
     this.result,
     this.error,
   });
 
   final String intent;
   final List<AgentTraceEvent> traces;
+  final List<_AgentAnswerEntry> answers;
+  final AgentResultEvent? result;
+  final AgentErrorEvent? error;
+}
+
+class _AgentAnswerEntry {
+  const _AgentAnswerEntry({
+    required this.question,
+    required this.answer,
+  });
+
+  final String question;
+  final String answer;
+}
+
+class _AgentRenderState {
+  const _AgentRenderState({
+    required this.state,
+    required this.history,
+    required this.traces,
+    required this.answers,
+    this.intent,
+    this.currentQuestion,
+    this.result,
+    this.error,
+  });
+
+  final AgentPanelState state;
+  final List<_AgentHistoryEntry> history;
+  final String? intent;
+  final List<AgentTraceEvent> traces;
+  final List<_AgentAnswerEntry> answers;
+  final AgentQuestionEvent? currentQuestion;
   final AgentResultEvent? result;
   final AgentErrorEvent? error;
 }
@@ -1928,8 +2756,11 @@ class _SidePanelStagePill extends StatelessWidget {
     final (label, bg, fg) = switch (stage) {
       'tool' || 'tools' => ('工具', const Color(0xFFEAF2FF), colorScheme.primary),
       'context' => ('上下文', const Color(0xFFF4EFE6), const Color(0xFF8B5E2B)),
-      'plan' || 'planner' =>
-        ('思考', const Color(0xFFF2EEFF), const Color(0xFF6852C8)),
+      'plan' || 'planner' => (
+          '思考',
+          const Color(0xFFF2EEFF),
+          const Color(0xFF6852C8)
+        ),
       _ => ('处理', const Color(0xFFEFF3F8), colorScheme.onSurfaceVariant),
     };
     return Container(

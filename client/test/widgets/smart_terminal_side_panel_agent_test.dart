@@ -3,15 +3,18 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:rc_client/models/agent_conversation_projection.dart';
 import 'package:rc_client/models/agent_session_event.dart';
 import 'package:rc_client/models/assistant_plan.dart';
 import 'package:rc_client/models/runtime_device.dart';
 import 'package:rc_client/models/runtime_terminal.dart';
 import 'package:rc_client/models/terminal_launch_plan.dart';
+import 'package:rc_client/services/agent_session_service.dart';
 import 'package:rc_client/services/command_planner/planner_provider.dart';
 import 'package:rc_client/services/environment_service.dart';
 import 'package:rc_client/services/runtime_device_service.dart';
 import 'package:rc_client/services/runtime_selection_controller.dart';
+import 'package:rc_client/services/usage_summary_service.dart';
 import 'package:rc_client/services/websocket_service.dart';
 import 'package:rc_client/widgets/smart_terminal_side_panel.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -84,8 +87,11 @@ class _TestRuntimeDeviceService extends RuntimeDeviceService {
 Widget _buildTestApp({
   required RuntimeSelectionController controller,
   MockWebSocketService? wsService,
+  AgentSessionServiceFactory? agentSessionServiceBuilder,
+  UsageSummaryServiceFactory? usageSummaryServiceBuilder,
 }) {
-  final ws = wsService ?? MockWebSocketService()..simulateConnect();
+  final ws = wsService ?? MockWebSocketService()
+    ..simulateConnect();
   return MaterialApp(
     home: Scaffold(
       body: MultiProvider(
@@ -95,11 +101,170 @@ Widget _buildTestApp({
           ChangeNotifierProvider<WebSocketService>.value(value: ws),
         ],
         child: SmartTerminalSidePanel(
+          agentSessionServiceBuilder: agentSessionServiceBuilder,
+          usageSummaryServiceBuilder: usageSummaryServiceBuilder,
           child: const Center(child: Text('Terminal Content')),
         ),
       ),
     ),
   );
+}
+
+Future<void> _openSidePanel(WidgetTester tester) async {
+  final fab = tester.widget<FloatingActionButton>(
+    find.byKey(const Key('smart-terminal-fab')),
+  );
+  fab.onPressed?.call();
+  await tester.pumpAndSettle();
+}
+
+Future<void> _pressSidePanelSend(WidgetTester tester) async {
+  final button = tester.widget<FilledButton>(
+    find.byKey(const Key('side-panel-send')),
+  );
+  button.onPressed?.call();
+  await tester.pump();
+}
+
+class _FakeUsageSummaryService extends UsageSummaryService {
+  _FakeUsageSummaryService({
+    required this.onFetch,
+  }) : super(serverUrl: 'ws://localhost:8888');
+
+  final Future<UsageSummaryData> Function(String token, String deviceId)
+      onFetch;
+  int fetchCount = 0;
+
+  @override
+  Future<UsageSummaryData> fetchSummary({
+    required String token,
+    required String deviceId,
+  }) async {
+    fetchCount += 1;
+    return onFetch(token, deviceId);
+  }
+}
+
+class _FakeAgentSessionService extends AgentSessionService {
+  _FakeAgentSessionService({
+    required this.events,
+    this.onFetchConversation,
+    this.onRespond,
+    this.onRunSession,
+    this.onResumeSession,
+    this.onStreamConversation,
+  }) : super(serverUrl: 'ws://localhost:8888');
+
+  final List<AgentSessionEvent> events;
+  final Future<AgentConversationProjection> Function(
+    String deviceId,
+    String? terminalId,
+  )? onFetchConversation;
+  final Future<bool> Function(String answer)? onRespond;
+  final Stream<AgentSessionEvent> Function(String intent)? onRunSession;
+  final Stream<AgentSessionEvent> Function(String sessionId)? onResumeSession;
+  final Stream<AgentConversationEventItem> Function(int afterIndex)?
+      onStreamConversation;
+  final List<String> respondAnswers = [];
+  final List<String> runIntents = [];
+  final List<String?> conversationIds = [];
+  final List<String?> fetchedTerminalIds = [];
+  final List<String?> resumedSessionIds = [];
+  final List<int> streamedAfterIndexes = [];
+  int fetchConversationCount = 0;
+  int resumeCount = 0;
+  int streamConversationCount = 0;
+
+  @override
+  Future<AgentConversationProjection> fetchConversation({
+    required String deviceId,
+    String? terminalId,
+    required String token,
+  }) async {
+    fetchConversationCount += 1;
+    fetchedTerminalIds.add(terminalId);
+    if (onFetchConversation != null) {
+      return onFetchConversation!(deviceId, terminalId);
+    }
+    return AgentConversationProjection.empty(
+      deviceId: deviceId,
+      terminalId: terminalId ?? 'term-1',
+    );
+  }
+
+  @override
+  Stream<AgentSessionEvent> runSession({
+    required String deviceId,
+    String? terminalId,
+    required String intent,
+    required String token,
+    String? conversationId,
+    String? clientEventId,
+  }) {
+    runIntents.add(intent);
+    conversationIds.add(conversationId);
+    if (onRunSession != null) {
+      return onRunSession!(intent);
+    }
+    return Stream<AgentSessionEvent>.fromIterable(events);
+  }
+
+  @override
+  Stream<AgentSessionEvent> resumeSession({
+    required String deviceId,
+    String? terminalId,
+    required String sessionId,
+    required String token,
+  }) {
+    resumeCount += 1;
+    resumedSessionIds.add(sessionId);
+    if (onResumeSession != null) {
+      return onResumeSession!(sessionId);
+    }
+    return const Stream<AgentSessionEvent>.empty();
+  }
+
+  @override
+  Stream<AgentConversationEventItem> streamConversation({
+    required String deviceId,
+    String? terminalId,
+    required String token,
+    int afterIndex = -1,
+  }) {
+    streamConversationCount += 1;
+    streamedAfterIndexes.add(afterIndex);
+    if (onStreamConversation != null) {
+      return onStreamConversation!(afterIndex);
+    }
+    return const Stream<AgentConversationEventItem>.empty();
+  }
+
+  @override
+  Future<bool> respond({
+    required String deviceId,
+    String? terminalId,
+    required String sessionId,
+    required String answer,
+    required String token,
+    String? questionId,
+    String? clientEventId,
+  }) async {
+    respondAnswers.add(answer);
+    if (onRespond != null) {
+      return onRespond!(answer);
+    }
+    return true;
+  }
+
+  @override
+  Future<bool> cancel({
+    required String deviceId,
+    String? terminalId,
+    required String sessionId,
+    required String token,
+  }) async {
+    return true;
+  }
 }
 
 void main() {
@@ -111,8 +276,168 @@ void main() {
   });
 
   group('Agent SSE interaction', () {
-    testWidgets('exploring state shows trace expansion tile',
+    testWidgets('shows usage button and toast auto hides', (tester) async {
+      final controller = _AgentFakeController();
+      final usageService = _FakeUsageSummaryService(
+        onFetch: (_, __) async => const UsageSummaryData(
+          device: UsageSummaryScope(
+            totalSessions: 2,
+            totalInputTokens: 120,
+            totalOutputTokens: 80,
+            totalTokens: 200,
+            totalRequests: 3,
+            latestModelName: 'deepseek-chat',
+          ),
+          user: UsageSummaryScope(
+            totalSessions: 5,
+            totalInputTokens: 620,
+            totalOutputTokens: 280,
+            totalTokens: 900,
+            totalRequests: 11,
+            latestModelName: 'deepseek-chat',
+          ),
+        ),
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        usageSummaryServiceBuilder: (_) => usageService,
+      ));
+
+      await _openSidePanel(tester);
+
+      expect(find.byKey(const Key('side-panel-usage-button')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('side-panel-usage-button')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('side-panel-usage-toast')), findsOneWidget);
+      expect(find.text('当前终端'), findsOneWidget);
+      expect(find.text('我的总计'), findsOneWidget);
+      expect(find.text('200'), findsOneWidget);
+      expect(find.text('900'), findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('side-panel-usage-toast')), findsNothing);
+    });
+
+    testWidgets('repeated usage button tap resets hide timer', (tester) async {
+      final controller = _AgentFakeController();
+      final usageService = _FakeUsageSummaryService(
+        onFetch: (_, __) async => const UsageSummaryData.empty(),
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        usageSummaryServiceBuilder: (_) => usageService,
+      ));
+
+      await _openSidePanel(tester);
+
+      await tester.tap(find.byKey(const Key('side-panel-usage-button')));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 2));
+
+      await tester.tap(find.byKey(const Key('side-panel-usage-button')));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 2));
+
+      expect(find.byKey(const Key('side-panel-usage-toast')), findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('side-panel-usage-toast')), findsNothing);
+    });
+
+    testWidgets('refreshes usage summary after agent result arrives',
         (tester) async {
+      final controller = _AgentFakeController();
+      final usageService = _FakeUsageSummaryService(
+        onFetch: (_, __) async => const UsageSummaryData(
+          device: UsageSummaryScope(
+            totalSessions: 1,
+            totalInputTokens: 1520,
+            totalOutputTokens: 380,
+            totalTokens: 1900,
+            totalRequests: 3,
+            latestModelName: 'deepseek-chat',
+          ),
+          user: UsageSummaryScope(
+            totalSessions: 4,
+            totalInputTokens: 5400,
+            totalOutputTokens: 1200,
+            totalTokens: 6600,
+            totalRequests: 10,
+            latestModelName: 'deepseek-chat',
+          ),
+        ),
+      );
+      final agentService = _FakeAgentSessionService(
+        events: [
+          const AgentSessionCreatedEvent(sessionId: 'session-1'),
+          AgentResultEvent(
+            summary: 'done',
+            steps: const [],
+            provider: 'agent',
+            source: 'recommended',
+            needConfirm: false,
+            aliases: const <String, String>{},
+            usage: const AgentUsageData(
+              inputTokens: 1520,
+              outputTokens: 380,
+              totalTokens: 1900,
+              requests: 3,
+              modelName: 'deepseek-chat',
+            ),
+          ),
+        ],
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+        usageSummaryServiceBuilder: (_) => usageService,
+      ));
+
+      await _openSidePanel(tester);
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        'show usage',
+      );
+      await _pressSidePanelSend(tester);
+      await tester.pumpAndSettle();
+
+      expect(usageService.fetchCount, 1);
+
+      await tester.tap(find.byKey(const Key('side-panel-usage-button')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('1900'), findsOneWidget);
+      expect(find.text('6600'), findsOneWidget);
+    });
+
+    testWidgets('shows degraded message when usage summary fails',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final usageService = _FakeUsageSummaryService(
+        onFetch: (_, __) async {
+          throw const UsageSummaryException(message: 'timeout');
+        },
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        usageSummaryServiceBuilder: (_) => usageService,
+      ));
+
+      await _openSidePanel(tester);
+      await tester.tap(find.byKey(const Key('side-panel-usage-button')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('side-panel-usage-error')), findsOneWidget);
+      expect(find.text('统计暂不可用，稍后会自动重试'), findsOneWidget);
+    });
+
+    testWidgets('exploring state shows trace expansion tile', (tester) async {
       final controller = _AgentFakeController();
       final ws = MockWebSocketService()..simulateConnect();
       await tester.pumpWidget(_buildTestApp(
@@ -121,16 +446,14 @@ void main() {
       ));
 
       // Open panel
-      await tester.tap(find.byKey(const Key('smart-terminal-fab')));
-      await tester.pumpAndSettle();
+      await _openSidePanel(tester);
 
       // Enter intent and submit
       await tester.enterText(
         find.byKey(const Key('side-panel-intent-input')),
         '进入项目',
       );
-      await tester.tap(find.byKey(const Key('side-panel-send')));
-      await tester.pump();
+      await _pressSidePanelSend(tester);
 
       // The Agent SSE service is instantiated inside the widget;
       // since the HTTP call will fail in test, the widget should
@@ -140,38 +463,626 @@ void main() {
       await tester.pumpAndSettle(const Duration(seconds: 5));
 
       // Should show either loading or fallback planner result
-      expect(find.byKey(const Key('side-panel-intent-input')),
-          findsOneWidget);
+      expect(find.byKey(const Key('side-panel-intent-input')), findsOneWidget);
     });
 
     testWidgets('asking state shows option buttons', (tester) async {
-      // This test verifies the widget structure for asking state.
-      // We cannot easily inject AgentQuestionEvent into the widget
-      // without a mock AgentSessionService, so we test the UI
-      // that the _buildAskingView method produces.
       final controller = _AgentFakeController();
-      final ws = MockWebSocketService()..simulateConnect();
+      final agentService = _FakeAgentSessionService(
+        events: const [
+          AgentSessionCreatedEvent(sessionId: 'session-1'),
+          AgentQuestionEvent(
+            question: 'Which project?',
+            options: ['remote-control', 'log-service'],
+            multiSelect: false,
+          ),
+        ],
+        onRespond: (_) async => true,
+      );
       await tester.pumpWidget(_buildTestApp(
         controller: controller,
-        wsService: ws,
+        agentSessionServiceBuilder: (_) => agentService,
       ));
 
-      // Open panel
+      await _openSidePanel(tester);
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '打开项目',
+      );
+      await tester.tap(find.byKey(const Key('side-panel-send')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Which project?'), findsOneWidget);
+      expect(find.text('remote-control'), findsOneWidget);
+      expect(find.text('log-service'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+    });
+
+    testWidgets('asking state send button submits answer and resumes exploring',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final agentService = _FakeAgentSessionService(
+        events: const [
+          AgentSessionCreatedEvent(sessionId: 'session-1'),
+          AgentQuestionEvent(
+            question: 'Which project?',
+            options: ['remote-control', 'log-service'],
+            multiSelect: false,
+          ),
+        ],
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+
+      await _openSidePanel(tester);
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '打开项目',
+      );
+      await tester.tap(find.byKey(const Key('side-panel-send')));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        'remote-control',
+      );
+      await _pressSidePanelSend(tester);
+
+      expect(agentService.respondAnswers, ['remote-control']);
+      expect(find.text('Agent 正在分析...'), findsOneWidget);
+    });
+
+    testWidgets('asking option tap submits answer and resumes exploring',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final agentService = _FakeAgentSessionService(
+        events: const [
+          AgentSessionCreatedEvent(sessionId: 'session-1'),
+          AgentQuestionEvent(
+            question: 'Which project?',
+            options: ['remote-control', 'log-service'],
+            multiSelect: false,
+          ),
+        ],
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+
+      await _openSidePanel(tester);
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '打开项目',
+      );
+      await tester.tap(find.byKey(const Key('side-panel-send')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('remote-control'));
+      await tester.pump();
+
+      expect(agentService.respondAnswers, ['remote-control']);
+      expect(find.text('Agent 正在分析...'), findsOneWidget);
+    });
+
+    testWidgets('panel hydrates history from server projection on open',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onFetchConversation: (_, __) async => AgentConversationProjection(
+          conversationId: 'conv-server-1',
+          deviceId: 'device-1',
+          terminalId: 'term-1',
+          status: 'active',
+          nextEventIndex: 2,
+          activeSessionId: null,
+          events: const [
+            AgentConversationEventItem(
+              eventIndex: 0,
+              eventId: 'evt-0',
+              type: 'user_intent',
+              role: 'user',
+              payload: {'text': '打开日知项目'},
+            ),
+            AgentConversationEventItem(
+              eventIndex: 1,
+              eventId: 'evt-1',
+              type: 'result',
+              role: 'assistant',
+              payload: {
+                'summary': '已定位到日知项目。',
+                'steps': [
+                  {
+                    'id': 'step-1',
+                    'label': '进入目录',
+                    'command': 'cd /Users/demo/project/rizhi',
+                  },
+                ],
+                'provider': 'agent',
+                'source': 'recommended',
+                'need_confirm': false,
+                'aliases': {'rizhi': '/Users/demo/project/rizhi'},
+              },
+            ),
+          ],
+        ),
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+      await tester.pumpAndSettle();
+
+      await _openSidePanel(tester);
+
+      expect(agentService.fetchConversationCount, 1);
+      expect(find.text('打开日知项目'), findsOneWidget);
+      expect(find.text('已定位到日知项目。'), findsNWidgets(2));
+      expect(find.byKey(const Key('side-panel-execute')), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '继续打开这个项目',
+      );
+      await _pressSidePanelSend(tester);
+
+      expect(agentService.runIntents, ['继续打开这个项目']);
+      expect(agentService.conversationIds, ['conv-server-1']);
+    });
+
+    testWidgets('panel restores active question and resumes active session',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onResumeSession: (_) => const Stream<AgentSessionEvent>.empty(),
+        onFetchConversation: (_, __) async => AgentConversationProjection(
+          conversationId: 'conv-server-2',
+          deviceId: 'device-1',
+          terminalId: 'term-1',
+          status: 'active',
+          nextEventIndex: 3,
+          activeSessionId: 'session-1',
+          events: const [
+            AgentConversationEventItem(
+              eventIndex: 0,
+              eventId: 'evt-0',
+              type: 'user_intent',
+              role: 'user',
+              payload: {'text': '打开项目'},
+            ),
+            AgentConversationEventItem(
+              eventIndex: 1,
+              eventId: 'evt-1',
+              type: 'trace',
+              role: 'assistant',
+              payload: {
+                'tool': 'scan_projects',
+                'input_summary': '扫描本地项目',
+                'output_summary': '找到 2 个项目',
+              },
+            ),
+            AgentConversationEventItem(
+              eventIndex: 2,
+              eventId: 'evt-2',
+              type: 'question',
+              role: 'assistant',
+              questionId: 'q-1',
+              payload: {
+                'question': 'Which project?',
+                'options': ['remote-control', 'log-service'],
+                'multi_select': false,
+              },
+            ),
+          ],
+        ),
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+      await tester.pumpAndSettle();
+
+      await _openSidePanel(tester);
+
+      expect(find.text('Which project?'), findsOneWidget);
+      expect(find.text('remote-control'), findsOneWidget);
+      expect(agentService.resumeCount, 1);
+      expect(agentService.resumedSessionIds, ['session-1']);
+    });
+
+    testWidgets('conversation stream syncs remote question and result',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final streamController = StreamController<AgentConversationEventItem>();
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onFetchConversation: (_, __) async => const AgentConversationProjection(
+          conversationId: 'conv-server-3',
+          deviceId: 'device-1',
+          terminalId: 'term-1',
+          status: 'active',
+          nextEventIndex: 0,
+          activeSessionId: null,
+          events: [],
+        ),
+        onStreamConversation: (_) => streamController.stream,
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+      await tester.pumpAndSettle();
+      await _openSidePanel(tester);
+
+      streamController.add(const AgentConversationEventItem(
+        eventIndex: 0,
+        eventId: 'evt-0',
+        type: 'user_intent',
+        role: 'user',
+        payload: {'text': '打开远端项目'},
+      ));
+      streamController.add(const AgentConversationEventItem(
+        eventIndex: 1,
+        eventId: 'evt-1',
+        type: 'question',
+        role: 'assistant',
+        questionId: 'q-1',
+        payload: {
+          'question': 'Which project?',
+          'options': ['remote-control'],
+          'multi_select': false,
+        },
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('Which project?'), findsOneWidget);
+      expect(find.text('remote-control'), findsOneWidget);
+
+      streamController.add(const AgentConversationEventItem(
+        eventIndex: 2,
+        eventId: 'evt-2',
+        type: 'answer',
+        role: 'user',
+        questionId: 'q-1',
+        payload: {'text': 'remote-control'},
+      ));
+      streamController.add(const AgentConversationEventItem(
+        eventIndex: 3,
+        eventId: 'evt-3',
+        type: 'result',
+        role: 'assistant',
+        payload: {
+          'summary': '远端结果已同步',
+          'steps': [],
+          'provider': 'agent',
+          'source': 'recommended',
+          'need_confirm': false,
+          'aliases': {},
+        },
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('远端结果已同步'), findsNWidgets(2));
+      expect(find.text('Agent 正在分析...'), findsNothing);
+      unawaited(streamController.close());
+    });
+
+    testWidgets('conversation stream closed event disables smart input',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final streamController = StreamController<AgentConversationEventItem>();
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onFetchConversation: (_, __) async => const AgentConversationProjection(
+          conversationId: 'conv-server-4',
+          deviceId: 'device-1',
+          terminalId: 'term-1',
+          status: 'active',
+          nextEventIndex: 0,
+          activeSessionId: null,
+          events: [],
+        ),
+        onStreamConversation: (_) => streamController.stream,
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+      await tester.pumpAndSettle();
+      await _openSidePanel(tester);
+
+      streamController.add(const AgentConversationEventItem(
+        eventIndex: 0,
+        eventId: 'evt-closed',
+        type: 'closed',
+        role: 'system',
+        payload: {'reason': 'user_request'},
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(
+        find.byKey(const Key('side-panel-terminal-closed-message')),
+        findsOneWidget,
+      );
+      final input = tester.widget<TextField>(
+        find.byKey(const Key('side-panel-intent-input')),
+      );
+      expect(input.enabled, isFalse);
+      final sendButton = tester.widget<FilledButton>(
+        find.byKey(const Key('side-panel-send')),
+      );
+      expect(sendButton.onPressed, isNull);
+      unawaited(streamController.close());
+    });
+
+    testWidgets(
+        'terminal switch clears old projection and reloads new terminal',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onFetchConversation: (_, terminalId) async {
+          if (terminalId == 'term-2') {
+            return AgentConversationProjection(
+              conversationId: 'conv-server-2',
+              deviceId: 'device-1',
+              terminalId: 'term-2',
+              status: 'active',
+              nextEventIndex: 2,
+              activeSessionId: null,
+              events: const [
+                AgentConversationEventItem(
+                  eventIndex: 0,
+                  eventId: 'evt-0',
+                  type: 'user_intent',
+                  role: 'user',
+                  payload: {'text': '打开 term-2 项目'},
+                ),
+                AgentConversationEventItem(
+                  eventIndex: 1,
+                  eventId: 'evt-1',
+                  type: 'result',
+                  role: 'assistant',
+                  payload: {
+                    'summary': 'term-2 已就绪',
+                    'steps': [],
+                    'provider': 'agent',
+                    'source': 'recommended',
+                    'need_confirm': false,
+                    'aliases': {},
+                  },
+                ),
+              ],
+            );
+          }
+          return AgentConversationProjection(
+            conversationId: 'conv-server-1',
+            deviceId: 'device-1',
+            terminalId: 'term-1',
+            status: 'active',
+            nextEventIndex: 2,
+            activeSessionId: null,
+            events: const [
+              AgentConversationEventItem(
+                eventIndex: 0,
+                eventId: 'evt-0',
+                type: 'user_intent',
+                role: 'user',
+                payload: {'text': '打开 term-1 项目'},
+              ),
+              AgentConversationEventItem(
+                eventIndex: 1,
+                eventId: 'evt-1',
+                type: 'result',
+                role: 'assistant',
+                payload: {
+                  'summary': 'term-1 已就绪',
+                  'steps': [],
+                  'provider': 'agent',
+                  'source': 'recommended',
+                  'need_confirm': false,
+                  'aliases': {},
+                },
+              ),
+            ],
+          );
+        },
+      );
+      final wsTerm1 = MockWebSocketService(terminalId: 'term-1')
+        ..simulateConnect();
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        wsService: wsTerm1,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+      await tester.pumpAndSettle();
+
+      await _openSidePanel(tester);
+      expect(find.text('打开 term-1 项目'), findsOneWidget);
+
+      final wsTerm2 = MockWebSocketService(terminalId: 'term-2')
+        ..simulateConnect();
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        wsService: wsTerm2,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('打开 term-1 项目'), findsNothing);
+      expect(find.text('打开 term-2 项目'), findsOneWidget);
+      expect(agentService.fetchedTerminalIds, ['term-1', 'term-2']);
+    });
+
+    testWidgets('new agent turn includes recent confirmed project context',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final agentService = _FakeAgentSessionService(
+        events: [
+          const AgentSessionCreatedEvent(
+            sessionId: 'session-1',
+            conversationId: 'conv-server-1',
+          ),
+          AgentResultEvent(
+            summary: '打开 personal-growth-assistant（个人成长助手）项目，并准备后续启动命令。',
+            steps: const [
+              AgentResultStep(
+                id: 'step-1',
+                label: '进入目录',
+                command:
+                    'cd /Users/tangxiaolu/project/personal-growth-assistant',
+              ),
+            ],
+            provider: 'agent',
+            source: 'recommended',
+            needConfirm: false,
+            aliases: const {
+              'personal-growth-assistant':
+                  '/Users/tangxiaolu/project/personal-growth-assistant',
+            },
+          ),
+        ],
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+
       await tester.tap(find.byKey(const Key('smart-terminal-fab')));
       await tester.pumpAndSettle();
 
-      // Verify panel is open
-      expect(find.byKey(const Key('side-panel-intent-input')),
-          findsOneWidget);
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '打开日知项目',
+      );
+      await tester.tap(find.byKey(const Key('side-panel-send')));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '用claude code打开这个项目',
+      );
+      await tester.tap(find.byKey(const Key('side-panel-send')));
+      await tester.pumpAndSettle();
+
+      expect(agentService.runIntents.length, 2);
+      expect(agentService.runIntents[1], '用claude code打开这个项目');
+      expect(agentService.conversationIds.length, 2);
+      expect(agentService.conversationIds[0], isNull);
+      expect(agentService.conversationIds[1], 'conv-server-1');
+    });
+
+    testWidgets('new agent turn includes previous question answer',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final streams = <StreamController<AgentSessionEvent>>[];
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onRunSession: (_) {
+          final stream = StreamController<AgentSessionEvent>();
+          streams.add(stream);
+          return stream.stream;
+        },
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+
+      await tester.tap(find.byKey(const Key('smart-terminal-fab')));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '打开项目',
+      );
+      await tester.tap(find.byKey(const Key('side-panel-send')));
+      await tester.pump();
+
+      streams.single
+          .add(const AgentSessionCreatedEvent(sessionId: 'session-1'));
+      streams.single.add(const AgentQuestionEvent(
+        question: 'Which project?',
+        options: ['personal-growth-assistant', 'remote-control'],
+        multiSelect: false,
+      ));
+      await tester.pump();
+
+      await tester.tap(find.text('personal-growth-assistant'));
+      await tester.pump();
+
+      streams.single.add(AgentResultEvent(
+        summary: '已确认 personal-growth-assistant 项目。',
+        steps: const [
+          AgentResultStep(
+            id: 'step-1',
+            label: '进入目录',
+            command: 'cd /Users/tangxiaolu/project/personal-growth-assistant',
+          ),
+        ],
+        provider: 'agent',
+        source: 'recommended',
+        needConfirm: false,
+        aliases: const {
+          'personal-growth-assistant':
+              '/Users/tangxiaolu/project/personal-growth-assistant',
+        },
+      ));
+      await streams.single.close();
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '用 claude code 打开这个项目',
+      );
+      await tester.tap(find.byKey(const Key('side-panel-send')));
+      await tester.pump();
+
+      expect(agentService.respondAnswers, ['personal-growth-assistant']);
+      expect(agentService.runIntents.length, 2);
+      expect(agentService.runIntents[1], '用 claude code 打开这个项目');
+
+      await streams.last.close();
     });
 
     testWidgets('result state shows execute button with agent steps',
         (tester) async {
       final controller = _AgentFakeController();
       final ws = MockWebSocketService()..simulateConnect();
+      final agentService = _FakeAgentSessionService(
+        events: [
+          AgentSessionCreatedEvent(
+            sessionId: 'session-1',
+            conversationId: 'conv-1',
+            terminalId: 'term-1',
+          ),
+          AgentResultEvent(
+            summary: '进入项目并启动 Claude',
+            steps: [
+              AgentResultStep(
+                id: 'step-1',
+                label: '进入目录',
+                command: 'cd ~/remote-control',
+              ),
+            ],
+            provider: 'agent',
+            source: 'recommended',
+            needConfirm: true,
+            aliases: {},
+          ),
+        ],
+      );
       await tester.pumpWidget(_buildTestApp(
         controller: controller,
         wsService: ws,
+        agentSessionServiceBuilder: (_) => agentService,
       ));
 
       // Open panel
@@ -186,151 +1097,166 @@ void main() {
       await tester.tap(find.byKey(const Key('side-panel-send')));
       await tester.pumpAndSettle(const Duration(seconds: 5));
 
-      // Verify execute button exists (either from planner or agent fallback)
-      expect(find.byKey(const Key('side-panel-execute')),
-          findsOneWidget);
+      // Verify execute button exists for successful agent result
+      expect(find.byKey(const Key('side-panel-execute')), findsOneWidget);
     });
 
-    testWidgets('error state shows retry and fallback buttons',
+    testWidgets('error state shows retry only and no fast mode button',
         (tester) async {
       final controller = _AgentFakeController();
       final ws = MockWebSocketService()..simulateConnect();
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onRunSession: (_) => Stream<AgentSessionEvent>.value(
+          const AgentErrorEvent(
+            code: 'AGENT_ERROR',
+            message: '智能服务 Token 未配置，请联系开发者',
+          ),
+        ),
+      );
       await tester.pumpWidget(_buildTestApp(
         controller: controller,
         wsService: ws,
+        agentSessionServiceBuilder: (_) => agentService,
       ));
 
       // Open panel
       await tester.tap(find.byKey(const Key('smart-terminal-fab')));
       await tester.pumpAndSettle();
 
-      // Submit intent - will attempt Agent SSE and fail,
-      // falling back to planner mode
+      // Submit intent - agent returns explicit error
       await tester.enterText(
         find.byKey(const Key('side-panel-intent-input')),
         'test intent',
       );
       await tester.tap(find.byKey(const Key('side-panel-send')));
-      await tester.pumpAndSettle(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
 
-      // After fallback, should show planner result
-      expect(find.byKey(const Key('side-panel-execute')),
-          findsOneWidget);
+      expect(find.text('智能服务 Token 未配置，请联系开发者'), findsWidgets);
+      expect(find.byKey(const Key('agent-retry')), findsOneWidget);
+      expect(find.byKey(const Key('agent-switch-fallback')), findsNothing);
+      expect(find.byKey(const Key('side-panel-execute')), findsNothing);
     });
 
-    testWidgets('fallback shows "已切换到快速模式" message', (tester) async {
+    testWidgets('agent request failure does not enter quick mode UI',
+        (tester) async {
       final controller = _AgentFakeController();
       final ws = MockWebSocketService()..simulateConnect();
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onRunSession: (_) => Stream<AgentSessionEvent>.error(
+          const AgentSessionException(
+            code: 'service_llm_budget_blocked',
+            message: '智能服务 Token 或配额不可用，请联系开发者',
+            statusCode: 429,
+          ),
+        ),
+      );
       await tester.pumpWidget(_buildTestApp(
         controller: controller,
         wsService: ws,
+        agentSessionServiceBuilder: (_) => agentService,
       ));
 
       // Open panel
       await tester.tap(find.byKey(const Key('smart-terminal-fab')));
       await tester.pumpAndSettle();
 
-      // Submit intent - Agent SSE will fail (no real server)
+      // Submit intent - Agent SSE request fails
       await tester.enterText(
         find.byKey(const Key('side-panel-intent-input')),
-        'test fallback',
-      );
-      await tester.tap(find.byKey(const Key('side-panel-send')));
-      await tester.pumpAndSettle(const Duration(seconds: 5));
-
-      // Should show fallback mode indicator or planner result
-      expect(find.byKey(const Key('side-panel-execute')),
-          findsOneWidget);
-    });
-
-    testWidgets('existing planner flow still works after fallback',
-        (tester) async {
-      final controller = _AgentFakeController();
-      final ws = MockWebSocketService()..simulateConnect();
-      await tester.pumpWidget(_buildTestApp(
-        controller: controller,
-        wsService: ws,
-      ));
-
-      // Open panel
-      await tester.tap(find.byKey(const Key('smart-terminal-fab')));
-      await tester.pumpAndSettle();
-
-      // Submit first intent - will fallback
-      await tester.enterText(
-        find.byKey(const Key('side-panel-intent-input')),
-        'intent one',
-      );
-      await tester.tap(find.byKey(const Key('side-panel-send')));
-      await tester.pumpAndSettle(const Duration(seconds: 5));
-
-      // Submit second intent - should go through planner directly
-      await tester.enterText(
-        find.byKey(const Key('side-panel-intent-input')),
-        'intent two',
+        'test token error',
       );
       await tester.tap(find.byKey(const Key('side-panel-send')));
       await tester.pumpAndSettle();
 
-      // Both intents should be visible
-      expect(find.text('intent one'), findsOneWidget);
-      expect(find.text('intent two'), findsOneWidget);
+      expect(find.text('智能服务 Token 或配额不可用，请联系开发者'), findsOneWidget);
+      expect(find.text('快速模式'), findsNothing);
+      expect(find.byKey(const Key('agent-switch-fallback')), findsNothing);
+      expect(find.byKey(const Key('side-panel-execute')), findsNothing);
     });
 
-    testWidgets('state transitions: idle -> exploring -> fallback',
+    testWidgets('state transitions: idle -> exploring -> error',
         (tester) async {
       final controller = _AgentFakeController();
       final ws = MockWebSocketService()..simulateConnect();
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onRunSession: (_) => Stream<AgentSessionEvent>.error(
+          Exception('agent offline'),
+        ),
+      );
       await tester.pumpWidget(_buildTestApp(
         controller: controller,
         wsService: ws,
+        agentSessionServiceBuilder: (_) => agentService,
       ));
 
       // Open panel - should be idle
-      await tester.tap(find.byKey(const Key('smart-terminal-fab')));
-      await tester.pumpAndSettle();
+      await _openSidePanel(tester);
 
       // Should show intro text
-      expect(
-          find.text('直接说目标，我会生成命令，确认后再执行。'), findsOneWidget);
+      expect(find.text('直接说目标，我会生成命令，确认后再执行。'), findsOneWidget);
 
-      // Submit intent - transitions to exploring then fallback
+      // Submit intent - transitions to exploring then error
       await tester.enterText(
         find.byKey(const Key('side-panel-intent-input')),
         '进入项目',
       );
-      await tester.tap(find.byKey(const Key('side-panel-send')));
-      await tester.pump();
+      await _pressSidePanelSend(tester);
 
       // Send button should show loading
       expect(find.byKey(const Key('side-panel-send')), findsOneWidget);
 
       await tester.pumpAndSettle(const Duration(seconds: 5));
 
-      // Should eventually show planner result
-      expect(find.byKey(const Key('side-panel-execute')),
-          findsOneWidget);
+      expect(find.text('智能交互启动失败，请联系开发者'), findsOneWidget);
+      expect(find.byKey(const Key('side-panel-execute')), findsNothing);
     });
 
     testWidgets('execute sends command via WebSocket', (tester) async {
       final controller = _AgentFakeController();
       final ws = MockWebSocketService()..simulateConnect();
+      final agentService = _FakeAgentSessionService(
+        events: [
+          AgentSessionCreatedEvent(
+            sessionId: 'session-1',
+            conversationId: 'conv-1',
+            terminalId: 'term-1',
+          ),
+          AgentResultEvent(
+            summary: '进入项目并启动 Claude',
+            steps: [
+              AgentResultStep(
+                id: 'step-1',
+                label: '进入目录',
+                command: 'echo hello',
+              ),
+            ],
+            provider: 'agent',
+            source: 'recommended',
+            needConfirm: true,
+            aliases: {},
+          ),
+        ],
+      );
       await tester.pumpWidget(_buildTestApp(
         controller: controller,
         wsService: ws,
+        agentSessionServiceBuilder: (_) => agentService,
       ));
 
       // Open panel
       await tester.tap(find.byKey(const Key('smart-terminal-fab')));
       await tester.pumpAndSettle();
 
-      // Enter intent and resolve (falls back to planner)
+      // Enter intent and resolve with agent result
       await tester.enterText(
         find.byKey(const Key('side-panel-intent-input')),
         'test intent',
       );
       await tester.tap(find.byKey(const Key('side-panel-send')));
-      await tester.pumpAndSettle(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
 
       // Execute
       await tester.tap(find.byKey(const Key('side-panel-execute')));

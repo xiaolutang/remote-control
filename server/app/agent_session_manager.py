@@ -23,7 +23,8 @@ from enum import Enum
 from typing import Any, Optional
 from uuid import uuid4
 
-from app.terminal_agent import AgentResult
+from app.database import save_agent_usage
+from app.terminal_agent import AgentResult, AgentUserFacingError
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,7 @@ class ResultEvent:
     source: str
     need_confirm: bool
     aliases: dict[str, str]
+    usage: Optional[dict[str, Any]] = None
 
 
 @dataclass
@@ -122,6 +124,10 @@ class AgentSession:
     state: AgentSessionState
     created_at: datetime
     last_active_at: datetime
+    terminal_id: Optional[str] = None
+    conversation_id: Optional[str] = None
+    pending_question_id: Optional[str] = None
+    message_history: Optional[list[Any]] = None
     result: Optional[AgentResult] = None
 
     # SSE 事件队列（用于流式推送）
@@ -227,15 +233,17 @@ class AgentSessionManager:
                 continue
 
             session.state = AgentSessionState.EXPIRED
+            session.pending_question_id = None
             # 如果有等待中的 ask_user Future，取消它
             if session._pending_question_future and not session._pending_question_future.done():
                 session._pending_question_future.set_exception(AgentSessionExpired())
 
             # 推送超时错误事件
-            await session.event_queue.put((
+            await self._emit_session_event(
+                session,
                 "error",
                 _error_event_dict(ErrorCode.SESSION_EXPIRED, "会话已超时（10 分钟无交互）"),
-            ))
+            )
             # 发送结束信号
             await session.event_queue.put(None)
 
@@ -279,6 +287,10 @@ class AgentSessionManager:
         device_id: str,
         user_id: str,
         session_id: Optional[str] = None,
+        terminal_id: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        message_history: Optional[list[Any]] = None,
+        check_rate_limit: bool = True,
     ) -> AgentSession:
         """创建新的 Agent 会话。
 
@@ -294,7 +306,7 @@ class AgentSessionManager:
         Raises:
             AgentSessionRateLimited: 超过频率限制
         """
-        if not self.check_user_rate_limit(user_id):
+        if check_rate_limit and not self.check_user_rate_limit(user_id):
             raise AgentSessionRateLimited(retry_after=USER_SESSION_RATE_WINDOW)
 
         sid = session_id or uuid4().hex
@@ -308,6 +320,9 @@ class AgentSessionManager:
             state=AgentSessionState.EXPLORING,
             created_at=now,
             last_active_at=now,
+            terminal_id=terminal_id,
+            conversation_id=conversation_id,
+            message_history=message_history,
         )
         self._sessions[sid] = session
         logger.info("Session created: session_id=%s user=%s device=%s", sid, user_id, device_id)
@@ -331,6 +346,84 @@ class AgentSessionManager:
         )
         session._agent_task = task
 
+    async def _record_conversation_event(
+        self,
+        session: AgentSession,
+        *,
+        event_type: str,
+        role: str,
+        payload: dict[str, Any],
+        question_id: Optional[str] = None,
+        client_event_id: Optional[str] = None,
+    ) -> Optional[dict[str, Any]]:
+        """Persist terminal-bound conversation events when the session is bound.
+
+        Returns the persisted event dict (with event_index, event_id, etc.)
+        or None if the session is not terminal-bound.
+        """
+        if not session.terminal_id or not session.conversation_id:
+            return None
+        try:
+            from app.database import append_agent_conversation_event
+
+            return await append_agent_conversation_event(
+                session.user_id,
+                session.device_id,
+                session.terminal_id,
+                event_type=event_type,
+                role=role,
+                payload=payload,
+                session_id=session.id,
+                question_id=question_id,
+                client_event_id=client_event_id,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to persist agent conversation event: session_id=%s type=%s",
+                session.id,
+                event_type,
+                exc_info=True,
+            )
+            if event_type != "error":
+                raise
+            return None
+
+    async def _emit_session_event(
+        self,
+        session: AgentSession,
+        event_type: str,
+        event_data: dict[str, Any],
+        *,
+        role: str = "assistant",
+        question_id: Optional[str] = None,
+    ) -> None:
+        event_record = await self._record_conversation_event(
+            session,
+            event_type=event_type,
+            role=role,
+            payload=event_data,
+            question_id=question_id,
+        )
+        await session.event_queue.put((event_type, event_data))
+        # Notify conversation stream subscribers (e.g. mobile SSE)
+        if event_record and session.terminal_id:
+            try:
+                from app.runtime_api import _publish_conversation_stream_event
+
+                await _publish_conversation_stream_event(
+                    session.user_id,
+                    session.device_id,
+                    session.terminal_id,
+                    event_record,
+                )
+            except Exception:
+                logger.debug(
+                    "Failed to publish conversation stream event: session_id=%s type=%s",
+                    session.id,
+                    event_type,
+                    exc_info=True,
+                )
+
     async def _run_agent_loop(
         self,
         session: AgentSession,
@@ -345,14 +438,15 @@ class AgentSessionManager:
             async def _execute_command_callback(session_id, command, cwd=None):
                 """Agent 执行命令回调：推送 trace 事件。"""
                 # 推送执行前的 trace
-                await session.event_queue.put((
+                await self._emit_session_event(
+                    session,
                     "trace",
                     {
                         "tool": "execute_command",
                         "input_summary": command[:200],
                         "output_summary": "",
                     },
-                ))
+                )
                 session.last_active_at = datetime.now(timezone.utc)
                 session.state = AgentSessionState.EXPLORING
 
@@ -364,14 +458,15 @@ class AgentSessionManager:
                 if result and result.stderr:
                     output_preview += f" [stderr: {result.stderr[:100]}]"
 
-                await session.event_queue.put((
+                await self._emit_session_event(
+                    session,
                     "trace",
                     {
                         "tool": "execute_command",
                         "input_summary": command[:200],
                         "output_summary": output_preview or "(无输出)",
                     },
-                ))
+                )
 
                 session.last_active_at = datetime.now(timezone.utc)
                 return result
@@ -384,20 +479,26 @@ class AgentSessionManager:
 
                 session.state = AgentSessionState.ASKING
                 session.last_active_at = datetime.now(timezone.utc)
+                question_id = f"q_{uuid4().hex}"
+                session.pending_question_id = question_id
 
                 # 推送 QuestionEvent
-                await session.event_queue.put((
+                await self._emit_session_event(
+                    session,
                     "question",
                     {
+                        "question_id": question_id,
                         "question": question,
                         "options": options or [],
                         "multi_select": multi_select,
                     },
-                ))
+                    question_id=question_id,
+                )
 
                 # 等待回复（带超时）
                 try:
                     answer = await asyncio.wait_for(future, timeout=SESSION_TIMEOUT_SECONDS)
+                    session.pending_question_id = None
                     session.last_active_at = datetime.now(timezone.utc)
                     session.state = AgentSessionState.EXPLORING
                     return answer
@@ -426,6 +527,7 @@ class AgentSessionManager:
                 execute_command_fn=_execute_command_callback,
                 ask_user_fn=ask_fn,
                 project_aliases=known_aliases,
+                message_history=session.message_history,
             )
 
             # 保存 Agent 发现的别名
@@ -437,12 +539,39 @@ class AgentSessionManager:
                 except Exception as e:
                     logger.warning("Failed to save aliases: %s", e)
 
+            # usage 必须先落库，再向 SSE 推送 result 事件
+            usage_payload = {
+                "input_tokens": outcome.input_tokens,
+                "output_tokens": outcome.output_tokens,
+                "total_tokens": outcome.total_tokens,
+                "requests": outcome.requests,
+                "model_name": outcome.model_name,
+            }
+            saved_usage = await save_agent_usage(
+                session.id,
+                session.user_id,
+                session.device_id,
+                input_tokens=outcome.input_tokens,
+                output_tokens=outcome.output_tokens,
+                total_tokens=outcome.total_tokens,
+                requests=outcome.requests,
+                model_name=outcome.model_name,
+            )
+            if not saved_usage:
+                logger.warning(
+                    "Agent usage persistence skipped: session_id=%s user=%s device=%s",
+                    session.id,
+                    session.user_id,
+                    session.device_id,
+                )
+
             # 推送 ResultEvent
             session.state = AgentSessionState.COMPLETED
             session.result = outcome.result
             session.last_active_at = datetime.now(timezone.utc)
 
-            await session.event_queue.put((
+            await self._emit_session_event(
+                session,
                 "result",
                 {
                     "summary": outcome.result.summary,
@@ -451,49 +580,69 @@ class AgentSessionManager:
                     "source": outcome.result.source,
                     "need_confirm": outcome.result.need_confirm,
                     "aliases": outcome.result.aliases,
-                    "usage": {
-                        "input_tokens": outcome.input_tokens,
-                        "output_tokens": outcome.output_tokens,
-                        "total_tokens": outcome.total_tokens,
-                        "requests": outcome.requests,
-                        "model_name": outcome.model_name,
-                    },
+                    "usage": usage_payload,
                 },
-            ))
+            )
 
         except AgentSessionExpired:
             session.state = AgentSessionState.EXPIRED
-            await session.event_queue.put((
+            session.pending_question_id = None
+            await self._emit_session_event(
+                session,
                 "error",
                 _error_event_dict(ErrorCode.SESSION_EXPIRED, "会话已超时"),
-            ))
+            )
         except AgentSessionCancelled:
             session.state = AgentSessionState.CANCELLED
-            await session.event_queue.put((
+            session.pending_question_id = None
+            await self._emit_session_event(
+                session,
                 "error",
                 _error_event_dict(ErrorCode.SESSION_CANCELLED, "会话已取消"),
-            ))
+            )
         except asyncio.CancelledError:
             session.state = AgentSessionState.CANCELLED
-            await session.event_queue.put((
+            session.pending_question_id = None
+            await self._emit_session_event(
+                session,
                 "error",
                 _error_event_dict(ErrorCode.SESSION_CANCELLED, "会话已取消"),
-            ))
+            )
+        except AgentUserFacingError as e:
+            logger.warning(
+                "Agent user-facing error: session_id=%s error=%s",
+                session.id, e,
+            )
+            session.state = AgentSessionState.ERROR
+            session.pending_question_id = None
+            await self._emit_session_event(
+                session,
+                "error",
+                _error_event_dict(ErrorCode.AGENT_ERROR, str(e)),
+            )
         except Exception as e:
             logger.error(
                 "Agent loop error: session_id=%s error=%s",
                 session.id, e, exc_info=True,
             )
             session.state = AgentSessionState.ERROR
-            await session.event_queue.put((
+            session.pending_question_id = None
+            await self._emit_session_event(
+                session,
                 "error",
                 _error_event_dict(ErrorCode.AGENT_ERROR, f"Agent 运行出错: {type(e).__name__}: {e}"),
-            ))
+            )
         finally:
             # 发送结束信号
             await session.event_queue.put(None)
 
-    async def respond(self, session_id: str, answer: str) -> bool:
+    async def respond(
+        self,
+        session_id: str,
+        answer: str,
+        *,
+        question_id: Optional[str] = None,
+    ) -> bool:
         """用户回复 ask_user 的问题。唤醒阻塞的 Future。
 
         Args:
@@ -508,6 +657,8 @@ class AgentSessionManager:
             return False
         if session.state != AgentSessionState.ASKING:
             return False
+        if question_id is not None and session.pending_question_id != question_id:
+            return False
         if session._pending_question_future is None:
             return False
         if session._pending_question_future.done():
@@ -515,6 +666,7 @@ class AgentSessionManager:
 
         session._pending_question_future.set_result(answer)
         session._pending_question_future = None
+        session.pending_question_id = None
         session.last_active_at = datetime.now(timezone.utc)
         return True
 
@@ -535,6 +687,7 @@ class AgentSessionManager:
             return False
 
         session.state = AgentSessionState.CANCELLED
+        session.pending_question_id = None
         session.last_active_at = datetime.now(timezone.utc)
 
         # 取消等待中的 ask_user Future
@@ -546,10 +699,11 @@ class AgentSessionManager:
             session._agent_task.cancel()
 
         # 推送取消事件（如果队列还在消费中）
-        await session.event_queue.put((
+        await self._emit_session_event(
+            session,
             "error",
             _error_event_dict(ErrorCode.SESSION_CANCELLED, "会话已被用户取消"),
-        ))
+        )
         await session.event_queue.put(None)
 
         logger.info("Session cancelled: session_id=%s", session_id)
@@ -558,6 +712,26 @@ class AgentSessionManager:
     async def get_session(self, session_id: str) -> Optional[AgentSession]:
         """获取会话。"""
         return self._sessions.get(session_id)
+
+    def get_active_terminal_session(
+        self,
+        *,
+        user_id: str,
+        device_id: str,
+        terminal_id: str,
+        conversation_id: str,
+    ) -> Optional[AgentSession]:
+        """Return the active in-memory Agent session for a terminal conversation."""
+        for session in self._sessions.values():
+            if (
+                session.user_id == user_id
+                and session.device_id == device_id
+                and session.terminal_id == terminal_id
+                and session.conversation_id == conversation_id
+                and session.state in (AgentSessionState.EXPLORING, AgentSessionState.ASKING)
+            ):
+                return session
+        return None
 
     async def remove_session(self, session_id: str) -> None:
         """移除已结束的会话。"""

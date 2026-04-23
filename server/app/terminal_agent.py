@@ -30,6 +30,33 @@ from app.assistant_planner import (
 logger = logging.getLogger(__name__)
 
 
+class AgentUserFacingError(RuntimeError):
+    """可直接展示给最终用户的 Agent 运行错误。"""
+
+
+def _user_facing_model_error_message(error: Exception) -> str:
+    message = str(error).lower()
+    if any(
+        keyword in message
+        for keyword in (
+            "api key",
+            "authentication",
+            "unauthorized",
+            "invalid api key",
+            "insufficient_quota",
+            "quota",
+            "rate limit",
+            "billing",
+            "401",
+            "402",
+            "403",
+            "429",
+        )
+    ):
+        return "智能服务 Token 或配额不可用，请联系开发者"
+    return "智能服务暂时不可用，请联系开发者"
+
+
 # ---------------------------------------------------------------------------
 # Result Type
 # ---------------------------------------------------------------------------
@@ -243,6 +270,8 @@ async def run_agent(
         ask_user_fn=ask_user_fn,
         project_aliases=project_aliases or {},
     )
+    if not planner_api_key():
+        raise AgentUserFacingError("智能服务 Token 未配置，请联系开发者")
     try:
         run_result = await terminal_agent.run(
             user_prompt=intent,
@@ -266,15 +295,8 @@ async def run_agent(
             pai_exc.UnexpectedModelBehavior,
             pai_exc.ModelHTTPError,
         )):
-            logger.warning("Agent model error, returning graceful result: %s", e)
+            logger.warning("Agent model error: %s", e)
+            raise AgentUserFacingError(_user_facing_model_error_message(e)) from e
         else:
             logger.error("Agent run unexpected error: %s: %s", type(e).__name__, e)
-        return AgentRunOutcome(
-            result=AgentResult(
-                summary="智能助手暂时无法处理，请尝试重新描述你的需求。",
-                steps=[],
-                provider="agent",
-                source="recommended",
-                need_confirm=False,
-            ),
-        )
+            raise
