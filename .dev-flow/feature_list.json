@@ -2054,6 +2054,11 @@
       "phase": "react-terminal-agent",
       "module": "client-ui",
       "name": "侧滑面板 Agent 交互改造",
+      "status": "completed",
+      "started_at": "2026-04-23T20:30:00+0800",
+      "completed_at": "2026-04-23T21:10:00+0800",
+      "actual_minutes": 40,
+      "evidence_file": "evidence/F096.md",
       "description": "改造现有侧滑面板支持 Agent SSE 交互：\n\n1. exploring 状态：可折叠进度展示（命令 + 输出摘要）\n2. asking 状态：问题 + 选项快捷按钮 + 自由输入框混合模式\n   - 选项按钮点击直接发送\n   - 输入框始终可用，用户可自由输入\n   - multi_select 模式显示复选框 + 确认按钮\n3. result 状态：命令预览卡片 + 执行按钮\n4. error 状态：错误提示 + 重试/降级操作\n5. 降级：Agent 不可用时自动切换到无状态 planner + 底部提示\"已切换到快速模式\"\n6. 切换终端时面板自动收起",
       "verification": "F2",
       "depends_on": [

@@ -93,14 +93,14 @@ class TerminalLaunchPlan {
   factory TerminalLaunchPlan.fromJson(Map<String, dynamic> json) {
     final tool = TerminalLaunchToolCodec.fromJson(json['tool'] as String?) ??
         TerminalLaunchTool.shell;
-    final cwd = _normalizedString(json['cwd']) ?? '~';
+    final cwd = normalizedString(json['cwd']) ?? '~';
     final defaults = TerminalLaunchPlanDefaults.forTool(tool);
     return TerminalLaunchPlan(
       tool: tool,
-      title: _normalizedString(json['title']) ??
+      title: normalizedString(json['title']) ??
           TerminalLaunchPlanDefaults.titleFor(tool, cwd),
       cwd: cwd,
-      command: _normalizedString(json['command']) ?? defaults.command,
+      command: normalizedString(json['command']) ?? defaults.command,
       entryStrategy: TerminalEntryStrategyCodec.fromJson(
               json['entry_strategy'] as String?) ??
           defaults.entryStrategy,
