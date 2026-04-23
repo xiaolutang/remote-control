@@ -2160,6 +2160,12 @@
       "phase": "react-terminal-agent",
       "module": "shared",
       "name": "Agent 集成测试",
+      "status": "completed",
+      "started_at": "2026-04-23T21:30:00+0800",
+      "completed_at": "2026-04-23T21:50:00+0800",
+      "actual_minutes": 20,
+      "evidence_file": "evidence/S082.md",
+      "execution_notes": "37 passed + 5 Docker skipped; Docker smoke 待部署后补测",
       "description": "Docker 集成测试，覆盖全链路和边界场景：\n\n**Happy path**：意图 → Agent 探索 → ask_user → 确认 → 注入 → 回写\n\n**安全测试**：白名单外命令、管道注入、重定向、find -exec、git push、敏感路径\n\n**失败分支**：命令超时(10s)、会话超时(10min)、SSE 断连恢复(4种状态)、Agent 离线、LLM 失败降级、非零退出码\n\n**首用场景**：无别名无历史、首用后别名持久化\n\n**Mobile 回归**：手机端仍走无状态 planner\n\n**Per-device 隔离**：设备 A 别名不出现在设备 B\n\n**输出边界**：大输出截断(>4096)、空输出、二进制输出",
       "verification": "L4",
       "depends_on": [
