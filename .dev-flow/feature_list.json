@@ -2100,6 +2100,12 @@
       "phase": "react-terminal-agent",
       "module": "client-integration",
       "name": "命令注入闭环：Agent Result 注入已创建终端",
+      "status": "completed",
+      "started_at": "2026-04-23T21:10:00+0800",
+      "completed_at": "2026-04-23T21:10:00+0800",
+      "actual_minutes": 0,
+      "evidence_file": "evidence/F097.md",
+      "execution_notes": "验收条件已在 F096 实现中完全覆盖",
       "description": "实现 Agent Result 到终端注入的闭环：\n\n1. AgentResult.steps → CommandSequenceDraft(steps) 映射\n2. 复用现有 _compileSteps() 编译为 postCreateInput\n3. sessionManager.get(deviceId, terminalId).send(postCreateInput) 注入\n4. 面板自动收起",
       "verification": "F2",
       "depends_on": [
