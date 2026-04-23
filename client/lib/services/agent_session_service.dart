@@ -284,6 +284,8 @@ class AgentSessionService {
     try {
       final json = jsonDecode(data) as Map<String, dynamic>;
       switch (eventType) {
+        case 'session_created':
+          return AgentSessionCreatedEvent.fromJson(json);
         case 'trace':
           return AgentTraceEvent.fromJson(json);
         case 'question':

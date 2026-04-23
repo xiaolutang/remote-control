@@ -69,6 +69,11 @@ class _SmartTerminalSidePanelContentState
   final Set<String> _multiSelectChosen = {};
   bool _isFallbackMode = false;
   String? _agentIntent; // 当前 Agent 正在处理的意图
+  final List<_AgentHistoryEntry> _agentHistory = []; // Agent 对话历史
+
+  // --- 内联编辑状态 ---
+  int? _editingHistoryIndex; // 正在编辑的历史条目索引 (null=无, -1=当前活跃意图)
+  late final TextEditingController _editingController;
 
   @override
   void initState() {
@@ -76,6 +81,7 @@ class _SmartTerminalSidePanelContentState
     _intentController = TextEditingController();
     _intentFocusNode = FocusNode();
     _scrollController = ScrollController();
+    _editingController = TextEditingController();
   }
 
   @override
@@ -84,6 +90,7 @@ class _SmartTerminalSidePanelContentState
     _intentController.dispose();
     _intentFocusNode.dispose();
     _scrollController.dispose();
+    _editingController.dispose();
     super.dispose();
   }
 
@@ -111,12 +118,22 @@ class _SmartTerminalSidePanelContentState
   // Intent 提交入口：优先尝试 Agent SSE，降级走 planner
   // ============================================================
 
-  Future<void> _handleResolveIntent() async {
-    final intent = _intentController.text.trim();
+  Future<void> _handleResolveIntent({String? overrideIntent}) async {
+    final intent = (overrideIntent ?? _intentController.text).trim();
     if (intent.isEmpty || _resolvingIntent) return;
 
     _intentController.clear();
     _fallbackReason = null;
+
+    // 如果当前有未归档的 Agent 结果/错误，先归档
+    if (_agentIntent != null &&
+        (_agentState == AgentPanelState.result ||
+            _agentState == AgentPanelState.error)) {
+      _archiveAgentTurn(
+        result: _agentResult,
+        error: _agentError,
+      );
+    }
 
     // 已在降级模式，直接走 planner
     if (_isFallbackMode) {
@@ -191,7 +208,17 @@ class _SmartTerminalSidePanelContentState
           );
         },
         onDone: () {
-          // SSE 流正常关闭
+          // SSE 流关闭时清理状态，防止卡在 exploring
+          if (!mounted) return;
+          if (_agentState == AgentPanelState.exploring) {
+            setState(() {
+              _agentState = AgentPanelState.error;
+              _agentError = const AgentErrorEvent(
+                code: 'STREAM_CLOSED',
+                message: 'Agent 会话意外关闭',
+              );
+            });
+          }
         },
       );
     } catch (e) {
@@ -209,6 +236,11 @@ class _SmartTerminalSidePanelContentState
     required RuntimeSelectionController controller,
   }) {
     switch (event) {
+      case AgentSessionCreatedEvent created:
+        setState(() {
+          _activeSessionId = created.sessionId;
+        });
+
       case AgentTraceEvent trace:
         setState(() {
           _traces.add(trace);
@@ -234,6 +266,8 @@ class _SmartTerminalSidePanelContentState
           _agentState = AgentPanelState.result;
           // 从 AgentResult 构建 CommandSequenceDraft
           _draft = _buildDraftFromAgentResult(result);
+          // 归档当前对话轮次到历史
+          _archiveAgentTurn(result: result);
         });
         _scheduleScrollToLatest();
 
@@ -241,6 +275,8 @@ class _SmartTerminalSidePanelContentState
         setState(() {
           _agentError = error;
           _agentState = AgentPanelState.error;
+          // 归档当前对话轮次到历史（错误也归档）
+          _archiveAgentTurn(error: error);
         });
         _scheduleScrollToLatest();
 
@@ -256,6 +292,22 @@ class _SmartTerminalSidePanelContentState
           _resolveViaPlanner(intent);
         }
     }
+  }
+
+  /// 归档当前 Agent 对话轮次到历史列表
+  void _archiveAgentTurn({
+    AgentResultEvent? result,
+    AgentErrorEvent? error,
+  }) {
+    final intent = _agentIntent;
+    if (intent == null || intent.isEmpty) return;
+    _agentHistory.add(_AgentHistoryEntry(
+      intent: intent,
+      traces: List.of(_traces),
+      result: result,
+      error: error,
+    ));
+    _agentIntent = null;
   }
 
   /// Agent 降级后用 planner 解析意图
@@ -619,8 +671,8 @@ class _SmartTerminalSidePanelContentState
   }
 
   Widget _buildBody(ColorScheme colorScheme, bool connected) {
-    // Agent 活跃状态：按 agentState 分发
-    if (_isAgentActive()) {
+    // Agent 模式（活跃或已归档历史）：按 agentState 分发
+    if (_isAgentActive() || _agentHistory.isNotEmpty) {
       return _buildAgentBody(colorScheme, connected);
     }
 
@@ -639,9 +691,37 @@ class _SmartTerminalSidePanelContentState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // 用户意图气泡
+        // 历史对话
+        for (var i = 0; i < _agentHistory.length; i++) ...[
+          () {
+            final entry = _agentHistory[i];
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildUserBubble(
+                  entry.intent,
+                  historyIndex: i,
+                  canEdit: true,
+                ),
+                const SizedBox(height: 8),
+                if (entry.result != null)
+                  _buildHistoryResultBubble(entry.result!, colorScheme)
+                else if (entry.error != null)
+                  _buildHistoryErrorBubble(entry.error!, colorScheme),
+                const SizedBox(height: 12),
+              ],
+            );
+          }(),
+        ],
+
+        // 当前活跃意图气泡
         if (_agentIntent != null) ...[
-          _buildUserBubble(_agentIntent!),
+          _buildUserBubble(
+            _agentIntent!,
+            canEdit: _agentState == AgentPanelState.result ||
+                _agentState == AgentPanelState.error ||
+                _agentState == AgentPanelState.idle,
+          ),
           const SizedBox(height: 8),
         ],
 
@@ -656,7 +736,68 @@ class _SmartTerminalSidePanelContentState
     );
   }
 
-  /// Exploring：可折叠进度列表 + 加载指示
+  /// 历史结果气泡（不可执行，仅展示摘要）
+  Widget _buildHistoryResultBubble(
+      AgentResultEvent result, ColorScheme colorScheme) {
+    return _buildAssistantBubble(
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.check_circle_outline,
+                  size: 14, color: colorScheme.primary),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  result.summary,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          if (result.steps.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              '${result.steps.length} 个步骤',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// 历史错误气泡
+  Widget _buildHistoryErrorBubble(
+      AgentErrorEvent error, ColorScheme colorScheme) {
+    return _buildAssistantBubble(
+      Row(
+        children: [
+          Icon(Icons.error_outline, size: 14, color: colorScheme.error),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              error.message,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: colorScheme.error,
+                  ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Exploring：可折叠进度列表 + 加载指示 + 取消按钮
   Widget _buildExploringView(ColorScheme colorScheme) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -665,8 +806,79 @@ class _SmartTerminalSidePanelContentState
           _buildAgentTraceExpansionTile(colorScheme),
         if (_traces.isNotEmpty) const SizedBox(height: 8),
         _buildLoadingBubble('Agent 正在分析...', colorScheme),
+        const SizedBox(height: 10),
+        Center(
+          child: OutlinedButton(
+            key: const Key('agent-cancel'),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              side: BorderSide(
+                color: colorScheme.outlineVariant.withValues(alpha: 0.4),
+              ),
+            ),
+            onPressed: _cancelAgentSession,
+            child: Text(
+              '取消',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+            ),
+          ),
+        ),
       ],
     );
+  }
+
+  /// 取消当前 Agent 会话
+  Future<void> _cancelAgentSession() async {
+    await _doCancelAgentNetwork();
+
+    if (!mounted) return;
+    setState(() {
+      // 归档取消的轮次到历史
+      if (_agentIntent != null && _agentIntent!.isNotEmpty) {
+        _agentHistory.add(_AgentHistoryEntry(
+          intent: _agentIntent!,
+          traces: List.of(_traces),
+          error: const AgentErrorEvent(
+            code: 'CANCELLED',
+            message: '已取消',
+          ),
+        ));
+      }
+      _agentState = AgentPanelState.idle;
+      _agentIntent = null;
+      _activeSessionId = null;
+    });
+  }
+
+  /// 网络层取消 Agent 会话（取消订阅 + 发送 cancel 请求）
+  Future<void> _doCancelAgentNetwork() async {
+    _eventSubscription?.cancel();
+    _eventSubscription = null;
+    final sessionId = _activeSessionId;
+    if (sessionId == null) return;
+    RuntimeSelectionController? controller;
+    try {
+      controller = context.read<RuntimeSelectionController>();
+    } on ProviderNotFoundException {
+      return;
+    }
+    final deviceId = controller.selectedDeviceId;
+    if (deviceId == null) return;
+    try {
+      final service = AgentSessionService(serverUrl: controller.serverUrl);
+      await service.cancel(
+        deviceId: deviceId,
+        sessionId: sessionId,
+        token: controller.token,
+      );
+    } catch (_) {
+      // 取消失败不阻塞 UI
+    }
   }
 
   /// 可折叠 Agent Trace 列表
@@ -970,40 +1182,42 @@ class _SmartTerminalSidePanelContentState
               ),
             ),
           ],
-          if (!connected) ...[
+          if (!connected && result.steps.isNotEmpty) ...[
             const SizedBox(height: 6),
             Text(
               '终端未连接，请先确认连接状态。',
               style: TextStyle(color: colorScheme.error, fontSize: 12),
             ),
           ],
-          const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              key: const Key('side-panel-execute'),
-              style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(40),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+          if (result.steps.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                key: const Key('side-panel-execute'),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(40),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  backgroundColor: const Color(0xFF1F5EFF),
                 ),
-                backgroundColor: const Color(0xFF1F5EFF),
+                onPressed: connected && !_executing
+                    ? _executeAgentResult
+                    : null,
+                child: _executing
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Text('执行'),
               ),
-              onPressed: connected && !_executing
-                  ? _executeAgentResult
-                  : null,
-              child: _executing
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Text('执行'),
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -1225,13 +1439,72 @@ class _SmartTerminalSidePanelContentState
     );
   }
 
-  Widget _buildUserBubble(String text) {
+  Widget _buildUserBubble(
+    String text, {
+    int? historyIndex, // null=当前活跃意图, >=0=历史条目索引
+    bool canEdit = false,
+  }) {
+    // 判断是否处于内联编辑模式
+    final isEditing = canEdit &&
+        ((historyIndex == null && _editingHistoryIndex == -1) ||
+            (historyIndex != null && _editingHistoryIndex == historyIndex));
+
+    if (isEditing) {
+      return _buildInlineEditBubble(text, historyIndex: historyIndex);
+    }
+
+    return Align(
+      alignment: Alignment.centerRight,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 280),
+        child: GestureDetector(
+          onTap: canEdit ? () => _startInlineEdit(historyIndex) : null,
+          child: Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFDCE8FF),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(18),
+                topRight: Radius.circular(18),
+                bottomLeft: Radius.circular(18),
+                bottomRight: Radius.circular(4),
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Text(text,
+                      style: Theme.of(context).textTheme.bodyMedium),
+                ),
+                if (canEdit) ...[
+                  const SizedBox(width: 6),
+                  Icon(Icons.edit_outlined,
+                      size: 14,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.4)),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 内联编辑气泡：直接在消息位置显示输入框 + 取消/发送按钮
+  Widget _buildInlineEditBubble(String originalText, {int? historyIndex}) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Align(
       alignment: Alignment.centerRight,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 280),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
             color: const Color(0xFFDCE8FF),
             borderRadius: const BorderRadius.only(
@@ -1240,12 +1513,129 @@ class _SmartTerminalSidePanelContentState
               bottomLeft: Radius.circular(18),
               bottomRight: Radius.circular(4),
             ),
+            border: Border.all(color: colorScheme.primary, width: 1.5),
           ),
-          child: Text(text, style: Theme.of(context).textTheme.bodyMedium),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: _editingController,
+                autofocus: true,
+                maxLines: null,
+                style: Theme.of(context).textTheme.bodyMedium,
+                decoration: InputDecoration(
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 6),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: Colors.grey.shade300),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: Colors.grey.shade300),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide:
+                        BorderSide(color: colorScheme.primary, width: 1.5),
+                  ),
+                  filled: true,
+                  fillColor: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    height: 30,
+                    child: TextButton(
+                      onPressed: _cancelInlineEdit,
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        minimumSize: Size.zero,
+                      ),
+                      child: Text('取消',
+                          style: TextStyle(
+                              fontSize: 13,
+                              color: colorScheme.onSurface
+                                  .withValues(alpha: 0.6))),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  SizedBox(
+                    height: 30,
+                    child: FilledButton(
+                      onPressed: () =>
+                          _submitInlineEdit(historyIndex: historyIndex),
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        minimumSize: Size.zero,
+                      ),
+                      child: const Text('发送', style: TextStyle(fontSize: 13)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
+
+  void _startInlineEdit(int? historyIndex) {
+    // 获取对应的原始文本
+    final originalText = historyIndex != null
+        ? _agentHistory[historyIndex].intent
+        : _agentIntent ?? '';
+    setState(() {
+      _editingHistoryIndex = historyIndex ?? -1;
+      _editingController.text = originalText;
+    });
+  }
+
+  void _cancelInlineEdit() {
+    setState(() {
+      _editingHistoryIndex = null;
+      _editingController.clear();
+    });
+  }
+
+  Future<void> _submitInlineEdit({int? historyIndex}) async {
+    final newText = _editingController.text.trim();
+    if (newText.isEmpty) return;
+
+    // 如果有正在进行的 Agent 会话，先取消
+    await _cancelAgentSessionSilent();
+
+    setState(() {
+      _editingHistoryIndex = null;
+      _editingController.clear();
+
+      // 截断编辑点之后的所有历史（包括当前活跃意图）
+      if (historyIndex != null) {
+        _agentHistory.removeRange(historyIndex, _agentHistory.length);
+      }
+
+      // 清除当前活跃会话状态
+      _agentState = AgentPanelState.idle;
+      _agentIntent = null;
+      _agentResult = null;
+      _agentError = null;
+      _activeSessionId = null;
+      _traces.clear();
+      _currentQuestion = null;
+    });
+
+    // 用新意图直接触发重新解析，不经过 UI 控件
+    await _handleResolveIntent(overrideIntent: newText);
+  }
+
+  /// 静默取消当前 Agent 会话（不归档、不设状态）
+  Future<void> _cancelAgentSessionSilent() => _doCancelAgentNetwork();
 
   Widget _buildAssistantBubble(Widget child) {
     return Align(
@@ -1363,38 +1753,40 @@ class _SmartTerminalSidePanelContentState
                   color: colorScheme.onSurfaceVariant,
                 ),
           ),
-          if (!connected) ...[
+          if (!connected && _draft.steps.isNotEmpty) ...[
             const SizedBox(height: 6),
             Text(
               '终端未连接，请先确认连接状态。',
               style: TextStyle(color: colorScheme.error, fontSize: 12),
             ),
           ],
-          const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              key: const Key('side-panel-execute'),
-              style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(40),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+          if (_draft.steps.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                key: const Key('side-panel-execute'),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(40),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  backgroundColor: const Color(0xFF1F5EFF),
                 ),
-                backgroundColor: const Color(0xFF1F5EFF),
+                onPressed: connected && !_executing ? _handleExecute : null,
+                child: _executing
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Text('执行'),
               ),
-              onPressed: connected && !_executing ? _handleExecute : null,
-              child: _executing
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Text('执行'),
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -1442,6 +1834,21 @@ class _SidePanelConversationTurn {
   final String userText;
   final List<_SidePanelStreamItem> items;
   final String? fallbackReason;
+}
+
+/// Agent 对话历史条目
+class _AgentHistoryEntry {
+  const _AgentHistoryEntry({
+    required this.intent,
+    required this.traces,
+    this.result,
+    this.error,
+  });
+
+  final String intent;
+  final List<AgentTraceEvent> traces;
+  final AgentResultEvent? result;
+  final AgentErrorEvent? error;
 }
 
 class _SidePanelStagePill extends StatelessWidget {

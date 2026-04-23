@@ -5,6 +5,19 @@ sealed class AgentSessionEvent {
   const AgentSessionEvent();
 }
 
+/// Agent 会话创建事件
+class AgentSessionCreatedEvent extends AgentSessionEvent {
+  const AgentSessionCreatedEvent({required this.sessionId});
+
+  final String sessionId;
+
+  factory AgentSessionCreatedEvent.fromJson(Map<String, dynamic> json) {
+    return AgentSessionCreatedEvent(
+      sessionId: (json['session_id'] as String? ?? '').trim(),
+    );
+  }
+}
+
 /// Agent 工具调用追踪事件
 class AgentTraceEvent extends AgentSessionEvent {
   const AgentTraceEvent({
