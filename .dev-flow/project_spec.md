@@ -58,6 +58,11 @@
   - 当前设备事实约束：命令序列只能基于当前设备上下文、近期记忆与 shell 可发现命令生成
   - 执行结果回写：planner memory 与评估日志只基于真实执行结果更新
   - 智能体评估：benchmark 数据集、回放评测、trace 指标、真实设备验收
+  - ReAct 智能体升级：桌面端侧滑面板使用 ReAct Agent（可探索设备事实、交互追问），三层降级 Agent → planner → local_rules
+  - Agent 探索命令：只读白名单 + shell 元字符拦截 + 敏感路径过滤三重防护，Server+Agent 双重验证
+  - Agent 会话管理：SSE 流推送（Trace/Question/Result/Error）、10min 超时、断连恢复
+  - 项目别名持久化：SQLite 存储 Agent 发现的项目别名，跨终端跨会话复用
+  - 手机端保持无状态 planner 不变，Agent 仅桌面端侧滑面板
   - 手动主题切换与主题持久化
   - 移动端 `更多` 命令面板与终端浅深色主题适配
   - terminal 关闭原因与短线 grace period 语义

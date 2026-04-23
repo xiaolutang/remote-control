@@ -166,6 +166,7 @@ Agent 注册：Local Agent → ws://server/ws/agent | 数据流：Agent PTY → 
 | Agent 进程退出不留僵尸 | 重连耗尽后完全退出，由 Flutter 负责重启 | Agent 无限重试或进程残留 |
 | Agent 作为恢复主源 | 避免 server history / agent snapshot / client local state 三套恢复真相并存 | Server output history 做 attach 主恢复源 |
 | 设备事实先于 LLM | 每个用户、每台设备、每个项目目录都不同，模型只能在设备事实上做选择 | 让模型直接猜本地目录结构 |
+| 智能规划三层降级：ReAct Agent → 无状态 planner → local_rules | 桌面端优先使用 ReAct Agent（可探索设备事实、交互追问），降级到无状态 planner（快速但无探索），最终兜底 local_rules（纯本地规则） | 只用 ReAct Agent（手机端不适合长连接 SSE）或只保留无状态 planner（丧失设备探索能力） |
 
 ## 模块职责
 
