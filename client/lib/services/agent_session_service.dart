@@ -351,6 +351,45 @@ class AgentSessionService {
     controller.close();
   }
 
+  /// 回写执行结果
+  ///
+  /// POST /runtime/devices/{deviceId}/assistant/agent/{sessionId}/report
+  /// 执行完成后（无论成功或失败）回写执行结果，用于评估 trace。
+  /// 成功时服务端触发别名持久化。
+  Future<void> reportExecution({
+    required String deviceId,
+    required String sessionId,
+    required bool success,
+    String? executedCommand,
+    String? failureStep,
+    String? token,
+  }) async {
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+    };
+    if (token != null) {
+      headers['Authorization'] = 'Bearer $token';
+    }
+
+    final response = await _client.post(
+      Uri.parse(
+          '$_httpUrl/api/runtime/devices/$deviceId/assistant/agent/$sessionId/report'),
+      headers: headers,
+      body: jsonEncode({
+        'success': success,
+        if (executedCommand != null) 'executed_command': executedCommand,
+        if (failureStep != null) 'failure_step': failureStep,
+      }),
+    );
+
+    if (response.statusCode != 200) {
+      throw AgentSessionException(
+        message: '回写执行结果失败 (${response.statusCode})',
+        statusCode: response.statusCode,
+      );
+    }
+  }
+
   /// 释放资源
   void dispose() {
     _client.close();

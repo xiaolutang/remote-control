@@ -176,6 +176,24 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_project_aliases_user_device
                 ON project_aliases(user_id, device_id)
             """)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS agent_execution_reports (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    device_id TEXT NOT NULL,
+                    success INTEGER NOT NULL,
+                    executed_command TEXT,
+                    failure_step TEXT,
+                    aliases_json TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL,
+                    UNIQUE(session_id)
+                )
+            """)
+            await db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_agent_execution_reports_user_device
+                ON agent_execution_reports(user_id, device_id, created_at DESC)
+            """)
             await db.commit()
             logger.info(f"Database initialized: {self.db_path}")
 
@@ -641,6 +659,70 @@ class Database:
             message_id,
         )
 
+    async def save_agent_execution_report(
+        self,
+        session_id: str,
+        user_id: str,
+        device_id: str,
+        *,
+        success: bool,
+        executed_command: Optional[str] = None,
+        failure_step: Optional[str] = None,
+        aliases: Optional[Dict[str, str]] = None,
+    ) -> bool:
+        """保存 Agent 执行结果回写。幂等：已存在则跳过。
+
+        Returns:
+            True 如果新建，False 如果已存在（幂等跳过）
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        aliases_json = json.dumps(aliases or {}, ensure_ascii=False)
+        try:
+            async with self._connect() as db:
+                await db.execute(
+                    """
+                    INSERT INTO agent_execution_reports
+                        (session_id, user_id, device_id, success, executed_command,
+                         failure_step, aliases_json, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(session_id) DO NOTHING
+                    """,
+                    (
+                        session_id,
+                        user_id,
+                        device_id,
+                        1 if success else 0,
+                        executed_command,
+                        failure_step,
+                        aliases_json,
+                        now,
+                    ),
+                )
+                await db.commit()
+                cursor = await db.execute(
+                    "SELECT changes()",
+                )
+                row = await cursor.fetchone()
+                return row[0] > 0
+        except Exception:
+            return False
+
+    async def get_agent_execution_report(
+        self,
+        session_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """查询 Agent 执行结果回写记录。"""
+        async with self._connect() as db:
+            cursor = await db.execute(
+                """
+                SELECT * FROM agent_execution_reports
+                WHERE session_id = ?
+                """,
+                (session_id,),
+            )
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
 
 # ============ 默认实例 + 模块级便捷函数 ============
 
@@ -789,3 +871,28 @@ async def report_assistant_execution(
         output_summary=output_summary,
         command_sequence=command_sequence,
     )
+
+
+async def save_agent_execution_report(
+    session_id: str,
+    user_id: str,
+    device_id: str,
+    *,
+    success: bool,
+    executed_command: Optional[str] = None,
+    failure_step: Optional[str] = None,
+    aliases: Optional[Dict[str, str]] = None,
+) -> bool:
+    return await _get_db().save_agent_execution_report(
+        session_id,
+        user_id,
+        device_id,
+        success=success,
+        executed_command=executed_command,
+        failure_step=failure_step,
+        aliases=aliases,
+    )
+
+
+async def get_agent_execution_report(session_id: str) -> Optional[Dict[str, Any]]:
+    return await _get_db().get_agent_execution_report(session_id)
