@@ -182,8 +182,21 @@ services:
     networks:
       - opik-net
       - infra-network
+      - gateway
     tmpfs:
       - /tmp
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.opik-api.rule=Host(`opik.localhost`) && (PathPrefix(`/api/`) || PathPrefix(`/v1/`))"
+      - "traefik.http.routers.opik-api.entrypoints=web"
+      - "traefik.http.routers.opik-api.service=opik-backend"
+      - "traefik.http.routers.opik-api.priority=100"
+      - "traefik.http.routers.opik-api-secure.rule=Host(`opik.localhost`) && (PathPrefix(`/api/`) || PathPrefix(`/v1/`))"
+      - "traefik.http.routers.opik-api-secure.entrypoints=websecure"
+      - "traefik.http.routers.opik-api-secure.tls=true"
+      - "traefik.http.routers.opik-api-secure.service=opik-backend"
+      - "traefik.http.routers.opik-api-secure.priority=100"
+      - "traefik.http.services.opik-backend.loadbalancer.server.port=8080"
 
   python-backend:
     image: ghcr.io/comet-ml/opik/opik-python-backend:latest
@@ -229,10 +242,12 @@ services:
       - "traefik.http.routers.opik.rule=Host(`opik.localhost`)"
       - "traefik.http.routers.opik.entrypoints=web"
       - "traefik.http.routers.opik.service=opik-frontend"
+      - "traefik.http.routers.opik.priority=1"
       - "traefik.http.routers.opik-secure.rule=Host(`opik.localhost`)"
       - "traefik.http.routers.opik-secure.entrypoints=websecure"
       - "traefik.http.routers.opik-secure.tls=true"
       - "traefik.http.routers.opik-secure.service=opik-frontend"
+      - "traefik.http.routers.opik-secure.priority=1"
       - "traefik.http.services.opik-frontend.loadbalancer.server.port=80"
 
 networks:
