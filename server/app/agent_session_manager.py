@@ -420,7 +420,7 @@ class AgentSessionManager:
                     logger.warning("Failed to load aliases: %s", e)
 
             # 调用 run_agent
-            result = await run_agent(
+            outcome = await run_agent(
                 intent=session.intent,
                 session_id=session.device_id,
                 execute_command_fn=_execute_command_callback,
@@ -429,28 +429,35 @@ class AgentSessionManager:
             )
 
             # 保存 Agent 发现的别名
-            if self._alias_store and result.aliases:
+            if self._alias_store and outcome.result.aliases:
                 try:
                     await self._alias_store.save_batch(
-                        session.user_id, session.device_id, result.aliases,
+                        session.user_id, session.device_id, outcome.result.aliases,
                     )
                 except Exception as e:
                     logger.warning("Failed to save aliases: %s", e)
 
             # 推送 ResultEvent
             session.state = AgentSessionState.COMPLETED
-            session.result = result
+            session.result = outcome.result
             session.last_active_at = datetime.now(timezone.utc)
 
             await session.event_queue.put((
                 "result",
                 {
-                    "summary": result.summary,
-                    "steps": [step.model_dump() for step in result.steps],
-                    "provider": result.provider,
-                    "source": result.source,
-                    "need_confirm": result.need_confirm,
-                    "aliases": result.aliases,
+                    "summary": outcome.result.summary,
+                    "steps": [step.model_dump() for step in outcome.result.steps],
+                    "provider": outcome.result.provider,
+                    "source": outcome.result.source,
+                    "need_confirm": outcome.result.need_confirm,
+                    "aliases": outcome.result.aliases,
+                    "usage": {
+                        "input_tokens": outcome.input_tokens,
+                        "output_tokens": outcome.output_tokens,
+                        "total_tokens": outcome.total_tokens,
+                        "requests": outcome.requests,
+                        "model_name": outcome.model_name,
+                    },
                 },
             ))
 

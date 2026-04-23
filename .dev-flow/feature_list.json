@@ -2,7 +2,7 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-23T17:00:00Z",
+  "updated_at": "2026-04-23T18:00:00Z",
   "status": "in_progress",
   "active_requirement_cycle": {
     "id": "R041",
@@ -15,15 +15,15 @@
     "name": "remote-control",
     "mode": "A",
     "runtime": "skill_orchestrated",
-    "review_provider": "local",
+    "review_provider": "codex_plugin",
     "audit_provider": "local",
     "risk_provider": "local"
   },
   "summary": {
-    "total": 39,
-    "pending": 13,
+    "total": 41,
+    "pending": 5,
     "in_progress": 0,
-    "completed": 21,
+    "completed": 31,
     "blocked": 0,
     "cancelled": 5
   },
@@ -1844,7 +1844,6 @@
         "S081",
         "B078"
       ],
-      "status": "pending",
       "priority": "P0",
       "acceptance_criteria": [
         "pydantic-ai>=0.2 安装成功，与现有 openai SDK 无冲突",
@@ -1913,7 +1912,6 @@
       "depends_on": [
         "B079"
       ],
-      "status": "pending",
       "priority": "P0",
       "acceptance_criteria": [
         "POST /assistant/agent/run 返回 SSE 流，Agent 循环事件实时推送",
@@ -1976,7 +1974,6 @@
       "depends_on": [
         "S081"
       ],
-      "status": "pending",
       "priority": "P1",
       "acceptance_criteria": [
         "project_aliases 表创建和索引正确",
@@ -2018,7 +2015,6 @@
       "depends_on": [
         "B080"
       ],
-      "status": "pending",
       "priority": "P0",
       "acceptance_criteria": [
         "SSE 事件解析正确（Trace/Question/Result/Error 4 种）",
@@ -2064,7 +2060,6 @@
       "depends_on": [
         "F095"
       ],
-      "status": "pending",
       "priority": "P0",
       "acceptance_criteria": [
         "4 种 UI 状态（exploring/asking/result/error）正确切换",
@@ -2111,7 +2106,6 @@
       "depends_on": [
         "F096"
       ],
-      "status": "pending",
       "priority": "P0",
       "acceptance_criteria": [
         "AgentResult 正确映射为 CommandSequenceDraft",
@@ -2141,7 +2135,6 @@
         "F097",
         "B081"
       ],
-      "status": "pending",
       "priority": "P1",
       "acceptance_criteria": [
         "执行完成后回写 executions/report",
@@ -2171,7 +2164,6 @@
       "depends_on": [
         "F098"
       ],
-      "status": "pending",
       "priority": "P1",
       "acceptance_criteria": [
         "Happy path 全链路通过",
@@ -2219,6 +2211,133 @@
       ],
       "files": [
         "deploy/integration_test.py"
+      ]
+    },
+    {
+      "id": "B083",
+      "phase": "react-terminal-agent",
+      "module": "backend",
+      "name": "Agent token usage 追踪与 SSE 推送",
+      "description": "在 Pydantic AI Agent 运行完成后，将 token usage 统计通过 SSE result 事件推送到客户端。\n\n当前 terminal_agent.py 的 run_agent() 只返回 result.output（AgentResult），丢弃了 Pydantic AI 自动追踪的 RunUsage（input_tokens, output_tokens, requests, tool_calls）。\n\n改动：\n1. 新增 AgentRunOutcome dataclass：包装 AgentResult + usage 字段\n2. 修改 run_agent() 返回 AgentRunOutcome（从 run_result.usage() 提取统计）\n3. 修改 _run_agent_loop() 推送 SSE result 时附带 usage 子对象\n4. 适配测试：test_terminal_agent.py 和 test_agent_session_manager.py\n\n**返回值边界**：run_agent() 内部产出 AgentRunOutcome，但 _run_agent_loop() 解包后 AgentSession.result 仍保存 AgentResult（不变），usage 仅用于 SSE result 事件 payload。下游 alias 保存和执行结果回写仍读取 outcome.result（即 AgentResult），不受影响。",
+      "verification": "L2",
+      "depends_on": [
+        "B079",
+        "B080"
+      ],
+      "status": "pending",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "run_agent() 返回 AgentRunOutcome，包含 input_tokens/output_tokens/total_tokens/requests/model_name",
+        "SSE result 事件 JSON 包含 usage 子对象",
+        "AgentSession.result 仍为 AgentResult（不含 usage），usage 仅存在于 SSE payload",
+        "下游 alias 保存和执行结果回写仍读取 outcome.result（AgentResult），不受影响",
+        "usage 字段向后兼容：旧客户端忽略 usage 不崩溃",
+        "异常降级时 usage 全部为 0",
+        "test_terminal_agent.py 和 test_agent_session_manager.py 测试通过"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "AgentRunOutcome 返回值验证",
+          "scenarios": [
+            "run_agent 正常返回时 usage 字段非零",
+            "run_agent 异常降级时 usage 全为 0",
+            "AgentRunOutcome 包含正确的 model_name",
+            "AgentSession.result 仍为 AgentResult 实例，不含 usage"
+          ]
+        },
+        {
+          "type": "unit",
+          "description": "SSE result 事件 usage 字段",
+          "scenarios": [
+            "result 事件 JSON 包含 usage 对象",
+            "usage.input_tokens 为正整数",
+            "usage.model_name 非空字符串",
+            "下游 alias 保存仍正常工作（读取 outcome.result.aliases）"
+          ]
+        },
+        {
+          "type": "unit",
+          "description": "Resume 回放 usage 完整性",
+          "scenarios": [
+            "带 usage 的 result 事件在断连恢复后仍完整可见",
+            "resume_stream 回放的 result 事件包含 usage 字段"
+          ]
+        }
+      ],
+      "files": [
+        "server/app/terminal_agent.py",
+        "server/app/agent_session_manager.py",
+        "server/tests/test_terminal_agent.py",
+        "server/tests/test_agent_session_manager.py"
+      ]
+    },
+    {
+      "id": "F099",
+      "phase": "react-terminal-agent",
+      "module": "client-ui",
+      "name": "Token 统计展示：可折叠卡片 + 历史气泡",
+      "description": "在 Agent 侧滑面板中展示 token 消耗统计。\n\n改动：\n1. 新增 AgentUsageData 模型类（inputTokens/outputTokens/totalTokens/requests/modelName）\n2. 扩展 AgentResultEvent 增加 usage 字段（nullable，向后兼容）\n3. _buildResultView() 底部追加可折叠 Token 统计卡片\n4. _buildHistoryResultBubble() 追加简要统计行（模型名 · N tokens）\n5. 适配测试",
+      "verification": "F1",
+      "depends_on": [
+        "F095",
+        "B083"
+      ],
+      "status": "pending",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "AgentResultEvent 可解析 usage 字段（nullable）",
+        "result 卡片底部出现可折叠 Token 统计区域",
+        "展开后显示：模型名称、输入 Token、输出 Token、请求次数、总 Token",
+        "历史气泡显示简要统计行（模型名 · N tokens）",
+        "usage 为 null 时不展示统计区域（向后兼容）",
+        "客户端测试通过"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "AgentUsageData 解析",
+          "scenarios": [
+            "fromJson 正常解析 usage 对象",
+            "fromJson 缺失字段时默认为 0",
+            "usage 为 null 时不崩溃"
+          ]
+        },
+        {
+          "type": "unit",
+          "description": "AgentResultEvent usage 字段解析（agent_session_service_test.dart）",
+          "scenarios": [
+            "SSE result 事件带 usage 字段时 AgentResultEvent.usage 非空",
+            "SSE result 事件无 usage 字段时 AgentResultEvent.usage 为 null",
+            "resume 回放的 result 事件 usage 字段完整"
+          ]
+        },
+        {
+          "type": "widget",
+          "description": "Result 卡片 Token 统计 UI",
+          "scenarios": [
+            "result 卡片展示可折叠统计区域",
+            "点击展开/收起正常工作",
+            "usage 为 null 时不展示统计"
+          ]
+        },
+        {
+          "type": "widget",
+          "description": "历史气泡简要统计行",
+          "scenarios": [
+            "usage 非空时历史气泡显示 '模型名 · N tokens'",
+            "usage 为 null 时历史气泡不显示统计行",
+            "历史气泡中模型名和 token 数正确渲染"
+          ]
+        }
+      ],
+      "files": [
+        "client/lib/models/agent_session_event.dart",
+        "client/lib/widgets/smart_terminal_side_panel_content.dart",
+        "client/test/widgets/smart_terminal_side_panel_agent_test.dart",
+        "client/test/services/agent_session_service_test.dart"
       ]
     }
   ],

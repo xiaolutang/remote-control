@@ -113,3 +113,7 @@
 | **命令规划隔离** | **Claude CLI planner provider** | **CONTRACT-044** | **not_applicable** | **pending** | **pending** | **F083: `ClaudeCliCommandPlanner` 负责把自然语言转换为命令序列** |
 | **命令规划隔离** | **planner coordinator 与 fallback** | **CONTRACT-043, CONTRACT-044** | **not_applicable** | **pending** | **pending** | **F084: `claude -p` 不可用、超时或违规时稳定回退 `local_rules`** |
 | **命令规划隔离** | **端到端回归与真实设备 smoke** | **CONTRACT-043, CONTRACT-044** | **not_applicable** | **pending** | **pending** | **F085: 真机/桌面端验证 `pwd -> find -> cd -> claude` 等链路** |
+| **聊天式智能助手** | **Agent SSE 会话管理** | **CONTRACT-045** | **completed** | **pending** | **pending** | **B080: SSE 事件流、trace/question/result/error 事件推送** |
+| **聊天式智能助手** | **Agent SSE 事件模型** | **CONTRACT-045** | **not_applicable** | **completed** | **pending** | **F095: SSE event 解析、四种事件类型、向后兼容** |
+| **聊天式智能助手** | **Agent token usage 追踪** | **CONTRACT-045** | **pending** | **not_applicable** | **pending** | **B083: AgentRunOutcome 返回值、usage 提取、异常降级、SSE result usage 字段** |
+| **聊天式智能助手** | **Token 统计展示** | **CONTRACT-045** | **not_applicable** | **pending** | **pending** | **F099: 可折叠卡片、历史气泡、AgentUsageData 解析、usage null 不展示** |

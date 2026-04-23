@@ -34,7 +34,7 @@ from app.agent_session_manager import (
     _error_event_dict,
     get_agent_session_manager,
 )
-from app.terminal_agent import AgentResult, CommandSequenceStep
+from app.terminal_agent import AgentResult, AgentRunOutcome, CommandSequenceStep
 from app.ws_agent import ExecuteCommandResult
 
 
@@ -663,10 +663,18 @@ class TestAgentRunLoop:
         )
 
         mock_result = _make_agent_result(summary="project entered")
+        mock_outcome = AgentRunOutcome(
+            result=mock_result,
+            input_tokens=100,
+            output_tokens=50,
+            total_tokens=150,
+            requests=2,
+            model_name="test-model",
+        )
 
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="file.txt"))
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, return_value=mock_result):
+        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, return_value=mock_outcome):
             await manager.start_agent(s, execute_fn)
             # 等待 Agent 完成
             await asyncio.sleep(0.1)

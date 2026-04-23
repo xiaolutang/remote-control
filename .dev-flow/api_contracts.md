@@ -2019,3 +2019,72 @@ live -> detached_recoverable -> closed
 | fallback required | `service_llm` 不可用/限流/超时/非法输出时先回退 `claude_cli`，再回退 `local_rules` |
 | server creds first | 服务端 LLM provider 凭证优先保存在服务端；客户端只保存开发态 fallback 所需的本地配置 |
 | server planning allowed | Server 可以做自然语言规划，但不得绕过当前设备事实约束；Agent 仍只负责 terminal 生命周期与执行承载 |
+
+## 聊天式智能终端助手
+
+### Agent SSE 事件流与 Token 统计
+
+| 字段 | 值 |
+|------|----|
+| ID | CONTRACT-045 |
+| Scope | Server Agent SSE → Client |
+| Related Tasks | B080, F095, B083, F099 |
+
+#### SSE Event Types
+
+| Event | Direction | Description |
+|-------|-----------|-------------|
+| `trace` | Server → Client | Agent 工具调用 trace（execute_command 输入/输出摘要） |
+| `question` | Server → Client | Agent 向用户提问（含选项） |
+| `result` | Server → Client | Agent 最终结果（命令序列 + token 统计） |
+| `error` | Server → Client | 错误/超时/取消事件 |
+
+#### Result Event Schema
+
+```json
+{
+  "summary": "进入 remote-control 并启动 Claude Code",
+  "steps": [
+    {"id": "step_1", "label": "确认当前目录", "command": "pwd"},
+    {"id": "step_2", "label": "进入项目目录", "command": "cd ~/project/remote-control"}
+  ],
+  "provider": "agent",
+  "source": "recommended",
+  "need_confirm": true,
+  "aliases": {"~/project/remote-control": "remote-control"},
+  "usage": {
+    "input_tokens": 1520,
+    "output_tokens": 380,
+    "total_tokens": 1900,
+    "requests": 3,
+    "model_name": "deepseek-chat"
+  }
+}
+```
+
+#### Usage Sub-object Fields
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `input_tokens` | int | 输入 token 数（含 system prompt + tools + user input） |
+| `output_tokens` | int | 输出 token 数（含 tool calls + final result） |
+| `total_tokens` | int | 总 token 数 |
+| `requests` | int | LLM API 请求次数 |
+| `model_name` | string | 使用的模型名称 |
+
+#### Backward Compatibility
+
+| Rule | Meaning |
+|------|---------|
+| `usage` nullable | 旧 Server 不推送 `usage`，Client 解析时 `json['usage']` 为 null |
+| graceful absence | `usage` 为 null 时 Client 不展示 token 统计 UI |
+| AgentSession.result unchanged | `AgentSession.result` 保持 `AgentResult` 类型，usage 仅存在于 SSE payload |
+
+#### Rules
+
+| Rule | Meaning |
+|------|---------|
+| SSE only | Token usage 仅通过 SSE result 事件推送，不持久化到 session 对象 |
+| Model from config | `model_name` 取自 `planner_model()` 配置，不从 LLM 响应推断 |
+| Error zeros | Agent 运行异常时 `usage` 所有数值字段为 0，`model_name` 为空字符串 |
+| No sensitive data | usage 不包含 prompt 内容、响应内容或任何用户数据 |

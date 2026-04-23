@@ -26,6 +26,7 @@ from app.ws_agent import ExecuteCommandResult
 from app.terminal_agent import (
     AgentDeps,
     AgentResult,
+    AgentRunOutcome,
     CommandSequenceStep,
     SYSTEM_PROMPT,
     _build_model,
@@ -534,25 +535,37 @@ class TestRunAgent:
     """测试 run_agent 公开接口（mock Agent.run）。"""
 
     @pytest.mark.asyncio
-    async def test_run_agent_returns_agent_result(self):
-        """run_agent 应返回 AgentResult 实例。"""
+    async def test_run_agent_returns_agent_run_outcome(self):
+        """run_agent 应返回 AgentRunOutcome 实例。"""
         mock_result = MagicMock()
         mock_result.output = AgentResult(
             summary="entered project",
             steps=[CommandSequenceStep(id="s1", label="go", command="cd /project")],
         )
+        mock_usage = MagicMock()
+        mock_usage.input_tokens = 100
+        mock_usage.output_tokens = 50
+        mock_usage.total_tokens = 150
+        mock_usage.requests = 2
+        mock_result.usage = MagicMock(return_value=mock_usage)
 
         with patch.object(terminal_agent, 'run', new_callable=AsyncMock, return_value=mock_result):
-            result = await run_agent(
+            outcome = await run_agent(
                 intent="进入 my-project",
                 session_id="session-1",
                 execute_command_fn=AsyncMock(),
                 ask_user_fn=AsyncMock(),
             )
 
-        assert isinstance(result, AgentResult)
-        assert result.summary == "entered project"
-        assert len(result.steps) == 1
+        assert isinstance(outcome, AgentRunOutcome)
+        assert isinstance(outcome.result, AgentResult)
+        assert outcome.result.summary == "entered project"
+        assert len(outcome.result.steps) == 1
+        assert outcome.input_tokens == 100
+        assert outcome.output_tokens == 50
+        assert outcome.total_tokens == 150
+        assert outcome.requests == 2
+        assert outcome.model_name != ""  # planner_model() 应返回非空字符串
 
     @pytest.mark.asyncio
     async def test_run_agent_passes_deps_correctly(self):
@@ -562,6 +575,9 @@ class TestRunAgent:
             summary="ok",
             steps=[CommandSequenceStep(id="s1", label="go", command="pwd")],
         )
+        mock_result.usage = MagicMock(return_value=MagicMock(
+            input_tokens=0, output_tokens=0, total_tokens=0, requests=0,
+        ))
 
         execute_fn = AsyncMock()
         ask_fn = AsyncMock()
@@ -589,6 +605,9 @@ class TestRunAgent:
             summary="ok",
             steps=[],
         )
+        mock_result.usage = MagicMock(return_value=MagicMock(
+            input_tokens=0, output_tokens=0, total_tokens=0, requests=0,
+        ))
 
         history = [{"role": "user", "content": "之前说打开 project-a"}]
 
@@ -610,6 +629,9 @@ class TestRunAgent:
         """project_aliases 默认应为空 dict。"""
         mock_result = MagicMock()
         mock_result.output = AgentResult(summary="ok", steps=[])
+        mock_result.usage = MagicMock(return_value=MagicMock(
+            input_tokens=0, output_tokens=0, total_tokens=0, requests=0,
+        ))
 
         with patch.object(terminal_agent, 'run', new_callable=AsyncMock, return_value=mock_result) as mock_run:
             await run_agent(
@@ -627,6 +649,9 @@ class TestRunAgent:
         """message_history 默认应为 None。"""
         mock_result = MagicMock()
         mock_result.output = AgentResult(summary="ok", steps=[])
+        mock_result.usage = MagicMock(return_value=MagicMock(
+            input_tokens=0, output_tokens=0, total_tokens=0, requests=0,
+        ))
 
         with patch.object(terminal_agent, 'run', new_callable=AsyncMock, return_value=mock_result) as mock_run:
             await run_agent(

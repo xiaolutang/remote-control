@@ -51,6 +51,17 @@ class AgentResult(BaseModel):
     aliases: dict[str, str] = {}  # 本次发现的项目别名
 
 
+@dataclass
+class AgentRunOutcome:
+    """run_agent() 返回值：AgentResult + token usage 统计。"""
+    result: AgentResult
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+    requests: int = 0
+    model_name: str = ""
+
+
 # ---------------------------------------------------------------------------
 # Agent Deps
 # ---------------------------------------------------------------------------
@@ -209,7 +220,7 @@ async def run_agent(
     ask_user_fn: Callable,
     project_aliases: dict[str, str] | None = None,
     message_history: list | None = None,
-) -> AgentResult:
+) -> AgentRunOutcome:
     """运行 Agent 处理用户意图。
 
     Args:
@@ -221,7 +232,7 @@ async def run_agent(
         message_history: 对话历史（用于多轮）
 
     Returns:
-        AgentResult 收口为 CommandSequence
+        AgentRunOutcome 包含 AgentResult + token usage 统计
     """
     deps = AgentDeps(
         session_id=session_id,
@@ -230,12 +241,20 @@ async def run_agent(
         project_aliases=project_aliases or {},
     )
     try:
-        result = await terminal_agent.run(
+        run_result = await terminal_agent.run(
             user_prompt=intent,
             deps=deps,
             message_history=message_history,
         )
-        return result.output
+        usage = run_result.usage()
+        return AgentRunOutcome(
+            result=run_result.output,
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
+            total_tokens=usage.total_tokens,
+            requests=usage.requests,
+            model_name=planner_model(),
+        )
     except Exception as e:
         # SSE 会话上下文中所有异常都需优雅降级，不能让流崩溃
         # 但区分日志级别：模型类异常 warning，编程错误 error
@@ -247,10 +266,12 @@ async def run_agent(
             logger.warning("Agent model error, returning graceful result: %s", e)
         else:
             logger.error("Agent run unexpected error: %s: %s", type(e).__name__, e)
-        return AgentResult(
-            summary="智能助手暂时无法处理，请尝试重新描述你的需求。",
-            steps=[],
-            provider="agent",
-            source="recommended",
-            need_confirm=False,
+        return AgentRunOutcome(
+            result=AgentResult(
+                summary="智能助手暂时无法处理，请尝试重新描述你的需求。",
+                steps=[],
+                provider="agent",
+                source="recommended",
+                need_confirm=False,
+            ),
         )

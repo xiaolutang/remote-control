@@ -246,6 +246,10 @@
 | 聊天流执行闭环 | F090 | integration,manual | 命令卡片确认后创建 terminal；执行状态回流聊天；失败停止；结果回写触发 | ⬜ |
 | 智能体 benchmark 与回放 harness | F091 | unit,integration,manual | benchmark 数据集；trace 回放；fixture/runner；指标汇总 | ⬜ |
 | 真机与线上验收 | F092 | manual,smoke | macOS / Android / 线上服务端全链路；对比不同输入的命令分化 | ⬜ |
+| Agent SSE 会话管理 | B080 | integration | SSE 事件流；trace/question/result/error 四种事件；超时/取消/错误降级 | ⬜ |
+| Agent SSE 事件模型 | F095 | unit | SSE event 解析；trace/question/result/error 四种类型；向后兼容 | ⬜ |
+| Agent token usage 追踪 | B083 | unit | `AgentRunOutcome` 返回值边界；`run_result.usage()` 提取；异常降级 usage 全 0；`AgentSession.result` 仍为 `AgentResult` | ⬜ |
+| Token 统计展示 | F099 | widget,unit | 可折叠卡片；历史气泡简要统计；`usage` null 不展示；`AgentUsageData` 解析 | ⬜ |
 
 #### 聊天式智能终端助手关键测试场景
 
