@@ -160,6 +160,22 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_assistant_memory_scope
                 ON assistant_planner_memory_entries(username, device_id, memory_type, updated_at DESC)
             """)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS project_aliases (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    device_id TEXT NOT NULL,
+                    alias TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    UNIQUE(user_id, device_id, alias)
+                )
+            """)
+            await db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_project_aliases_user_device
+                ON project_aliases(user_id, device_id)
+            """)
             await db.commit()
             logger.info(f"Database initialized: {self.db_path}")
 

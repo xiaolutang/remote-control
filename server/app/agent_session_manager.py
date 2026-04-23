@@ -172,11 +172,13 @@ class AgentSessionRateLimited(Exception):
 class AgentSessionManager:
     """管理 Agent 会话生命周期。"""
 
-    def __init__(self):
+    def __init__(self, alias_store=None):
         self._sessions: dict[str, AgentSession] = {}
         self._cleanup_task: Optional[asyncio.Task] = None
         # 用户级频率追踪: user_id -> [timestamp, ...]
         self._user_rate_tracker: dict[str, list[float]] = defaultdict(list)
+        # 别名持久化存储（可选，由外部注入）
+        self._alias_store = alias_store
 
     async def start_cleanup_loop(self) -> None:
         """启动超时清理后台任务。"""
@@ -407,13 +409,33 @@ class AgentSessionManager:
             # 使用覆盖回调或默认回调
             ask_fn = ask_user_fn_override or _ask_user_callback
 
+            # 加载已知别名（Agent 启动时注入 ProjectContext）
+            known_aliases: dict[str, str] = {}
+            if self._alias_store:
+                try:
+                    known_aliases = await self._alias_store.list_all(
+                        session.user_id, session.device_id,
+                    )
+                except Exception as e:
+                    logger.warning("Failed to load aliases: %s", e)
+
             # 调用 run_agent
             result = await run_agent(
                 intent=session.intent,
                 session_id=session.device_id,
                 execute_command_fn=_execute_command_callback,
                 ask_user_fn=ask_fn,
+                project_aliases=known_aliases,
             )
+
+            # 保存 Agent 发现的别名
+            if self._alias_store and result.aliases:
+                try:
+                    await self._alias_store.save_batch(
+                        session.user_id, session.device_id, result.aliases,
+                    )
+                except Exception as e:
+                    logger.warning("Failed to save aliases: %s", e)
 
             # 推送 ResultEvent
             session.state = AgentSessionState.COMPLETED
@@ -624,9 +646,13 @@ def _error_event_dict(code: str, message: str) -> dict:
 _manager: Optional[AgentSessionManager] = None
 
 
-def get_agent_session_manager() -> AgentSessionManager:
-    """获取全局 AgentSessionManager 实例。"""
+def get_agent_session_manager(alias_store=None) -> AgentSessionManager:
+    """获取全局 AgentSessionManager 实例。
+
+    Args:
+        alias_store: 可选的 ProjectAliasStore 实例，仅在首次创建时生效
+    """
     global _manager
     if _manager is None:
-        _manager = AgentSessionManager()
+        _manager = AgentSessionManager(alias_store=alias_store)
     return _manager

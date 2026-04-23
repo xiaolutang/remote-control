@@ -1966,6 +1966,11 @@
       "phase": "react-terminal-agent",
       "module": "backend",
       "name": "项目别名持久化",
+      "status": "completed",
+      "started_at": "2026-04-23T19:40:00+0800",
+      "completed_at": "2026-04-23T19:55:00+0800",
+      "actual_minutes": 15,
+      "evidence_file": "evidence/B081.md",
       "description": "实现项目别名持久化存储，支持 Agent 探索结果自动学习：\n\n1. project_aliases SQLite 表（user_id + device_id + alias UNIQUE）\n2. ProjectAliasStore：save / lookup / list_all / cleanup_stale\n3. Agent 完成后自动保存 discovered aliases\n4. Per-device 隔离：设备 A 的别名不出现在设备 B\n5. Agent 启动时从 alias_store 加载已知别名作为上下文",
       "verification": "L2",
       "depends_on": [
