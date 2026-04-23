@@ -8,8 +8,10 @@ import os
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from typing import Any, Optional
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, status, Depends, Request as FastAPIRequest
+import logging
 from pydantic import BaseModel, Field
 from fastapi.responses import StreamingResponse
 
@@ -49,8 +51,18 @@ from app.ws_agent import (
     is_agent_connected,
     request_agent_close_terminal_with_ack,
     request_agent_create_terminal,
+    send_execute_command,
 )
 from app.ws_client import get_view_counts
+from app.agent_session_manager import (
+    AgentSessionManager,
+    AgentSessionRateLimited,
+    AgentSessionState,
+    ErrorCode,
+    get_agent_session_manager,
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -1581,3 +1593,325 @@ async def update_runtime_terminal(
     )
 
     return _runtime_terminal_item(terminal, session_id=session["session_id"])
+
+
+# ---------------------------------------------------------------------------
+# B080: Agent SSE 会话 API
+# ---------------------------------------------------------------------------
+
+class AgentRunRequest(BaseModel):
+    """Agent 运行请求。"""
+    intent: str
+    session_id: Optional[str] = None
+
+
+class AgentRespondRequest(BaseModel):
+    """用户回复 Agent 问题。"""
+    answer: str
+
+
+@router.post("/runtime/devices/{device_id}/assistant/agent/run")
+async def run_agent_session(
+    device_id: str,
+    request: AgentRunRequest,
+    http_request: FastAPIRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """启动 Agent 会话，返回 SSE 流。
+
+    Agent 可用时走 Agent 探索模式，不可用时自动降级到无状态 planner。
+    SSE 事件格式：event: xxx\\ndata: {json}\\n\\n
+    keepalive 间隔 15 秒。
+    """
+    intent = request.intent.strip()
+    if not intent:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="intent 不能为空",
+        )
+
+    # 验证设备存在且属于用户
+    session = await get_session_by_device_id(device_id, user_id)
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"device {device_id} 不存在",
+        )
+
+    manager = get_agent_session_manager()
+
+    # 用户级频率限制
+    if not manager.check_user_rate_limit(user_id):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "reason": "agent_rate_limited",
+                "message": "Agent 会话请求过于频繁，请稍后重试",
+            },
+            headers={"Retry-After": "60"},
+        )
+
+    # 检查 Agent 是否在线
+    device_online = _device_online(session)
+
+    if not device_online:
+        # Agent 不可用，降级到 planner 并以 SSE 返回
+        return StreamingResponse(
+            _agent_fallback_stream(
+                intent=intent,
+                device_id=device_id,
+                user_id=user_id,
+                http_request=http_request,
+            ),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    # Agent 可用，创建会话
+    try:
+        agent_session = await manager.create_session(
+            intent=intent,
+            device_id=device_id,
+            user_id=user_id,
+            session_id=request.session_id,
+        )
+    except AgentSessionRateLimited as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "reason": "agent_rate_limited",
+                "message": "Agent 会话请求过于频繁，请稍后重试",
+            },
+            headers={"Retry-After": str(exc.retry_after)},
+        )
+
+    # 启动 Agent 运行循环
+    async def _execute_cmd_fn(device_id_inner, command, *, cwd=None):
+        return await send_execute_command(
+            session_id=device_id_inner,
+            command=command,
+            cwd=cwd,
+        )
+
+    await manager.start_agent(agent_session, _execute_cmd_fn)
+
+    # 返回 SSE 流
+    return StreamingResponse(
+        _agent_sse_response_wrapper(manager, agent_session),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+            "X-Agent-Session-Id": agent_session.id,
+        },
+    )
+
+
+async def _agent_sse_response_wrapper(
+    manager: AgentSessionManager,
+    agent_session,
+):
+    """包装 SSE 流，在结束时清理会话。"""
+    # 先推送 session_created 事件
+    yield f"event: session_created\ndata: {json.dumps({'session_id': agent_session.id}, ensure_ascii=False)}\n\n"
+
+    try:
+        async for chunk in manager.sse_stream(agent_session):
+            yield chunk
+    finally:
+        # 如果会话还在运行状态（客户端断连），延迟清理
+        if agent_session.state in (AgentSessionState.EXPLORING, AgentSessionState.ASKING):
+            # 给 Agent 一个短暂的时间来完成，不立即取消
+            logger.info(
+                "SSE client disconnected, session still active: session_id=%s state=%s",
+                agent_session.id, agent_session.state,
+            )
+
+
+async def _agent_fallback_stream(
+    *,
+    intent: str,
+    device_id: str,
+    user_id: str,
+    http_request: FastAPIRequest,
+):
+    """Agent 不可用时降级到无状态 planner，以 SSE 格式推送结果。"""
+    # 推送降级提示
+    yield f"event: fallback\ndata: {json.dumps({'message': '设备离线，已切换到快速规划模式'}, ensure_ascii=False)}\n\n"
+
+    try:
+        plan_request = AssistantPlanRequest(
+            intent=intent,
+            conversation_id=uuid4().hex[:16],
+            message_id=uuid4().hex[:16],
+        )
+        result = await _create_assistant_plan_impl(
+            device_id=device_id,
+            request=plan_request,
+            http_request=http_request,
+            user_id=user_id,
+        )
+
+        # 推送 result 事件
+        result_data = {
+            "summary": result.command_sequence.summary,
+            "steps": [step.model_dump() for step in result.command_sequence.steps],
+            "provider": result.command_sequence.provider,
+            "source": result.command_sequence.source,
+            "need_confirm": result.command_sequence.need_confirm,
+            "aliases": {},
+            "fallback_used": True,
+        }
+        yield f"event: result\ndata: {json.dumps(result_data, ensure_ascii=False)}\n\n"
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, dict) else {}
+        error_data = {
+            "code": ErrorCode.AGENT_OFFLINE,
+            "message": detail.get("message", "快速规划也失败，请稍后重试"),
+        }
+        yield f"event: error\ndata: {json.dumps(error_data, ensure_ascii=False)}\n\n"
+    except Exception as e:
+        error_data = {
+            "code": ErrorCode.INTERNAL_ERROR,
+            "message": f"规划失败: {type(e).__name__}",
+        }
+        yield f"event: error\ndata: {json.dumps(error_data, ensure_ascii=False)}\n\n"
+
+
+@router.post("/runtime/devices/{device_id}/assistant/agent/{session_id}/respond")
+async def respond_to_agent(
+    device_id: str,
+    session_id: str,
+    request: AgentRespondRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """用户回复 Agent 问题。唤醒阻塞的 ask_user Future。"""
+    manager = get_agent_session_manager()
+    agent_session = await manager.get_session(session_id)
+
+    if agent_session is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"会话 {session_id} 不存在",
+        )
+    if agent_session.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="无权操作此会话",
+        )
+    if agent_session.device_id != device_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="设备 ID 不匹配",
+        )
+    if agent_session.state != AgentSessionState.ASKING:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "reason": "session_not_asking",
+                "message": f"会话当前状态为 {agent_session.state.value}，不等待回复",
+            },
+        )
+
+    answer = request.answer.strip()
+    if not answer:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="回复内容不能为空",
+        )
+
+    success = await manager.respond(session_id, answer)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="回复失败，会话状态已变更",
+        )
+
+    return {"status": "ok", "session_id": session_id}
+
+
+@router.post("/runtime/devices/{device_id}/assistant/agent/{session_id}/cancel")
+async def cancel_agent_session(
+    device_id: str,
+    session_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    """取消 Agent 会话。"""
+    manager = get_agent_session_manager()
+    agent_session = await manager.get_session(session_id)
+
+    if agent_session is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"会话 {session_id} 不存在",
+        )
+    if agent_session.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="无权操作此会话",
+        )
+    if agent_session.device_id != device_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="设备 ID 不匹配",
+        )
+
+    success = await manager.cancel(session_id)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "reason": "session_not_cancellable",
+                "message": f"会话当前状态为 {agent_session.state.value}，无法取消",
+            },
+        )
+
+    return {"status": "ok", "session_id": session_id}
+
+
+@router.get("/runtime/devices/{device_id}/assistant/agent/{session_id}/resume")
+async def resume_agent_session(
+    device_id: str,
+    session_id: str,
+    after_index: int = 0,
+    user_id: str = Depends(get_current_user_id),
+):
+    """断连恢复，重连 SSE 流。
+
+    Args:
+        after_index: 从第几个事件开始回放（默认 0，全部回放）
+    """
+    manager = get_agent_session_manager()
+    agent_session = await manager.get_session(session_id)
+
+    if agent_session is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"会话 {session_id} 不存在",
+        )
+    if agent_session.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="无权操作此会话",
+        )
+    if agent_session.device_id != device_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="设备 ID 不匹配",
+        )
+
+    return StreamingResponse(
+        manager.resume_stream(agent_session, after_index=after_index),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+            "X-Agent-Session-Id": session_id,
+        },
+    )

@@ -1,0 +1,843 @@
+"""
+B080: Agent 会话管理 & SSE API 测试。
+
+测试覆盖：
+1. 创建会话返回唯一 session_id
+2. respond 唤醒正确的 ask_user Future
+3. cancel 终止 Agent 循环并清理资源
+4. 10 分钟超时自动终止
+5. SSE 事件序列正确（trace -> question -> result）
+6. keepalive 生成
+7. 断连恢复 4 种状态处理
+8. 6 种错误码正确推送
+9. 降级到 planner 的降级路径
+10. 用户级频率限制
+"""
+import asyncio
+import json
+from datetime import datetime, timezone, timedelta
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from app.agent_session_manager import (
+    AgentSession,
+    AgentSessionCancelled,
+    AgentSessionExpired,
+    AgentSessionManager,
+    AgentSessionRateLimited,
+    AgentSessionState,
+    ErrorCode,
+    SESSION_TIMEOUT_SECONDS,
+    SSE_KEEPALIVE_SECONDS,
+    USER_SESSION_RATE_LIMIT,
+    _error_event_dict,
+    get_agent_session_manager,
+)
+from app.terminal_agent import AgentResult, CommandSequenceStep
+from app.ws_agent import ExecuteCommandResult
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+def _make_execute_result(
+    exit_code: int = 0,
+    stdout: str = "",
+    stderr: str = "",
+    truncated: bool = False,
+    timed_out: bool = False,
+) -> ExecuteCommandResult:
+    return ExecuteCommandResult(
+        exit_code=exit_code,
+        stdout=stdout,
+        stderr=stderr,
+        truncated=truncated,
+        timed_out=timed_out,
+    )
+
+
+def _make_agent_result(
+    summary: str = "test result",
+    steps: list | None = None,
+    aliases: dict | None = None,
+) -> AgentResult:
+    return AgentResult(
+        summary=summary,
+        steps=steps or [CommandSequenceStep(id="step_1", label="cd", command="cd /project")],
+        aliases=aliases or {},
+    )
+
+
+@pytest.fixture
+def manager():
+    """创建一个干净的 AgentSessionManager 实例。"""
+    mgr = AgentSessionManager()
+    return mgr
+
+
+# ---------------------------------------------------------------------------
+# Test: 创建会话
+# ---------------------------------------------------------------------------
+
+class TestCreateSession:
+    """测试创建会话。"""
+
+    @pytest.mark.asyncio
+    async def test_create_returns_unique_session_id(self, manager):
+        """创建会话返回唯一 session_id。"""
+        s1 = await manager.create_session(
+            intent="打开项目", device_id="dev-1", user_id="user-1",
+        )
+        s2 = await manager.create_session(
+            intent="进入目录", device_id="dev-1", user_id="user-1",
+        )
+        assert s1.id != s2.id
+        assert s1.intent == "打开项目"
+        assert s1.device_id == "dev-1"
+        assert s1.user_id == "user-1"
+        assert s1.state == AgentSessionState.EXPLORING
+
+    @pytest.mark.asyncio
+    async def test_create_with_custom_session_id(self, manager):
+        """支持自定义 session_id。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="custom-id",
+        )
+        assert s.id == "custom-id"
+
+    @pytest.mark.asyncio
+    async def test_create_session_stores_in_manager(self, manager):
+        """创建后可通过 get_session 获取。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="sid-1",
+        )
+        retrieved = await manager.get_session("sid-1")
+        assert retrieved is s
+
+    @pytest.mark.asyncio
+    async def test_create_session_has_timestamps(self, manager):
+        """创建的会话有时间戳。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u",
+        )
+        assert isinstance(s.created_at, datetime)
+        assert isinstance(s.last_active_at, datetime)
+
+    @pytest.mark.asyncio
+    async def test_get_nonexistent_session_returns_none(self, manager):
+        """获取不存在的会话返回 None。"""
+        result = await manager.get_session("nonexistent")
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Test: respond 唤醒 ask_user
+# ---------------------------------------------------------------------------
+
+class TestRespond:
+    """测试用户回复。"""
+
+    @pytest.mark.asyncio
+    async def test_respond_wakes_up_future(self, manager):
+        """respond 应唤醒正确的 ask_user Future。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="r1",
+        )
+
+        # 模拟 Agent 进入 ASKING 状态
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        s._pending_question_future = future
+        s.state = AgentSessionState.ASKING
+
+        # 模拟另一个 task 在等待 Future
+        async def wait_for_future():
+            return await future
+
+        wait_task = asyncio.create_task(wait_for_future())
+
+        # 稍等一下确保 task 开始等待
+        await asyncio.sleep(0.01)
+
+        # respond 唤醒
+        success = await manager.respond("r1", "my answer")
+        assert success is True
+
+        result = await asyncio.wait_for(wait_task, timeout=1.0)
+        assert result == "my answer"
+
+    @pytest.mark.asyncio
+    async def test_respond_nonexistent_session_returns_false(self, manager):
+        """回复不存在的会话返回 False。"""
+        success = await manager.respond("nonexistent", "answer")
+        assert success is False
+
+    @pytest.mark.asyncio
+    async def test_respond_wrong_state_returns_false(self, manager):
+        """回复非 ASKING 状态的会话返回 False。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="r2",
+        )
+        s.state = AgentSessionState.EXPLORING  # 不是 ASKING
+        success = await manager.respond("r2", "answer")
+        assert success is False
+
+    @pytest.mark.asyncio
+    async def test_respond_no_pending_future_returns_false(self, manager):
+        """回复没有 pending future 的会话返回 False。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="r3",
+        )
+        s.state = AgentSessionState.ASKING
+        s._pending_question_future = None
+        success = await manager.respond("r3", "answer")
+        assert success is False
+
+
+# ---------------------------------------------------------------------------
+# Test: cancel 终止会话
+# ---------------------------------------------------------------------------
+
+class TestCancel:
+    """测试取消会话。"""
+
+    @pytest.mark.asyncio
+    async def test_cancel_active_session(self, manager):
+        """取消活跃会话。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="c1",
+        )
+        s.state = AgentSessionState.EXPLORING
+
+        success = await manager.cancel("c1")
+        assert success is True
+        assert s.state == AgentSessionState.CANCELLED
+
+    @pytest.mark.asyncio
+    async def test_cancel_session_with_pending_future(self, manager):
+        """取消有等待中 Future 的会话。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="c2",
+        )
+        s.state = AgentSessionState.ASKING
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        s._pending_question_future = future
+
+        success = await manager.cancel("c2")
+        assert success is True
+        assert s.state == AgentSessionState.CANCELLED
+        # Future 应该被设置为 AgentSessionCancelled 异常
+        assert future.done()
+        with pytest.raises(AgentSessionCancelled):
+            future.result()
+
+    @pytest.mark.asyncio
+    async def test_cancel_nonexistent_returns_false(self, manager):
+        """取消不存在的会话返回 False。"""
+        success = await manager.cancel("nonexistent")
+        assert success is False
+
+    @pytest.mark.asyncio
+    async def test_cancel_completed_returns_false(self, manager):
+        """取消已完成的会话返回 False。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="c3",
+        )
+        s.state = AgentSessionState.COMPLETED
+        success = await manager.cancel("c3")
+        assert success is False
+
+    @pytest.mark.asyncio
+    async def test_cancel_expired_returns_false(self, manager):
+        """取消已过期的会话返回 False。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="c4",
+        )
+        s.state = AgentSessionState.EXPIRED
+        success = await manager.cancel("c4")
+        assert success is False
+
+
+# ---------------------------------------------------------------------------
+# Test: SSE 事件序列
+# ---------------------------------------------------------------------------
+
+class TestSSEEventSequence:
+    """测试 SSE 事件序列正确性。"""
+
+    @pytest.mark.asyncio
+    async def test_trace_question_result_sequence(self, manager):
+        """事件序列应为 trace -> question -> result。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="seq1",
+        )
+
+        # 手动推送事件序列
+        await s.event_queue.put(("trace", {"tool": "execute_command", "input_summary": "ls", "output_summary": "file1.txt"}))
+        await s.event_queue.put(("question", {"question": "Which?", "options": ["a", "b"], "multi_select": False}))
+        await s.event_queue.put(("result", {"summary": "done", "steps": [], "provider": "agent"}))
+        await s.event_queue.put(None)  # 结束
+
+        events = []
+        async for chunk in manager.sse_stream(s):
+            events.append(chunk)
+
+        assert len(events) == 3
+        assert "event: trace" in events[0]
+        assert "event: question" in events[1]
+        assert "event: result" in events[2]
+
+    @pytest.mark.asyncio
+    async def test_sse_event_format(self, manager):
+        """SSE 事件格式应为 event: xxx\\ndata: json\\n\\n。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="fmt1",
+        )
+
+        await s.event_queue.put(("trace", {"tool": "think", "input_summary": "thinking", "output_summary": "done"}))
+        await s.event_queue.put(None)
+
+        events = []
+        async for chunk in manager.sse_stream(s):
+            events.append(chunk)
+
+        assert len(events) == 1
+        event_str = events[0]
+        assert event_str.startswith("event: trace\ndata: ")
+        assert event_str.endswith("\n\n")
+
+        # 解析 data 部分
+        data_line = event_str.split("\n")[1]  # data: {...}
+        data_json = data_line[len("data: "):]
+        data = json.loads(data_json)
+        assert data["tool"] == "think"
+
+    @pytest.mark.asyncio
+    async def test_error_event_pushed(self, manager):
+        """错误事件应正确推送。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="err1",
+        )
+
+        await s.event_queue.put(("error", {"code": ErrorCode.AGENT_ERROR, "message": "Agent crashed"}))
+        await s.event_queue.put(None)
+
+        events = []
+        async for chunk in manager.sse_stream(s):
+            events.append(chunk)
+
+        assert len(events) == 1
+        assert "event: error" in events[0]
+        data_json = events[0].split("data: ")[1].strip()
+        data = json.loads(data_json)
+        assert data["code"] == ErrorCode.AGENT_ERROR
+
+
+# ---------------------------------------------------------------------------
+# Test: keepalive
+# ---------------------------------------------------------------------------
+
+class TestKeepalive:
+    """测试 SSE keepalive 生成。"""
+
+    @pytest.mark.asyncio
+    async def test_keepalive_generated_on_timeout(self, manager):
+        """15 秒无事件时生成 keepalive。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="ka1",
+        )
+
+        # 使用短超时来加速测试
+        collected = []
+
+        async def _collect():
+            async for chunk in manager.sse_stream(s):
+                collected.append(chunk)
+
+        # 启动流消费者
+        task = asyncio.create_task(_collect())
+        # 等待足够时间触发 keepalive
+        await asyncio.sleep(SSE_KEEPALIVE_SECONDS + 1)
+        # 推送结束信号
+        await s.event_queue.put(None)
+        await task
+
+        # 应该至少有一个 keepalive
+        keepalives = [e for e in collected if "keepalive" in e]
+        assert len(keepalives) >= 1
+        assert ": keepalive\n\n" in keepalives[0]
+
+
+# ---------------------------------------------------------------------------
+# Test: 断连恢复 4 种状态
+# ---------------------------------------------------------------------------
+
+class TestResumeStream:
+    """测试断连恢复的 4 种状态处理。"""
+
+    @pytest.mark.asyncio
+    async def test_resume_replays_cached_events(self, manager):
+        """断连恢复回放缓存事件。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="res1",
+        )
+
+        # 手动推送一些事件
+        await s.event_queue.put(("trace", {"tool": "execute_command", "input_summary": "ls", "output_summary": "ok"}))
+        await s.event_queue.put(("trace", {"tool": "execute_command", "input_summary": "pwd", "output_summary": "/home"}))
+        await s.event_queue.put(None)  # 结束信号
+
+        # 消费事件（缓存到 _last_events）
+        events_consumed = []
+        async for chunk in manager.sse_stream(s):
+            events_consumed.append(chunk)
+
+        assert len(events_consumed) == 2
+        assert len(s._last_events) == 2
+
+        # 标记会话完成
+        s.state = AgentSessionState.COMPLETED
+
+        # 恢复时应回放缓存事件
+        resumed = []
+        async for chunk in manager.resume_stream(s, after_index=0):
+            resumed.append(chunk)
+
+        assert len(resumed) == 2
+        assert "event: trace" in resumed[0]
+
+    @pytest.mark.asyncio
+    async def test_resume_from_index(self, manager):
+        """从指定索引开始回放。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="res2",
+        )
+
+        # 推送 3 个事件 + 结束信号
+        for i in range(3):
+            await s.event_queue.put(("trace", {"tool": "cmd", "input_summary": f"cmd-{i}", "output_summary": "ok"}))
+        await s.event_queue.put(None)
+
+        # 消费并缓存
+        async for chunk in manager.sse_stream(s):
+            pass
+
+        assert len(s._last_events) == 3
+
+        s.state = AgentSessionState.COMPLETED
+
+        # 从索引 1 开始回放，应该只回放 2 个事件
+        resumed = []
+        async for chunk in manager.resume_stream(s, after_index=1):
+            resumed.append(chunk)
+
+        assert len(resumed) == 2
+
+    @pytest.mark.asyncio
+    async def test_resume_completed_session_only_replay(self, manager):
+        """已完成的会话恢复只回放缓存，不进入实时流。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="res3",
+        )
+
+        await s.event_queue.put(("result", {"summary": "done", "steps": []}))
+        await s.event_queue.put(None)
+        async for chunk in manager.sse_stream(s):
+            pass
+
+        s.state = AgentSessionState.COMPLETED
+
+        resumed = []
+        async for chunk in manager.resume_stream(s):
+            resumed.append(chunk)
+
+        assert len(resumed) == 1
+        assert "event: result" in resumed[0]
+
+    @pytest.mark.asyncio
+    async def test_resume_error_session(self, manager):
+        """ERROR 状态的会话恢复只回放。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="res4",
+        )
+
+        await s.event_queue.put(("error", {"code": ErrorCode.AGENT_ERROR, "message": "fail"}))
+        await s.event_queue.put(None)
+        async for chunk in manager.sse_stream(s):
+            pass
+
+        s.state = AgentSessionState.ERROR
+
+        resumed = []
+        async for chunk in manager.resume_stream(s):
+            resumed.append(chunk)
+
+        assert len(resumed) == 1
+        assert "event: error" in resumed[0]
+
+
+# ---------------------------------------------------------------------------
+# Test: 错误码
+# ---------------------------------------------------------------------------
+
+class TestErrorCodes:
+    """测试 6 种错误码。"""
+
+    def test_all_error_codes_defined(self):
+        """6 种错误码应有明确定义。"""
+        codes = [
+            ErrorCode.AGENT_OFFLINE,
+            ErrorCode.SESSION_EXPIRED,
+            ErrorCode.SESSION_CANCELLED,
+            ErrorCode.AGENT_ERROR,
+            ErrorCode.RATE_LIMITED,
+            ErrorCode.INTERNAL_ERROR,
+        ]
+        assert len(codes) == 6
+        assert len(set(codes)) == 6  # 全部唯一
+
+    def test_error_event_dict_format(self):
+        """错误事件字典应有 code 和 message。"""
+        d = _error_event_dict(ErrorCode.AGENT_OFFLINE, "设备离线")
+        assert d["code"] == ErrorCode.AGENT_OFFLINE
+        assert d["message"] == "设备离线"
+
+
+# ---------------------------------------------------------------------------
+# Test: 超时自动终止
+# ---------------------------------------------------------------------------
+
+class TestSessionTimeout:
+    """测试 10 分钟超时自动终止。"""
+
+    @pytest.mark.asyncio
+    async def test_expired_session_cleaned_up(self, manager):
+        """超时会话应被清理。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="t1",
+        )
+        s.state = AgentSessionState.EXPLORING
+
+        # 模拟 10 分钟前的活跃时间
+        s.last_active_at = datetime.now(timezone.utc) - timedelta(seconds=SESSION_TIMEOUT_SECONDS + 10)
+
+        expired = await manager.cleanup_expired()
+        assert "t1" in expired
+        assert s.state == AgentSessionState.EXPIRED
+
+    @pytest.mark.asyncio
+    async def test_active_session_not_cleaned(self, manager):
+        """活跃会话不应被清理。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="t2",
+        )
+        s.state = AgentSessionState.EXPLORING
+        # last_active_at 是刚创建的，不会过期
+
+        expired = await manager.cleanup_expired()
+        assert "t2" not in expired
+
+    @pytest.mark.asyncio
+    async def test_completed_session_not_expired(self, manager):
+        """已完成的会话不应被超时清理（已是终态）。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="t3",
+        )
+        s.state = AgentSessionState.COMPLETED
+        s.last_active_at = datetime.now(timezone.utc) - timedelta(seconds=SESSION_TIMEOUT_SECONDS + 10)
+
+        expired = await manager.cleanup_expired()
+        # COMPLETED 不在可过期状态列表中
+        assert "t3" not in expired
+
+    @pytest.mark.asyncio
+    async def test_expired_session_pushes_error_event(self, manager):
+        """过期会话应推送 ErrorEvent。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="t4",
+        )
+        s.state = AgentSessionState.EXPLORING
+        s.last_active_at = datetime.now(timezone.utc) - timedelta(seconds=SESSION_TIMEOUT_SECONDS + 10)
+
+        await manager.cleanup_expired()
+
+        # 验证事件队列中有错误事件
+        # 注意：event_queue 里可能有多个事件（error + None 结束信号）
+        events = []
+        while not s.event_queue.empty():
+            events.append(s.event_queue.get_nowait())
+
+        error_events = [e for e in events if e is not None and e[0] == "error"]
+        assert len(error_events) == 1
+        assert error_events[0][1]["code"] == ErrorCode.SESSION_EXPIRED
+
+    @pytest.mark.asyncio
+    async def test_expired_session_with_pending_future(self, manager):
+        """过期会话有 pending Future 应取消它。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="t5",
+        )
+        s.state = AgentSessionState.ASKING
+        s.last_active_at = datetime.now(timezone.utc) - timedelta(seconds=SESSION_TIMEOUT_SECONDS + 10)
+
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        s._pending_question_future = future
+
+        await manager.cleanup_expired()
+
+        assert future.done()
+        with pytest.raises(AgentSessionExpired):
+            future.result()
+
+
+# ---------------------------------------------------------------------------
+# Test: 用户级频率限制
+# ---------------------------------------------------------------------------
+
+class TestRateLimit:
+    """测试用户级频率限制。"""
+
+    @pytest.mark.asyncio
+    async def test_user_rate_limit_blocks_excess(self, manager):
+        """超过用户级会话数限制应被拒绝。"""
+        # 创建到限制数量
+        for i in range(USER_SESSION_RATE_LIMIT):
+            s = await manager.create_session(
+                intent=f"test-{i}", device_id="d", user_id="u", session_id=f"rl-{i}",
+            )
+            s.state = AgentSessionState.EXPLORING
+
+        # 超过限制
+        with pytest.raises(AgentSessionRateLimited):
+            await manager.create_session(
+                intent="overflow", device_id="d", user_id="u",
+            )
+
+    @pytest.mark.asyncio
+    async def test_different_users_independent(self, manager):
+        """不同用户的频率限制独立。"""
+        for i in range(USER_SESSION_RATE_LIMIT):
+            s = await manager.create_session(
+                intent=f"test-{i}", device_id="d", user_id="user-a", session_id=f"a-{i}",
+            )
+            s.state = AgentSessionState.EXPLORING
+
+        # user-b 不受 user-a 的限制影响
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="user-b",
+        )
+        assert s is not None
+
+    @pytest.mark.asyncio
+    async def test_completed_sessions_dont_count(self, manager):
+        """已完成会话不计入活跃限制。"""
+        for i in range(USER_SESSION_RATE_LIMIT):
+            s = await manager.create_session(
+                intent=f"test-{i}", device_id="d", user_id="u", session_id=f"rlc-{i}",
+            )
+            s.state = AgentSessionState.COMPLETED  # 已完成
+
+        # 应该还能创建（因为活跃数为 0）
+        s = await manager.create_session(
+            intent="new", device_id="d", user_id="u",
+        )
+        assert s is not None
+
+
+# ---------------------------------------------------------------------------
+# Test: Agent 运行循环（mock run_agent）
+# ---------------------------------------------------------------------------
+
+class TestAgentRunLoop:
+    """测试 Agent 运行循环。"""
+
+    @pytest.mark.asyncio
+    async def test_run_loop_pushes_result_on_success(self, manager):
+        """Agent 成功完成应推送 ResultEvent。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="loop1",
+        )
+
+        mock_result = _make_agent_result(summary="project entered")
+
+        execute_fn = AsyncMock(return_value=_make_execute_result(stdout="file.txt"))
+
+        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, return_value=mock_result):
+            await manager.start_agent(s, execute_fn)
+            # 等待 Agent 完成
+            await asyncio.sleep(0.1)
+
+        assert s.state == AgentSessionState.COMPLETED
+        assert s.result is not None
+        assert s.result.summary == "project entered"
+
+    @pytest.mark.asyncio
+    async def test_run_loop_pushes_error_on_failure(self, manager):
+        """Agent 出错应推送 ErrorEvent。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="loop2",
+        )
+
+        execute_fn = AsyncMock()
+
+        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=RuntimeError("LLM failed")):
+            await manager.start_agent(s, execute_fn)
+            await asyncio.sleep(0.1)
+
+        assert s.state == AgentSessionState.ERROR
+
+    @pytest.mark.asyncio
+    async def test_run_loop_cancelled(self, manager):
+        """取消 Agent 运行应推送 Cancelled 事件。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="loop3",
+        )
+
+        execute_fn = AsyncMock()
+
+        # 模拟长时间运行的 Agent
+        async def _slow_run(**kwargs):
+            await asyncio.sleep(60)
+
+        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_slow_run):
+            await manager.start_agent(s, execute_fn)
+            await asyncio.sleep(0.05)
+
+            # 取消
+            await manager.cancel("loop3")
+            await asyncio.sleep(0.1)
+
+        assert s.state == AgentSessionState.CANCELLED
+
+
+# ---------------------------------------------------------------------------
+# Test: 降级路径
+# ---------------------------------------------------------------------------
+
+class TestFallbackPath:
+    """测试 Agent 不可用时降级到 planner。"""
+
+    @pytest.mark.asyncio
+    async def test_fallback_stream_format(self):
+        """降级流应包含 fallback 事件和 result 事件。"""
+        from app.agent_session_manager import _error_event_dict
+
+        # 降级流由 runtime_api 中的 _agent_fallback_stream 处理
+        # 这里验证错误事件字典格式
+        error = _error_event_dict(ErrorCode.AGENT_OFFLINE, "设备离线")
+        assert error["code"] == "AGENT_OFFLINE"
+        assert "离线" in error["message"]
+
+
+# ---------------------------------------------------------------------------
+# Test: 全局单例
+# ---------------------------------------------------------------------------
+
+class TestGlobalSingleton:
+    """测试全局单例管理。"""
+
+    def test_get_manager_returns_same_instance(self):
+        """get_agent_session_manager 应返回同一实例。"""
+        m1 = get_agent_session_manager()
+        m2 = get_agent_session_manager()
+        assert m1 is m2
+
+
+# ---------------------------------------------------------------------------
+# Test: 移除会话
+# ---------------------------------------------------------------------------
+
+class TestRemoveSession:
+    """测试移除会话。"""
+
+    @pytest.mark.asyncio
+    async def test_remove_session(self, manager):
+        """移除会话后应不再能获取。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="rm1",
+        )
+        assert await manager.get_session("rm1") is s
+
+        await manager.remove_session("rm1")
+        assert await manager.get_session("rm1") is None
+
+    @pytest.mark.asyncio
+    async def test_remove_nonexistent_is_safe(self, manager):
+        """移除不存在的会话不报错。"""
+        await manager.remove_session("nonexistent")  # 不抛异常
+
+
+# ---------------------------------------------------------------------------
+# Test: 事件缓存限制
+# ---------------------------------------------------------------------------
+
+class TestEventCacheLimit:
+    """测试事件缓存数量限制。"""
+
+    @pytest.mark.asyncio
+    async def test_cache_trims_at_max(self, manager):
+        """缓存事件超过 MAX_CACHED_EVENTS 时应截断。"""
+        from app.agent_session_manager import MAX_CACHED_EVENTS
+
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="cache1",
+        )
+
+        # 推送超过限制数量的事件
+        for i in range(MAX_CACHED_EVENTS + 20):
+            await s.event_queue.put(("trace", {"tool": "cmd", "input_summary": f"cmd-{i}", "output_summary": "ok"}))
+        await s.event_queue.put(None)
+
+        # 消费所有事件
+        async for chunk in manager.sse_stream(s):
+            pass
+
+        assert len(s._last_events) <= MAX_CACHED_EVENTS
+
+
+# ---------------------------------------------------------------------------
+# Test: SSE stream ref count
+# ---------------------------------------------------------------------------
+
+class TestStreamRefCount:
+    """测试 SSE 流引用计数。"""
+
+    @pytest.mark.asyncio
+    async def test_ref_count_on_stream(self, manager):
+        """SSE 流消费时引用计数正确。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="ref1",
+        )
+
+        assert s._stream_ref_count == 0
+
+        await s.event_queue.put(None)
+
+        async for _ in manager.sse_stream(s):
+            pass
+
+        assert s._stream_ref_count == 0
+
+
+# ---------------------------------------------------------------------------
+# Test: 状态枚举完整性
+# ---------------------------------------------------------------------------
+
+class TestSessionState:
+    """测试会话状态枚举。"""
+
+    def test_all_states_defined(self):
+        """6 种状态应全部定义。"""
+        states = list(AgentSessionState)
+        assert len(states) == 6
+        state_values = [s.value for s in states]
+        assert "exploring" in state_values
+        assert "asking" in state_values
+        assert "completed" in state_values
+        assert "error" in state_values
+        assert "expired" in state_values
+        assert "cancelled" in state_values

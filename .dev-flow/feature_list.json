@@ -1903,6 +1903,11 @@
       "phase": "react-terminal-agent",
       "module": "backend",
       "name": "Agent 会话管理 & SSE API",
+      "status": "completed",
+      "started_at": "2026-04-23T19:00:00+0800",
+      "completed_at": "2026-04-23T19:40:00+0800",
+      "actual_minutes": 40,
+      "evidence_file": "evidence/B080.md",
       "description": "实现 Agent 会话管理和 SSE 流式 API：\n\n1. AgentSessionManager：create / respond / cancel / cleanup\n2. SSE 流事件：TraceEvent / QuestionEvent / ResultEvent / ErrorEvent\n3. Keepalive：15 秒 SSE 注释帧\n4. 会话超时：10 分钟无用户交互自动终止\n5. 断连恢复：客户端重连携带 session_id，服务端根据状态重发\n   - pending_question → 重发 QuestionEvent\n   - exploring → 继续 TraceEvent 流\n   - completed → 重发 ResultEvent\n   - expired/errored → 返回 ErrorEvent\n6. API 端点：\n   - POST /assistant/agent/run → SSE 流\n   - POST /assistant/agent/{id}/respond → 用户回复\n   - POST /assistant/agent/{id}/cancel → 取消会话\n   - GET /assistant/agent/{id}/resume → 重连 SSE\n7. 错误码：AGENT_OFFLINE / SESSION_EXPIRED / SESSION_CANCELLED / LLM_ERROR / COMMAND_TIMEOUT / RATE_LIMITED",
       "verification": "L2",
       "depends_on": [
