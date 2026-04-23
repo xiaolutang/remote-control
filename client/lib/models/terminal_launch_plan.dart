@@ -110,7 +110,7 @@ class TerminalLaunchPlan {
             json['source'] as String?,
           ) ??
           TerminalLaunchPlanSource.recommended,
-      intent: _normalizedString(json['intent']),
+      intent: normalizedString(json['intent']),
       confidence: TerminalLaunchConfidenceCodec.fromJson(
             json['confidence'] as String?,
           ) ??
@@ -120,7 +120,7 @@ class TerminalLaunchPlan {
     );
   }
 
-  static String? _normalizedString(Object? value) {
+  static String? normalizedString(Object? value) {
     final trimmed = (value as String?)?.trim();
     if (trimmed == null || trimmed.isEmpty) {
       return null;
@@ -171,14 +171,15 @@ class TerminalLaunchPlanDefaults {
       TerminalLaunchTool.shell => 'Shell',
       TerminalLaunchTool.custom => 'Custom',
     };
-    final segment = _basename(cwd);
+    final segment = basename(cwd);
     if (segment == null) {
       return prefix;
     }
     return '$prefix / $segment';
   }
 
-  static String? _basename(String cwd) {
+  /// 从路径中提取最后一段非空目录名
+  static String? basename(String cwd) {
     final normalized = cwd.trim();
     if (normalized.isEmpty || normalized == '~' || normalized == '/') {
       return null;

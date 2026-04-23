@@ -17,6 +17,7 @@ from app.assistant_planner import (
     AssistantPlannerRateLimited,
     AssistantPlannerTimeout,
     AssistantPlannerUnavailable,
+    _is_dangerous_command,
     plan_with_service_llm,
     planner_timeout_ms,
 )
@@ -608,6 +609,12 @@ def _validate_command_sequence(command_sequence: Any) -> dict[str, Any]:
                 reason="invalid_command_sequence",
                 message=f"command_sequence.steps[{index - 1}].command 不能为空",
             )
+        if _is_dangerous_command(command):
+            raise _assistant_error(
+                status.HTTP_400_BAD_REQUEST,
+                reason="dangerous_command",
+                message=f"第 {index} 步命令存在风险",
+            )
         normalized_steps.append(
             {
                 "id": str(step.get("id", f"step_{index}")).strip() or f"step_{index}",
@@ -639,7 +646,7 @@ async def _check_assistant_plan_rate_limit(user_id: str) -> Optional[int]:
         if current > limit:
             return 60
     except Exception:
-        return None
+        raise
     return None
 
 
@@ -829,6 +836,20 @@ async def list_runtime_terminals(
     )
 
 
+async def _get_or_refresh_project_context(
+    device_id: str,
+    user_id: str,
+) -> DeviceProjectContextSnapshot:
+    """获取/刷新项目候选摘要快照的共享实现。"""
+    session = await get_session_by_device_id(device_id, user_id)
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"device {device_id} 不存在",
+        )
+    return await _build_project_context_snapshot(session=session, user_id=user_id)
+
+
 @router.get(
     "/runtime/devices/{device_id}/project-context",
     response_model=DeviceProjectContextSnapshot,
@@ -838,13 +859,7 @@ async def get_runtime_project_context(
     user_id: str = Depends(get_current_user_id),
 ):
     """返回当前设备的项目候选摘要快照。"""
-    session = await get_session_by_device_id(device_id, user_id)
-    if not session:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"device {device_id} 不存在",
-        )
-    return await _build_project_context_snapshot(session=session, user_id=user_id)
+    return await _get_or_refresh_project_context(device_id, user_id)
 
 
 @router.post(
@@ -856,15 +871,7 @@ async def refresh_runtime_project_context(
     user_id: str = Depends(get_current_user_id),
 ):
     """主动刷新当前设备的项目候选摘要快照。"""
-    session = await get_session_by_device_id(device_id, user_id)
-    if not session:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"device {device_id} 不存在",
-    )
-    return await _build_project_context_snapshot(session=session, user_id=user_id)
-
-
+    return await _get_or_refresh_project_context(device_id, user_id)
 @router.get(
     "/runtime/devices/{device_id}/project-context/settings",
     response_model=ProjectContextSettingsResponse,

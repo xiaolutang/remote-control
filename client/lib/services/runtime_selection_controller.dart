@@ -880,4 +880,10 @@ class RuntimeSelectionController extends ChangeNotifier {
       _errorMessage = error.toString().replaceFirst('Exception: ', '');
     }
   }
+
+  @override
+  void dispose() {
+    _runtimeService.dispose();
+    super.dispose();
+  }
 }

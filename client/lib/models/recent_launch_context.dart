@@ -48,13 +48,13 @@ class RecentLaunchContext {
     if (json == null) {
       return null;
     }
-    final deviceId = _normalizedString(json['device_id']) ??
-        _normalizedString(fallbackDeviceId);
+    final deviceId = TerminalLaunchPlan.normalizedString(json['device_id']) ??
+        TerminalLaunchPlan.normalizedString(fallbackDeviceId);
     if (deviceId == null) {
       return null;
     }
 
-    final lastCwd = _normalizedString(json['last_cwd']) ?? '~';
+    final lastCwd = TerminalLaunchPlan.normalizedString(json['last_cwd']) ?? '~';
     final rawLastTool =
         TerminalLaunchToolCodec.fromJson(json['last_tool'] as String?);
 
@@ -77,14 +77,6 @@ class RecentLaunchContext {
       lastSuccessfulPlan: lastSuccessfulPlan,
       updatedAt: updatedAt,
     );
-  }
-
-  static String? _normalizedString(Object? value) {
-    final trimmed = (value as String?)?.trim();
-    if (trimmed == null || trimmed.isEmpty) {
-      return null;
-    }
-    return trimmed;
   }
 
   static TerminalLaunchPlan _fallbackPlan(

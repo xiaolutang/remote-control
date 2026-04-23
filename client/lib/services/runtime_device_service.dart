@@ -46,7 +46,15 @@ class RuntimeDeviceService {
 
   /// 处理非 200 响应，对 401 按 error_code 分支抛出 AuthException
   Never _throwError(http.Response response, String defaultMessage) {
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    Map<String, dynamic>? data;
+    try {
+      data = jsonDecode(response.body) as Map<String, dynamic>;
+    } on FormatException {
+      throw RuntimeApiException(
+        statusCode: response.statusCode,
+        message: '$defaultMessage (${response.statusCode})',
+      );
+    }
     if (response.statusCode == 401) {
       final errorCode = data['error_code'] as String?;
       switch (errorCode) {
@@ -79,11 +87,10 @@ class RuntimeDeviceService {
       Uri.parse('$_httpUrl/api/runtime/devices'),
       headers: _headers(token),
     );
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode != 200) {
       _throwError(response, '加载设备失败');
     }
-
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
     final devices = (data['devices'] as List<dynamic>? ?? const [])
         .whereType<Map<String, dynamic>>()
         .map(RuntimeDevice.fromJson)
@@ -97,11 +104,10 @@ class RuntimeDeviceService {
       Uri.parse('$_httpUrl/api/runtime/devices/$deviceId/terminals'),
       headers: _headers(token),
     );
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode != 200) {
       _throwError(response, '加载终端失败');
     }
-
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
     return (data['terminals'] as List<dynamic>? ?? const [])
         .whereType<Map<String, dynamic>>()
         .map(RuntimeTerminal.fromJson)
@@ -144,10 +150,10 @@ class RuntimeDeviceService {
         'env': env,
       }),
     );
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode != 200) {
       _throwError(response, '创建终端失败');
     }
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
     return RuntimeTerminal.fromJson(data);
   }
 
@@ -161,10 +167,10 @@ class RuntimeDeviceService {
           '$_httpUrl/api/runtime/devices/$deviceId/terminals/$terminalId'),
       headers: _headers(token),
     );
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode != 200) {
       _throwError(response, '关闭终端失败');
     }
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
     return RuntimeTerminal.fromJson(data);
   }
 
@@ -177,10 +183,10 @@ class RuntimeDeviceService {
         if (name != null) 'name': name,
       }),
     );
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode != 200) {
       _throwError(response, '更新设备配置失败');
     }
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
     return RuntimeDevice.fromJson(data);
   }
 
@@ -196,10 +202,10 @@ class RuntimeDeviceService {
       headers: _headers(token),
       body: jsonEncode({'title': title}),
     );
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode != 200) {
       _throwError(response, '更新终端标题失败');
     }
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
     return RuntimeTerminal.fromJson(data);
   }
 
@@ -212,10 +218,10 @@ class RuntimeDeviceService {
           '$_httpUrl/api/runtime/devices/$deviceId/project-context/settings'),
       headers: _headers(token),
     );
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode != 200) {
       _throwError(response, '加载项目来源配置失败');
     }
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
     return ProjectContextSettings.fromJson(data);
   }
 
@@ -236,10 +242,10 @@ class RuntimeDeviceService {
         'planner_config': settings.plannerConfig.toJson(),
       }),
     );
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode != 200) {
       _throwError(response, '保存项目来源配置失败');
     }
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
     return ProjectContextSettings.fromJson(data);
   }
 
@@ -251,10 +257,10 @@ class RuntimeDeviceService {
       Uri.parse('$_httpUrl/api/runtime/devices/$deviceId/project-context'),
       headers: _headers(token),
     );
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode != 200) {
       _throwError(response, '加载项目候选失败');
     }
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
     return DeviceProjectContextSnapshot.fromJson(data);
   }
 
@@ -267,10 +273,10 @@ class RuntimeDeviceService {
           '$_httpUrl/api/runtime/devices/$deviceId/project-context:refresh'),
       headers: _headers(token),
     );
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode != 200) {
       _throwError(response, '刷新项目候选失败');
     }
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
     return DeviceProjectContextSnapshot.fromJson(data);
   }
 
@@ -296,10 +302,10 @@ class RuntimeDeviceService {
         },
       }),
     );
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode != 200) {
       _throwError(response, '智能规划失败');
     }
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
     return AssistantPlanResult.fromJson(data);
   }
 
@@ -417,5 +423,9 @@ class RuntimeDeviceService {
     if (response.statusCode != 200) {
       _throwError(response, '同步执行结果失败');
     }
+  }
+
+  void dispose() {
+    _client.close();
   }
 }

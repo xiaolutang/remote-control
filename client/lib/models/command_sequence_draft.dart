@@ -363,7 +363,7 @@ class CommandSequenceDraft {
     if (steps.length <= 1) {
       return '创建终端后执行 $target';
     }
-    return '创建终端后进入 ${_basename(cwd) ?? "目标目录"} 并启动${_toolLabel(tool)}';
+    return '创建终端后进入 ${TerminalLaunchPlanDefaults.basename(cwd) ?? "目标目录"} 并启动${_toolLabel(tool)}';
   }
 
   static String _compileSteps(List<CommandSequenceStep> steps) {
@@ -430,21 +430,4 @@ class CommandSequenceDraft {
     }
   }
 
-  static String? _basename(String cwd) {
-    final normalized = cwd.trim();
-    if (normalized.isEmpty || normalized == '~' || normalized == '/') {
-      return null;
-    }
-    final stripped = normalized.endsWith('/')
-        ? normalized.substring(0, normalized.length - 1)
-        : normalized;
-    final parts = stripped.split('/');
-    for (var index = parts.length - 1; index >= 0; index--) {
-      final candidate = parts[index].trim();
-      if (candidate.isNotEmpty && candidate != '~') {
-        return candidate;
-      }
-    }
-    return null;
-  }
 }
