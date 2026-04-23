@@ -773,7 +773,7 @@ class _SmartTerminalSidePanelContentState
           if (result.usage != null) ...[
             const SizedBox(height: 2),
             Text(
-              '${result.usage!.modelName.isNotEmpty ? '${result.usage!.modelName} · ' : ''}${result.usage!.totalTokens} tokens',
+              result.usage!.shortLabel,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
                     color: colorScheme.outline,
                   ),
@@ -1262,24 +1262,24 @@ class _SmartTerminalSidePanelContentState
               ),
         ),
         children: [
-          _buildStatsRow('模型', usage.modelName.isNotEmpty ? usage.modelName : '-'),
-          _buildStatsRow('输入 Token', '${usage.inputTokens}'),
-          _buildStatsRow('输出 Token', '${usage.outputTokens}'),
-          _buildStatsRow('总 Token', '${usage.totalTokens}'),
-          _buildStatsRow('请求次数', '${usage.requests}'),
+          _buildStatsRow('模型', usage.modelName.isNotEmpty ? usage.modelName : '-', colorScheme),
+          _buildStatsRow('输入 Token', '${usage.inputTokens}', colorScheme),
+          _buildStatsRow('输出 Token', '${usage.outputTokens}', colorScheme),
+          _buildStatsRow('总 Token', '${usage.totalTokens}', colorScheme),
+          _buildStatsRow('请求次数', '${usage.requests}', colorScheme),
         ],
       ),
     );
   }
 
-  Widget _buildStatsRow(String label, String value) {
+  Widget _buildStatsRow(String label, String value, ColorScheme colorScheme) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label, style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                color: colorScheme.onSurfaceVariant,
               )),
           Text(value, style: Theme.of(context).textTheme.labelSmall?.copyWith(
                 fontWeight: FontWeight.w600,

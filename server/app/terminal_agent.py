@@ -53,7 +53,10 @@ class AgentResult(BaseModel):
 
 @dataclass
 class AgentRunOutcome:
-    """run_agent() 返回值：AgentResult + token usage 统计。"""
+    """run_agent() 返回值：AgentResult + token usage 统计。
+
+    usage 仅通过 SSE result 事件推送，不持久化到 AgentSession.result。
+    """
     result: AgentResult
     input_tokens: int = 0
     output_tokens: int = 0

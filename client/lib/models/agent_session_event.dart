@@ -108,6 +108,10 @@ class AgentUsageData {
       modelName: (json['model_name'] as String? ?? '').trim(),
     );
   }
+
+  /// 简要统计标签，如 "deepseek-chat · 1900 tokens"
+  String get shortLabel =>
+      '${modelName.isNotEmpty ? '$modelName · ' : ''}$totalTokens tokens';
 }
 
 /// Agent 最终结果事件
