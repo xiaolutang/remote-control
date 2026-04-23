@@ -2008,6 +2008,11 @@
       "phase": "react-terminal-agent",
       "module": "client-domain",
       "name": "Agent SSE 客户端服务",
+      "status": "completed",
+      "started_at": "2026-04-23T20:00:00+0800",
+      "completed_at": "2026-04-23T20:30:00+0800",
+      "actual_minutes": 30,
+      "evidence_file": "evidence/F095.md",
       "description": "实现 Dart 端 Agent SSE 客户端服务：\n\n1. AgentSessionService：管理 SSE 连接、事件解析、会话生命周期\n2. SSE 事件模型：TraceEvent / QuestionEvent / ResultEvent / ErrorEvent\n3. 断连恢复：携带 session_id 重连，根据服务端状态恢复\n4. 会话管理：创建、回复、取消、超时处理\n5. 降级逻辑：Agent 不可用时回退到无状态 planner",
       "verification": "F1",
       "depends_on": [
