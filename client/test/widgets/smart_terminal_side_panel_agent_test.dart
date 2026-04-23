@@ -391,6 +391,40 @@ void main() {
       expect(event.steps.length, 2);
       expect(event.steps[0].command, 'cd ~/project');
       expect(event.needConfirm, true);
+      expect(event.usage, isNull);
+    });
+
+    test('AgentResultEvent parses usage correctly', () {
+      final event = AgentResultEvent.fromJson({
+        'summary': 'done',
+        'steps': [],
+        'provider': 'agent',
+        'source': 'recommended',
+        'need_confirm': false,
+        'aliases': <String, dynamic>{},
+        'usage': {
+          'input_tokens': 1520,
+          'output_tokens': 380,
+          'total_tokens': 1900,
+          'requests': 3,
+          'model_name': 'deepseek-chat',
+        },
+      });
+      expect(event.usage, isNotNull);
+      expect(event.usage!.inputTokens, 1520);
+      expect(event.usage!.outputTokens, 380);
+      expect(event.usage!.totalTokens, 1900);
+      expect(event.usage!.requests, 3);
+      expect(event.usage!.modelName, 'deepseek-chat');
+    });
+
+    test('AgentUsageData defaults to zeros', () {
+      final usage = AgentUsageData.fromJson({});
+      expect(usage.inputTokens, 0);
+      expect(usage.outputTokens, 0);
+      expect(usage.totalTokens, 0);
+      expect(usage.requests, 0);
+      expect(usage.modelName, '');
     });
 
     test('AgentErrorEvent parses correctly', () {

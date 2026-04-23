@@ -57,6 +57,7 @@ class _SmartTerminalSidePanelContentState
   ));
   String? _fallbackReason;
   bool _executing = false;
+  bool _tokenStatsExpanded = false;
 
   // --- Agent SSE 模式状态 ---
   AgentPanelState _agentState = AgentPanelState.idle;
@@ -769,6 +770,15 @@ class _SmartTerminalSidePanelContentState
                   ),
             ),
           ],
+          if (result.usage != null) ...[
+            const SizedBox(height: 2),
+            Text(
+              '${result.usage!.modelName.isNotEmpty ? '${result.usage!.modelName} · ' : ''}${result.usage!.totalTokens} tokens',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: colorScheme.outline,
+                  ),
+            ),
+          ],
         ],
       ),
     );
@@ -1218,6 +1228,62 @@ class _SmartTerminalSidePanelContentState
               ),
             ),
           ],
+          // Token 统计
+          if (result.usage != null) ...[
+            const SizedBox(height: 10),
+            _buildTokenStatsTile(result.usage!, colorScheme),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Token 统计可折叠卡片
+  Widget _buildTokenStatsTile(AgentUsageData usage, ColorScheme colorScheme) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF5F7FA),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: ExpansionTile(
+        key: const Key('token-stats-tile'),
+        initiallyExpanded: _tokenStatsExpanded,
+        onExpansionChanged: (v) => setState(() => _tokenStatsExpanded = v),
+        tilePadding: const EdgeInsets.symmetric(horizontal: 12),
+        childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+        dense: true,
+        leading: Icon(Icons.data_usage_outlined,
+            size: 16, color: colorScheme.onSurfaceVariant),
+        title: Text(
+          'Token 统计 · ${usage.totalTokens}',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: colorScheme.onSurfaceVariant,
+              ),
+        ),
+        children: [
+          _buildStatsRow('模型', usage.modelName.isNotEmpty ? usage.modelName : '-'),
+          _buildStatsRow('输入 Token', '${usage.inputTokens}'),
+          _buildStatsRow('输出 Token', '${usage.outputTokens}'),
+          _buildStatsRow('总 Token', '${usage.totalTokens}'),
+          _buildStatsRow('请求次数', '${usage.requests}'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatsRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              )),
+          Text(value, style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+              )),
         ],
       ),
     );

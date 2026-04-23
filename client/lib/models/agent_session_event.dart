@@ -83,6 +83,33 @@ class AgentResultStep {
   }
 }
 
+/// Agent Token 使用统计
+class AgentUsageData {
+  const AgentUsageData({
+    required this.inputTokens,
+    required this.outputTokens,
+    required this.totalTokens,
+    required this.requests,
+    required this.modelName,
+  });
+
+  final int inputTokens;
+  final int outputTokens;
+  final int totalTokens;
+  final int requests;
+  final String modelName;
+
+  factory AgentUsageData.fromJson(Map<String, dynamic> json) {
+    return AgentUsageData(
+      inputTokens: json['input_tokens'] as int? ?? 0,
+      outputTokens: json['output_tokens'] as int? ?? 0,
+      totalTokens: json['total_tokens'] as int? ?? 0,
+      requests: json['requests'] as int? ?? 0,
+      modelName: (json['model_name'] as String? ?? '').trim(),
+    );
+  }
+}
+
 /// Agent 最终结果事件
 class AgentResultEvent extends AgentSessionEvent {
   AgentResultEvent({
@@ -92,6 +119,7 @@ class AgentResultEvent extends AgentSessionEvent {
     required this.source,
     required this.needConfirm,
     required this.aliases,
+    this.usage,
   });
 
   final String summary;
@@ -100,6 +128,7 @@ class AgentResultEvent extends AgentSessionEvent {
   final String source;
   final bool needConfirm;
   final Map<String, String> aliases;
+  final AgentUsageData? usage;
 
   factory AgentResultEvent.fromJson(Map<String, dynamic> json) {
     return AgentResultEvent(
@@ -115,6 +144,9 @@ class AgentResultEvent extends AgentSessionEvent {
         (json['aliases'] as Map<String, dynamic>? ?? const {})
             .map((k, v) => MapEntry(k, v.toString())),
       ),
+      usage: json['usage'] != null
+          ? AgentUsageData.fromJson(json['usage'] as Map<String, dynamic>)
+          : null,
     );
   }
 }
