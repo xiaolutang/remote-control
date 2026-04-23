@@ -21,6 +21,7 @@ import argparse
 import asyncio
 import json
 from functools import lru_cache
+import os
 import ssl
 import sys
 import time
@@ -193,8 +194,18 @@ async def connect_agent(token):
 
     ws_full_url = f"{WS_URL}/ws/agent"
 
+    # ws:// 直连时携带信任头（模拟 Traefik 反代的 x-rc-forwarded-tls）
+    extra_headers = {}
+    ws_url_parsed = urllib.parse.urlparse(ws_full_url)
+    if ws_url_parsed.scheme == "ws":
+        trusted_token = os.environ.get("TRUSTED_PROXY_TLS_TOKEN", "")
+        if trusted_token:
+            extra_headers["x-rc-forwarded-tls"] = trusted_token
+
     try:
         connect_kwargs = {"open_timeout": 10}
+        if extra_headers:
+            connect_kwargs["additional_headers"] = extra_headers
         ssl_context = ssl_context_for(ws_full_url)
         if ssl_context is not None:
             connect_kwargs["ssl"] = ssl_context
