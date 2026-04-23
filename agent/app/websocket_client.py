@@ -14,9 +14,17 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 
+import shlex
+
 import websockets
 from websockets import ClientConnection
 
+from app.command_validator import (
+    validate_command,
+    MAX_STDOUT_LEN,
+    MAX_STDERR_LEN,
+    DEFAULT_COMMAND_TIMEOUT,
+)
 from app.pty_wrapper import PTYWrapper, PTYConfig
 
 
@@ -685,6 +693,11 @@ class WebSocketClient:
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     })
 
+                elif msg_type == "execute_command":
+                    asyncio.create_task(
+                        self._handle_execute_command(data)
+                    )
+
                 elif msg_type == "pong":
                     # 心跳响应，忽略
                     pass
@@ -700,6 +713,90 @@ class WebSocketClient:
                 _log(f"WebSocket 接收错误: {e}")
                 self._connected = False
                 break
+
+    async def _handle_execute_command(self, data: dict):
+        """B078: 处理 execute_command 消息，执行只读命令并返回结果。"""
+        request_id = data.get("request_id", "")
+        command = data.get("command", "")
+        timeout = int(data.get("timeout") or DEFAULT_COMMAND_TIMEOUT)
+        cwd = data.get("cwd") or None
+
+        # Agent 端双重白名单验证
+        valid, reason = validate_command(command)
+        if not valid:
+            _log(f"execute_command 拒绝: {reason} command={command[:100]}")
+            await self._send_ws_message({
+                "type": "execute_command_result",
+                "request_id": request_id,
+                "exit_code": -1,
+                "stdout": "",
+                "stderr": reason,
+                "truncated": False,
+                "timed_out": False,
+            })
+            return
+
+        try:
+            parts = shlex.split(command)
+        except ValueError:
+            await self._send_ws_message({
+                "type": "execute_command_result",
+                "request_id": request_id,
+                "exit_code": -1,
+                "stdout": "",
+                "stderr": "命令格式无效",
+                "truncated": False,
+                "timed_out": False,
+            })
+            return
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *parts,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=cwd,
+            )
+            try:
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    proc.communicate(),
+                    timeout=timeout,
+                )
+                timed_out = False
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                stdout_bytes = b""
+                stderr_bytes = b"command timed out"
+                timed_out = True
+
+            stdout_str = stdout_bytes.decode("utf-8", errors="replace")
+            stderr_str = stderr_bytes.decode("utf-8", errors="replace")
+
+            truncated = len(stdout_str) > MAX_STDOUT_LEN or len(stderr_str) > MAX_STDERR_LEN
+            stdout_str = stdout_str[:MAX_STDOUT_LEN]
+            stderr_str = stderr_str[:MAX_STDERR_LEN]
+
+            await self._send_ws_message({
+                "type": "execute_command_result",
+                "request_id": request_id,
+                "exit_code": proc.returncode if proc.returncode is not None else -1,
+                "stdout": stdout_str,
+                "stderr": stderr_str,
+                "truncated": truncated,
+                "timed_out": timed_out,
+            })
+        except Exception as e:
+            _log(f"execute_command 执行异常: {e}")
+            await self._send_ws_message({
+                "type": "execute_command_result",
+                "request_id": request_id,
+                "exit_code": -1,
+                "stdout": "",
+                "stderr": str(e),
+                "truncated": False,
+                "timed_out": False,
+            })
 
     async def _send_ws_message(self, message: dict):
         """发送消息到 WebSocket（自动加密）。

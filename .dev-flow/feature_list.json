@@ -1777,7 +1777,11 @@
       "description": "扩展 Agent WS 协议，新增 execute_command 消息类型，允许服务端 Agent 通过 Agent WS 在远端机器执行只读命令并获取结果。\n\n关键设计：\n- Agent 端新增 execute_command 消息处理（独立子进程执行，非 PTY）\n- Server 端新增请求-响应 Future 模式\n- 超时控制（默认 10 秒，硬上限 30 秒）\n- 输出截断（stdout/stderr 各 4096 字符）\n- Server 端 + Agent 端双重白名单验证\n- 频率限制：每会话每分钟 10 次\n\n消息协议：\nServer → Agent: {type: \"execute_command\", request_id, command, timeout, cwd}\nAgent → Server: {type: \"execute_command_result\", request_id, exit_code, stdout, stderr, truncated, timed_out}",
       "verification": "L2",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
+      "started_at": "2026-04-23T18:05:00+0800",
+      "completed_at": "2026-04-23T18:30:00+0800",
+      "actual_minutes": 25,
+      "evidence_file": "evidence/B078.md",
       "priority": "P0",
       "acceptance_criteria": [
         "Agent 端新增 execute_command 消息处理，使用 subprocess(shell=False) 独立执行",

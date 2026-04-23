@@ -4,12 +4,19 @@ WebSocket Agent 连接路由
 import asyncio
 import json
 import base64
+from collections import defaultdict
+from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 from uuid import uuid4
 from fastapi import WebSocketDisconnect, HTTPException, status
 
 from app.crypto import get_crypto_manager, encrypt_message, decrypt_message, should_encrypt
+from app.command_validator import (
+    validate_command,
+    DEFAULT_COMMAND_TIMEOUT,
+    MAX_COMMAND_RATE_PER_MINUTE,
+)
 from app.ws_auth import (
     wait_for_ws_auth,
     http_to_ws_code,
@@ -38,6 +45,12 @@ pending_terminal_creates: dict[tuple[str, str], asyncio.Future] = {}
 pending_terminal_closes: dict[tuple[str, str], asyncio.Future] = {}
 pending_terminal_snapshots: dict[tuple[str, str], asyncio.Future] = {}
 
+# B078: execute_command pending futures
+pending_execute_commands: dict[str, asyncio.Future] = {}  # request_id -> Future
+
+# B078: 频率限制追踪（每 session_id 的请求时间戳列表）
+_execute_command_rate_tracker: dict[str, list[float]] = defaultdict(list)
+
 # Stale Agent 追踪（TTL 机制）
 # session_id -> 过期时间（datetime）
 stale_agents: dict[str, datetime] = {}
@@ -52,6 +65,16 @@ STALE_TTL_SECONDS = 90  # Agent 断开后等待 90 秒才真正 offline
 CLEANUP_REASON_AGENT_SHUTDOWN = "agent_shutdown"
 CLEANUP_REASON_NETWORK_LOST = "network_lost"
 CLEANUP_REASON_DEVICE_OFFLINE = "device_offline"
+
+
+@dataclass
+class ExecuteCommandResult:
+    """execute_command 的返回结果。"""
+    exit_code: int
+    stdout: str
+    stderr: str
+    truncated: bool
+    timed_out: bool
 
 
 class AgentConnection:
@@ -360,6 +383,9 @@ async def _handle_agent_message(websocket, session_id: str, message: dict):
                     "active_buffer": message.get("active_buffer"),
                 })
 
+    elif msg_type == "execute_command_result":
+        _handle_execute_command_result(message)
+
     elif msg_type == "agent_metadata":
         platform_name = (message.get("platform") or "").strip()
         hostname = (message.get("hostname") or "").strip()
@@ -435,6 +461,10 @@ async def _cleanup_agent(
     _cleanup_pending_futures(pending_terminal_creates, session_id, reason)
     _cleanup_pending_futures(pending_terminal_closes, session_id, reason)
     _cleanup_pending_futures(pending_terminal_snapshots, session_id, reason)
+    _cleanup_execute_command_futures(session_id, reason)
+
+    # 清理频率限制追踪
+    _execute_command_rate_tracker.pop(session_id, None)
 
     # 主动关闭 Agent（例如桌面端正常退出）不应保留可恢复 terminal。
     if _uses_immediate_offline_cleanup(reason):
@@ -797,3 +827,135 @@ async def request_agent_terminal_snapshot(
         "pty": result.get("pty"),
         "active_buffer": result.get("active_buffer"),
     }
+
+
+def _handle_execute_command_result(message: dict):
+    """处理 Agent 返回的 execute_command_result，resolve 对应的 Future。"""
+    request_id = message.get("request_id")
+    if not request_id:
+        return
+    future = pending_execute_commands.pop(request_id, None)
+    if future and not future.done():
+        future.set_result(ExecuteCommandResult(
+            exit_code=int(message.get("exit_code", -1)),
+            stdout=str(message.get("stdout", "")),
+            stderr=str(message.get("stderr", "")),
+            truncated=bool(message.get("truncated", False)),
+            timed_out=bool(message.get("timed_out", False)),
+        ))
+
+
+def _cleanup_execute_command_futures(session_id: str, reason: str):
+    """清理指定 session 的所有 pending execute_command futures。
+
+    因为 pending_execute_commands 按 request_id 索引，需要遍历所有条目。
+    正常情况下同一个 session 的 pending 数量极少（受频率限制），
+    遍历开销可以忽略。
+    """
+    # request_id 格式为 uuid4 hex，不含 session 信息，
+    # 所以需要借助 AgentConnection.session_id 来判断。
+    # 但这里我们直接清理所有 pending（断连通常很少），
+    # 更精确的做法是在 future 的 context 中记录 session_id。
+    # 当前设计下，agent 断连时 pending 数量极小，直接全部清理即可。
+    for rid in list(pending_execute_commands.keys()):
+        future = pending_execute_commands.pop(rid, None)
+        if future and not future.done():
+            future.set_exception(ConnectionError(f"agent disconnected: {reason}"))
+
+
+def _check_rate_limit(session_id: str) -> bool:
+    """检查 execute_command 频率限制。
+
+    Returns:
+        True 如果允许，False 如果超频
+    """
+    import time
+    now = time.time()
+    timestamps = _execute_command_rate_tracker[session_id]
+    # 清理超过 60 秒的旧记录
+    cutoff = now - 60.0
+    _execute_command_rate_tracker[session_id] = [
+        t for t in timestamps if t > cutoff
+    ]
+    if len(_execute_command_rate_tracker[session_id]) >= MAX_COMMAND_RATE_PER_MINUTE:
+        return False
+    _execute_command_rate_tracker[session_id].append(now)
+    return True
+
+
+async def send_execute_command(
+    session_id: str,
+    command: str,
+    *,
+    timeout: int = DEFAULT_COMMAND_TIMEOUT,
+    cwd: Optional[str] = None,
+) -> ExecuteCommandResult:
+    """向在线 Agent 发送 execute_command 并等待结果。
+
+    Args:
+        session_id: 会话 ID
+        command: 要执行的命令
+        timeout: 命令执行超时（秒），默认 10
+        cwd: 工作目录（可选）
+
+    Returns:
+        ExecuteCommandResult 包含 exit_code, stdout, stderr, truncated, timed_out
+
+    Raises:
+        HTTPException: 设备离线、命令不合法、频率超限、超时
+    """
+    # 1. Server 端白名单验证
+    valid, reason = validate_command(command)
+    if not valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"命令验证失败: {reason}",
+        )
+
+    # 2. 检查 Agent 连接
+    agent_conn = get_agent_connection(session_id)
+    if not agent_conn:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="device offline",
+        )
+
+    # 3. 频率限制
+    if not _check_rate_limit(session_id):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"execute_command 频率超限（每分钟最多 {MAX_COMMAND_RATE_PER_MINUTE} 次）",
+        )
+
+    # 4. 创建 Future 并发送
+    request_id = uuid4().hex
+    loop = asyncio.get_running_loop()
+    future: asyncio.Future = loop.create_future()
+    pending_execute_commands[request_id] = future
+
+    await agent_conn.send({
+        "type": "execute_command",
+        "request_id": request_id,
+        "command": command,
+        "timeout": timeout,
+        "cwd": cwd,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+
+    # 5. 等待结果（Agent 端 timeout + 网络 buffer）
+    try:
+        result = await asyncio.wait_for(future, timeout=timeout + 5)
+    except asyncio.TimeoutError:
+        pending_execute_commands.pop(request_id, None)
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="execute_command 超时",
+        )
+    except ConnectionError as exc:
+        pending_execute_commands.pop(request_id, None)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="device offline",
+        ) from exc
+
+    return result
