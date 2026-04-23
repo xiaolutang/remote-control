@@ -42,6 +42,15 @@
 | S040 | 2026-04-22 | 智能终端进入规划 | planning | 在 terminal 创建前加入推荐式与一句话意图式智能，统一收口到 Client 侧 TerminalLaunchPlan 编排 |
 | S041 | 2026-04-22 | 智能终端进入规划复审修正 | planning | 补齐直接进入工具语义、RecentLaunchContext 数据源和高风险失败/边界测试 |
 | S042 | 2026-04-22 | 设备感知智能终端进入长期路线补全 | planning | 智能识别后续必须基于当前设备项目上下文；LLM 只能在候选事实上做选择，不得发明路径 |
+| S043 | 2026-04-24 | Terminal-bound Agent 对话同步长期规划 | planning | Agent conversation 由 Server 按 terminal 一一维护；手机端/桌面端共享事件与 message_history；terminal close 即销毁 |
+| S044 | 2026-04-23 | Opik LLM 可观测性集成规划 | planning | Opik self-hosted + logfire + OTLP；Pydantic AI → logfire → OTLP → Opik；Agent 代码不改，纯配置集成 |
+
+## 需求包索引
+
+| 需求包 | 时间范围 | 主题 | 状态 | 归档位置 |
+|--------|---------|------|------|---------|
+| R041 | 2026-04-23 | react-terminal-agent | **验收未通过** | `_archive/R041_react-terminal-agent/` |
+| R042 | 2026-04-23 | opik-llm-observability | **规划中** | `_archive/R042_opik-llm-observability/` |
 
 ## 已沉淀到 architecture.md 的决策
 
@@ -60,3 +69,4 @@
 - S034: bcrypt 密码哈希迁移、CORS 环境变量、WebSocket auth 首条消息鉴权、日志归属校验
 - S035: Session TTL 24h + 登录清理 stale session + 设备列表在线优先排序 + SSL debug/release 分层
 - S039: Agent 主恢复源、Server 会话时序真相、Client 四层终端模型、exclusive/shared terminal mode、Desktop Agent 恢复链统一状态机
+- S043: Server 作为 terminal-bound Agent conversation 权威源；手机端只做同 conversation 视图/输入端；terminal close 销毁 conversation

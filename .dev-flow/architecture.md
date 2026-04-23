@@ -30,13 +30,13 @@ Docker Agent（辅助）：显式启用 profile 后与 Server 同一 docker-comp
 |--------|--------|---------|
 | Server | 设备在线态、terminal 列表、max_terminals、在线数、认证 | 客户端不得自行推断 |
 | Agent | PTY 进程生命周期、terminal cwd/command/env、进程组清理 | 客户端不得直接操作 PTY |
-| Client mobile | UI 状态、主题偏好 | 不得管理 Agent、不得修改 max_terminals |
+| Client mobile | UI 状态、主题偏好、远程 terminal/assistant 视图输入 | 不得管理 Agent、不得修改 max_terminals、不得在手机本地执行 Agent 工具 |
 | Client desktop | UI 状态 + 本地 Agent 配置 + 后台运行开关 | 只管理自己启动的 Agent |
 | DesktopAgentManager | Agent 发现/启动/停止/所有权/退出/App 生命周期 | 其他组件不得绕过 DAM |
 | DesktopWorkspaceController | 工作台状态机（空态/创建链/正常态） | 页面不得直接拼接状态 |
 | Client Terminal Assistant UI | 聊天式智能助手、过程轨迹、命令卡片、确认执行 | 不得直接拼接 provider 或推理策略 |
 | Server Planning Service | LLM 规划、上下文聚合、planner memory、评估 trace | Client/Agent 不得绕过服务端主规划链路 |
-| Server Terminal Agent | ReAct 循环、工具调度、只读探索命令执行、SSE 流推送、项目别名管理 | 不得绕过 Agent WS 直接操作 PTY；探索命令必须只读 |
+| Server Terminal Agent | ReAct 循环、工具调度、只读探索命令执行、SSE 流推送、项目别名管理、terminal 绑定的 assistant conversation 权威状态 | 不得绕过 Agent WS 直接操作 PTY；探索命令必须只读；客户端本地聊天缓存不得成为上下文权威 |
 | Planner Provider | 生成 `CommandSequence`，并暴露 provider/source/fallback 元数据 | UI 不得直接硬编码 `claude -p`、LLM SDK 或未来 provider 细节 |
 
 ## 不变量
@@ -95,6 +95,11 @@ Docker Agent（辅助）：显式启用 profile 后与 Server 同一 docker-comp
 52. 服务端 `assistant/plan` 必须具备用户级限流、provider timeout 与预算/配额防护；超限或超时时返回稳定错误语义，不得无限阻塞客户端
 53. 智能命令执行完成后，客户端必须把执行结果按 `conversation/message` 维度回写服务端；planner memory 的成功/失败学习只能基于回写结果更新
 54. Agent 探索命令必须为只读：使用白名单 + shell 元字符拦截 + 敏感路径过滤三重防护；白名单外命令、shell 元字符（;|&$`\\> >>）、命令替换 $()、敏感路径（/etc/shadow、.ssh/id_、.env、.pem）一律拒绝；执行使用 subprocess(shell=False)，不经过 shell 解释；Server 端和 Agent 端双重验证
+55. Agent assistant conversation 与 terminal 一一对应；同一 `device_id + terminal_id` 只有一个权威 conversation，桌面端和手机端都是该 conversation 的视图/输入端
+56. Agent assistant conversation 状态由 Server 维护；客户端本地 `_agentHistory`/缓存只能作为渲染投影，不能作为下一轮 AI 上下文的权威来源
+57. Server 调用 ReAct Agent 时必须从 terminal conversation events 重建 `message_history`，确保手机端和桌面端任一端产生的问答都参与后续推理
+58. terminal 关闭、设备离线收口为 closed、用户登出或权限失效时，Server 必须销毁该 terminal 对应 conversation，并取消/拒绝仍在进行的 Agent session
+59. 手机端可以发起/回复同一 terminal 的 Agent conversation，但所有工具调用仍通过 Server → 桌面设备 Agent 执行；手机端不得拥有本地 ReAct 工具运行时
 
 ## 禁止模式
 
@@ -119,7 +124,9 @@ Docker Agent（辅助）：显式启用 profile 后与 Server 同一 docker-comp
 - ✗ Agent 探索命令包含写/删/改操作（rm/mv/chmod/pip install 等）
 - ✗ Agent 探索命令使用 shell=True 执行（必须 shell=False + shlex.split）
 - ✗ Agent 探索命令绕过白名单验证直接执行
-- ✗ 手机端接入 ReAct Agent（手机端保持无状态 planner 不变）
+- ✗ 手机端本地接入 ReAct 工具运行时或执行探索命令
+- ✗ 把 Agent 对话上下文只保存在桌面端/手机端本地，导致另一端看不到或 AI 无法继承历史
+- ✗ terminal 关闭后继续保留可恢复/可回复的 assistant conversation
 - ✗ JWT Secret 硬编码/空值/随机回退
 - ✗ 密码使用无盐哈希（SHA-256/MD5）
 - ✗ CORS allow_origins=*
@@ -139,6 +146,7 @@ Docker Agent（辅助）：显式启用 profile 后与 Server 同一 docker-comp
 
 日志/反馈：Client → Server → log-service | 加密(ws://)：Client/Agent → RSA 公钥 → AES → WS 加解密
 Agent 注册：Local Agent → ws://server/ws/agent | 数据流：Agent PTY → Server 中转 → Clients
+LLM trace：Server Pydantic AI → logfire → OTLP → Opik（开发调试用，条件启用）
 
 ## 关键决策
 
@@ -166,13 +174,15 @@ Agent 注册：Local Agent → ws://server/ws/agent | 数据流：Agent PTY → 
 | Agent 进程退出不留僵尸 | 重连耗尽后完全退出，由 Flutter 负责重启 | Agent 无限重试或进程残留 |
 | Agent 作为恢复主源 | 避免 server history / agent snapshot / client local state 三套恢复真相并存 | Server output history 做 attach 主恢复源 |
 | 设备事实先于 LLM | 每个用户、每台设备、每个项目目录都不同，模型只能在设备事实上做选择 | 让模型直接猜本地目录结构 |
-| 智能规划三层降级：ReAct Agent → 无状态 planner → local_rules | 桌面端优先使用 ReAct Agent（可探索设备事实、交互追问），降级到无状态 planner（快速但无探索），最终兜底 local_rules（纯本地规则） | 只用 ReAct Agent（手机端不适合长连接 SSE）或只保留无状态 planner（丧失设备探索能力） |
+| 智能规划三层降级：ReAct Agent → 无状态 planner → local_rules | 具备 terminal 的智能入口优先使用服务端 terminal-bound ReAct Agent（可探索设备事实、交互追问），降级到无状态 planner（快速但无探索），最终兜底 local_rules（纯本地规则） | 只用 ReAct Agent（弱网/长连接失败时不可用）或只保留无状态 planner（丧失设备探索能力） |
+| Agent conversation 绑定 terminal | 手机端没有本地工具，桌面端/Agent 才能执行工具；因此多端必须共享 Server 维护的 terminal conversation，terminal 关闭即销毁 | 各端各自保存聊天历史，或 conversation 跨 terminal 复用 |
+| Opik LLM 可观测性 | 开发调试需要观察 Agent 与 LLM 的完整交互过程；通过 logfire + OTLP 桥接 Pydantic AI → Opik，Agent 代码不改，条件启用 | 直接在 Agent 代码中手动 log 每次 LLM 调用 |
 
 ## 模块职责
 
 - **Agent**：PTY 管理，terminal 多实例隔离，进程组清理，本地 HTTP 控制面
 - **Server**：设备注册、terminal 中转、认证、在线态权威、TTL 状态管理、RSA 密钥管理、AES 会话密钥存储、LLM planner、planner memory 与评估 trace
-- **Client mobile**：远程 terminal 查看器 + 软键盘快捷键 + 命令面板
+- **Client mobile**：远程 terminal 查看器 + 软键盘快捷键 + 命令面板 + 同 terminal assistant conversation 的远程视图/输入端
 - **Client desktop**：本机 Agent 控制台 + terminal 工作台 + 后台运行开关
 - **Terminal Assistant UI**：聊天消息流、工具轨迹、命令卡片、确认执行
 

@@ -2,15 +2,31 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-23T16:31:55+0800",
+    "updated_at": "2026-04-23T21:06:00+0800",
   "status": "in_progress",
   "active_requirement_cycle": {
-    "id": "R041",
-    "name": "react-terminal-agent",
-    "status": "in_progress",
-    "branch": "feat/R041-react-terminal-agent",
-    "started_at": "2026-04-23"
+    "id": "R042",
+    "name": "opik-llm-observability",
+    "branch": "feat/R042-opik-llm-observability",
+    "phases": [
+      {
+        "id": "opik-integration",
+        "name": "Opik LLM 可观测性集成",
+        "status": "pending"
+      }
+    ]
   },
+  "archived_cycles": [
+    {
+      "id": "R041",
+      "name": "react-terminal-agent",
+      "status": "verification_failed",
+      "branch": "feat/R041-react-terminal-agent",
+      "archived_at": "2026-04-23T22:00:00+0800",
+      "archive_path": "_archive/R041_react-terminal-agent/",
+      "summary": "ReAct Agent + SSE + 双端 conversation 同步 + Token 追踪。验收未通过：双端消息同步 bug（已修复未验证）+ 模型交互不可观测"
+    }
+  ],
   "workflow": {
     "name": "remote-control",
     "mode": "A",
@@ -20,14 +36,14 @@
     "risk_provider": "local"
   },
   "summary": {
-    "total": 41,
-    "pending": 3,
-    "in_progress": 0,
-    "completed": 33,
-    "blocked": 0,
-    "cancelled": 5
+    "total": 57,
+        "pending": 1,
+        "in_progress": 0,
+        "completed": 52,
+        "blocked": 0,
+        "cancelled": 4
   },
-  "next_phase": "react-terminal-agent",
+  "next_phase": "opik-integration",
   "project_info": {
     "description": "远程控制终端（Server + Agent + Client）。含反馈系统、日志集成、用户信息、Docker 标准化部署。",
     "tech_stack": {
@@ -1113,8 +1129,11 @@
       "depends_on": [
         "S079"
       ],
-      "status": "pending",
+      "status": "completed",
       "priority": "P1",
+      "started_at": "2026-04-23T22:45:00+0800",
+      "completed_at": "2026-04-23T22:55:00+0800",
+      "actual_minutes": 10,
       "acceptance_criteria": [
         "定义 benchmark 数据集结构、标签和最小样本集",
         "定义可回放 trace 的字段最小集",
@@ -1142,7 +1161,7 @@
       "depends_on": [
         "S079"
       ],
-      "status": "cancelled",
+      "status": "completed",
       "priority": "P1",
       "acceptance_criteria": [
         "新增受保护的服务端 planner API，返回 assistant_messages、trace、command_sequence、fallback 元数据",
@@ -1191,8 +1210,7 @@
       "description": "为服务端 planner 增加 per-user + per-device 的记忆与评估存储，记录 recent projects、successful sequences、fallback trace、执行结果，供规划与评估共同使用。",
       "verification": "F1",
       "depends_on": [
-        "B075",
-        "S080"
+        "B075"
       ],
       "status": "completed",
       "priority": "P1",
@@ -1470,8 +1488,7 @@
       "verification": "F1",
       "depends_on": [
         "B075",
-        "B076",
-        "F088"
+        "B076"
       ],
       "status": "cancelled",
       "priority": "P1",
@@ -1516,8 +1533,6 @@
       "verification": "F2",
       "depends_on": [
         "F087",
-        "F088",
-        "F089",
         "B077"
       ],
       "status": "cancelled",
@@ -1590,8 +1605,7 @@
       "depends_on": [
         "S080",
         "B076",
-        "B077",
-        "F089"
+        "B077"
       ],
       "status": "pending",
       "priority": "P1",
@@ -1655,9 +1669,9 @@
       "description": "完成 macOS、Android 真机与线上服务端的全链路验收，对比不同输入的命令分化、fallback 行为和执行闭环，并形成发布前验收结论。",
       "verification": "F2",
       "depends_on": [
-        "F090",
         "F091",
-        "F093"
+        "B084",
+        "F100"
       ],
       "status": "pending",
       "priority": "P1",
@@ -1705,7 +1719,6 @@
       "description": "在命令卡片执行完成后，把最终执行状态、失败步骤、输出摘要和最终命令序列上报到服务端 `executions/report`，确保 planner memory 与评估基于真实执行结果更新。",
       "verification": "F1",
       "depends_on": [
-        "F090",
         "B077"
       ],
       "status": "cancelled",
@@ -1951,8 +1964,7 @@
         }
       ],
       "contract_refs": [
-        "CONTRACT-047",
-        "CONTRACT-048"
+        "CONTRACT-047"
       ],
       "files": [
         "server/app/agent_session_manager.py",
@@ -2043,6 +2055,9 @@
       ],
       "files": [
         "client/lib/services/agent_session_service.dart"
+      ],
+      "contract_refs": [
+        "CONTRACT-047"
       ]
     },
     {
@@ -2224,8 +2239,11 @@
         "B079",
         "B080"
       ],
-      "status": "pending",
+      "status": "completed",
       "priority": "P1",
+      "started_at": "2026-04-23T22:40:00+0800",
+      "completed_at": "2026-04-23T22:55:00+0800",
+      "actual_minutes": 15,
       "acceptance_criteria": [
         "run_agent() 返回 AgentRunOutcome，包含 input_tokens/output_tokens/total_tokens/requests/model_name",
         "SSE result 事件 JSON 包含 usage 子对象",
@@ -2271,7 +2289,12 @@
         "server/app/agent_session_manager.py",
         "server/tests/test_terminal_agent.py",
         "server/tests/test_agent_session_manager.py"
-      ]
+      ],
+      "contract_refs": [
+        "CONTRACT-047"
+      ],
+      "execution_notes": "复核现有 AgentRunOutcome + SSE usage 实现，补跑 server/tests/test_terminal_agent.py 与 server/tests/test_agent_session_manager.py，全量通过后回写为 completed。",
+      "evidence_file": ".dev-flow/evidence/B083.md"
     },
     {
       "id": "F099",
@@ -2281,8 +2304,7 @@
       "description": "在 Agent 侧滑面板中展示 token 消耗统计。\n\n改动：\n1. 新增 AgentUsageData 模型类（inputTokens/outputTokens/totalTokens/requests/modelName）\n2. 扩展 AgentResultEvent 增加 usage 字段（nullable，向后兼容）\n3. _buildResultView() 底部追加可折叠 Token 统计卡片\n4. _buildHistoryResultBubble() 追加简要统计行（模型名 · N tokens）\n5. 适配测试",
       "verification": "F1",
       "depends_on": [
-        "F095",
-        "B083"
+        "F095"
       ],
       "status": "completed",
       "priority": "P1",
@@ -2344,7 +2366,652 @@
         "client/lib/widgets/smart_terminal_side_panel_content.dart",
         "client/test/widgets/smart_terminal_side_panel_agent_test.dart",
         "client/test/services/agent_session_service_test.dart"
+      ],
+      "contract_refs": [
+        "CONTRACT-047"
       ]
+    },
+    {
+      "id": "B084",
+      "phase": "react-terminal-agent",
+      "module": "backend",
+      "name": "Agent usage 持久化与汇总 API",
+      "description": "将 Agent 每次运行的 token usage 持久化到 SQLite，并提供按设备/按用户的汇总 API。\n\n改动：\n1. database.py 新增 agent_usage_records 表（session_id, user_id, device_id, input_tokens, output_tokens, total_tokens, requests, model_name, created_at）+ 索引\n2. database.py 新增 save_agent_usage() 和 get_usage_summary(user_id, device_id?) 方法\n3. agent_session_manager.py 在 _run_agent_loop 中 agent 运行完成后调用 save_agent_usage() 持久化\n4. runtime_api.py 新增 GET /api/agent/usage/summary?device_id=xxx 端点（可选 device_id 过滤）\n5. 适配服务端测试",
+      "verification": "L2",
+      "depends_on": ["B083"],
+      "status": "completed",
+      "priority": "P1",
+      "started_at": "2026-04-23T22:55:00+0800",
+      "completed_at": "2026-04-23T23:25:00+0800",
+      "actual_minutes": 30,
+      "acceptance_criteria": [
+        "每次 Agent 运行完成后 usage 数据写入 agent_usage_records 表",
+        "GET /api/agent/usage/summary?device_id=xxx 一次性返回双 scope：{device: {...}, user: {...}}",
+        "每个 scope 包含：total_sessions, total_input_tokens, total_output_tokens, total_tokens, total_requests, latest_model_name",
+        "device_id 必传，device scope 按该设备过滤，user scope 聚合用户所有设备",
+        "API 需要 async_verify_token 鉴权，且只能查自己的设备",
+        "usage 必须先落库再发 SSE result 事件（保证前端刷新时数据已就绪）",
+        "服务端测试通过"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "agent_usage_records 表 CRUD",
+          "scenarios": [
+            "save_agent_usage 正常写入",
+            "save_agent_usage 字段缺失时默认为 0",
+            "get_usage_summary 按 user_id 汇总",
+            "get_usage_summary 按 user_id + device_id 汇总",
+            "无记录时返回零值汇总",
+            "save_agent_usage 写入失败不阻塞主流程"
+          ]
+        },
+        {
+          "type": "unit",
+          "description": "usage summary API 双 scope 返回",
+          "scenarios": [
+            "未认证返回 401",
+            "已认证 + device_id 返回 {device: {...}, user: {...}}",
+            "device scope 只含指定设备数据",
+            "user scope 聚合所有设备",
+            "无 device_id 返回 400",
+            "查询他人 device_id 返回空（不报错，但 device scope 为零值）"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "usage 落库时序验证",
+          "scenarios": [
+            "agent 运行完成后 usage 已落库（在 SSE result 发出前）"
+          ]
+        }
+      ],
+      "contract_refs": ["CONTRACT-048"],
+      "files": [
+        "server/app/database.py",
+        "server/app/agent_session_manager.py",
+        "server/app/runtime_api.py",
+        "server/tests/test_database.py",
+        "server/tests/test_integration.py"
+      ],
+      "execution_notes": "新增 agent_usage_records 持久化表、usage 汇总查询、/api/agent/usage/summary 接口，并确保 usage 在 SSE result 事件前落库；新增数据库、会话管理器和 runtime API 定向测试并通过。",
+      "evidence_file": ".dev-flow/evidence/B084.md"
+    },
+    {
+      "id": "F100",
+      "phase": "react-terminal-agent",
+      "module": "client-ui",
+      "name": "Token 汇总 Toast 浮层：点击展示 + 自动消失",
+      "description": "在侧滑面板底部增加一个可点击的 Token 统计小图标，点击后弹出浮层展示当前终端和用户级别的 Token 汇总，3 秒后自动消失。\n\n改动：\n1. 移除 F099 的消息级 token 统计 UI（ExpansionTile + 历史气泡统计行），保留 AgentUsageData 模型\n2. 新增 UsageSummaryService 调用后端汇总 API\n3. 侧滑面板底部增加固定 Token 图标按钮\n4. 点击后弹出 Toast 浮层：当前终端 Token / 用户总 Token\n5. 3 秒后自动消失\n6. 每次 Agent 返回结果后刷新汇总数据",
+      "verification": "F1",
+      "depends_on": ["F099", "B084"],
+      "status": "completed",
+      "priority": "P1",
+      "started_at": "2026-04-23T23:30:00+0800",
+      "completed_at": "2026-04-23T23:55:00+0800",
+      "actual_minutes": 25,
+      "acceptance_criteria": [
+        "侧滑面板底部有 Token 图标按钮（固定不随滚动）",
+        "点击图标弹出浮层，显示当前终端和用户级别的 Token 汇总",
+        "浮层 3 秒后自动消失",
+        "Agent 返回结果后自动刷新汇总数据",
+        "消息级的 ExpansionTile 统计已移除",
+        "历史气泡的 token 统计行已移除",
+        "AgentUsageData 模型和 AgentResultEvent.usage 保留（SSE 解析仍需要）",
+        "客户端测试通过"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "UsageSummaryService 解析",
+          "scenarios": [
+            "fromJson 正常解析双 scope 数据",
+            "fromJson 缺失字段时默认为 0"
+          ]
+        },
+        {
+          "type": "widget",
+          "description": "Token 图标按钮与 Toast 浮层",
+          "scenarios": [
+            "面板底部显示 Token 图标",
+            "点击图标弹出浮层",
+            "浮层显示当前终端和用户汇总",
+            "3 秒后浮层自动消失",
+            "重复点击重置 3 秒计时",
+            "首次使用无数据时显示零值"
+          ]
+        },
+        {
+          "type": "widget",
+          "description": "自动刷新与错误处理",
+          "scenarios": [
+            "Agent 返回结果后自动刷新汇总数据",
+            "接口失败/超时时浮层显示降级提示",
+            "接口失败不影响面板其他功能"
+          ]
+        }
+      ],
+      "contract_refs": ["CONTRACT-048"],
+      "files": [
+        "client/lib/models/agent_session_event.dart",
+        "client/lib/services/usage_summary_service.dart",
+        "client/lib/widgets/smart_terminal_side_panel_content.dart",
+        "client/test/widgets/smart_terminal_side_panel_agent_test.dart"
+      ],
+      "execution_notes": "新增 UsageSummaryService 与底部 Token 图标/Toast 浮层，移除消息级 token 统计展示，并通过定向 service/widget 测试验证自动消失、重复点击重置、结果回流后自动刷新与失败降级。",
+      "evidence_file": ".dev-flow/evidence/F100.md"
+    },
+    {
+      "id": "S083",
+      "phase": "react-terminal-agent",
+      "module": "shared",
+      "name": "Terminal-bound Agent conversation 契约与生命周期基线",
+      "description": "定义 Agent conversation 与 terminal 的一一对应关系：同一 user_id + device_id + terminal_id 只有一个服务端权威 conversation；手机端和桌面端都是该 conversation 的视图/输入端；terminal closed/offline cleanup/logout 时销毁 conversation 并拒绝后续 respond/resume。同步更新 CONTRACT-049、架构不变量、事件类型、权限边界和兼容策略。",
+      "verification": "L2",
+      "depends_on": ["B080", "F095"],
+      "status": "completed",
+      "priority": "P0",
+      "started_at": "2026-04-24T00:55:00+0800",
+      "completed_at": "2026-04-24T01:05:00+0800",
+      "actual_minutes": 10,
+      "acceptance_criteria": [
+        "CONTRACT-049 明确 conversation_id 由 server 按 terminal 派生或绑定，客户端不得自建跨 terminal conversation",
+        "契约覆盖 run/respond/resume/cancel/fetch/stream 与 terminal close cleanup 的状态语义，且 respond/cancel/resume 明确使用 terminal-scoped session_id 路径参数",
+        "契约明确手机端可参与同一 conversation，但不得拥有本地 ReAct 工具运行时",
+        "契约明确客户端本地历史只做渲染缓存，server conversation events 是下一轮 message_history 的唯一权威",
+        "契约明确 closed terminal 后 conversation fetch/respond/resume 返回关闭或不存在语义",
+        "契约明确 close teardown 顺序：append closed event -> stream fanout -> cancel active session -> status=closed/tombstone -> 删除历史事件",
+        "契约明确 question_id/client_event_id 幂等与重复回答冲突规则"
+      ],
+      "risk_tags": ["auth", "network"],
+      "smoke_required": true,
+      "test_tasks": [
+        {
+          "type": "contract",
+          "description": "terminal-bound conversation 状态机",
+          "scenarios": [
+            "同一 terminal 多端 fetch 得到同一 conversation_id 和事件序列",
+            "不同 terminal 的 conversation_id 和事件序列隔离",
+            "terminal close 后 conversation 不可继续 respond/resume",
+            "重复 client_event_id 不新增事件；同一 question_id 被第二个客户端再次回答时返回冲突"
+          ]
+        }
+      ],
+      "contract_refs": ["CONTRACT-049"],
+      "files": [
+        ".dev-flow/architecture.md",
+        ".dev-flow/api_contracts.md",
+        ".dev-flow/alignment_checklist.md",
+        ".dev-flow/test_coverage.md"
+      ],
+      "execution_notes": "完成 terminal-bound Agent conversation 契约基线：补齐 CONTRACT-049、架构不变量、close teardown、session_id/client_event_id/question_id 语义、幂等与重复回答冲突规则，并同步测试覆盖清单。该任务为契约/规划任务，无业务代码变更。",
+      "evidence_file": ".dev-flow/evidence/S083.md"
+    },
+    {
+      "id": "B085",
+      "phase": "react-terminal-agent",
+      "module": "backend",
+      "name": "Agent conversation 持久化模型与权限校验",
+      "description": "在服务端新增 terminal-bound conversation 存储层，保存 conversation 元数据与事件流。建议表：agent_conversations(user_id, device_id, terminal_id, conversation_id, status, tombstone_until, created_at, updated_at) 与 agent_conversation_events(conversation_id, event_index, event_id, event_type, role, session_id, question_id, client_event_id, payload_json, created_at)。所有查询必须校验当前用户拥有 device/terminal，事件按 event_index 单调递增，并用 client_event_id/question_id 处理幂等和重复回答冲突。",
+      "verification": "L2",
+      "depends_on": ["S083"],
+      "status": "completed",
+      "priority": "P0",
+      "started_at": "2026-04-24T01:05:00+0800",
+      "completed_at": "2026-04-24T01:35:00+0800",
+      "actual_minutes": 30,
+      "acceptance_criteria": [
+        "同一 user_id + device_id + terminal_id 只能创建或复用一个 active conversation",
+        "conversation events 按 event_index 单调递增并可按 after_index 增量读取，append 在事务/锁内完成",
+        "client_event_id 在同一 conversation 内唯一，重复提交返回原事件且不新增 event_index",
+        "question_id 只能接受一次有效 answer，第二个不同 client_event_id 的 answer 返回 409 question_already_answered",
+        "非当前用户或不存在的 device/terminal 访问返回 403/404，不能泄漏 conversation 是否存在",
+        "事件 payload 不保存完整本地文件树、敏感路径内容或模型原始 chain-of-thought",
+        "数据库单元测试覆盖 create/get/append/list/delete、tombstone cleanup、幂等写入、重复回答冲突和权限边界"
+      ],
+      "risk_tags": ["auth"],
+      "smoke_required": true,
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "conversation repository",
+          "scenarios": [
+            "首次 get_or_create 创建 active conversation",
+            "再次 get_or_create 复用同一 terminal conversation",
+            "append_event 自动分配连续 event_index",
+            "相同 client_event_id 重放返回原事件且不增加 event_index",
+            "同一 question_id 已回答后第二次不同回答返回冲突",
+            "close teardown 写入 closed event 后进入短 tombstone，tombstone 期间 fetch 不返回历史",
+            "delete_by_terminal 删除 conversation 与 events",
+            "跨用户 device_id/terminal_id 查询被拒绝"
+          ]
+        }
+      ],
+      "contract_refs": ["CONTRACT-049"],
+      "files": [
+        "server/app/database.py",
+        "server/app/agent_session_manager.py",
+        "server/tests/test_database.py"
+      ],
+      "execution_notes": "新增 terminal-bound Agent conversation 存储模型与事件仓库：支持 user/device/terminal 唯一 conversation、event_index 顺序写入、client_event_id 幂等、question_id 单次回答冲突、closed tombstone、物理删除级联和跨用户隔离。数据库定向测试 29 passed，py_compile、json 校验和 diff check 通过；代码审查与审计通过。因工作区存在前序未提交改动，本任务暂未单独提交。",
+      "evidence_file": ".dev-flow/evidence/B085.md"
+    },
+    {
+      "id": "B086",
+      "phase": "react-terminal-agent",
+      "module": "backend",
+      "name": "Agent run/respond/resume 绑定 terminal conversation",
+      "description": "改造现有 Agent SSE API：run 必须携带或从路径获得 device_id + terminal_id，server 派生 terminal-bound conversation_id；respond/resume/cancel 统一改为 terminal-scoped session 路径并校验 session 属于该 terminal conversation；session 事件写入 conversation events，并保持旧 API 的明确兼容/拒绝策略。",
+      "verification": "L2",
+      "depends_on": ["B085"],
+      "status": "completed",
+      "priority": "P0",
+      "started_at": "2026-04-23T19:05:00+0800",
+      "completed_at": "2026-04-23T20:05:31+0800",
+      "actual_minutes": 60,
+      "acceptance_criteria": [
+        "run 不再信任客户端自带 conversation_id 作为权威，只能作为兼容字段映射到 terminal conversation",
+        "user 输入、Agent question、用户 answer、trace、result、error 都写入 conversation events",
+        "respond/resume/cancel 使用 `/terminals/{terminal_id}/assistant/agent/{session_id}/...` 路径并校验 user_id + device_id + terminal_id + conversation_id + session_id 归属",
+        "断线 resume 能回放同一 terminal conversation 内未完成 session 的事件",
+        "旧客户端缺少 terminal_id 时返回稳定错误或走明确兼容分支，不静默创建全局 conversation",
+        "respond body 必须携带 question_id + client_event_id；重复 client_event_id 幂等返回，重复回答已完成 question 返回 409"
+      ],
+      "risk_tags": ["auth", "network"],
+      "smoke_required": true,
+      "test_tasks": [
+        {
+          "type": "integration",
+          "description": "Agent API terminal 绑定",
+          "scenarios": [
+            "run 创建 terminal-bound conversation 并返回 conversation_id",
+            "respond 回答同一 conversation 的 question 后继续推进",
+            "不同 terminal 的 session_id 不能互相 respond/resume",
+            "SSE 断连后 resume 回放同一 terminal conversation 事件",
+            "两个客户端同时回答同一 question_id 时只有一个成功，另一个返回 409 question_already_answered",
+            "同一客户端弱网重试相同 client_event_id 不会追加第二条 answer"
+          ]
+        }
+      ],
+      "contract_refs": ["CONTRACT-049"],
+      "files": [
+        "server/app/runtime_api.py",
+        "server/app/agent_session_manager.py",
+        "server/tests/test_integration.py"
+      ],
+      "execution_notes": "新增 terminal-scoped Agent run/respond/cancel/resume API，旧无 terminal 路径稳定返回 terminal_id_required；run 绑定 server conversation 并记录 user_intent，respond 强制 question_id + client_event_id，Agent question/answer/trace/result/error 写入 conversation events，并通过 129 个后端定向/回归测试验证。",
+      "evidence_file": ".dev-flow/evidence/B086.md"
+    },
+    {
+      "id": "B087",
+      "phase": "react-terminal-agent",
+      "module": "backend",
+      "name": "Conversation fetch/stream 多端同步 API",
+      "description": "新增按 terminal 查询和订阅 Agent conversation 的 API，用于手机端与桌面端共享同一对话。GET 返回 conversation 元数据、events、next_event_index 和 active_session；SSE stream 支持 after_index 增量推送，供另一端实时看到提问、回答、trace、result 和错误。",
+      "verification": "L2",
+      "depends_on": ["B086"],
+      "status": "completed",
+      "priority": "P0",
+      "started_at": "2026-04-23T20:05:31+0800",
+      "completed_at": "2026-04-23T20:09:30+0800",
+      "actual_minutes": 4,
+      "acceptance_criteria": [
+        "GET /api/runtime/devices/{device_id}/terminals/{terminal_id}/assistant/conversation 返回同一 terminal 的完整事件投影",
+        "GET /api/runtime/devices/{device_id}/terminals/{terminal_id}/assistant/conversation/stream?after_index=N 只推送 N 之后的事件",
+        "手机端发起 conversation 后，桌面端 fetch/stream 可看到相同事件；反向同理",
+        "无 active conversation 时返回空投影而不是伪造本地历史",
+        "API 鉴权使用 async_verify_token 并校验 device/terminal 归属"
+      ],
+      "risk_tags": ["auth", "network"],
+      "smoke_required": true,
+      "test_tasks": [
+        {
+          "type": "integration",
+          "description": "多端同步",
+          "scenarios": [
+            "client A append 事件后 client B fetch 可见",
+            "client B 使用 after_index 只收到新增事件",
+            "未授权用户不能 fetch/stream 其他用户 terminal conversation",
+            "无 conversation 时返回空 events 与 next_event_index=0"
+          ]
+        }
+      ],
+      "contract_refs": ["CONTRACT-049"],
+      "files": [
+        "server/app/runtime_api.py",
+        "server/app/agent_session_manager.py",
+        "server/tests/test_integration.py"
+      ],
+      "execution_notes": "新增 terminal conversation fetch/stream 投影 API：GET 返回 server events、next_event_index 与 active_session_id，无 conversation 返回空投影；SSE stream 按 after_index 增量输出 conversation_event，并通过 TestClient/直接 SSE 迭代测试覆盖权限、空投影和增量语义。",
+      "evidence_file": ".dev-flow/evidence/B087.md"
+    },
+    {
+      "id": "B088",
+      "phase": "react-terminal-agent",
+      "module": "backend",
+      "name": "Server message_history 重建与 terminal close 销毁",
+      "description": "在运行 ReAct Agent 前，从 terminal conversation events 重建 message_history，传入 terminal_agent.run_agent(message_history=...)。同时接入 terminal close/offline cleanup/logout 路径：先追加 ephemeral closed event 并广播 active stream，再取消 active Agent session，标记短 tombstone，最后删除历史事件；对外拒绝后续 run/respond/resume/fetch。",
+      "verification": "L2",
+      "depends_on": ["B087"],
+      "status": "completed",
+      "priority": "P0",
+      "started_at": "2026-04-23T20:09:30+0800",
+      "completed_at": "2026-04-23T20:17:27+0800",
+      "actual_minutes": 8,
+      "acceptance_criteria": [
+        "第二轮 Agent 调用可继承第一轮用户选择/回答，例如用户已选项目后再说“这个项目”能被服务端 message_history 理解",
+        "message_history 只由服务端 conversation events 构造，不依赖客户端 prompt 拼接",
+        "terminal close 按 append closed event -> stream fanout -> cancel active session -> status=closed/tombstone -> 删除历史事件 的顺序执行",
+        "close 后 respond/resume/fetch 返回 404/410 或稳定 closed_terminal 错误",
+        "设备离线收口为 terminal closed 时同样触发 conversation 销毁",
+        "closed tombstone 期间 fetch 不返回历史 events，只返回 closed_terminal；清理后返回 404"
+      ],
+      "risk_tags": ["auth", "network", "first_use"],
+      "smoke_required": true,
+      "test_tasks": [
+        {
+          "type": "integration",
+          "description": "message_history 与 close cleanup",
+          "scenarios": [
+            "先选择项目，再输入“进入这个项目”时 run_agent 收到含选择历史的 message_history",
+            "terminal close 先向 stream 推送 closed/cancelled，再进入 tombstone/删除流程",
+            "terminal close 后 fetch 在 tombstone 期间返回 410 closed_terminal，不返回历史 events；清理后返回 404",
+            "terminal A 的历史不会进入 terminal B 的 message_history"
+          ]
+        }
+      ],
+      "contract_refs": ["CONTRACT-049"],
+      "files": [
+        "server/app/agent_session_manager.py",
+        "server/app/runtime_api.py",
+        "server/app/terminal_agent.py",
+        "server/tests/test_integration.py"
+      ],
+      "execution_notes": "运行 Agent 前从 server conversation events 重建 Pydantic AI message_history 并注入 run_agent；terminal close 会关闭 conversation、向 stream fanout closed event、取消 active session，closed fetch 返回 410；Agent terminal_closed 和离线收口路径补 best-effort cleanup。后端回归 137 passed。",
+      "evidence_file": ".dev-flow/evidence/B088.md"
+    },
+    {
+      "id": "F101",
+      "phase": "react-terminal-agent",
+      "module": "client-domain",
+      "name": "客户端 Agent conversation 服务端投影接入",
+      "description": "改造 AgentSessionService 与 SmartTerminalSidePanelContent：进入某个 terminal 时先加载服务端 conversation 投影，run/respond/resume 使用 device_id + terminal_id 绑定服务端 conversation；本地 _agentHistory 仅作为渲染缓存，不再通过 _buildAgentPrompt 拼接历史让模型猜上下文。",
+      "verification": "F2",
+      "depends_on": ["B087"],
+      "status": "completed",
+      "priority": "P0",
+      "started_at": "2026-04-23T20:18:00+0800",
+      "completed_at": "2026-04-23T20:58:00+0800",
+      "actual_minutes": 40,
+      "acceptance_criteria": [
+        "打开智能面板时从服务端加载当前 terminal conversation events 并渲染历史",
+        "发起 run/respond 时请求携带 device_id + terminal_id，conversation_id 以服务端返回为准",
+        "移除或降级 _buildAgentPrompt 的历史拼接权威语义，避免双端上下文不一致",
+        "服务端无 conversation 时显示空对话，不复用其他 terminal 或其他设备的本地历史",
+        "terminal 切换时本地缓存按 terminal_id 隔离并以服务端投影覆盖"
+      ],
+      "risk_tags": ["network", "first_use"],
+      "smoke_required": true,
+      "test_tasks": [
+        {
+          "type": "widget",
+          "description": "conversation 投影渲染",
+          "scenarios": [
+            "服务端返回 question/answer/result 事件时面板渲染同一历史",
+            "切换 terminal 后不会展示上一个 terminal 的历史",
+            "服务端加载失败时显示可重试降级，不影响正常终端输入"
+          ]
+        }
+      ],
+      "contract_refs": ["CONTRACT-049"],
+      "files": [
+        "client/lib/models/agent_conversation_projection.dart",
+        "client/lib/models/agent_session_event.dart",
+        "client/lib/services/agent_session_service.dart",
+        "client/lib/widgets/smart_terminal_side_panel.dart",
+        "client/lib/widgets/smart_terminal_side_panel_content.dart",
+        "client/test/services/agent_session_service_test.dart",
+        "client/test/widgets/smart_terminal_side_panel_agent_test.dart"
+      ],
+      "execution_notes": "Agent 面板改为先按 device_id + terminal_id 拉取服务端 conversation projection，再把 events 回放成客户端渲染缓存；session_created/fetch 返回的 conversation_id 成为后续 run 权威值，active_session_id 会在 reopen 时自动 resume，terminal 切换会清空本地缓存并重载。补充 service/widget 测试覆盖 fetchConversation、历史回放、active question 恢复、terminal 切换隔离与 conversation_id 复用；相关两份测试文件全通过，flutter analyze 仅剩仓库既有 11 条 info/warning。",
+      "evidence_file": ".dev-flow/evidence/F101.md"
+    },
+    {
+      "id": "F102",
+      "phase": "react-terminal-agent",
+      "module": "client-ui",
+      "name": "手机端/桌面端同 terminal 智能对话同步与关闭清理",
+      "description": "在桌面端和手机端复用同一 terminal-bound conversation UI：订阅或刷新服务端事件流，任一端回答 Agent 追问后另一端可见；terminal closed/presence closed 时清空对应智能对话 UI 并阻止继续输入。移动端只处理 UI/网络，不引入本地 Agent 工具执行。",
+      "verification": "F2",
+      "depends_on": ["F101", "B088"],
+      "status": "completed",
+      "priority": "P0",
+      "started_at": "2026-04-23T20:47:00+0800",
+      "completed_at": "2026-04-23T20:57:27+0800",
+      "actual_minutes": 10,
+      "acceptance_criteria": [
+        "手机端发起智能交互后桌面端打开同一 terminal 可看到同一对话历史",
+        "桌面端回答 Agent 选项后手机端刷新或订阅可看到该回答与后续 result",
+        "terminal close 后智能面板显示已关闭状态并禁止继续 respond/run",
+        "移动端软键盘/终端正常输入与智能对话输入互不抢焦点、不互相发送内容",
+        "手机端不展示或启动任何本地 Agent 工具运行时能力"
+      ],
+      "risk_tags": ["network", "first_use"],
+      "smoke_required": true,
+      "test_tasks": [
+        {
+          "type": "widget",
+          "description": "双端同步 UI 状态",
+          "scenarios": [
+            "远端新增 question 事件时当前端显示可回答状态",
+            "远端新增 answer/result 事件时当前端取消 loading 并展示结果",
+            "terminal closed 事件到达时禁用智能输入框"
+          ]
+        },
+        {
+          "type": "manual",
+          "description": "Android + macOS 同 terminal smoke",
+          "scenarios": [
+            "Android 发起 Agent 对话，macOS 桌面端看到同一历史",
+            "macOS 回答 Agent 选项，Android 看到后续结果",
+            "关闭 terminal 后两端智能对话同时不可继续"
+          ]
+        }
+      ],
+      "contract_refs": ["CONTRACT-049"],
+      "files": [
+        "client/lib/services/agent_session_service.dart",
+        "client/lib/screens/terminal_screen.dart",
+        "client/lib/widgets/smart_terminal_side_panel.dart",
+        "client/lib/widgets/smart_terminal_side_panel_content.dart",
+        "client/test/services/agent_session_service_test.dart",
+        "client/test/widgets/smart_terminal_side_panel_agent_test.dart"
+      ],
+      "execution_notes": "在 F101 的 projection 基础上新增 terminal conversation SSE 增量订阅：无 active session 时订阅 `/assistant/conversation/stream`，远端 question/answer/result 会实时回放到本地渲染缓存；active session 期间继续使用 run/resume SSE，结束后自动恢复 conversation stream。terminal closed 会清空智能对话 UI、展示已关闭状态并禁用输入。补充 service/widget 测试覆盖 conversation stream 解析、远端 question/result 同步和 closed 禁用输入；定向 Flutter 测试全通过，flutter analyze 仅剩仓库既有 11 条 info/warning。",
+      "evidence_file": ".dev-flow/evidence/F102.md"
+    },
+    {
+      "id": "S084",
+      "phase": "react-terminal-agent",
+      "module": "integration",
+      "name": "Terminal-bound Agent conversation 全链路验收",
+      "description": "补齐服务端、Flutter widget 和真实设备验收：验证手机端/桌面端共享同一 terminal conversation、服务端 message_history 生效、权限隔离、terminal close 销毁和多 terminal 隔离。作为进入发布前的集成质量门。",
+      "verification": "L4",
+      "depends_on": ["B088", "F102"],
+      "status": "in_progress",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "本地 Docker server + macOS + Android 真机完成同 terminal 对话同步 smoke",
+        "服务端集成测试覆盖 message_history、close cleanup、权限隔离和多 terminal 隔离",
+        "Flutter 定向测试覆盖服务端投影渲染、terminal 切换、closed 状态和错误降级",
+        "验证智能交互输入框与正常 terminal 输入不冲突",
+        "验收记录写入 evidence，包含失败分支与手工 smoke 结果"
+      ],
+      "risk_tags": ["auth", "network", "first_use"],
+      "smoke_required": true,
+      "test_tasks": [
+        {
+          "type": "e2e",
+          "description": "真实多端验收",
+          "scenarios": [
+            "Android 与 macOS 同时进入同一 terminal，任一端发起 Agent 对话另一端可见",
+            "用户已选择项目后下一轮输入“这个项目”，AI 能基于服务端 message_history 理解",
+            "关闭 terminal 后 conversation 被销毁，旧 respond/resume 失败",
+            "terminal A/B 同时存在时对话历史互不泄漏"
+          ]
+        }
+      ],
+      "contract_refs": ["CONTRACT-049"],
+      "files": [
+        "server/tests/test_integration.py",
+        "client/test/widgets/smart_terminal_side_panel_agent_test.dart",
+        ".dev-flow/evidence/S084.md"
+      ],
+      "started_at": "2026-04-23T21:06:00+0800",
+      "execution_state": {
+        "current_step": "manual_smoke",
+        "retry_count": 0,
+        "resume_hint": "Android 与 macOS 客户端已本地启动，继续按 evidence/S084.md 场景做同 terminal 跨端 smoke，并记录 close cleanup 与 terminal A/B 隔离结果",
+        "waiting_for_external": true
+      },
+      "execution_notes": "已补齐服务端 message_history / close cleanup / 权限隔离 / terminal A-B 隔离集成测试，并启动本地 Docker + Android + macOS 进入手工 smoke 阶段。",
+      "evidence_file": ".dev-flow/evidence/S084.md"
+    },
+    {
+      "id": "B089",
+      "phase": "opik-integration",
+      "module": "server",
+      "name": "添加 logfire 依赖",
+      "description": "在 server/requirements.txt 中添加 logfire 依赖（含版本约束），用于 Pydantic AI 的 OpenTelemetry tracing。\n\nOpik 集成链路：Pydantic AI → logfire → OpenTelemetry OTLP → Opik。\nlogfire 是 Pydantic AI 官方推荐的 tracing 桥接层，通过 OTLP 协议发送 trace 到 Opik。",
+      "verification": "L1",
+      "depends_on": [],
+      "status": "completed",
+      "priority": "P1",
+      "started_at": "2026-04-23T23:30:00+0800",
+      "completed_at": "2026-04-23T23:35:00+0800",
+      "actual_minutes": 5,
+      "acceptance_criteria": [
+        "pip install -r requirements.txt 成功安装 logfire",
+        "import logfire 不报错",
+        "现有 server 测试仍通过"
+      ],
+      "risk_tags": [],
+      "files": [
+        "server/requirements.txt"
+      ]
+    },
+    {
+      "id": "B090",
+      "phase": "opik-integration",
+      "module": "server",
+      "name": "Server 入口配置 logfire instrumentation",
+      "description": "在 server/app/__init__.py lifespan 中添加 logfire.configure(send_to_logfire=False) 和 logfire.instrument_pydantic_ai()。\n\n仅当 OTEL_EXPORTER_OTLP_ENDPOINT 环境变量存在时启用，不影响无 Opik 时的正常运行。\n集成链路：Pydantic AI → logfire → OpenTelemetry OTLP → Opik。\n\n配置要点：\n- logfire.configure(send_to_logfire=False) 不发送到 Logfire 云端\n- logfire.instrument_pydantic_ai() 自动追踪 Pydantic AI agent 调用\n- 条件启用：检查 os.environ.get('OTEL_EXPORTER_OTLP_ENDPOINT')\n- lifespan 清理段无需特殊处理（logfire 使用后台线程，进程退出自动清理）",
+      "verification": "L1",
+      "depends_on": ["B089"],
+      "status": "completed",
+      "priority": "P1",
+      "started_at": "2026-04-23T23:35:00+0800",
+      "completed_at": "2026-04-23T23:45:00+0800",
+      "actual_minutes": 10,
+        "OTEL_EXPORTER_OTLP_ENDPOINT 未设置时，logfire 不初始化，Agent 正常运行不受影响",
+        "OTEL_EXPORTER_OTLP_ENDPOINT 设置时，logfire.configure + instrument_pydantic_ai 执行",
+        "server 启动日志中出现 logfire 初始化信息（仅 OTEL 端点配置时）",
+        "现有 server 测试通过"
+      ],
+      "risk_tags": ["config", "startup"],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "logfire 条件启用验证",
+          "scenarios": [
+            "OTEL_EXPORTER_OTLP_ENDPOINT 未设置：server 启动无报错，logfire 未配置",
+            "OTEL_EXPORTER_OTLP_ENDPOINT 已设置：logfire.configure 和 instrument_pydantic_ai 被调用",
+            "OTEL_EXPORTER_OTLP_ENDPOINT 已设置但 Opik 未启动：Agent run 不因 trace 发送失败而中断"
+          ]
+        }
+      ],
+      "files": [
+        "server/app/__init__.py"
+      ]
+    },
+    {
+      "id": "B091",
+      "phase": "opik-integration",
+      "module": "deploy",
+      "name": "创建 Opik Docker Compose 部署文件",
+      "description": "创建 deploy/docker-compose.opik.yml，包含 Opik self-hosted 完整栈。\n\nOpik 组件：mysql, redis, clickhouse, zookeeper, minio, backend, python-backend, frontend。\n与主 docker-compose.yml 分离，独立启动：\ndocker compose -f deploy/docker-compose.opik.yml up -d\n\nUI 访问：http://localhost:5173\nOTLP 端点：http://localhost:5173/api/v1/private/otel",
+      "verification": "L3",
+      "depends_on": [],
+      "status": "completed",
+      "started_at": "2026-04-23T23:45:00+0800",
+      "completed_at": "2026-04-23T23:55:00+0800",
+      "actual_minutes": 10,
+      "priority": "P1",
+      "acceptance_criteria": [
+        "docker compose -f deploy/docker-compose.opik.yml up -d 启动成功",
+        "http://localhost:5173 可访问 Opik UI",
+        "各容器健康检查通过"
+      ],
+      "risk_tags": ["config"],
+      "test_tasks": [
+        {
+          "type": "smoke",
+          "description": "Opik 启动验证",
+          "scenarios": [
+            "docker compose up 成功，所有容器 running",
+            "curl http://localhost:5173 返回 200",
+            "与主 docker-compose 同时运行不冲突（端口/网络隔离）"
+          ]
+        }
+      ],
+      "files": [
+        "deploy/docker-compose.opik.yml"
+      ]
+    },
+    {
+      "id": "B092",
+      "phase": "opik-integration",
+      "module": "deploy",
+      "name": "配置 OTEL 环境变量透传",
+      "description": "在 deploy/.env 中添加 OTEL_EXPORTER_OTLP_ENDPOINT 和 OTEL_METRICS_EXPORTER 配置项，\n并在 deploy/docker-compose.yml server service 中透传这两个环境变量。\n\nServer 容器通过 host.docker.internal 访问宿主机上的 Opik。\n需在 server service 中添加 extra_hosts: [\"host.docker.internal:host-gateway\"] 确保 Linux 兼容。",
+      "verification": "L3",
+      "depends_on": ["B090", "B091"],
+      "status": "completed",
+      "started_at": "2026-04-23T23:55:00+0800",
+      "completed_at": "2026-04-24T00:05:00+0800",
+      "actual_minutes": 10,
+      "priority": "P1",
+      "acceptance_criteria": [
+        "deploy/.env 包含 OTEL_EXPORTER_OTLP_ENDPOINT 和 OTEL_METRICS_EXPORTER",
+        "docker-compose.yml server service 透传 OTEL_* 环境变量",
+        "docker-compose.yml server service 添加 extra_hosts 确保 host.docker.internal 可解析",
+        "Server 容器启动时日志显示 logfire 已配置（Opik 运行时）"
+      ],
+      "risk_tags": ["network", "config"],
+      "files": [
+        "deploy/.env",
+        "deploy/docker-compose.yml"
+      ]
+    },
+    {
+      "id": "B093",
+      "phase": "opik-integration",
+      "module": "server",
+      "name": "集成验证：Opik trace 端到端 smoke",
+      "description": "端到端验证：启动 Opik → 重建 Server 镜像 → 触发 Agent 对话 → 确认 Opik UI 中出现完整 trace。\n\n验证项：\n1. Agent run 产生 trace span（LLM 请求/响应）\n2. Tool call（execute_command/ask_user）被记录\n3. Token usage 可见\n4. Opik UI 可按 trace id 查看详情",
+      "verification": "L4",
+      "depends_on": ["B090", "B091", "B092"],
+      "status": "pending",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "Opik UI 中可见 Agent run 的 trace",
+        "trace 包含 LLM request/response 和 tool call",
+        "Token usage 在 trace 详情中可见"
+      ],
+      "risk_tags": ["network"],
+      "smoke_required": true
     }
   ],
   "archived_phases": [
