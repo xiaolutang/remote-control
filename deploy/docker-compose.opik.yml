@@ -1,7 +1,8 @@
 # Opik LLM 可观测性平台 - Self-hosted 部署
+# 接入 Traefik 网关三网模式
 # 启动: docker compose -f deploy/docker-compose.opik.yml up -d
-# UI: http://localhost:5173
-# OTLP: http://localhost:5173/api/v1/private/otel
+# UI: https://localhost/opik/ (Traefik) 或 http://localhost:5173 (直连)
+# OTLP: http://opik-frontend:5173/api/v1/private/otel (Docker 内网)
 # 停止: docker compose -f deploy/docker-compose.opik.yml down
 
 name: opik
@@ -205,8 +206,8 @@ services:
     image: ghcr.io/comet-ml/opik/opik-frontend:latest
     container_name: opik-frontend
     restart: unless-stopped
-    ports:
-      - "${OPIK_PORT:-5173}:5173"
+    expose:
+      - "5173"
     environment:
       NGINX_PORT: "5173"
     depends_on:
@@ -220,11 +221,22 @@ services:
       start_period: 5s
     networks:
       - opik-net
+      - gateway
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.opik.rule=Host(`localhost`) && PathPrefix(`/opik/`)"
+      - "traefik.http.routers.opik.entrypoints=web"
+      - "traefik.http.routers.opik.service=opik-frontend"
+      - "traefik.http.routers.opik.middlewares=opik-strip"
+      - "traefik.http.middlewares.opik-strip.stripprefix.prefixes=/opik"
+      - "traefik.http.services.opik-frontend.loadbalancer.server.port=5173"
 
 networks:
   opik-net:
     name: opik-net
     driver: bridge
+  gateway:
+    external: true
 
 volumes:
   opik-mysql:
