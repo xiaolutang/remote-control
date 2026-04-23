@@ -277,7 +277,17 @@ class TestValidateCommandSensitivePaths:
         assert "敏感路径" in reason
 
     def test_ssh_id_keyfile(self):
-        ok, reason = validate_command("cat .ssh/id_")
+        ok, reason = validate_command("cat .ssh/id_rsa")
+        assert not ok
+        assert "敏感路径" in reason
+
+    def test_ssh_id_ed25519(self):
+        ok, reason = validate_command("cat ~/.ssh/id_ed25519")
+        assert not ok
+        assert "敏感路径" in reason
+
+    def test_ssh_id_ecdsa(self):
+        ok, reason = validate_command("cat .ssh/id_ecdsa")
         assert not ok
         assert "敏感路径" in reason
 

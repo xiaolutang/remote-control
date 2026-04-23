@@ -1833,6 +1833,11 @@
       "phase": "react-terminal-agent",
       "module": "backend",
       "name": "Pydantic AI Agent 核心实现",
+      "status": "completed",
+      "started_at": "2026-04-23T18:30:00+0800",
+      "completed_at": "2026-04-23T19:00:00+0800",
+      "actual_minutes": 30,
+      "evidence_file": "evidence/B079.md",
       "description": "使用 Pydantic AI 框架实现 ReAct 智能体核心：\n\n1. 引入 pydantic-ai>=0.2 依赖，验证与现有 openai SDK 兼容\n2. Agent 定义（system prompt, deps_type, result_type）\n3. execute_command 工具：调用 Agent WS，白名单验证，失败策略（超时重试1次→告知LLM，非零退出码→返回stderr，Agent离线→终止会话）\n4. ask_user 工具：SSE 推送 QuestionEvent + 阻塞等待用户回复，支持 options + multi_select\n5. system prompt：定义决策优先级（自主探索>选项消歧>追问补充>坦诚告知）\n6. Result type：AgentResult 收口为 CommandSequence（满足不变量 43）\n\n白名单安全模型：\n- 先拒绝 shell 元字符（;|&$`\\> >>）\n- 再拒绝命令替换 $()\n- 白名单只允许：ls/cat/find/grep/pwd/whoami/which/echo 等只读命令\n- git 限制为安全子命令（log/status/branch/diff/show 等）\n- find 限制：禁止 -exec/-delete/-ok/-fprint\n- 敏感路径拦截：/etc/shadow, .ssh/id_, .env, .pem, .key\n- 执行使用 subprocess(shell=False) + shlex.split",
       "verification": "L2",
       "depends_on": [
