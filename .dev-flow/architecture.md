@@ -36,6 +36,7 @@ Docker Agent（辅助）：显式启用 profile 后与 Server 同一 docker-comp
 | DesktopWorkspaceController | 工作台状态机（空态/创建链/正常态） | 页面不得直接拼接状态 |
 | Client Terminal Assistant UI | 聊天式智能助手、过程轨迹、命令卡片、确认执行 | 不得直接拼接 provider 或推理策略 |
 | Server Planning Service | LLM 规划、上下文聚合、planner memory、评估 trace | Client/Agent 不得绕过服务端主规划链路 |
+| Server Terminal Agent | ReAct 循环、工具调度、只读探索命令执行、SSE 流推送、项目别名管理 | 不得绕过 Agent WS 直接操作 PTY；探索命令必须只读 |
 | Planner Provider | 生成 `CommandSequence`，并暴露 provider/source/fallback 元数据 | UI 不得直接硬编码 `claude -p`、LLM SDK 或未来 provider 细节 |
 
 ## 不变量
@@ -86,13 +87,14 @@ Docker Agent（辅助）：显式启用 profile 后与 Server 同一 docker-comp
 44. `CommandSequence` 至少包含 `summary`、`steps[]`、`provider`、`source`、`need_confirm`；其中每个 `step` 必须是用户可读、可审查的单条 shell 命令
 45. `CommandSequence` 必须在同一个 terminal shell session 内顺序执行；前一步失败时停止后续步骤，且失败输出必须对用户可见
 46. 产品层当前只暴露 Claude 模式，但架构层必须通过 `PlannerService/CommandPlanner` 抽象隔离 `service_llm` / `claude_cli` / `local_rules`；页面/UI 不得直接拼接 `claude -p`
-47. Planner 只能基于当前设备已有事实、planner memory 或 shell 可发现命令生成步骤；不得臆造本地路径、项目名或环境结构
+47. Planner/Agent 只能基于当前设备已有事实、planner memory、用户输入，或通过受约束的只读探索命令主动发现的事实来生成步骤；探索命令必须只读、超时受限（默认 10 秒）、且不得改变远端文件系统状态
 48. 所有 AI 生成的 `CommandSequence` 都必须在执行前得到用户显式确认；禁止静默自动执行
 49. 服务端 LLM provider 的凭证只允许保存在服务端受控环境变量或密钥管理中；客户端只允许保存开发态 fallback 所需的本机配置，且不得下发到 Agent
 50. 聊天式智能助手只展示结构化阶段、工具结果、fallback 与命令卡片，不展示模型原始 chain-of-thought
 51. 每次智能规划都必须产出可回放 trace（输入摘要、上下文摘要、工具调用、provider、fallback、最终命令、执行结果），供评估与审计使用
 52. 服务端 `assistant/plan` 必须具备用户级限流、provider timeout 与预算/配额防护；超限或超时时返回稳定错误语义，不得无限阻塞客户端
 53. 智能命令执行完成后，客户端必须把执行结果按 `conversation/message` 维度回写服务端；planner memory 的成功/失败学习只能基于回写结果更新
+54. Agent 探索命令必须为只读：使用白名单 + shell 元字符拦截 + 敏感路径过滤三重防护；白名单外命令、shell 元字符（;|&$`\\> >>）、命令替换 $()、敏感路径（/etc/shadow、.ssh/id_、.env、.pem）一律拒绝；执行使用 subprocess(shell=False)，不经过 shell 解释；Server 端和 Agent 端双重验证
 
 ## 禁止模式
 
@@ -114,6 +116,10 @@ Docker Agent（辅助）：显式启用 profile 后与 Server 同一 docker-comp
 - ✗ 把外部 provider 凭证下发到 Agent 或落到客户端明文缓存里
 - ✗ 服务端 planner 调用无超时、无限重试或无用户级限流直接暴露计费型 LLM
 - ✗ 仅凭本地聊天 UI 成功态就更新 planner memory，而不等待真实执行结果回写
+- ✗ Agent 探索命令包含写/删/改操作（rm/mv/chmod/pip install 等）
+- ✗ Agent 探索命令使用 shell=True 执行（必须 shell=False + shlex.split）
+- ✗ Agent 探索命令绕过白名单验证直接执行
+- ✗ 手机端接入 ReAct Agent（手机端保持无状态 planner 不变）
 - ✗ JWT Secret 硬编码/空值/随机回退
 - ✗ 密码使用无盐哈希（SHA-256/MD5）
 - ✗ CORS allow_origins=*

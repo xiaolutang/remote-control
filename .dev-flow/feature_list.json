@@ -2,15 +2,14 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-23T01:52:26.024215Z",
+  "updated_at": "2026-04-23T17:00:00Z",
   "status": "in_progress",
   "active_requirement_cycle": {
-    "id": "R040",
-    "name": "claude-command-entry",
+    "id": "R041",
+    "name": "react-terminal-agent",
     "status": "in_progress",
-    "branch": "feat/R040-intelligent-terminal-entry",
-    "started_at": "2026-04-22",
-    "completed_at": null
+    "branch": "feat/R041-react-terminal-agent",
+    "started_at": "2026-04-23"
   },
   "workflow": {
     "name": "remote-control",
@@ -21,14 +20,14 @@
     "risk_provider": "local"
   },
   "summary": {
-    "total": 29,
-    "pending": 8,
+    "total": 39,
+    "pending": 13,
     "in_progress": 0,
     "completed": 21,
     "blocked": 0,
-    "cancelled": 0
+    "cancelled": 5
   },
-  "next_phase": "chat-terminal-assistant",
+  "next_phase": "react-terminal-agent",
   "project_info": {
     "description": "远程控制终端（Server + Agent + Client）。含反馈系统、日志集成、用户信息、Docker 标准化部署。",
     "tech_stack": {
@@ -1143,7 +1142,7 @@
       "depends_on": [
         "S079"
       ],
-      "status": "pending",
+      "status": "cancelled",
       "priority": "P1",
       "acceptance_criteria": [
         "新增受保护的服务端 planner API，返回 assistant_messages、trace、command_sequence、fallback 元数据",
@@ -1429,7 +1428,7 @@
         "F087",
         "B075"
       ],
-      "status": "pending",
+      "status": "cancelled",
       "priority": "P1",
       "acceptance_criteria": [
         "trace 可按阶段展示：context/planner/validation/execution",
@@ -1474,7 +1473,7 @@
         "B076",
         "F088"
       ],
-      "status": "pending",
+      "status": "cancelled",
       "priority": "P1",
       "acceptance_criteria": [
         "默认主路径使用服务端 planner，不再依赖用户提前开启开关",
@@ -1521,7 +1520,7 @@
         "F089",
         "B077"
       ],
-      "status": "pending",
+      "status": "cancelled",
       "priority": "P1",
       "acceptance_criteria": [
         "桌面端：确认命令卡片后通过 WebSocketService.send() 注入编译后的命令到当前终端",
@@ -1709,7 +1708,7 @@
         "F090",
         "B077"
       ],
-      "status": "pending",
+      "status": "cancelled",
       "priority": "P1",
       "acceptance_criteria": [
         "成功执行后会上报 succeeded 状态与最终命令序列",
@@ -1742,6 +1741,434 @@
         "client/lib/services/**",
         "client/lib/screens/**",
         "client/test/**"
+      ]
+    },
+    {
+      "id": "S081",
+      "phase": "react-terminal-agent",
+      "module": "shared",
+      "name": "架构更新 + 产品基线：ReAct 智能体",
+      "description": "更新 architecture.md 支持 ReAct 智能体架构：\n\n1. 不变量 #47 改为 \"Planner/Agent 只能基于当前设备已有事实、planner memory、用户输入，或通过受约束的只读探索命令主动发现的事实来生成步骤；探索命令必须只读、超时受限、且不得改变远端文件系统状态\"\n2. 新增不变量 #54 \"Agent 探索命令必须为只读，超时受限（默认 10 秒），使用白名单+shell 元字符拦截双重防护\"\n3. 权威边界新增 \"Server Terminal Agent | ReAct 循环、工具调度、只读探索命令执行、SSE 流推送 | 不得绕过 Agent WS 直接操作 PTY\"\n4. 明确手机端保持无状态 planner 不变，Agent 仅桌面端侧滑面板使用\n5. 定义三层降级：ReAct Agent → 无状态 planner → local_rules",
+      "verification": "F2",
+      "depends_on": [],
+      "status": "pending",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "不变量 #47 更新为允许受约束只读探索",
+        "新增不变量 #54 定义只读探索命令安全边界",
+        "权威边界新增 Server Terminal Agent 条目",
+        "手机端策略明确为保持现有 planner 不变",
+        "三层降级策略写入 architecture.md"
+      ],
+      "files": [
+        ".dev-flow/architecture.md",
+        ".dev-flow/project_spec.md"
+      ]
+    },
+    {
+      "id": "B078",
+      "phase": "react-terminal-agent",
+      "module": "backend",
+      "name": "Agent WS execute_command 协议扩展",
+      "description": "扩展 Agent WS 协议，新增 execute_command 消息类型，允许服务端 Agent 通过 Agent WS 在远端机器执行只读命令并获取结果。\n\n关键设计：\n- Agent 端新增 execute_command 消息处理（独立子进程执行，非 PTY）\n- Server 端新增请求-响应 Future 模式\n- 超时控制（默认 10 秒，硬上限 30 秒）\n- 输出截断（stdout/stderr 各 4096 字符）\n- Server 端 + Agent 端双重白名单验证\n- 频率限制：每会话每分钟 10 次\n\n消息协议：\nServer → Agent: {type: \"execute_command\", request_id, command, timeout, cwd}\nAgent → Server: {type: \"execute_command_result\", request_id, exit_code, stdout, stderr, truncated, timed_out}",
+      "verification": "L2",
+      "depends_on": [],
+      "status": "pending",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "Agent 端新增 execute_command 消息处理，使用 subprocess(shell=False) 独立执行",
+        "Server 端实现 request_id → Future 映射，支持超时和清理",
+        "Server 端和 Agent 端双重执行白名单验证",
+        "stdout/stderr 截断 4096 字符，超时默认 10 秒",
+        "频率限制：每会话每分钟 10 次",
+        "Agent 断连时清理所有 pending execute_command futures",
+        "与现有 PTY 终端完全隔离，不影响 active terminal"
+      ],
+      "risk_tags": [
+        "network",
+        "first_use"
+      ],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "白名单验证器",
+          "scenarios": [
+            "合法命令通过：ls, cat file, find /tmp -name '*.log', git status",
+            "shell 元字符被拒：;, |, &, $, `, \\, >, >>",
+            "命令替换被拒：$(cmd), `cmd`",
+            "白名单外命令被拒：python, node, rm, mv, tar",
+            "find -exec/-delete/-ok 被拒",
+            "git 危险子命令被拒：push, reset, checkout",
+            "敏感路径被拒：/etc/shadow, ~/.ssh/id_rsa, .env, .pem"
+          ]
+        },
+        {
+          "type": "unit",
+          "description": "Future 超时和清理",
+          "scenarios": [
+            "命令超时返回 timed_out=true",
+            "Agent 断连清理所有 pending futures",
+            "request_id 唯一性保证"
+          ]
+        }
+      ],
+      "contract_refs": [
+        "CONTRACT-047"
+      ],
+      "files": [
+        "agent/app/ws_handler.py",
+        "server/app/ws_agent.py"
+      ]
+    },
+    {
+      "id": "B079",
+      "phase": "react-terminal-agent",
+      "module": "backend",
+      "name": "Pydantic AI Agent 核心实现",
+      "description": "使用 Pydantic AI 框架实现 ReAct 智能体核心：\n\n1. 引入 pydantic-ai>=0.2 依赖，验证与现有 openai SDK 兼容\n2. Agent 定义（system prompt, deps_type, result_type）\n3. execute_command 工具：调用 Agent WS，白名单验证，失败策略（超时重试1次→告知LLM，非零退出码→返回stderr，Agent离线→终止会话）\n4. ask_user 工具：SSE 推送 QuestionEvent + 阻塞等待用户回复，支持 options + multi_select\n5. system prompt：定义决策优先级（自主探索>选项消歧>追问补充>坦诚告知）\n6. Result type：AgentResult 收口为 CommandSequence（满足不变量 43）\n\n白名单安全模型：\n- 先拒绝 shell 元字符（;|&$`\\> >>）\n- 再拒绝命令替换 $()\n- 白名单只允许：ls/cat/find/grep/pwd/whoami/which/echo 等只读命令\n- git 限制为安全子命令（log/status/branch/diff/show 等）\n- find 限制：禁止 -exec/-delete/-ok/-fprint\n- 敏感路径拦截：/etc/shadow, .ssh/id_, .env, .pem, .key\n- 执行使用 subprocess(shell=False) + shlex.split",
+      "verification": "L2",
+      "depends_on": [
+        "S081",
+        "B078"
+      ],
+      "status": "pending",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "pydantic-ai>=0.2 安装成功，与现有 openai SDK 无冲突",
+        "server.Dockerfile 构建通过（pip install -r requirements.txt）",
+        "execute_command 工具通过白名单验证后调用 Agent WS",
+        "ask_user 工具通过 SSE 推送问题，阻塞等待 HTTP 回调",
+        "AgentResult 最终转化为 CommandSequence 格式",
+        "system prompt 定义清晰的决策优先级",
+        "27 个攻击向量全部被拦截（白名单+元字符+敏感路径）",
+        "Docker 本地构建验证通过"
+      ],
+      "risk_tags": [
+        "network",
+        "first_use",
+        "config"
+      ],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "Agent 工具逻辑",
+          "scenarios": [
+            "execute_command 白名单内命令正常执行",
+            "execute_command 白名单外命令返回拒绝消息",
+            "ask_user 推送 QuestionEvent 并等待回复",
+            "Agent 超时（max_turns）后返回 failed",
+            "Agent 离线时 execute_command 返回错误"
+          ]
+        },
+        {
+          "type": "unit",
+          "description": "白名单安全验证（27向量）",
+          "scenarios": [
+            "命令替换 $(rm -rf /) 被拦截",
+            "分号/&&/|| 链被拦截",
+            "重定向 > >> 被拦截",
+            "python/node/ruby 解释器被拦截",
+            "find -exec/-delete/-ok 被拦截",
+            "git push/reset 被拦截",
+            "tar/unzip 被拦截",
+            "管道 | 被拦截",
+            "敏感路径 /etc/shadow, .ssh/id_, .env 被拦截",
+            "合法命令 ls/cat/find/grep/pwd 正常通过"
+          ]
+        }
+      ],
+      "contract_refs": [
+        "CONTRACT-047"
+      ],
+      "files": [
+        "server/app/terminal_agent.py",
+        "server/requirements.txt"
+      ]
+    },
+    {
+      "id": "B080",
+      "phase": "react-terminal-agent",
+      "module": "backend",
+      "name": "Agent 会话管理 & SSE API",
+      "description": "实现 Agent 会话管理和 SSE 流式 API：\n\n1. AgentSessionManager：create / respond / cancel / cleanup\n2. SSE 流事件：TraceEvent / QuestionEvent / ResultEvent / ErrorEvent\n3. Keepalive：15 秒 SSE 注释帧\n4. 会话超时：10 分钟无用户交互自动终止\n5. 断连恢复：客户端重连携带 session_id，服务端根据状态重发\n   - pending_question → 重发 QuestionEvent\n   - exploring → 继续 TraceEvent 流\n   - completed → 重发 ResultEvent\n   - expired/errored → 返回 ErrorEvent\n6. API 端点：\n   - POST /assistant/agent/run → SSE 流\n   - POST /assistant/agent/{id}/respond → 用户回复\n   - POST /assistant/agent/{id}/cancel → 取消会话\n   - GET /assistant/agent/{id}/resume → 重连 SSE\n7. 错误码：AGENT_OFFLINE / SESSION_EXPIRED / SESSION_CANCELLED / LLM_ERROR / COMMAND_TIMEOUT / RATE_LIMITED",
+      "verification": "L2",
+      "depends_on": [
+        "B079"
+      ],
+      "status": "pending",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "POST /assistant/agent/run 返回 SSE 流，Agent 循环事件实时推送",
+        "POST /assistant/agent/{id}/respond 唤醒阻塞的 ask_user",
+        "SSE keepalive 15 秒注释帧正常发送",
+        "会话 10 分钟超时自动终止并推送 ErrorEvent",
+        "断连恢复 4 种状态处理正确",
+        "6 种错误码有明确定义和客户端可处理语义",
+        "Agent 不可用时自动降级到无状态 planner",
+        "频率限制：用户级 + 会话级"
+      ],
+      "risk_tags": [
+        "network",
+        "first_use"
+      ],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "会话管理",
+          "scenarios": [
+            "创建会话返回唯一 session_id",
+            "respond 唤醒正确的 ask_user Future",
+            "cancel 终止 Agent 循环并清理资源",
+            "10 分钟超时自动终止"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "SSE 流完整性",
+          "scenarios": [
+            "Agent 探索命令推送 TraceEvent",
+            "ask_user 推送 QuestionEvent + 等待 respond",
+            "完成推送 ResultEvent",
+            "错误推送 ErrorEvent",
+            "keepalive 注释帧间隔 15 秒"
+          ]
+        }
+      ],
+      "contract_refs": [
+        "CONTRACT-047",
+        "CONTRACT-048"
+      ],
+      "files": [
+        "server/app/agent_session_manager.py",
+        "server/app/runtime_api.py"
+      ]
+    },
+    {
+      "id": "B081",
+      "phase": "react-terminal-agent",
+      "module": "backend",
+      "name": "项目别名持久化",
+      "description": "实现项目别名持久化存储，支持 Agent 探索结果自动学习：\n\n1. project_aliases SQLite 表（user_id + device_id + alias UNIQUE）\n2. ProjectAliasStore：save / lookup / list_all / cleanup_stale\n3. Agent 完成后自动保存 discovered aliases\n4. Per-device 隔离：设备 A 的别名不出现在设备 B\n5. Agent 启动时从 alias_store 加载已知别名作为上下文",
+      "verification": "L2",
+      "depends_on": [
+        "S081"
+      ],
+      "status": "pending",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "project_aliases 表创建和索引正确",
+        "save 幂等（同 alias 覆盖更新）",
+        "lookup 按 user_id + device_id 隔离",
+        "list_all 返回指定设备的所有别名",
+        "cleanup_stale 清理超过 90 天未使用的别名",
+        "Agent 启动时别名正确注入 ProjectContext"
+      ],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "别名存储",
+          "scenarios": [
+            "save + lookup 正常工作",
+            "同 alias 覆盖更新",
+            "不同 device_id 隔离",
+            "cleanup_stale 清理过期别名"
+          ]
+        }
+      ],
+      "files": [
+        "server/app/project_alias_store.py",
+        "server/app/database.py"
+      ]
+    },
+    {
+      "id": "F095",
+      "phase": "react-terminal-agent",
+      "module": "client-domain",
+      "name": "Agent SSE 客户端服务",
+      "description": "实现 Dart 端 Agent SSE 客户端服务：\n\n1. AgentSessionService：管理 SSE 连接、事件解析、会话生命周期\n2. SSE 事件模型：TraceEvent / QuestionEvent / ResultEvent / ErrorEvent\n3. 断连恢复：携带 session_id 重连，根据服务端状态恢复\n4. 会话管理：创建、回复、取消、超时处理\n5. 降级逻辑：Agent 不可用时回退到无状态 planner",
+      "verification": "F1",
+      "depends_on": [
+        "B080"
+      ],
+      "status": "pending",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "SSE 事件解析正确（Trace/Question/Result/Error 4 种）",
+        "用户回复通过 HTTP POST 发送到 /assistant/agent/{id}/respond",
+        "断连恢复携带 session_id，处理 4 种服务端状态",
+        "会话超时（10min）客户端正确处理",
+        "Agent 不可用时降级到无状态 planner（侧滑面板仍可用）",
+        "keepalive 注释帧不触发业务逻辑"
+      ],
+      "risk_tags": [
+        "network",
+        "first_use"
+      ],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "SSE 事件解析",
+          "scenarios": [
+            "解析 TraceEvent（command/output）",
+            "解析 QuestionEvent（content + options + multi_select）",
+            "解析 ResultEvent（steps + aliases）",
+            "解析 ErrorEvent（code + message）",
+            "keepalive 注释帧被忽略"
+          ]
+        }
+      ],
+      "files": [
+        "client/lib/services/agent_session_service.dart"
+      ]
+    },
+    {
+      "id": "F096",
+      "phase": "react-terminal-agent",
+      "module": "client-ui",
+      "name": "侧滑面板 Agent 交互改造",
+      "description": "改造现有侧滑面板支持 Agent SSE 交互：\n\n1. exploring 状态：可折叠进度展示（命令 + 输出摘要）\n2. asking 状态：问题 + 选项快捷按钮 + 自由输入框混合模式\n   - 选项按钮点击直接发送\n   - 输入框始终可用，用户可自由输入\n   - multi_select 模式显示复选框 + 确认按钮\n3. result 状态：命令预览卡片 + 执行按钮\n4. error 状态：错误提示 + 重试/降级操作\n5. 降级：Agent 不可用时自动切换到无状态 planner + 底部提示\"已切换到快速模式\"\n6. 切换终端时面板自动收起",
+      "verification": "F2",
+      "depends_on": [
+        "F095"
+      ],
+      "status": "pending",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "4 种 UI 状态（exploring/asking/result/error）正确切换",
+        "asking 状态选项按钮 + 输入框混合模式可用",
+        "multi_select 模式显示复选框 + 确认按钮",
+        "result 状态展示命令预览和执行按钮",
+        "Agent 降级到 planner 时 UI 提示\"已切换到快速模式\"",
+        "切换终端时面板收起",
+        "桌面端工作区正常，手机端不受影响"
+      ],
+      "risk_tags": [
+        "first_use"
+      ],
+      "test_tasks": [
+        {
+          "type": "widget",
+          "description": "面板状态切换",
+          "scenarios": [
+            "exploring 状态展示可折叠进度",
+            "asking 状态展示选项+输入框",
+            "result 状态展示命令卡片+执行按钮",
+            "error 状态展示错误+重试",
+            "降级提示\"已切换到快速模式\""
+          ]
+        }
+      ],
+      "files": [
+        "client/lib/widgets/smart_terminal_side_panel_content.dart"
+      ]
+    },
+    {
+      "id": "F097",
+      "phase": "react-terminal-agent",
+      "module": "client-integration",
+      "name": "命令注入闭环：Agent Result 注入已创建终端",
+      "description": "实现 Agent Result 到终端注入的闭环：\n\n1. AgentResult.steps → CommandSequenceDraft(steps) 映射\n2. 复用现有 _compileSteps() 编译为 postCreateInput\n3. sessionManager.get(deviceId, terminalId).send(postCreateInput) 注入\n4. 面板自动收起",
+      "verification": "F2",
+      "depends_on": [
+        "F096"
+      ],
+      "status": "pending",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "AgentResult 正确映射为 CommandSequenceDraft",
+        "复用 _compileSteps() 编译，不重复实现",
+        "命令通过 WS send 注入已创建终端",
+        "注入后面板自动收起",
+        "注入失败时面板展示错误，不自动收起"
+      ],
+      "files": [
+        "client/lib/widgets/smart_terminal_side_panel_content.dart",
+        "client/lib/models/command_sequence_draft.dart"
+      ]
+    },
+    {
+      "id": "F098",
+      "phase": "react-terminal-agent",
+      "module": "client-integration",
+      "name": "执行结果回写 + 别名保存",
+      "description": "命令注入执行完成后：\n\n1. 把最终执行状态、失败步骤、输出摘要回写到服务端 executions/report\n2. 触发服务端保存本次 Agent 发现的项目别名\n3. 确保 planner memory 与别名只基于真实执行结果更新",
+      "verification": "F1",
+      "depends_on": [
+        "F097",
+        "B081"
+      ],
+      "status": "pending",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "执行完成后回写 executions/report",
+        "回写内容包含 Agent session_id、最终命令、执行状态",
+        "服务端收到回写后触发别名持久化",
+        "失败时仍回写（用于评估 trace），但不更新别名",
+        "幂等保护：同一 session 不重复回写"
+      ],
+      "files": [
+        "client/lib/services/agent_session_service.dart",
+        "server/app/runtime_api.py"
+      ]
+    },
+    {
+      "id": "S082",
+      "phase": "react-terminal-agent",
+      "module": "shared",
+      "name": "Agent 集成测试",
+      "description": "Docker 集成测试，覆盖全链路和边界场景：\n\n**Happy path**：意图 → Agent 探索 → ask_user → 确认 → 注入 → 回写\n\n**安全测试**：白名单外命令、管道注入、重定向、find -exec、git push、敏感路径\n\n**失败分支**：命令超时(10s)、会话超时(10min)、SSE 断连恢复(4种状态)、Agent 离线、LLM 失败降级、非零退出码\n\n**首用场景**：无别名无历史、首用后别名持久化\n\n**Mobile 回归**：手机端仍走无状态 planner\n\n**Per-device 隔离**：设备 A 别名不出现在设备 B\n\n**输出边界**：大输出截断(>4096)、空输出、二进制输出",
+      "verification": "L4",
+      "depends_on": [
+        "F098"
+      ],
+      "status": "pending",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "Happy path 全链路通过",
+        "27 个攻击向量全部被拦截",
+        "命令超时和会话超时正确处理",
+        "SSE 断连 4 种状态恢复正确",
+        "首用时 Agent 正确探索并持久化别名",
+        "手机端不受 Agent 影响",
+        "per-device 别名隔离验证",
+        "大输出截断正确"
+      ],
+      "risk_tags": [
+        "network",
+        "first_use",
+        "startup"
+      ],
+      "test_tasks": [
+        {
+          "type": "integration",
+          "description": "全链路 Docker smoke",
+          "scenarios": [
+            "意图输入 → Agent 探索 → 结果返回 → 命令注入",
+            "ask_user 多轮交互",
+            "会话超时自动终止",
+            "命令超时重试"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "安全边界",
+          "scenarios": [
+            "白名单外命令全部被拒",
+            "敏感路径访问被拒",
+            "shell 元字符注入被拒"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "Mobile 回归",
+          "scenarios": [
+            "手机端仍走 /assistant/plan",
+            "Agent 会话不影响手机端"
+          ]
+        }
+      ],
+      "files": [
+        "deploy/integration_test.py"
       ]
     }
   ],
