@@ -42,6 +42,7 @@ services:
       - DATABASE_PATH=/data/users.db
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       - OTEL_METRICS_EXPORTER=${OTEL_METRICS_EXPORTER:-none}
+      - LLM_TRACE_CONSOLE=${LLM_TRACE_CONSOLE:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

@@ -40,7 +40,7 @@ async def lifespan(app: FastAPI):
     # 初始化远程日志（通过适配层）
     init_logging(component="server")
 
-    # 条件启用 LLM 可观测性（logfire → OTLP → Opik）
+    # 条件启用 LLM 可观测性（logfire → OTLP → Opik / console）
     otel_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
     if otel_endpoint:
         try:
@@ -50,6 +50,14 @@ async def lifespan(app: FastAPI):
             logger.info("LLM observability enabled: logfire → %s", otel_endpoint)
         except Exception as exc:
             logger.warning("Failed to configure logfire: %s", exc)
+    elif os.environ.get("LLM_TRACE_CONSOLE", "").lower() in ("1", "true", "yes"):
+        try:
+            import logfire
+            logfire.configure(send_to_logfire=False, console=True)
+            logfire.instrument_pydantic_ai()
+            logger.info("LLM trace console mode enabled")
+        except Exception as exc:
+            logger.warning("Failed to configure logfire console: %s", exc)
 
     # 启动时创建 TTL checker 后台任务
     _ttl_checker_task = asyncio.create_task(_stale_agent_ttl_checker())
