@@ -386,6 +386,112 @@ void main() {
       });
     });
 
+    group('reportExecution HTTP 调用', () {
+      test('成功回写执行结果', () async {
+        final client = MockClient((request) async {
+          expect(request.method, 'POST');
+          expect(
+            request.url.toString(),
+            '$testHttpUrl/api/runtime/devices/$testDeviceId/assistant/agent/$testSessionId/report',
+          );
+          expect(
+            request.headers['Authorization'],
+            'Bearer $testToken',
+          );
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          expect(body['success'], isTrue);
+          expect(body['executed_command'], 'cd ~/project-a && claude');
+          expect(body.containsKey('failure_step'), isFalse);
+          return http.Response(
+            jsonEncode({'status': 'ok', 'session_id': testSessionId, 'idempotent': false}),
+            200,
+          );
+        });
+
+        final service = AgentSessionService(
+          serverUrl: testServerUrl,
+          client: client,
+        );
+
+        await service.reportExecution(
+          deviceId: testDeviceId,
+          sessionId: testSessionId,
+          success: true,
+          executedCommand: 'cd ~/project-a && claude',
+          token: testToken,
+        );
+      });
+
+      test('失败回写包含 failure_step', () async {
+        final client = MockClient((request) async {
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          expect(body['success'], isFalse);
+          expect(body['failure_step'], 'step-2');
+          expect(body['executed_command'], 'cd ~/project-b');
+          return http.Response(
+            jsonEncode({'status': 'ok', 'session_id': testSessionId, 'idempotent': false}),
+            200,
+          );
+        });
+
+        final service = AgentSessionService(
+          serverUrl: testServerUrl,
+          client: client,
+        );
+
+        await service.reportExecution(
+          deviceId: testDeviceId,
+          sessionId: testSessionId,
+          success: false,
+          executedCommand: 'cd ~/project-b',
+          failureStep: 'step-2',
+          token: testToken,
+        );
+      });
+
+      test('服务端返回非 200 抛出异常', () async {
+        final client = MockClient((request) async {
+          return http.Response('Not Found', 404);
+        });
+
+        final service = AgentSessionService(
+          serverUrl: testServerUrl,
+          client: client,
+        );
+
+        expect(
+          () => service.reportExecution(
+            deviceId: testDeviceId,
+            sessionId: testSessionId,
+            success: true,
+            token: testToken,
+          ),
+          throwsA(isA<AgentSessionException>()),
+        );
+      });
+
+      test('不带 token 时不发送 Authorization header', () async {
+        final client = MockClient((request) async {
+          expect(request.headers.containsKey('Authorization'), isFalse);
+          return http.Response(
+            jsonEncode({'status': 'ok', 'session_id': testSessionId, 'idempotent': false}),
+            200,
+          );
+        });
+
+        final service = AgentSessionService(
+          serverUrl: testServerUrl,
+          client: client,
+        );
+
+        await service.reportExecution(
+          deviceId: testDeviceId,
+          sessionId: testSessionId,
+          success: true,
+        );
+      });
+    });
+
     group('断连恢复', () {
       test('resume 恢复 asking 状态重发 QuestionEvent', () async {
         final sseText = buildSSE([
