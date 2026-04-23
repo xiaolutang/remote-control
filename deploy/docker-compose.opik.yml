@@ -187,16 +187,33 @@ services:
       - /tmp
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.opik-api.rule=Host(`opik.localhost`) && (PathPrefix(`/api/`) || PathPrefix(`/v1/`))"
+      # /api/xxx → StripPrefix /api → backend /xxx
+      - "traefik.http.routers.opik-api.rule=Host(`opik.localhost`) && PathPrefix(`/api/`)"
       - "traefik.http.routers.opik-api.entrypoints=web"
       - "traefik.http.routers.opik-api.service=opik-backend"
+      - "traefik.http.routers.opik-api.middlewares=opik-strip-api"
       - "traefik.http.routers.opik-api.priority=100"
-      - "traefik.http.routers.opik-api-secure.rule=Host(`opik.localhost`) && (PathPrefix(`/api/`) || PathPrefix(`/v1/`))"
+      - "traefik.http.middlewares.opik-strip-api.stripprefix.prefixes=/api"
+      # /v1/ 直接转发到 backend（OTLP + 内部 API）
+      - "traefik.http.routers.opik-v1.rule=Host(`opik.localhost`) && PathPrefix(`/v1/`)"
+      - "traefik.http.routers.opik-v1.entrypoints=web"
+      - "traefik.http.routers.opik-v1.service=opik-backend-v1"
+      - "traefik.http.routers.opik-v1.priority=90"
+      # HTTPS
+      - "traefik.http.routers.opik-api-secure.rule=Host(`opik.localhost`) && PathPrefix(`/api/`)"
       - "traefik.http.routers.opik-api-secure.entrypoints=websecure"
       - "traefik.http.routers.opik-api-secure.tls=true"
       - "traefik.http.routers.opik-api-secure.service=opik-backend"
+      - "traefik.http.routers.opik-api-secure.middlewares=opik-strip-api"
       - "traefik.http.routers.opik-api-secure.priority=100"
+      - "traefik.http.routers.opik-v1-secure.rule=Host(`opik.localhost`) && PathPrefix(`/v1/`)"
+      - "traefik.http.routers.opik-v1-secure.entrypoints=websecure"
+      - "traefik.http.routers.opik-v1-secure.tls=true"
+      - "traefik.http.routers.opik-v1-secure.service=opik-backend-v1"
+      - "traefik.http.routers.opik-v1-secure.priority=90"
+      # Services
       - "traefik.http.services.opik-backend.loadbalancer.server.port=8080"
+      - "traefik.http.services.opik-backend-v1.loadbalancer.server.port=8080"
 
   python-backend:
     image: ghcr.io/comet-ml/opik/opik-python-backend:latest
@@ -225,6 +242,8 @@ services:
     restart: unless-stopped
     expose:
       - "80"
+    volumes:
+      - ./opik-frontend-default.conf:/etc/nginx/conf.d/default.conf
     depends_on:
       backend:
         condition: service_healthy
