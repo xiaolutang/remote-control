@@ -655,6 +655,11 @@
       "phase": "agent-knowledge",
       "module": "agent",
       "name": "MCP Client 框架：Skill 发现、启停、工具注册与调用中转",
+      "status": "completed",
+      "started_at": "2026-04-24T21:45:00+0800",
+      "completed_at": "2026-04-24T22:20:00+0800",
+      "actual_minutes": 35,
+      "commit": "5abf450",
       "description": "在 Agent 端实现 MCP Client 基础设施：\n1. skill-registry.json 管理（读取/写入/启用/禁用 Skill）\n2. Skill 发现：启动时扫描 skills/ 目录，读取 skill.json 元数据\n3. MCP Server 生命周期管理：启动/停止 MCP Server 子进程\n4. 工具发现：连接 MCP Server 后获取其 tools 列表\n5. 工具注册：将发现的工具汇总，通过 WebSocket 上报给 Server\n6. 工具调用中转：收到 Server 的工具调用请求后，路由到对应的 MCP Server\n7. 内置 knowledge-skill 不走 MCP（直接内嵌），只有外部动态安装的 Skill 走 MCP",
       "verification": "L2",
       "depends_on": [
