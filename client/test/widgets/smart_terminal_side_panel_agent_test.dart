@@ -634,12 +634,11 @@ void main() {
       expect(agentService.conversationIds, ['conv-server-1']);
     });
 
-    testWidgets('panel restores active question and resumes active session',
+    testWidgets('panel restores active question via conversation projection',
         (tester) async {
       final controller = _AgentFakeController();
       final agentService = _FakeAgentSessionService(
         events: const [],
-        onResumeSession: (_) => const Stream<AgentSessionEvent>.empty(),
         onFetchConversation: (_, __) async => AgentConversationProjection(
           conversationId: 'conv-server-2',
           deviceId: 'device-1',
@@ -691,8 +690,8 @@ void main() {
 
       expect(find.text('Which project?'), findsOneWidget);
       expect(find.text('remote-control'), findsOneWidget);
-      expect(agentService.resumeCount, 1);
-      expect(agentService.resumedSessionIds, ['session-1']);
+      // 不再 resume agent session，而是通过 conversation stream 接收事件
+      expect(agentService.resumeCount, 0);
     });
 
     testWidgets('conversation stream syncs remote question and result',

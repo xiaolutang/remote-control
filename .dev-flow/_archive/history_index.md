@@ -70,3 +70,4 @@
 - S035: Session TTL 24h + 登录清理 stale session + 设备列表在线优先排序 + SSL debug/release 分层
 - S039: Agent 主恢复源、Server 会话时序真相、Client 四层终端模型、exclusive/shared terminal mode、Desktop Agent 恢复链统一状态机
 - S043: Server 作为 terminal-bound Agent conversation 权威源；手机端只做同 conversation 视图/输入端；terminal close 销毁 conversation
+- R042 归档: Opik LLM 可观测性集成 + Agent 错误体验修复 + SSE 重连/性能收敛。全部 52 任务完成。

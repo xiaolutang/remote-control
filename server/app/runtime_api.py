@@ -1715,6 +1715,7 @@ class AgentConversationProjection(BaseModel):
     terminal_id: str
     status: str
     next_event_index: int
+    truncation_epoch: int = 0
     active_session_id: Optional[str] = None
     events: list[AgentConversationEventItem]
 
@@ -1823,7 +1824,7 @@ def _agent_conversation_event_item(event: dict) -> AgentConversationEventItem:
     return AgentConversationEventItem(
         event_index=int(event.get("event_index", 0)),
         event_id=event.get("event_id", ""),
-        type=event.get("event_type", ""),
+        type=event.get("event_type") or event.get("type") or "",
         role=event.get("role", ""),
         session_id=event.get("session_id"),
         question_id=event.get("question_id"),
@@ -1851,6 +1852,39 @@ async def _publish_conversation_stream_event(
     )
     for queue in subscribers:
         await queue.put(event)
+
+
+async def _append_and_publish_conversation_event(
+    *,
+    user_id: str,
+    device_id: str,
+    terminal_id: str,
+    event_type: str,
+    role: str,
+    payload: dict,
+    session_id: Optional[str] = None,
+    question_id: Optional[str] = None,
+    client_event_id: Optional[str] = None,
+) -> dict:
+    event = await append_agent_conversation_event(
+        user_id,
+        device_id,
+        terminal_id,
+        event_type=event_type,
+        role=role,
+        payload=payload,
+        session_id=session_id,
+        question_id=question_id,
+        client_event_id=client_event_id,
+    )
+    if event:
+        await _publish_conversation_stream_event(
+            user_id,
+            device_id,
+            terminal_id,
+            event,
+        )
+    return event
 
 
 async def _close_terminal_agent_conversation(
@@ -1990,6 +2024,7 @@ async def _build_agent_conversation_projection(
         terminal_id=terminal_id,
         status=conversation["status"],
         next_event_index=next_event_index,
+        truncation_epoch=conversation.get("truncation_epoch", 0) or 0,
         active_session_id=active_session.id if active_session else None,
         events=event_items,
     )
@@ -2029,6 +2064,7 @@ async def stream_terminal_agent_conversation(
         queue: asyncio.Queue = asyncio.Queue()
         _conversation_stream_subscribers.setdefault(stream_key, set()).add(queue)
         last_index = int(after_index)
+        last_epoch: Optional[int] = None
         try:
             while True:
                 if await http_request.is_disconnected():
@@ -2039,6 +2075,39 @@ async def stream_terminal_agent_conversation(
                     terminal_id=terminal_id,
                     after_index=last_index,
                 )
+
+                # 截断检测：epoch 变化说明其他端截断了事件
+                current_epoch = projection.truncation_epoch
+                if last_epoch is not None and current_epoch != last_epoch:
+                    # 发送全量重置：先发 conversation_reset，再发全部当前事件
+                    reset_event = {
+                        "event_index": -1,
+                        "event_id": f"reset-{uuid4().hex[:8]}",
+                        "event_type": "conversation_reset",
+                        "role": "system",
+                        "payload": {},
+                    }
+                    yield (
+                        "event: conversation_event\n"
+                        f"data: {_agent_conversation_event_item(reset_event).model_dump_json()}\n\n"
+                    )
+                    full_projection = await _build_agent_conversation_projection(
+                        user_id=user_id,
+                        device_id=device_id,
+                        terminal_id=terminal_id,
+                    )
+                    for event in full_projection.events:
+                        last_index = max(last_index, event.event_index)
+                        yield (
+                            "event: conversation_event\n"
+                            f"data: {event.model_dump_json()}\n\n"
+                        )
+                    last_epoch = current_epoch
+                    continue
+
+                if last_epoch is None:
+                    last_epoch = current_epoch
+
                 if projection.events:
                     for event in projection.events:
                         last_index = max(last_index, event.event_index)
@@ -2172,6 +2241,10 @@ async def run_terminal_agent_session(
             user_id, device_id, terminal_id,
             after_index=request.truncate_after_index,
         )
+        # epoch 递增已由 truncate_agent_conversation_events 完成，
+        # 其他端 SSE 通过 DB poll 的 epoch 检测自动触发 conversation_reset + 全量快照。
+        # 不再通过 pub/sub 发送 truncated 事件——该机制与 epoch 检测重复，
+        # 且两者同时触发会导致客户端双重清空。
 
     history_events = await list_agent_conversation_events(
         user_id,
@@ -2181,10 +2254,10 @@ async def run_terminal_agent_session(
     message_history = _build_agent_message_history_from_events(history_events)
 
     try:
-        user_event = await append_agent_conversation_event(
-            user_id,
-            device_id,
-            terminal_id,
+        user_event = await _append_and_publish_conversation_event(
+            user_id=user_id,
+            device_id=device_id,
+            terminal_id=terminal_id,
             event_type="user_intent",
             role="user",
             payload={
@@ -2500,10 +2573,10 @@ async def respond_to_terminal_agent(
         )
 
     try:
-        answer_event = await append_agent_conversation_event(
-            user_id,
-            device_id,
-            terminal_id,
+        answer_event = await _append_and_publish_conversation_event(
+            user_id=user_id,
+            device_id=device_id,
+            terminal_id=terminal_id,
             event_type="answer",
             role="user",
             payload={"text": answer},

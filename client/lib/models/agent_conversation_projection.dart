@@ -7,6 +7,7 @@ class AgentConversationProjection {
     required this.events,
     this.conversationId,
     this.activeSessionId,
+    this.truncationEpoch = 0,
   });
 
   final String deviceId;
@@ -16,6 +17,7 @@ class AgentConversationProjection {
   final String? conversationId;
   final String? activeSessionId;
   final List<AgentConversationEventItem> events;
+  final int truncationEpoch;
 
   factory AgentConversationProjection.fromJson(Map<String, dynamic> json) {
     return AgentConversationProjection(
@@ -25,6 +27,7 @@ class AgentConversationProjection {
       nextEventIndex: json['next_event_index'] as int? ?? 0,
       conversationId: (json['conversation_id'] as String?)?.trim(),
       activeSessionId: (json['active_session_id'] as String?)?.trim(),
+      truncationEpoch: json['truncation_epoch'] as int? ?? 0,
       events: (json['events'] as List<dynamic>? ?? const [])
           .whereType<Map<String, dynamic>>()
           .map(AgentConversationEventItem.fromJson)
@@ -39,6 +42,7 @@ class AgentConversationProjection {
         nextEventIndex = 0,
         conversationId = null,
         activeSessionId = null,
+        truncationEpoch = 0,
         events = const [];
 }
 

@@ -217,6 +217,21 @@ class _SmartTerminalSidePanelContentState
     ));
   }
 
+  void _resetAgentRenderState({bool resetDraft = false}) {
+    _agentState = AgentPanelState.idle;
+    _traces.clear();
+    _currentQuestion = null;
+    _agentResult = null;
+    _agentError = null;
+    _activeSessionId = null;
+    _multiSelectChosen.clear();
+    _agentIntent = null;
+    _agentAnswers.clear();
+    if (resetDraft) {
+      _draft = _defaultDraft();
+    }
+  }
+
   void _resetPanelStateForScopeChange() {
     _eventSubscription?.cancel();
     _eventSubscription = null;
@@ -231,16 +246,8 @@ class _SmartTerminalSidePanelContentState
     _fallbackReason = null;
     _executing = false;
 
-    _agentState = AgentPanelState.idle;
-    _traces.clear();
-    _currentQuestion = null;
-    _agentResult = null;
-    _agentError = null;
-    _activeSessionId = null;
-    _multiSelectChosen.clear();
-    _agentIntent = null;
+    _resetAgentRenderState();
     _agentHistory.clear();
-    _agentAnswers.clear();
     _serverConversationEvents.clear();
     _agentConversationId = null;
     _nextConversationEventIndex = 0;
@@ -263,16 +270,8 @@ class _SmartTerminalSidePanelContentState
     _fallbackReason = null;
     _executing = false;
     _draft = _defaultDraft();
-    _agentState = AgentPanelState.idle;
-    _traces.clear();
-    _currentQuestion = null;
-    _agentResult = null;
-    _agentError = null;
-    _activeSessionId = null;
-    _multiSelectChosen.clear();
-    _agentIntent = null;
+    _resetAgentRenderState();
     _agentHistory.clear();
-    _agentAnswers.clear();
     _serverConversationEvents.clear();
     _agentConversationId = null;
     _nextConversationEventIndex = 0;
@@ -319,21 +318,17 @@ class _SmartTerminalSidePanelContentState
       });
       _scheduleScrollToLatest();
 
-      final activeSessionId = projection.activeSessionId;
-      if (activeSessionId != null && activeSessionId.isNotEmpty) {
-        _resumeAgentSession(
-          controller: controller,
-          deviceId: deviceId,
-          terminalId: terminalId,
-          sessionId: activeSessionId,
-        );
-      } else {
-        _startConversationStream(
-          controller: controller,
-          deviceId: deviceId,
-          terminalId: terminalId,
-        );
-      }
+      // 始终使用 conversation stream 接收事件，不 resume agent session。
+      // 原因：agent session 的 event_queue 是单消费者模式，
+      // 如果两端同时订阅同一个 session，事件会被随机分配给某一端，
+      // 导致另一端丢失事件（如 error），卡在 exploring 状态无法输入。
+      // conversation stream 通过 DB 轮询 + pub/sub 广播，
+      // 所有订阅者都能收到完整事件集。
+      _startConversationStream(
+        controller: controller,
+        deviceId: deviceId,
+        terminalId: terminalId,
+      );
     } on AgentSessionException catch (error) {
       if (!mounted || requestSerial != _projectionLoadSerial) return;
       setState(() {
@@ -379,6 +374,16 @@ class _SmartTerminalSidePanelContentState
       final reason =
           (event.payload['reason']?.toString() ?? 'terminal_closed').trim();
       _markTerminalConversationClosed('当前 terminal 已关闭，智能对话已结束。($reason)');
+      return;
+    }
+
+    // 服务端截断/重置通知：其他端编辑/重发时，全量清空本地渲染状态
+    // 后续到达的事件会通过 _deriveAgentRenderState 重建完整状态
+    if (event.type == 'conversation_reset') {
+      _serverConversationEvents.clear();
+      _agentHistory.clear();
+      _nextConversationEventIndex = 0;
+      _resetAgentRenderState(resetDraft: true);
       return;
     }
 
@@ -755,54 +760,6 @@ class _SmartTerminalSidePanelContentState
     }
   }
 
-  void _resumeAgentSession({
-    required RuntimeSelectionController controller,
-    required String deviceId,
-    required String terminalId,
-    required String sessionId,
-  }) {
-    final service = _agentSessionService(controller.serverUrl);
-    final eventStream = service.resumeSession(
-      deviceId: deviceId,
-      terminalId: terminalId,
-      sessionId: sessionId,
-      token: controller.token,
-    );
-
-    _conversationStreamSubscription?.cancel();
-    _conversationStreamSubscription = null;
-    _eventSubscription?.cancel();
-    _eventSubscription = eventStream.listen(
-      (event) {
-        if (!mounted) return;
-        _handleAgentEvent(event, controller: controller);
-      },
-      onError: (Object error) {
-        if (!mounted) return;
-        setState(() {
-          _agentState = AgentPanelState.error;
-          _agentError = AgentErrorEvent(
-            code: 'RESUME_FAILED',
-            message: '恢复智能会话失败：$error',
-          );
-        });
-      },
-      onDone: () {
-        if (!mounted) return;
-        if (_agentState == AgentPanelState.exploring) {
-          setState(() {
-            _agentState = AgentPanelState.error;
-            _agentError = const AgentErrorEvent(
-              code: 'STREAM_CLOSED',
-              message: 'Agent 会话意外关闭',
-            );
-          });
-        }
-        _restartConversationStreamForCurrentScope();
-      },
-    );
-  }
-
   String? _currentTerminalId() {
     try {
       final service = context.read<WebSocketService>();
@@ -1168,12 +1125,49 @@ class _SmartTerminalSidePanelContentState
       } on ProviderNotFoundException {
         return;
       }
+      // 截断当前失败轮次的事件，避免重试后在其他设备上产生重复消息。
+      final truncateAfterIndex = _findTruncateAfterIndexForCurrentTurn();
       setState(() {
         _agentState = AgentPanelState.idle;
         _agentError = null;
       });
-      _startAgentSession(intent: _agentIntent!, controller: controller);
+      _startAgentSession(
+        intent: _agentIntent!,
+        controller: controller,
+        truncateAfterIndex: truncateAfterIndex,
+      );
     }
+  }
+
+  /// 找到当前轮次起始 user_intent 的前一个事件索引，用于截断。
+  /// 如果当前轮次是第一条，返回 -1。
+  int _findTruncateAfterIndexForCurrentTurn() {
+    final cutPoint = _findUserIntentEventListIndex();
+    if (cutPoint == null || cutPoint == 0) return -1;
+    return _serverConversationEvents[cutPoint - 1].eventIndex;
+  }
+
+  int? _findUserIntentEventListIndex({int? historyIndex}) {
+    if (historyIndex == null) {
+      for (int i = _serverConversationEvents.length - 1; i >= 0; i--) {
+        if (_serverConversationEvents[i].type == 'user_intent') {
+          return i;
+        }
+      }
+      return null;
+    }
+
+    int intentCount = 0;
+    for (int i = 0; i < _serverConversationEvents.length; i++) {
+      if (_serverConversationEvents[i].type != 'user_intent') {
+        continue;
+      }
+      if (intentCount == historyIndex) {
+        return i;
+      }
+      intentCount++;
+    }
+    return null;
   }
 
   // ============================================================
@@ -1404,8 +1398,7 @@ class _SmartTerminalSidePanelContentState
                 _agentState == AgentPanelState.idle,
           ),
           const SizedBox(height: 8),
-          if (_agentAnswers.isNotEmpty &&
-              _agentState != AgentPanelState.asking)
+          if (_agentAnswers.isNotEmpty && _agentState != AgentPanelState.asking)
             _buildAnswersSection(_agentAnswers, colorScheme),
         ],
 
@@ -2522,17 +2515,7 @@ class _SmartTerminalSidePanelContentState
       _nextConversationEventIndex = 0;
       return;
     }
-    int intentCount = 0;
-    int? cutPoint;
-    for (int i = 0; i < _serverConversationEvents.length; i++) {
-      if (_serverConversationEvents[i].type == 'user_intent') {
-        if (intentCount == historyIndex) {
-          cutPoint = i;
-          break;
-        }
-        intentCount++;
-      }
-    }
+    final cutPoint = _findUserIntentEventListIndex(historyIndex: historyIndex);
     if (cutPoint != null) {
       _serverConversationEvents.removeRange(
         cutPoint,
@@ -2569,14 +2552,7 @@ class _SmartTerminalSidePanelContentState
       _truncateConversationEvents(historyIndex);
 
       // 清除当前活跃会话状态
-      _agentState = AgentPanelState.idle;
-      _agentIntent = null;
-      _agentResult = null;
-      _agentError = null;
-      _activeSessionId = null;
-      _traces.clear();
-      _currentQuestion = null;
-      _agentAnswers.clear();
+      _resetAgentRenderState();
     });
 
     // 计算服务端截断索引：保留的最后一条事件的 eventIndex

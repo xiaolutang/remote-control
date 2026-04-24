@@ -273,6 +273,14 @@ class Database:
                 ON agent_conversation_events(conversation_id, question_id)
                 WHERE event_type = 'answer' AND question_id IS NOT NULL
             """)
+            # 增量迁移：truncation_epoch 用于跨端截断检测
+            try:
+                await db.execute(
+                    "ALTER TABLE agent_conversations "
+                    "ADD COLUMN truncation_epoch INTEGER DEFAULT 0"
+                )
+            except Exception:
+                pass  # 列已存在，忽略
             await db.commit()
             logger.info(f"Database initialized: {self.db_path}")
 
@@ -1000,20 +1008,33 @@ class Database:
         *,
         after_index: int,
     ) -> int:
-        """删除 event_index > after_index 的所有事件，返回删除行数。"""
+        """删除 event_index > after_index 的所有事件，返回删除行数。同时递增 truncation_epoch。"""
         conversation = await self.get_agent_conversation(user_id, device_id, terminal_id)
         if conversation is None or conversation["status"] != "active":
             return 0
+        conversation_id = conversation["conversation_id"]
         async with self._connect() as db:
             cursor = await db.execute(
                 """
                 DELETE FROM agent_conversation_events
                 WHERE conversation_id = ? AND event_index > ?
                 """,
-                (conversation["conversation_id"], int(after_index)),
+                (conversation_id, int(after_index)),
             )
+            deleted = cursor.rowcount
+            if deleted > 0:
+                now = datetime.now(timezone.utc).isoformat()
+                await db.execute(
+                    """
+                    UPDATE agent_conversations
+                    SET truncation_epoch = COALESCE(truncation_epoch, 0) + 1,
+                        updated_at = ?
+                    WHERE conversation_id = ?
+                    """,
+                    (now, conversation_id),
+                )
             await db.commit()
-            return cursor.rowcount
+            return deleted
 
     async def close_agent_conversation(
         self,
