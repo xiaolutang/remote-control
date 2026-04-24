@@ -584,7 +584,6 @@
       "actual_minutes": 30,
       "commit": "30e0892",
       "depends_on": [],
-      "status": "pending",
       "priority": "P1",
       "acceptance_criteria": [
         "Agent 收到 lookup_knowledge WebSocket 消息后能正确检索并返回知识内容",
@@ -665,7 +664,6 @@
       "depends_on": [
         "B091"
       ],
-      "status": "pending",
       "priority": "P1",
       "acceptance_criteria": [
         "skill-registry.json 能正确读写，支持 enabled/disabled 状态",
@@ -771,7 +769,6 @@
         "B089",
         "B092"
       ],
-      "status": "pending",
       "priority": "P1",
       "acceptance_criteria": [
         "Server 能接收并存储 Agent 上报的工具列表",
@@ -873,7 +870,6 @@
         "B089",
         "B093"
       ],
-      "status": "pending",
       "priority": "P2",
       "acceptance_criteria": [
         "SYSTEM_PROMPT 包含 lookup_knowledge 工具描述",
@@ -928,7 +924,6 @@
         "B091",
         "B092"
       ],
-      "status": "pending",
       "priority": "P2",
       "acceptance_criteria": [
         "知识检索关键词匹配测试通过（命中/未命中/空目录）",
@@ -976,7 +971,6 @@
         "S085",
         "S086"
       ],
-      "status": "pending",
       "priority": "P3",
       "acceptance_criteria": [
         "所有 R043 任务标记为 completed",
