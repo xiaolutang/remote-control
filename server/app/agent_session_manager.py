@@ -340,6 +340,7 @@ class AgentSessionManager:
         session: AgentSession,
         execute_command_fn,
         ask_user_fn_override=None,
+        lookup_knowledge_fn=None,
     ) -> None:
         """启动 Agent 运行循环。
 
@@ -347,9 +348,10 @@ class AgentSessionManager:
             session: AgentSession 实例
             execute_command_fn: (session_id, command, cwd) -> ExecuteCommandResult
             ask_user_fn_override: 可选覆盖 ask_user 回调
+            lookup_knowledge_fn: 可选知识检索回调 (query) -> str
         """
         task = asyncio.create_task(
-            self._run_agent_loop(session, execute_command_fn, ask_user_fn_override)
+            self._run_agent_loop(session, execute_command_fn, ask_user_fn_override, lookup_knowledge_fn)
         )
         session._agent_task = task
 
@@ -436,6 +438,7 @@ class AgentSessionManager:
         session: AgentSession,
         execute_command_fn,
         ask_user_fn_override=None,
+        lookup_knowledge_fn=None,
     ) -> None:
         """运行 Agent 主循环，将事件推入 event_queue。"""
         try:
@@ -543,6 +546,7 @@ class AgentSessionManager:
                 ask_user_fn=ask_fn,
                 project_aliases=known_aliases,
                 message_history=session.message_history,
+                lookup_knowledge_fn=lookup_knowledge_fn,
             )
 
             # 保存 Agent 发现的别名
