@@ -63,6 +63,7 @@ from app.ws_agent import (
     request_agent_close_terminal_with_ack,
     request_agent_create_terminal,
     send_execute_command,
+    send_lookup_knowledge,
 )
 from app.ws_client import get_view_counts
 from app.agent_session_manager import (
@@ -2343,7 +2344,13 @@ async def run_terminal_agent_session(
             cwd=cwd,
         )
 
-    await manager.start_agent(agent_session, _execute_cmd_fn)
+    async def _lookup_knowledge_fn(query):
+        return await send_lookup_knowledge(
+            session_id=session["session_id"],
+            query=query,
+        )
+
+    await manager.start_agent(agent_session, _execute_cmd_fn, lookup_knowledge_fn=_lookup_knowledge_fn)
 
     return StreamingResponse(
         _agent_sse_response_wrapper(manager, agent_session),

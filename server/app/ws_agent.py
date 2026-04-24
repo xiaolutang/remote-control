@@ -48,6 +48,10 @@ pending_terminal_snapshots: dict[tuple[str, str], asyncio.Future] = {}
 # B078: execute_command pending futures
 pending_execute_commands: dict[str, asyncio.Future] = {}  # request_id -> Future
 
+# B093: lookup_knowledge / tool_call pending futures
+pending_lookup_knowledge: dict[str, asyncio.Future] = {}  # request_id -> Future
+pending_tool_calls: dict[str, asyncio.Future] = {}  # call_id -> Future
+
 # B078: 频率限制追踪（每 session_id 的请求时间戳列表）
 _execute_command_rate_tracker: dict[str, list[float]] = defaultdict(list)
 
@@ -143,6 +147,8 @@ class AgentConnection:
         self.last_heartbeat = datetime.now(timezone.utc)
         self.connected_at = datetime.now(timezone.utc)
         self.aes_key: bytes | None = None  # 该连接的 AES 会话密钥
+        # B093: Agent 上报的工具目录快照
+        self.tool_catalog: list[dict] = []  # [{"name", "kind", "description", "parameters", ...}]
 
     async def send(self, message: dict):
         """发送消息到 Agent（自动加密）"""
@@ -442,6 +448,29 @@ async def _handle_agent_message(websocket, session_id: str, message: dict):
 
     elif msg_type == "execute_command_result":
         _handle_execute_command_result(message)
+
+    elif msg_type == "tool_catalog_snapshot":
+        # B093: Agent 上报工具目录
+        tools = message.get("tools", [])
+        if isinstance(tools, list):
+            agent_conn = get_agent_connection(session_id)
+            if agent_conn:
+                agent_conn.tool_catalog = tools
+                logger.info("Agent %s 上报工具目录: %d 个工具", session_id, len(tools))
+
+    elif msg_type == "lookup_knowledge_result":
+        # B093: lookup_knowledge 结果回流
+        request_id = message.get("request_id", "")
+        future = pending_lookup_knowledge.pop(request_id, None)
+        if future and not future.done():
+            future.set_result(message.get("result", ""))
+
+    elif msg_type == "tool_result":
+        # B093: 动态工具调用结果回流
+        call_id = message.get("call_id", "")
+        future = pending_tool_calls.pop(call_id, None)
+        if future and not future.done():
+            future.set_result(message)
 
     elif msg_type == "agent_metadata":
         platform_name = (message.get("platform") or "").strip()
@@ -1018,3 +1047,81 @@ async def send_execute_command(
         ) from exc
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# B093: lookup_knowledge / tool_call 通过 WebSocket 发送到 Agent
+# ---------------------------------------------------------------------------
+
+async def send_lookup_knowledge(
+    session_id: str,
+    query: str,
+    timeout: int = 15,
+) -> str:
+    """向 Agent 发送 lookup_knowledge 请求并等待结果。
+
+    Returns:
+        知识检索结果文本
+    """
+    agent_conn = get_agent_connection(session_id)
+    if not agent_conn:
+        return ""  # Agent 离线，返回空（不阻塞）
+
+    request_id = uuid4().hex
+    loop = asyncio.get_running_loop()
+    future: asyncio.Future = loop.create_future()
+    pending_lookup_knowledge[request_id] = future
+
+    try:
+        await agent_conn.send({
+            "type": "lookup_knowledge",
+            "request_id": request_id,
+            "query": query,
+        })
+        result = await asyncio.wait_for(future, timeout=timeout)
+        return result
+    except asyncio.TimeoutError:
+        pending_lookup_knowledge.pop(request_id, None)
+        logger.warning("lookup_knowledge 超时: session=%s query=%s", session_id, query[:50])
+        return ""
+    except Exception as e:
+        pending_lookup_knowledge.pop(request_id, None)
+        logger.warning("lookup_knowledge 失败: %s", e)
+        return ""
+
+
+async def send_tool_call(
+    session_id: str,
+    call_id: str,
+    tool_name: str,
+    arguments: dict,
+    timeout: int = 30,
+) -> dict:
+    """向 Agent 发送动态工具调用请求并等待结果。
+
+    Returns:
+        tool_result dict
+    """
+    agent_conn = get_agent_connection(session_id)
+    if not agent_conn:
+        return {"status": "error", "error": "device offline"}
+
+    loop = asyncio.get_running_loop()
+    future: asyncio.Future = loop.create_future()
+    pending_tool_calls[call_id] = future
+
+    try:
+        await agent_conn.send({
+            "type": "tool_call",
+            "call_id": call_id,
+            "tool_name": tool_name,
+            "arguments": arguments,
+        })
+        result = await asyncio.wait_for(future, timeout=timeout)
+        return result
+    except asyncio.TimeoutError:
+        pending_tool_calls.pop(call_id, None)
+        return {"status": "error", "error": "tool_call timeout"}
+    except Exception as e:
+        pending_tool_calls.pop(call_id, None)
+        return {"status": "error", "error": str(e)}
