@@ -28,6 +28,10 @@ from app.terminal_agent import AgentResult, AgentUserFacingError
 
 logger = logging.getLogger(__name__)
 
+# trace 事件中命令输出预览的最大字符数
+_MAX_STDOUT_PREVIEW = 1000
+_MAX_STDERR_PREVIEW = 200
+
 
 # ---------------------------------------------------------------------------
 # 会话超时 & 频率限制常量
@@ -125,6 +129,7 @@ class AgentSession:
     created_at: datetime
     last_active_at: datetime
     terminal_id: Optional[str] = None
+    terminal_cwd: Optional[str] = None
     conversation_id: Optional[str] = None
     pending_question_id: Optional[str] = None
     message_history: Optional[list[Any]] = None
@@ -288,6 +293,7 @@ class AgentSessionManager:
         user_id: str,
         session_id: Optional[str] = None,
         terminal_id: Optional[str] = None,
+        terminal_cwd: Optional[str] = None,
         conversation_id: Optional[str] = None,
         message_history: Optional[list[Any]] = None,
         check_rate_limit: bool = True,
@@ -321,6 +327,7 @@ class AgentSessionManager:
             created_at=now,
             last_active_at=now,
             terminal_id=terminal_id,
+            terminal_cwd=terminal_cwd,
             conversation_id=conversation_id,
             message_history=message_history,
         )
@@ -437,6 +444,8 @@ class AgentSessionManager:
 
             async def _execute_command_callback(session_id, command, cwd=None):
                 """Agent 执行命令回调：推送 trace 事件。"""
+                # 默认使用终端 CWD
+                effective_cwd = cwd or session.terminal_cwd
                 # 推送执行前的 trace
                 await self._emit_session_event(
                     session,
@@ -451,12 +460,18 @@ class AgentSessionManager:
                 session.state = AgentSessionState.EXPLORING
 
                 # 调用实际的 execute_command
-                result = await execute_command_fn(session.device_id, command, cwd=cwd)
+                result = await execute_command_fn(session.device_id, command, cwd=effective_cwd)
 
                 # 推送执行后的 trace
-                output_preview = result.stdout[:200] if result and result.stdout else ""
+                output_preview = (
+                    result.stdout[:_MAX_STDOUT_PREVIEW]
+                    if result and result.stdout
+                    else ""
+                )
                 if result and result.stderr:
-                    output_preview += f" [stderr: {result.stderr[:100]}]"
+                    output_preview += (
+                        f" [stderr: {result.stderr[:_MAX_STDERR_PREVIEW]}]"
+                    )
 
                 await self._emit_session_event(
                     session,

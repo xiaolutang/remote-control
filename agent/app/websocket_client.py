@@ -720,6 +720,8 @@ class WebSocketClient:
         command = data.get("command", "")
         timeout = int(data.get("timeout") or DEFAULT_COMMAND_TIMEOUT)
         cwd = data.get("cwd") or None
+        if cwd:
+            cwd = os.path.expanduser(cwd)
 
         # Agent 端双重白名单验证
         valid, reason = validate_command(command)

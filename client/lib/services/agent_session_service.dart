@@ -134,6 +134,89 @@ class AgentSessionService {
     return controller.stream;
   }
 
+  /// 弹性对话事件流：自动重连，带指数退避。
+  ///
+  /// 对比 [streamConversation]，此方法返回的 Stream 在底层连接断开时会
+  /// 自动重连，无需调用方管理重试逻辑。收到 `closed` 事件或超过最大重试
+  /// 次数后流正常结束。
+  Stream<AgentConversationEventItem> streamConversationResilient({
+    required String deviceId,
+    String? terminalId,
+    required String token,
+    int afterIndex = -1,
+    int maxReconnectAttempts = 5,
+  }) {
+    final outerController = StreamController<AgentConversationEventItem>();
+
+    var reconnectAttempts = 0;
+    var currentIndex = afterIndex;
+    StreamSubscription<AgentConversationEventItem>? innerSub;
+    Timer? reconnectTimer;
+
+    void dispose() {
+      innerSub?.cancel();
+      innerSub = null;
+      reconnectTimer?.cancel();
+      reconnectTimer = null;
+    }
+
+    void connect() {
+      innerSub = streamConversation(
+        deviceId: deviceId,
+        terminalId: terminalId,
+        token: token,
+        afterIndex: currentIndex,
+      ).listen(
+        (event) {
+          currentIndex = event.eventIndex;
+          reconnectAttempts = 0;
+          outerController.add(event);
+          if (event.type == 'closed') {
+            dispose();
+            if (!outerController.isClosed) outerController.close();
+          }
+        },
+        onError: (Object _) {
+          innerSub = null;
+          if (outerController.isClosed) return;
+          // scheduleReconnect 声明在 connect 之后，通过 Timer 间接调用
+          reconnectTimer?.cancel();
+          reconnectAttempts++;
+          if (reconnectAttempts > maxReconnectAttempts) {
+            if (!outerController.isClosed) outerController.close();
+            return;
+          }
+          final delay = Duration(
+            seconds: 2 * (1 << (reconnectAttempts - 1).clamp(0, 4)),
+          );
+          reconnectTimer = Timer(delay, connect);
+        },
+        onDone: () {
+          innerSub = null;
+          if (outerController.isClosed) return;
+          reconnectTimer?.cancel();
+          reconnectAttempts++;
+          if (reconnectAttempts > maxReconnectAttempts) {
+            if (!outerController.isClosed) outerController.close();
+            return;
+          }
+          final delay = Duration(
+            seconds: 1 * (1 << (reconnectAttempts - 1).clamp(0, 4)),
+          );
+          reconnectTimer = Timer(delay, connect);
+        },
+      );
+    }
+
+    connect();
+
+    outerController.onCancel = () {
+      dispose();
+    };
+
+    return outerController.stream;
+  }
+
   /// 启动 Agent 会话，返回 SSE 事件流
   ///
   /// 调用 POST /runtime/devices/{deviceId}/assistant/agent/run
@@ -146,6 +229,7 @@ class AgentSessionService {
     required String token,
     String? conversationId,
     String? clientEventId,
+    int? truncateAfterIndex, // -1 = 全部截断，null = 不截断
   }) {
     final controller = StreamController<AgentSessionEvent>();
 
@@ -156,6 +240,8 @@ class AgentSessionService {
           'intent': intent,
           'client_event_id': clientEventId ?? _newClientEventId('run'),
           if (conversationId != null) 'conversation_id': conversationId,
+          if (truncateAfterIndex != null)
+            'truncate_after_index': truncateAfterIndex,
         };
 
         final request = http.Request(

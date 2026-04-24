@@ -200,6 +200,7 @@ class _FakeAgentSessionService extends AgentSessionService {
     required String token,
     String? conversationId,
     String? clientEventId,
+    int? truncateAfterIndex,
   }) {
     runIntents.add(intent);
     conversationIds.add(conversationId);
@@ -770,6 +771,9 @@ void main() {
 
       expect(find.text('远端结果已同步'), findsOneWidget);
       expect(find.text('Agent 正在分析...'), findsNothing);
+      // Q&A interaction should remain visible after result
+      expect(find.text('Which project?'), findsOneWidget);
+      expect(find.text('remote-control'), findsAtLeast(1));
       unawaited(streamController.close());
     });
 

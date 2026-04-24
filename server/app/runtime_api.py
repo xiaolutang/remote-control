@@ -45,6 +45,7 @@ from app.database import (
     save_assistant_planner_run,
     replace_approved_scan_roots,
     replace_pinned_projects,
+    truncate_agent_conversation_events,
 )
 from app.session import (
     create_session_terminal,
@@ -1679,6 +1680,7 @@ class AgentRunRequest(BaseModel):
     session_id: Optional[str] = None
     conversation_id: Optional[str] = None
     client_event_id: Optional[str] = None
+    truncate_after_index: Optional[int] = None
 
 
 class AgentRespondRequest(BaseModel):
@@ -2163,6 +2165,14 @@ async def run_terminal_agent_session(
         )
 
     agent_session_id = request.session_id or uuid4().hex
+
+    # 客户端编辑/重发时，先截断服务端 conversation 事件
+    if request.truncate_after_index is not None:
+        await truncate_agent_conversation_events(
+            user_id, device_id, terminal_id,
+            after_index=request.truncate_after_index,
+        )
+
     history_events = await list_agent_conversation_events(
         user_id,
         device_id,
@@ -2236,8 +2246,11 @@ async def run_terminal_agent_session(
             user_id=user_id,
             session_id=agent_session_id,
             terminal_id=terminal_id,
+            terminal_cwd=_terminal.get("cwd"),
             conversation_id=conversation_id,
             message_history=message_history,
+            # SSE 长会话场景：频率限制在外层 run_terminal_agent_session 已检查，
+            # 内层创建 session 不再重复限流
             check_rate_limit=False,
         )
     except AgentSessionRateLimited as exc:

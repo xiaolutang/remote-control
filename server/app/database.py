@@ -992,6 +992,29 @@ class Database:
             )
             return [self._event_row_to_dict(row) for row in await cursor.fetchall()]
 
+    async def truncate_agent_conversation_events(
+        self,
+        user_id: str,
+        device_id: str,
+        terminal_id: str,
+        *,
+        after_index: int,
+    ) -> int:
+        """删除 event_index > after_index 的所有事件，返回删除行数。"""
+        conversation = await self.get_agent_conversation(user_id, device_id, terminal_id)
+        if conversation is None or conversation["status"] != "active":
+            return 0
+        async with self._connect() as db:
+            cursor = await db.execute(
+                """
+                DELETE FROM agent_conversation_events
+                WHERE conversation_id = ? AND event_index > ?
+                """,
+                (conversation["conversation_id"], int(after_index)),
+            )
+            await db.commit()
+            return cursor.rowcount
+
     async def close_agent_conversation(
         self,
         user_id: str,
@@ -1498,6 +1521,18 @@ async def delete_agent_conversation(
     terminal_id: str,
 ) -> bool:
     return await _get_db().delete_agent_conversation(user_id, device_id, terminal_id)
+
+
+async def truncate_agent_conversation_events(
+    user_id: str,
+    device_id: str,
+    terminal_id: str,
+    *,
+    after_index: int,
+) -> int:
+    return await _get_db().truncate_agent_conversation_events(
+        user_id, device_id, terminal_id, after_index=after_index,
+    )
 
 
 async def cleanup_agent_conversation_tombstones() -> int:
