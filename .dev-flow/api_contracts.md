@@ -55,6 +55,7 @@
 | CONTRACT-047 | TBD | ReAct Agent SSE 事件流与只读探索协议 | B078, B079, B080, F095, B083, F099 |
 | CONTRACT-048 | TBD | Agent usage 汇总 API | B084, F100 |
 | CONTRACT-049 | TBD | Terminal-bound Agent conversation 同步与生命周期 | S083, B085, B086, B087, B088, F101, F102, S084 |
+| CONTRACT-050 | 2256 | 动态工具注册与调用协议 + 信息型问答结果扩展 | B091, B092, B093 |
 
 ## 日志集成
 
@@ -2249,3 +2250,338 @@ terminal close 的对外语义是 conversation 已销毁，不再可恢复。实
 | session 不属于当前 terminal conversation | 404，不泄漏真实 session 归属 |
 | question 已被其他客户端回答 | 409 `question_already_answered` |
 | 重复 `client_event_id` | 200/201 返回原事件，不重复写入 |
+
+---
+
+### CONTRACT-050: Dynamic Tool Registration & Invocation Protocol
+
+| 字段 | 值 |
+|------|---|
+| ID | CONTRACT-050 |
+| 关联任务 | B089, B091, B092, B093, S085, S086, S087 |
+| Scope | Server + Agent |
+| 认证 | Agent WS 已认证 |
+
+#### Core Rule
+
+Agent 设备在启动时和工具变更时，通过 WebSocket 向 Server 上报可用工具目录。Server 在创建 Agent 会话时将动态工具注入 Pydantic AI Agent。所有工具调用（built-in 和 dynamic）均通过现有 WebSocket 链路路由到 Agent 设备执行，结果原路返回。
+
+**Built-in 工具注册权威**：`execute_command`、`ask_user` 由 Server 端始终注册。`lookup_knowledge` 为 R043 新增 built-in，需要 Agent 版本支持（通过 tool_catalog_snapshot 中 kind=builtin 声明确认）；旧 Agent 连接时 Server 不注册 lookup_knowledge，仅提供 execute_command/ask_user。动态工具（`kind: dynamic`）通过 catalog 上报并注入。
+
+**MCP 工具与 execute_command 的本质区别**：动态 MCP 工具不执行 shell 命令，只返回结构化数据（如 git status 文本、文件列表等）。它们不经过 `command_validator` 白名单校验，因为它们根本不接触 PTY/shell。MCP 工具的输入输出通过 MCP 协议约束，由 MCP Server 自行定义 schema。这与 built-in `execute_command` 的白名单+元字符+敏感路径三重防护是不同的安全层。
+
+#### Info-Only Result Extension
+
+R043 新增"信息型问答"旅程：用户询问工具使用方式或知识问题，Agent 调用 `lookup_knowledge` 后直接在 `result` 的 `summary` 中回答，`steps` 为空数组。此形态复用现有 `result` 事件类型，无需新增事件：
+
+```json
+{
+  "event_index": 3,
+  "event_id": "evt-3",
+  "type": "result",
+  "role": "assistant",
+  "session_id": "agent-session-1",
+  "payload": {
+    "summary": "Claude Code 使用技巧：1. 用 claude 启动... 2. ...",
+    "steps": [],
+    "need_confirm": false,
+    "aliases": {},
+    "usage": {...}
+  }
+}
+```
+
+| Rule | Meaning |
+|------|---------|
+| steps=[] allowed | `steps` 为空数组表示纯信息回答，客户端直接展示 summary |
+| No confirmation needed | `need_confirm=false` 时客户端不展示确认/执行按钮 |
+| Same event format | info-only result 与 command result 使用完全相同的事件结构，客户端无需区分事件类型 |
+
+#### Tool Catalog
+
+**Snapshot 上报**（Agent 启动或全量同步时）：
+
+```json
+{
+  "type": "tool_catalog_snapshot",
+  "tools": [
+    {
+      "name": "lookup_knowledge",
+      "kind": "builtin",
+      "description": "检索本地知识文件，返回匹配内容",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string", "description": "检索关键词"}
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "git_helper.status",
+      "kind": "dynamic",
+      "skill": "git_helper",
+      "description": "查看当前 git 仓库状态",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "capability": "read_only"
+    }
+  ]
+}
+```
+
+**Delta 上报**（R043 阶段不实现 delta，仅预留协议格式供后续扩展。当前工具变更通过重启 Agent + 重新上报 snapshot 实现）：
+
+```json
+{
+  "type": "tool_catalog_delta",
+  "added": [],
+  "removed": []
+}
+```
+
+#### Tool Call Payload
+
+Server → Agent（LLM 决定调用工具后）：
+
+```json
+{
+  "type": "tool_call",
+  "call_id": "tc-abc123",
+  "tool_name": "lookup_knowledge",
+  "arguments": {"query": "Claude Code 使用技巧"}
+}
+```
+
+Agent → Server（成功）：
+
+```json
+{
+  "type": "tool_result",
+  "call_id": "tc-abc123",
+  "status": "success",
+  "result": "## Claude Code 使用技巧\n..."
+}
+```
+
+Agent → Server（失败）：
+
+```json
+{
+  "type": "tool_result",
+  "call_id": "tc-abc123",
+  "status": "error",
+  "error": "MCP Server git_helper 已退出",
+  "fallback_hint": "retry_without_tool"
+}
+```
+
+#### Priority & Namespacing
+
+| Rule | Meaning |
+|------|---------|
+| Built-in first | `execute_command`、`ask_user`、`lookup_knowledge` 为 built-in，同名冲突时 built-in 胜出 |
+| Dynamic namespaced | 动态工具必须以 `skill_name.tool_name` 格式上报，禁止覆盖 built-in 命名空间 |
+| Skill isolation | 不同 skill 的工具互不干扰，一个 skill 崩溃不影响其他 skill 和 built-in |
+| No anonymous tools | 所有动态工具必须有 `skill` 字段，用于溯源和生命周期管理 |
+| Parameters required | 所有工具（built-in 和 dynamic）必须携带 `parameters` JSON Schema，用于 Server 端参数校验和 Pydantic AI 签名注册 |
+
+#### Capability Boundary
+
+本阶段动态工具能力限定为**只读/信息型**：
+
+| Capability | Meaning | 当前阶段 |
+|------------|---------|----------|
+| `read_only` | 只读命令，不修改文件系统或系统状态 | **允许** |
+| `info_only` | 纯信息查询，无副作用 | **允许** |
+| `write` | 可能修改文件系统 | **禁止** |
+| `network` | 可能发起外部网络请求 | **禁止** |
+| `execute` | 可能执行任意命令 | **禁止** |
+
+**信任模型**：MCP Skill 由用户在 Agent 设备本地手工安装（将 skill 文件放入 skills/ 目录并编辑 skill-registry.json），属于受信扩展。`capability` 字段仅用于 Server 端注册筛选和 UI 展示，不作为运行时安全边界。真正的命令安全由 built-in `execute_command` 的 `command_validator` 白名单保障。动态 MCP 工具不执行 shell 命令，只返回结构化数据。
+
+| Rule | Meaning |
+|------|---------|
+| Phase restriction | R043 阶段只允许 `read_only` 和 `info_only` capability 的动态工具注册 |
+| Reject on registration | Server 收到 `capability: write/network/execute` 的工具时，拒绝注册并返回 warning |
+| Trust boundary | 本地安装 skill 为受信扩展，capability 仅做注册筛选，不做运行时 sandbox |
+| User consent | 当前阶段用户通过手工将 skill 文件放入 Agent 数据目录的 skills/ 下并编辑 skill-registry.json 完成安装；无桌面端 UI |
+| No UI in R043 | R043 不包含客户端 Skill 管理 UI，用户需手工操作 skills/ 目录和 skill-registry.json |
+| No shell execution | 动态 MCP 工具不执行 shell 命令，只返回结构化数据给 LLM |
+| Future extension | 后续需求包可通过 capability metadata + 用户确认门禁扩展写操作工具 |
+| Built-in exempt | `execute_command` 等 built-in 工具不受此限制，遵循现有 command_validator 白名单 |
+
+#### Parameter Validation
+
+| 场景 | 响应 |
+|------|------|
+| 参数类型不匹配 schema | Agent 返回 `tool_result.status=error`，error 包含 "invalid_args" + 具体字段名 |
+| 缺少 required 参数 | Agent 返回 `tool_result.status=error`，error 包含 "invalid_args:missing_required" + 字段名 |
+| Schema 不合法（注册时） | Server 忽略该工具，记录 warning，不阻塞其他工具注册 |
+| Unknown extra params | Agent 忽略多余字段，只提取 schema 中定义的参数 |
+
+#### Tool Result Payload Size
+
+R043 阶段动态工具结果统一为**文本格式**。若 MCP Server 返回结构化数据（JSON 对象/数组），Agent 端负责序列化为文本字符串后再填充 `tool_result.result`。序列化规则：
+
+| MCP 返回类型 | 序列化方式 |
+|-------------|-----------|
+| 纯文本 | 直接使用，无需转换 |
+| JSON 对象/数组 | `json.dumps(data, ensure_ascii=False)` 序列化为字符串 |
+| 其他类型 | `str(data)` 强制转文本 |
+
+此规则保证 `tool_result.result` 始终为 string 类型，Server 端和客户端无需区分动态工具的结果格式。
+
+动态工具返回的 `tool_result.result` 存在大小限制：
+
+| 规则 | 值 |
+|------|---|
+| 单个 tool_result.result 上限 | 64 KB（65536 bytes） |
+| 超出时截断 | Agent 端截断并在末尾追加 `[已截断，原始大小 N bytes]` |
+| WS 帧上限 | WebSocket 单帧上限 1 MB；单个 tool_result.result 远低于此限制，无需 WS 层分片 |
+| Built-in 豁免 | `execute_command`/`ask_user` 不受此限制，遵循现有协议；`lookup_knowledge` 有独立裁剪规则（3 文件/2000 字符） |
+
+截断示例：
+
+```json
+{
+  "type": "tool_result",
+  "call_id": "tc-abc123",
+  "status": "success",
+  "result": "...前 65536 bytes...[已截断，原始大小 131072 bytes]",
+  "truncated": true,
+  "original_size": 131072
+}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `truncated` | 可选 boolean，true 表示已截断 |
+| `original_size` | 可选 int，截断前的原始字节数 |
+
+#### Timeout & Error Semantics
+
+| 场景 | 响应 |
+|------|------|
+| 工具调用超时（默认 30s） | Server 向 LLM 返回 `tool_result.status=error`，不阻塞 Agent 循环 |
+| MCP Server 崩溃 | 该 skill 的 pending calls 返回 error；该 skill 工具在下次 Agent 重启后不再上报 |
+| Agent 断连 | Server 清理该 Agent 的全部动态工具，active sessions 的 pending calls 返回 error |
+| 工具不存在 | Agent 返回 `tool_result.status=error`，error 包含 "tool not found" |
+| 动态工具注册失败（schema 不合法） | Server 忽略该工具，记录 warning，不阻塞其他工具注册 |
+
+#### Agent Disconnect Cleanup
+
+1. Agent WebSocket 断开时，Server 立即将该 Agent 的所有动态工具标记为 stale。
+2. Active Agent sessions 中若有 pending dynamic tool calls，立即返回 timeout error 给 LLM。
+3. 新 Agent session 不再看到已断连 Agent 的工具。
+4. Agent 重连后需重新上报 `tool_catalog_snapshot`。
+
+#### Delta Update Semantics
+
+R043 阶段不实现 `tool_catalog_delta`。工具变更通过 Agent 重启 + 重新上报 `tool_catalog_snapshot` 实现。每次新 Agent session 创建时使用最新的 snapshot。已存在的 active session 继续使用创建时的工具快照，不热更新、不重建。后续需求包可扩展 delta 增量同步。
+
+#### Cold Start & Snapshot Timing
+
+| 场景 | 行为 |
+|------|------|
+| Agent 已连接、snapshot 已到达 | 正常注册 built-in + 动态工具 |
+| Agent 已连接、snapshot 未到达 | Session 仅注册 built-in 工具（execute_command/ask_user），不等待 snapshot；动态工具在该 session 中不可用 |
+| Agent 未连接 | Session 仅注册 built-in 工具，行为与当前 R041 一致 |
+
+规则：**不阻塞、不等待**。Session 创建时使用当前已有 snapshot；若 snapshot 为空则降级为 built-in-only。Agent 后续上报 snapshot 后，新创建的 session 将获得完整工具集。已存在的 active session 不热更新。
+
+#### Trace Boundaries
+
+| Rule | Meaning |
+|------|---------|
+| Unified trace | 动态工具调用产生与 built-in 相同格式的 `trace` 事件，包含 tool_name 和耗时 |
+| Skill attribution | trace 事件的 `tool_name` 包含 skill 前缀（如 `git_helper.status`），便于追踪 |
+| No internal leak | trace 不暴露 MCP Server 内部协议细节，只展示工具名、参数摘要和结果摘要 |
+| Error traceable | 工具调用失败的 trace 必须包含 error category（timeout / crash / not_found / invalid_args） |
+
+#### Mixed-Intent Result Semantics
+
+当 LLM 在同一轮中同时产出知识回答和命令步骤时，`steps` 非空，行为与普通命令结果一致：
+
+| 字段 | 规则 |
+|------|------|
+| `steps` | 非空时包含命令序列，与普通命令结果格式完全一致 |
+| `need_confirm` | 必须为 `true`（有命令就必须确认） |
+| `summary` | 同时包含知识回答摘要和命令说明 |
+| Client rendering | 与现有命令结果渲染逻辑一致：展示 summary + 确认/执行按钮 |
+| Authority | `steps` 为执行权威，summary 为辅助说明 |
+
+不定义新的 result 类型，混合意图就是普通命令结果（summary 中多了知识内容）。
+
+#### Skill Manifest & Registry Schema
+
+**skill.json**（单个 Skill 描述文件，位于 `skills/<skill_name>/skill.json`）：
+
+```json
+{
+  "name": "git_helper",
+  "version": "1.0.0",
+  "description": "Git 仓库辅助工具",
+  "command": "python",
+  "args": ["-m", "git_helper_mcp"],
+  "transport": "stdio",
+  "timeout": 30
+}
+```
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `name` | 是 | Skill 名称，用于 namespaced 工具前缀（`name.tool_name`） |
+| `version` | 是 | 语义化版本号 |
+| `description` | 是 | Skill 用途描述 |
+| `command` | 是 | MCP Server 启动命令 |
+| `args` | 否 | 启动参数列表 |
+| `transport` | 是 | 通信方式，R043 仅支持 `stdio` |
+| `timeout` | 否 | 单次工具调用超时（秒），默认 30 |
+
+**Malformed 判定**：缺少 `name`/`command`/`transport` 任一字段，或 `transport` 不是 `stdio`，视为 malformed，跳过并记录 warning。
+
+**skill-registry.json**（全局注册表，位于 Agent 数据目录下）：
+
+```json
+{
+  "skills": [
+    {"name": "git_helper", "enabled": true},
+    {"name": "code_review", "enabled": false}
+  ]
+}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `skills` | 数组，每项含 `name` 和 `enabled` |
+| 缺失 | 视为空列表（全启用） |
+| 格式损坏 | 视为空列表，记录 warning |
+
+#### Tool Catalog Registration Limits
+
+| 约束 | 值 | 超限处理 |
+|------|---|----------|
+| 最大工具数 | 50（单次 snapshot） | 超出部分忽略，记录 warning |
+| 单工具 description 长度 | 500 字符 | 截断 |
+| 单工具 parameters schema 大小 | 4 KB | 超出拒绝注册该工具 |
+| 单次 snapshot payload 大小 | 256 KB | 超出拒绝整个 snapshot |
+
+#### lookup_knowledge Degradation Matrix
+
+| 场景 | 用户可见行为 | 内部处理 |
+|------|------------|---------|
+| Agent 支持 + 知识命中 | summary 包含知识回答，steps 视意图决定 | 正常调用 lookup_knowledge |
+| Agent 支持 + 知识未命中 | summary 说明"未找到相关知识" + 正常命令/回答 | lookup_knowledge 返回空结果，LLM 继续正常处理 |
+| Agent 不支持（旧版本） | 正常 Agent 行为，无知识增强 | Server 不注册 lookup_knowledge，LLM 不调用 |
+| Snapshot 未到达（冷启动） | 仅 built-in 工具可用 | Session 降级为 built-in-only |
+| Agent 离线 | 无法创建 Agent session | 现有离线提示行为 |
+
+R043 不允许模型在 lookup_knowledge 不可用时自行编造知识内容。
+
+#### Product Boundary: Codex Mapping
+
+`Codex CLI → codex` 映射仅用于知识说明场景（用户问"Codex 怎么用"）。R043 不生成 `codex` 执行命令，不修改架构中"Claude 模式为唯一执行后端"的不变量。如果用户说"用 Codex 打开"，Agent 应解释 Codex CLI 的安装和使用方式，不生成可执行命令步骤。

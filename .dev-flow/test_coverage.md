@@ -2,7 +2,7 @@
 
 > 项目：remote-control
 > 更新时间：2026-04-24
-> 状态：版本 2 规划已对齐；`react-terminal-agent` 为当前执行阶段，`chat-terminal-assistant` 为已落地前置基线
+> 状态：版本 2 规划已对齐；`agent-knowledge-skill-mcp`（R043）为当前活跃需求周期
 
 ## 测试统计
 
@@ -37,6 +37,7 @@
 | **聊天式智能终端助手 (chat-terminal-assistant)** | design, contract, unit, integration, manual, smoke | 前置基线已收口，剩余验收并入当前阶段 | 🔶 |
 | **ReAct 智能体 (react-terminal-agent)** | design, unit, integration, widget, manual, smoke | 执行中 | 🔶 |
 | **Terminal-bound Agent 对话同步 (react-terminal-agent patch)** | contract, unit, integration, widget, e2e, smoke | 已规划 | ⬜ |
+| **Agent 知识增强 (agent-knowledge)** | unit, integration, smoke | 已规划 | ⬜ |
 
 ## 模块覆盖详情
 
@@ -546,3 +547,47 @@
 - [ ] switch terminal 不触发 snapshot 覆盖已有 renderer
 - [ ] reconnect 才进入 recovering
 - [ ] Codex 高频刷新与切换场景内容不再明显丢失
+
+### Agent 知识增强（agent-knowledge phase）
+
+| Module | Task IDs | Test Type | Required Scenarios | Status |
+|--------|----------|-----------|--------------------|--------|
+| Agent prompt 增强 | B089 | unit, integration | SYSTEM_PROMPT 含 lookup_knowledge 描述 + Claude Code 映射 + 信息型问答边界 + lookup_knowledge 跨端集成验证（in S085） | ⬜ |
+| lookup_knowledge 工具 | B091 | unit, smoke | 知识检索命中/未命中/空目录 + 内置文件完整性 + 用户自定义文件 + built-in catalog entry 上报 | ⬜ |
+| MCP Client 框架 | B092 | unit, integration, smoke | Skill 注册表 + MCP Server 生命周期 + 工具调用中转 + snapshot 重启生效 | ⬜ |
+| Server 动态工具注册 | B093 | unit, integration, smoke | 工具注册/注入/路由 + built-in 优先 + 断连清理 + capability 限制 + payload 截断 + 版本前提 | ⬜ |
+| Server 端测试 | S085 | unit, integration, smoke | prompt 增强 + 旅程边界 + 降级 + 动态工具 + 优先级 + 断连 + payload 截断 + 冷启动降级 + 混合意图单轮 + 跨端信息型问答 + client steps=[] 回归 | ⬜ |
+| Agent 端测试 | S086 | unit, integration | 知识检索 + MCP Client + snapshot 重启生效 + malformed 处理 + built-in catalog entry | ⬜ |
+
+#### Agent 知识增强关键测试场景
+
+##### B091 知识检索 smoke
+- [ ] query='Claude Code' 返回使用技巧内容
+- [ ] query='重构' 返回场景建议内容
+- [ ] query='不存在的主题' 返回'未找到相关知识'
+- [ ] 用户自定义文件被正确检索
+- [ ] 禁用知识文件不参与检索
+- [ ] 首次启动 user_knowledge/ 不存在时自动创建空目录
+
+##### B092 MCP Client smoke
+- [ ] Agent 启动时发现 skills/ 目录下已启用 Skill
+- [ ] 启动 MCP Server 子进程并获取工具列表
+- [ ] 工具列表通过 WebSocket 上报给 Server（namespaced）
+- [ ] MCP Server 崩溃不影响 Agent 主进程和内置工具
+- [ ] Agent 重连后重新上报 tool_catalog_snapshot
+- [ ] 首次启动 skills/ 不存在时自动创建空目录
+- [ ] 非 namespaced 工具（无 skill 前缀）被拒绝上报
+- [ ] skill 启用/禁用后下次 Agent 启动时上报更新后的 tool_catalog_snapshot
+
+##### B093 动态工具注册 smoke
+- [ ] Server 接收 tool_catalog_snapshot 后正确存储
+- [ ] 创建 Agent session 时动态工具注入 Pydantic AI
+- [ ] LLM 调用动态工具 → WebSocket 路由到 Agent → 返回结果
+- [ ] Agent 断开后动态工具被清理
+- [ ] capability=write 的工具被拒绝注册
+- [ ] capability=network/execute 的工具被拒绝注册
+- [ ] 非法 schema 工具被忽略并记录 warning
+- [ ] 缺少 required 参数 → 返回 invalid_args
+- [ ] Agent 断连时 pending dynamic tool calls 立即返回 timeout error
+- [ ] 动态工具调用 trace 含 skill attribution
+- [ ] MCP Server 启动失败时跳过并记录 error，不阻塞 Agent 主流程

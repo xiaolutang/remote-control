@@ -404,3 +404,20 @@ Server 不是 terminal 内容真相，但必须是 **会话时序真相**；Agen
 - app cold start recover
 - network lost / restore
 - agent lost / TTL recover / desktop restart
+
+---
+
+## R043 Agent 知识增强约束
+
+### 动态 MCP 工具信任边界
+
+- 动态 MCP 工具不执行 shell 命令，只返回结构化数据，不经过 command_validator
+- R043 阶段只允许 `read_only` 和 `info_only` capability 的动态工具注册
+- built-in 工具（execute_command/ask_user/lookup_knowledge）始终由 Server 定义注册，优先于动态工具
+- Agent 断连后其动态工具立即标记 stale，pending calls 返回 timeout error
+- capability 字段仅做注册筛选，不做运行时 sandbox
+
+### 知识检索约束
+
+- lookup_knowledge 结果裁剪：最多 3 个文件，每文件最多 2000 字符，超长截断标注
+- 知识文件启用/禁用配置变更在下次 Agent 启动时生效（R043 不做热更新）

@@ -127,3 +127,10 @@
 | **Terminal-bound Agent 对话** | **客户端服务端投影接入** | **CONTRACT-049** | **not_applicable** | **completed** | **completed** | **F101: 智能面板进入 terminal 后先加载服务端 conversation projection，按 events 回放本地渲染缓存；run/respond/resume 走 terminal-scoped API，conversation_id 以服务端 fetch/session_created 返回值为准，terminal 切换会清空并重载缓存** |
 | **Terminal-bound Agent 对话** | **双端同步 UI 与关闭清理** | **CONTRACT-049** | **not_applicable** | **completed** | **completed** | **F102: 智能面板在无 active session 时订阅 terminal conversation stream，远端新增的 question/answer/result 会实时同步到当前端；terminal closed 会清空智能对话 UI、展示关闭态并禁用智能输入** |
 | **Terminal-bound Agent 对话** | **全链路验收** | **CONTRACT-049** | **in_progress** | **in_progress** | **pending** | **S084: 服务端集成与 Flutter 定向验证已通过，Android + macOS 本地真机 smoke 进行中，待补手工场景结果与关闭/隔离截图证据** |
+| **Agent 知识增强** | **Agent prompt 增强 Claude Code 知识 + Vibe Coding** | **CONTRACT-050** | **pending** | **completed** | **pending** | **B089: SYSTEM_PROMPT 新增工具知识映射、信息型问答旅程边界、场景化建议规则；前端已支持 steps=[] 展示（现有 AgentResult 渲染逻辑覆盖）** |
+| **Agent 知识增强** | **Agent 端 lookup_knowledge 工具 + 知识文件** | **CONTRACT-050** | **pending** | **not_applicable** | **pending** | **B091: 内置知识文件 + 用户自定义目录 + WebSocket 消息处理 + 关键词匹配** |
+| **Agent 知识增强** | **MCP Client 框架** | **CONTRACT-050** | **pending** | **not_applicable** | **pending** | **B092: Skill 发现/启停、MCP Server 生命周期、工具注册与调用中转、namespaced 上报** |
+| **Agent 知识增强** | **Server 端动态工具注册** | **CONTRACT-050** | **pending** | **not_applicable** | **pending** | **B093: 接收 Agent 工具目录、注入 Pydantic AI、built-in 优先、断连清理、capability 限制** |
+| **Agent 知识增强** | **Server 端测试** | **CONTRACT-050** | **pending** | **not_applicable** | **pending** | **S085: prompt 增强 + 用户旅程边界 + 动态工具注册 + 优先级 + 断连清理测试** |
+| **Agent 知识增强** | **Agent 端测试** | **CONTRACT-050** | **pending** | **not_applicable** | **pending** | **S086: 知识检索 + 内置文件完整性 + MCP Client 生命周期 + snapshot 重启生效测试** |
+| **Agent 知识增强** | **配套产物更新** | **CONTRACT-050** | **pending** | **not_applicable** | **pending** | **S087: test_coverage.md + alignment_checklist.md 更新** |

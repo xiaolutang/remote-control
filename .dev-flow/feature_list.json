@@ -2,8 +2,15 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-23T21:06:00+0800",
-  "status": "idle",
+  "updated_at": "2026-04-24T16:00:00+0800",
+  "status": "in_progress",
+  "active_requirement_cycle": {
+    "id": "R043",
+    "name": "agent-knowledge-skill-mcp",
+    "status": "in_progress",
+    "branch": "feat/R043-agent-knowledge-skill-mcp",
+    "started_at": "2026-04-24"
+  },
   "archived_cycles": [
     {
       "id": "R041",
@@ -33,12 +40,12 @@
     "risk_provider": "local"
   },
   "summary": {
-    "total": 56,
-    "pending": 2,
+    "total": 63,
+    "pending": 7,
     "in_progress": 0,
     "completed": 50,
     "blocked": 0,
-    "cancelled": 4
+    "cancelled": 6
   },
   "project_info": {
     "description": "远程控制终端（Server + Agent + Client）。含反馈系统、日志集成、用户信息、Docker 标准化部署。",
@@ -483,6 +490,475 @@
       "conclusion": "命令规划隔离阶段完成：CommandPlanner provider 隔离、Claude CLI/local_rules fallback 与真机 smoke 已收口。",
       "archived_at": "2026-04-23",
       "archive_file": "_archive/phases/phase_planner-provider-isolation.json"
+    }
+  ],
+  "features": [
+    {
+      "id": "B089",
+      "phase": "agent-knowledge",
+      "module": "server",
+      "title": "Agent SYSTEM_PROMPT 增强：AI 编程启动器 + lookup_knowledge 工具",
+      "name": "Agent SYSTEM_PROMPT 增强：AI 编程启动器 + lookup_knowledge 工具",
+      "description": "在 terminal_agent.py 中：\n1. SYSTEM_PROMPT 重新定位为'AI 编程启动器'：Agent 的核心价值是与用户讨论编程意图，然后将讨论上下文组装成 claude/codex 命令直接执行\n2. 增加 Claude Code → claude / Codex → codex 的命令映射，作为主要执行工具而非知识说明\n3. 增加 lookup_knowledge 工具描述：检索项目知识和 AI 编程技巧，用于丰富生成的命令 prompt\n4. 增加 'which <tool>' 验证工作流规则\n5. 明确用户旅程：讨论意图 → 调用 lookup_knowledge 获取上下文 → 生成 claude/codex 命令\n6. 修改非终端意图处理，允许回答工具使用问题\n7. 注册 lookup_knowledge 工具到 Pydantic AI Agent（回调通过 WebSocket 转发到 Agent 设备）",
+      "verification": "L2",
+      "depends_on": [],
+      "status": "pending",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "SYSTEM_PROMPT 定位为 AI 编程启动器：核心工作是帮用户将编程意图转化为 claude/codex 命令",
+        "SYSTEM_PROMPT 包含 lookup_knowledge 工具的使用说明",
+        "SYSTEM_PROMPT 包含 Claude Code → claude / Codex → codex 命令映射（可直接执行）",
+        "SYSTEM_PROMPT 包含 which 验证工作流规则",
+        "明确定义用户旅程：讨论意图 → 知识检索 → 生成命令；信息型问答返回 steps=[]",
+        "明确定义 lookup_knowledge 不可用或未命中时的降级规则：未命中时不阻塞命令生成；不可用时回退到现有行为",
+        "明确 built-in 工具优先于动态 MCP 工具，同名冲突时 built-in 胜出",
+        "非终端意图处理允许回答工具使用问题",
+        "Codex CLI 映射仅用于知识说明（info-only），不生成 codex 执行命令",
+        "lookup_knowledge 工具注册到 Pydantic AI Agent",
+        "agent_session_manager 中 lookup_knowledge 回调通过 WebSocket 转发",
+        "客户端已有 steps=[] 的渲染逻辑，无需前端改动；此验收项在 S085 中通过现有测试回归确认"
+      ],
+      "risk_tags": [
+        "state_sync"
+      ],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "SYSTEM_PROMPT 知识增强验证",
+          "scenarios": [
+            "SYSTEM_PROMPT 包含 lookup_knowledge 工具描述",
+            "SYSTEM_PROMPT 包含 Claude Code → claude 精简映射",
+            "SYSTEM_PROMPT 包含信息型问答 vs 工具启动意图边界定义",
+            "SYSTEM_PROMPT 包含 lookup_knowledge 未命中时的降级指令"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "信息型问答 vs 工具启动边界",
+          "scenarios": [
+            "用户问'Claude Code 怎么用' → 触发 lookup_knowledge → summary 回答、steps=[]",
+            "用户说'用 Claude Code 打开 remote-control' → 生成 cd ... && claude 命令序列",
+            "lookup_knowledge 不可用时回退到现有行为，不阻塞",
+            "用户说'帮我看看 Claude Code 怎么用，然后打开 remote-control 项目' → Agent loop: 先调 lookup_knowledge 获取知识 → 在最终 result.summary 中回答知识 → 同时在 result.steps 中生成 cd && claude 命令（单轮 result，知识+命令合并输出）",
+            "用户说'帮我用 Claude 重构代码' → 附带 prompt 建议启动 Claude Code"
+          ]
+        }
+      ],
+      "files": [
+        "server/app/terminal_agent.py",
+        "server/app/agent_session_manager.py"
+      ],
+      "contracts": [
+        "CONTRACT-050"
+      ]
+    },
+    {
+      "id": "B090",
+      "phase": "agent-knowledge",
+      "module": "server",
+      "name": "[cancelled] Planner system_prompt 增强",
+      "description": "cancelled: Planner 模式对本需求无意义。",
+      "verification": "L2",
+      "depends_on": [],
+      "status": "cancelled",
+      "priority": "P1",
+      "acceptance_criteria": [],
+      "risk_tags": [],
+      "files": []
+    },
+    {
+      "id": "B091",
+      "phase": "agent-knowledge",
+      "module": "agent",
+      "name": "Agent 设备端实现 lookup_knowledge 内置工具 + 知识文件",
+      "description": "在 Agent 端实现 lookup_knowledge 工具执行：\n1. 内置 knowledge/ 目录，包含 Claude Code 使用技巧、Vibe Coding 方法论、场景建议等 md 文件\n2. 支持用户自定义知识文件目录（user_knowledge/）\n3. WebSocket 新增 lookup_knowledge 消息处理\n4. 关键词匹配检索逻辑：根据 query 匹配文件名和内容\n5. 工具管理配置：记录哪些知识文件已开启/关闭",
+      "verification": "L2",
+      "depends_on": [],
+      "status": "pending",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "Agent 收到 lookup_knowledge WebSocket 消息后能正确检索并返回知识内容",
+        "内置知识文件包含：Claude Code 使用技巧、Vibe Coding 方法论、4 类场景建议",
+        "支持用户自定义知识文件目录",
+        "关键词匹配能命中相关文件（如 query='Claude Code' 命中 claude_code.md）",
+        "未匹配时返回'未找到相关知识'而非报错",
+        "检索结果裁剪：单次最多返回 3 个匹配文件，每文件最多摘录 2000 字符，超出部分截断并标注'[已截断]'，结果按匹配度排序",
+        "knowledge/ 目录随 Agent 打包，首次启动即存在；user_knowledge/ 默认路径为 Agent 数据目录下，缺失时自动创建空目录",
+        "lookup_knowledge 消息处理在 websocket_client.py 现有工具分发框架内扩展，不新增独立 ws_handler 模块",
+        "知识文件启用/禁用配置存储在 knowledge_config.json（Agent 数据目录下），默认全启用；缺失时视为全启用，不阻塞检索",
+        "知识文件配置变更在下次 Agent 启动时生效（R043 不做热更新）；用户通过手动编辑 knowledge_config.json 控制启用/禁用",
+        "Agent 启动时在 tool_catalog_snapshot 中上报 lookup_knowledge 的 built-in catalog entry（kind=builtin, parameters 含 query schema），Server 据此判断版本能力并注册工具",
+        "桌面本地 Agent 主路径：knowledge/ 目录随本地 Agent 分发（打包进 Agent 分发包），首启自动创建 user_knowledge/ 和 skills/ 数据目录"
+      ],
+      "risk_tags": [
+        "first_use",
+        "config"
+      ],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "知识检索逻辑",
+          "scenarios": [
+            "query='Claude Code' 返回 Claude Code 使用技巧内容",
+            "query='重构' 返回场景建议内容",
+            "query='不存在的主题' 返回'未找到相关知识'",
+            "用户自定义文件被正确检索",
+            "匹配超过 3 个文件时只返回 top 3",
+            "单文件超过 2000 字符时截断并标注'[已截断]'"
+          ]
+        },
+        {
+          "type": "unit",
+          "description": "内置知识文件完整性",
+          "scenarios": [
+            "knowledge/ 目录包含至少 4 个 md 文件",
+            "每个文件内容非空且格式合法"
+          ]
+        },
+        {
+          "type": "smoke",
+          "description": "知识检索端到端验证",
+          "scenarios": [
+            "Agent 启动后内置知识文件可被 lookup_knowledge 检索",
+            "禁用知识文件后不参与检索",
+            "空知识目录返回'未找到相关知识'而非报错",
+            "首次启动 user_knowledge/ 不存在时自动创建空目录",
+            "knowledge_config.json 缺失时默认全启用，所有知识文件参与检索",
+            "knowledge_config.json 格式损坏（非 JSON）时默认全启用，记录 warning",
+            "配置变更后需重启 Agent 才生效，运行中不热更新"
+          ]
+        }
+      ],
+      "files": [
+        "agent/app/knowledge_tool.py",
+        "agent/app/knowledge/",
+        "agent/app/websocket_client.py",
+        "deploy/agent.Dockerfile"
+      ],
+      "title": "Agent 设备端实现 lookup_knowledge 内置工具 + 知识文件",
+      "contracts": [
+        "CONTRACT-050"
+      ]
+    },
+    {
+      "id": "B092",
+      "phase": "agent-knowledge",
+      "module": "agent",
+      "name": "MCP Client 框架：Skill 发现、启停、工具注册与调用中转",
+      "description": "在 Agent 端实现 MCP Client 基础设施：\n1. skill-registry.json 管理（读取/写入/启用/禁用 Skill）\n2. Skill 发现：启动时扫描 skills/ 目录，读取 skill.json 元数据\n3. MCP Server 生命周期管理：启动/停止 MCP Server 子进程\n4. 工具发现：连接 MCP Server 后获取其 tools 列表\n5. 工具注册：将发现的工具汇总，通过 WebSocket 上报给 Server\n6. 工具调用中转：收到 Server 的工具调用请求后，路由到对应的 MCP Server\n7. 内置 knowledge-skill 不走 MCP（直接内嵌），只有外部动态安装的 Skill 走 MCP",
+      "verification": "L2",
+      "depends_on": [
+        "B091"
+      ],
+      "status": "pending",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "skill-registry.json 能正确读写，支持 enabled/disabled 状态",
+        "Agent 启动时能发现 skills/ 目录下的已启用 Skill",
+        "能启动 MCP Server 子进程并连接",
+        "能从 MCP Server 获取工具列表",
+        "能将工具列表通过 WebSocket 上报给 Server",
+        "收到工具调用请求时能正确路由到对应 MCP Server",
+        "MCP Server 崩溃时不影响 Agent 主进程和内置工具",
+        "内置工具（execute_command/ask_user/lookup_knowledge）不受 MCP 框架影响",
+        "动态工具 namespaced 上报（格式：skill_name.tool_name），避免与内置工具冲突",
+        "MCP Server 启动失败时记录错误并跳过，不阻塞 Agent 主流程",
+        "malformed skill.json（格式错误、缺少必要字段）时跳过该 Skill 并记录 warning，不阻塞其他 Skill",
+        "调用期参数校验：调用 MCP 工具时按工具 parameters schema 提取参数，缺少 required 返回 invalid_args 错误，类型不匹配返回 invalid_args 错误，extra params 忽略",
+        "skills/ 目录默认路径为 Agent 数据目录下，缺失时自动创建空目录；skill-registry.json 缺失时视为空列表",
+        "MCP 工具消息分发复用 websocket_client.py 现有分发框架，新增 tool_call/tool_catalog 消息类型处理",
+        "skill-registry.json 配置变更在下次 Agent 启动时生效（R043 不做热更新）；用户通过手动编辑 skill-registry.json 控制 skill 启用/禁用",
+        "动态工具结果序列化：MCP Server 返回 JSON 对象/数组时 Agent 端统一 json.dumps 为文本字符串填充 tool_result.result",
+        "动态工具结果截断：tool_result.result 超 64KB 时 Agent 端截断，追加 [已截断] 标记，设置 truncated=true 和 original_size",
+        "MCP Server 崩溃后该 skill 的 pending calls 立即返回 tool_result.status=error（含 crash category），不影响其他 skill",
+        "提供可重复的 fake MCP skill/server 测试夹具（fake_skill/ 目录），用于覆盖启动成功、启动失败、崩溃、重连、invalid_args、超大结果和 namespaced 上报场景"
+      ],
+      "risk_tags": [
+        "first_use",
+        "startup",
+        "config"
+      ],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "Skill 注册表管理",
+          "scenarios": [
+            "读取有效 skill-registry.json 返回 Skill 列表",
+            "空或缺失的 skill-registry.json 不崩溃",
+            "skill-registry.json 格式损坏（非 JSON）时不崩溃，视为空列表并记录 warning",
+            "启用/禁用操作正确更新文件"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "MCP Server 生命周期",
+          "scenarios": [
+            "启动 MCP Server 子进程并建立连接",
+            "停止 MCP Server 后工具列表更新",
+            "MCP Server 异常退出不拖垮 Agent"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "工具调用中转",
+          "scenarios": [
+            "内置工具调用不受 MCP 影响",
+            "MCP 工具调用正确路由并返回结果",
+            "未知工具名返回错误而非崩溃"
+          ]
+        },
+        {
+          "type": "smoke",
+          "description": "MCP Client 端到端验证",
+          "scenarios": [
+            "Agent 启动 → 发现 skills/ 目录 → 启动 MCP Server → 上报 namespaced 工具列表",
+            "Agent 重连后重新上报 tool_catalog_snapshot",
+            "MCP Server 崩溃后下次 Agent 启动时不上报该 skill 的工具",
+            "首次启动 skills/ 不存在时自动创建空目录",
+            "非 namespaced 工具（无 skill 前缀）被拒绝上报",
+            "skill 启用/禁用后下次 Agent 启动时上报更新后的 tool_catalog_snapshot"
+          ]
+        },
+        {
+          "type": "unit",
+          "description": "MCP Server 启动失败处理",
+          "scenarios": [
+            "MCP Server 启动失败（skill.json 指向不存在的命令）时记录错误并跳过",
+            "多个 MCP Server 中部分失败不影响其他 Server 正常启动",
+            "启动失败后 Agent 主流程不阻塞，仍可处理内置工具调用"
+          ]
+        }
+      ],
+      "files": [
+        "agent/app/mcp_client.py",
+        "agent/app/skill_registry.py",
+        "agent/app/websocket_client.py",
+        "agent/tests/fake_skill/"
+      ],
+      "title": "MCP Client 框架：Skill 发现、启停、工具注册与调用中转",
+      "contracts": [
+        "CONTRACT-050"
+      ]
+    },
+    {
+      "id": "B093",
+      "phase": "agent-knowledge",
+      "module": "server",
+      "name": "Server 端动态工具注册：接收 Agent 上报工具并注入 Pydantic AI",
+      "description": "Server 端支持接收 Agent 设备上报的动态工具列表：\n1. Agent 连接时上报其可用工具列表（内置 + MCP Skill 工具）\n2. Server 存储工具列表，在创建 Agent 会话时动态注入到 Pydantic AI Agent\n3. 工具调用通过现有 WebSocket 中转机制路由到 Agent 设备\n4. R043 阶段工具变更通过 Agent 重启 + 重新上报 snapshot 实现，不做运行时增量同步\n5. 协议契约写入 api_contracts.md：tool catalog snapshot payload、tool call/result/error payload、built-in vs dynamic 优先级（built-in 优先、动态工具必须 namespaced）、超时/错误语义、断连清理、工具结果 trace 边界",
+      "verification": "L2",
+      "depends_on": [
+        "B089",
+        "B092"
+      ],
+      "status": "pending",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "Server 能接收并存储 Agent 上报的工具列表",
+        "创建 Agent 会话时，动态工具被注入 Pydantic AI Agent",
+        "LLM 能看到并调用动态注册的工具",
+        "工具调用通过 WebSocket 正确路由到 Agent 设备",
+        "Agent 工具列表变化时 Server 端在下次 Agent 连接时同步更新（snapshot-only，active session 继续使用创建时快照）",
+        "Agent 断开后其动态工具被清理",
+        "built-in 工具优先于动态工具，同名冲突时 built-in 胜出",
+        "动态工具必须 namespaced（如 skill_name.tool_name）",
+        "工具调用超时返回稳定错误语义，不阻塞 Agent 循环",
+        "api_contracts.md 包含动态工具协议契约段落",
+        "动态工具注入通过 session-scoped Agent factory 实现，不修改全局 terminal_agent 单例",
+        "动态工具调用产生与 built-in 相同格式的 trace 事件，含 skill attribution（tool_name 含 skill 前缀）",
+        "capability=write/network/execute 的工具在注册时被拒绝，本阶段只允许 read_only/info_only",
+        "注册期 schema 校验：收到工具列表时校验 parameters JSON Schema 合法性，非法 schema 忽略并记录 warning",
+        "版本前提：lookup_knowledge 要求 Agent 版本 >= R043；旧 Agent 连接时 Server 不注册 lookup_knowledge 工具，仍提供 execute_command/ask_user",
+        "冷启动降级：snapshot 未到达时 session 降级为 built-in-only，不阻塞等待；snapshot 到达后新 session 获得完整工具集",
+        "Tool catalog 注册边界：最大 50 工具、description 500 字符截断、schema 4KB 上限、snapshot 256KB 上限，超限拒绝/截断并记录 warning"
+      ],
+      "risk_tags": [
+        "state_sync",
+        "startup"
+      ],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "动态工具注册",
+          "scenarios": [
+            "收到工具列表后正确存储",
+            "创建会话时工具注入到 Pydantic AI Agent",
+            "工具列表为空时不影响内置工具"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "工具调用路由",
+          "scenarios": [
+            "LLM 调用动态工具 → 正确路由到 Agent → 返回结果",
+            "Agent 断开后动态工具不可用",
+            "并发会话独立使用工具列表"
+          ]
+        },
+        {
+          "type": "smoke",
+          "description": "动态工具端到端验证",
+          "scenarios": [
+            "Agent 上报 tool_catalog_snapshot → Server 存储 → 创建 session 注入",
+            "LLM 调用动态工具 → WebSocket 路由 → Agent 执行 → 结果返回",
+            "Agent 断连 → Server 清理动态工具 → 新 session 不含该工具",
+            "capability=write 的工具被拒绝注册",
+            "capability=network 的工具被拒绝注册",
+            "capability=execute 的工具被拒绝注册",
+            "匿名工具（无 skill 字段）被拒绝注册",
+            "Agent 重连后重新上报 tool_catalog_snapshot，新 session 看到更新后的工具集"
+          ]
+        },
+        {
+          "type": "unit",
+          "description": "Snapshot 会话语义验证",
+          "scenarios": [
+            "新 Agent session 使用最新 tool_catalog_snapshot 创建",
+            "已存在的 active session 继续使用创建时的工具快照"
+          ]
+        },
+        {
+          "type": "unit",
+          "description": "Tool result payload 大小限制",
+          "scenarios": [
+            "tool_result.result 超过 64KB 时 Agent 端截断并追加 [已截断] 标记",
+            "truncated=true 且 original_size 正确反映原始大小",
+            "tool_result.result 未超限时无截断标记"
+          ]
+        }
+      ],
+      "files": [
+        "server/app/ws_agent.py",
+        "server/app/agent_session_manager.py",
+        "server/app/terminal_agent.py"
+      ],
+      "title": "Server 端动态工具注册：接收 Agent 上报工具并注入 Pydantic AI",
+      "contracts": [
+        "CONTRACT-050"
+      ]
+    },
+    {
+      "id": "S085",
+      "phase": "agent-knowledge",
+      "module": "server-test",
+      "name": "Server 端测试：prompt 增强 + 动态工具注册",
+      "description": "Server 端测试覆盖：\n1. SYSTEM_PROMPT 包含 lookup_knowledge 工具描述和精简映射\n2. 用户旅程边界（信息型问答 vs 工具启动）\n3. lookup_knowledge 不可用/未命中的降级行为\n4. 动态工具注册和路由逻辑\n5. built-in vs 动态工具优先级\n6. Agent 断连后 stale tools 清理",
+      "verification": "L2",
+      "depends_on": [
+        "B089",
+        "B093"
+      ],
+      "status": "pending",
+      "priority": "P2",
+      "acceptance_criteria": [
+        "SYSTEM_PROMPT 包含 lookup_knowledge 工具描述",
+        "SYSTEM_PROMPT 包含 Claude Code 精简映射",
+        "lookup_knowledge 未命中时降级不阻塞命令生成",
+        "动态工具注册逻辑测试通过",
+        "工具调用路由测试通过",
+        "built-in 与动态工具同名冲突时 built-in 胜出",
+        "Agent 断连后动态工具被清理",
+        "工具调用超时返回稳定错误语义",
+        "built-in 版本前提：旧 Agent 连接时 Server 不注册 lookup_knowledge，仍提供 execute_command/ask_user",
+        "动态工具调用产生含 skill attribution 的 trace 事件",
+        "非法 schema 注册被忽略并记录 warning",
+        "缺少 required 参数时返回 invalid_args 错误",
+        "参数类型不匹配时返回 invalid_args 错误",
+        "Agent 断连时 pending dynamic tool calls 立即返回 timeout error",
+        "冷启动降级：snapshot 未到达时创建的 session 仅有 built-in 工具，snapshot 到达后新建 session 获得动态工具",
+        "跨端信息型问答验证：A端问知识问题 → steps=[] result → B端同步看到同一结果 → 无确认按钮 → B端 follow-up 继续同一 conversation（依赖现有 conversation 同步基础设施，R043 不新增同步逻辑，复用 CONTRACT-049 定义的事件投影机制）",
+        "tool_result.result 超 64KB 时 Agent 端截断并追加标记，truncated=true",
+        "客户端现有测试 smart_terminal_side_panel_agent_test.dart 增加 steps=[] + need_confirm=false 回归验证（确认 info-only result 正确渲染、不显示确认按钮）",
+        "混合意图旅程验证：用户请求同时包含知识问答和命令生成时，Agent 在单轮 result 中同时包含 summary 知识回答和 steps 命令序列",
+        "Tool catalog 注册边界测试：>50 工具时超限忽略、description >500 字符截断、schema >4KB 拒绝、snapshot >256KB 拒绝整个 snapshot",
+        "Codex 负向案例：用户说'用 Codex 打开项目'时 Agent 只返回知识说明（steps=[], need_confirm=false），不生成 codex 执行命令",
+        "现有 server 测试全部通过"
+      ],
+      "risk_tags": [
+        "boundary"
+      ],
+      "files": [
+        "server/tests/test_terminal_agent.py",
+        "server/tests/test_agent_session_manager.py",
+        "client/test/widgets/smart_terminal_side_panel_agent_test.dart"
+      ],
+      "title": "Server 端测试：prompt 增强 + 动态工具注册",
+      "contracts": [
+        "CONTRACT-050"
+      ]
+    },
+    {
+      "id": "S086",
+      "phase": "agent-knowledge",
+      "module": "agent-test",
+      "name": "Agent 端测试：知识工具 + MCP Client",
+      "description": "Agent 端测试覆盖：\n1. lookup_knowledge 检索逻辑（命中/未命中/空目录）\n2. 内置知识文件完整性\n3. MCP Client Skill 发现和生命周期（正常启动/崩溃/重连）\n4. malformed skill.json 处理\n5. 禁用知识文件不参与检索\n6. enable/disable 后下次启动时上报更新后的 snapshot",
+      "verification": "L2",
+      "depends_on": [
+        "B091",
+        "B092"
+      ],
+      "status": "pending",
+      "priority": "P2",
+      "acceptance_criteria": [
+        "知识检索关键词匹配测试通过（命中/未命中/空目录）",
+        "内置知识文件存在且内容非空",
+        "禁用知识文件不参与检索",
+        "Skill 注册表读写测试通过",
+        "malformed skill.json 不崩溃，跳过并记录错误",
+        "MCP Server 启动/崩溃/重连测试通过",
+        "enable/disable 后下次 Agent 启动时上报更新后的 tool_catalog_snapshot",
+        "缺少 required 参数时返回 invalid_args 错误",
+        "参数类型不匹配时返回 invalid_args 错误",
+        "未知 extra params 被忽略不报错",
+        "MCP Server 崩溃后 pending calls 返回稳定错误（含 crash category）",
+        "tool_catalog_snapshot 包含 lookup_knowledge 的 built-in entry（kind=builtin, parameters 含 query string schema）",
+        "knowledge_config.json 非 JSON/损坏时默认全启用并记录 warning，不阻塞检索",
+        "MCP Server 返回 JSON 对象/数组时，Agent 端正确序列化为文本字符串（json.dumps）后填充 tool_result.result",
+        "tool_result.result 超 64KB 时 Agent 端截断，truncated=true 且 original_size 正确",
+        "现有 agent 测试全部通过"
+      ],
+      "risk_tags": [
+        "boundary"
+      ],
+      "files": [
+        "agent/tests/test_knowledge_tool.py",
+        "agent/tests/test_mcp_client.py"
+      ],
+      "title": "Agent 端测试：知识工具 + MCP Client",
+      "contracts": [
+        "CONTRACT-050"
+      ]
+    },
+    {
+      "id": "S087",
+      "phase": "agent-knowledge",
+      "module": "dev-flow",
+      "name": "R043 实现完成后状态回写与证据归档",
+      "description": "R043 规划产物（api_contracts.md、test_coverage.md、alignment_checklist.md）已在规划阶段写入。本任务负责在 S085/S086 测试通过后，回写最终状态：任务完成标记、测试结果证据、配套产物一致性确认。",
+      "verification": "L1",
+      "depends_on": [
+        "S085",
+        "S086"
+      ],
+      "status": "pending",
+      "priority": "P3",
+      "acceptance_criteria": [
+        "所有 R043 任务标记为 completed",
+        "evidence/ 目录包含 B089-B093 的实现证据",
+        "B091/B092/B093 的 smoke 测试场景全部通过（结果记录在 evidence 中）",
+        "配套产物状态与任务实际状态一致"
+      ],
+      "risk_tags": [],
+      "files": [
+        ".dev-flow/test_coverage.md",
+        ".dev-flow/alignment_checklist.md",
+        ".dev-flow/api_contracts.md"
+      ],
+      "title": "R043 实现完成后状态回写与证据归档",
+      "contracts": [
+        "CONTRACT-050"
+      ]
     }
   ]
 }
