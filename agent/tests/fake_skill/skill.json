@@ -1,0 +1,9 @@
+{
+  "name": "fake_skill",
+  "version": "1.0.0",
+  "description": "Fake MCP skill for testing",
+  "command": "python3",
+  "args": ["-m", "tests.fake_skill.fake_server"],
+  "transport": "stdio",
+  "timeout": 10
+}

@@ -30,6 +30,7 @@ from app.knowledge_tool import (
     ensure_user_knowledge_dir,
     get_knowledge_catalog_entry,
 )
+from app.mcp_client import MCPClientManager
 from app.pty_wrapper import PTYWrapper, PTYConfig
 
 
@@ -317,6 +318,8 @@ class WebSocketClient:
         self.snapshot_manager = AgentSnapshotManager()
         self._runtime_tasks: dict[str, asyncio.Task] = {}
         self._send_lock = asyncio.Lock()
+        # B092: MCP Client 管理器
+        self.mcp_manager = MCPClientManager()
         # 本地 HTTP Server（用于 Flutter UI 控制）
         self._local_server = None
         self._local_port: Optional[int] = None
@@ -462,9 +465,16 @@ class WebSocketClient:
 
                     # B091: 初始化 user_knowledge 目录 + 发送 tool_catalog_snapshot
                     ensure_user_knowledge_dir()
+
+                    # B092: 启动 MCP Servers
+                    await self.mcp_manager.start_all()
+
+                    # 合并 built-in + dynamic 工具到 catalog snapshot
+                    catalog_tools = [get_knowledge_catalog_entry()]
+                    catalog_tools.extend(self.mcp_manager.build_tool_catalog())
                     await self._send_ws_message({
                         "type": "tool_catalog_snapshot",
-                        "tools": [get_knowledge_catalog_entry()],
+                        "tools": catalog_tools,
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     })
 
@@ -716,6 +726,11 @@ class WebSocketClient:
                         self._handle_lookup_knowledge(data)
                     )
 
+                elif msg_type == "tool_call":
+                    asyncio.create_task(
+                        self._handle_tool_call(data)
+                    )
+
                 elif msg_type == "pong":
                     # 心跳响应，忽略
                     pass
@@ -839,6 +854,49 @@ class WebSocketClient:
                 "error": str(e),
             })
 
+    async def _handle_tool_call(self, data: dict):
+        """B092: 处理动态 MCP 工具调用。"""
+        call_id = data.get("call_id", "")
+        tool_name = data.get("tool_name", "")
+        arguments = data.get("arguments", {})
+
+        # 内置工具名称空间保护：built-in 工具不应走 tool_call 路径
+        built_in_tools = {"execute_command", "ask_user", "lookup_knowledge"}
+        if tool_name in built_in_tools:
+            await self._send_ws_message({
+                "type": "tool_result",
+                "call_id": call_id,
+                "status": "error",
+                "error": f"built-in tool {tool_name} should use dedicated handler",
+            })
+            return
+
+        try:
+            result = await self.mcp_manager.call_tool(tool_name, arguments)
+            response = {
+                "type": "tool_result",
+                "call_id": call_id,
+                "status": result.get("status", "error"),
+            }
+            if "result" in result:
+                response["result"] = result["result"]
+            if "error" in result:
+                response["error"] = result["error"]
+            if result.get("truncated"):
+                response["truncated"] = True
+                response["original_size"] = result.get("original_size", 0)
+            if result.get("fallback_hint"):
+                response["fallback_hint"] = result["fallback_hint"]
+            await self._send_ws_message(response)
+        except Exception as e:
+            _log(f"tool_call 异常: {e}")
+            await self._send_ws_message({
+                "type": "tool_result",
+                "call_id": call_id,
+                "status": "error",
+                "error": str(e),
+            })
+
     async def _send_ws_message(self, message: dict):
         """发送消息到 WebSocket（自动加密）。
 
@@ -923,6 +981,9 @@ class WebSocketClient:
 
         self._connected = False
         agent_crypto.clear_aes_key()
+
+        # B092: 清理 MCP Servers
+        await self.mcp_manager.stop_all()
 
         # 记录各任务状态，用于排查断连原因
         task_states = []

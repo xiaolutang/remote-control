@@ -1,0 +1,9 @@
+{
+  "name": "broken_skill",
+  "version": "1.0.0",
+  "description": "Broken skill for testing startup failure",
+  "command": "nonexistent_command_xyz",
+  "args": [],
+  "transport": "stdio",
+  "timeout": 5
+}
