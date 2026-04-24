@@ -760,6 +760,11 @@
       "phase": "agent-knowledge",
       "module": "server",
       "name": "Server 端动态工具注册：接收 Agent 上报工具并注入 Pydantic AI",
+      "status": "completed",
+      "started_at": "2026-04-24T22:25:00+0800",
+      "completed_at": "2026-04-24T22:45:00+0800",
+      "actual_minutes": 20,
+      "commit": "09657e0",
       "description": "Server 端支持接收 Agent 设备上报的动态工具列表：\n1. Agent 连接时上报其可用工具列表（内置 + MCP Skill 工具）\n2. Server 存储工具列表，在创建 Agent 会话时动态注入到 Pydantic AI Agent\n3. 工具调用通过现有 WebSocket 中转机制路由到 Agent 设备\n4. R043 阶段工具变更通过 Agent 重启 + 重新上报 snapshot 实现，不做运行时增量同步\n5. 协议契约写入 api_contracts.md：tool catalog snapshot payload、tool call/result/error payload、built-in vs dynamic 优先级（built-in 优先、动态工具必须 namespaced）、超时/错误语义、断连清理、工具结果 trace 边界",
       "verification": "L2",
       "depends_on": [
