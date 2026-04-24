@@ -24,20 +24,11 @@ logger = logging.getLogger(__name__)
 
 # 动态工具结果限制
 MAX_TOOL_RESULT_SIZE = 64 * 1024  # 64 KB
-TRUNCATION_SUFFIX = "\n[已截断，原始大小 {size} bytes]"
-
-# 单次 MCP 调用默认超时
-DEFAULT_CALL_TIMEOUT = 30
 
 # tool_catalog 限制
 MAX_TOOLS_PER_SNAPSHOT = 50
 MAX_DESCRIPTION_LENGTH = 500
 MAX_SCHEMA_SIZE = 4 * 1024  # 4 KB
-
-# JSON-RPC 标准错误码
-_JSONRPC_INVALID_PARAMS = -32602
-_JSONRPC_METHOD_NOT_FOUND = -32601
-_JSONRPC_INTERNAL_ERROR = -32603
 
 
 @dataclass
