@@ -341,6 +341,9 @@ class AgentSessionManager:
         execute_command_fn,
         ask_user_fn_override=None,
         lookup_knowledge_fn=None,
+        tool_call_fn=None,
+        dynamic_tools=None,
+        include_lookup_knowledge=True,
     ) -> None:
         """启动 Agent 运行循环。
 
@@ -349,9 +352,16 @@ class AgentSessionManager:
             execute_command_fn: (session_id, command, cwd) -> ExecuteCommandResult
             ask_user_fn_override: 可选覆盖 ask_user 回调
             lookup_knowledge_fn: 可选知识检索回调 (query) -> str
+            tool_call_fn: 可选动态工具调用回调 (session_id, tool_name, arguments) -> dict
+            dynamic_tools: 可用动态工具目录
+            include_lookup_knowledge: 是否注册 lookup_knowledge（基于 Agent 版本门控）
         """
         task = asyncio.create_task(
-            self._run_agent_loop(session, execute_command_fn, ask_user_fn_override, lookup_knowledge_fn)
+            self._run_agent_loop(
+                session, execute_command_fn, ask_user_fn_override,
+                lookup_knowledge_fn, tool_call_fn, dynamic_tools,
+                include_lookup_knowledge,
+            )
         )
         session._agent_task = task
 
@@ -439,6 +449,9 @@ class AgentSessionManager:
         execute_command_fn,
         ask_user_fn_override=None,
         lookup_knowledge_fn=None,
+        tool_call_fn=None,
+        dynamic_tools=None,
+        include_lookup_knowledge=True,
     ) -> None:
         """运行 Agent 主循环，将事件推入 event_queue。"""
         try:
@@ -538,6 +551,89 @@ class AgentSessionManager:
                 except Exception as e:
                     logger.warning("Failed to load aliases: %s", e)
 
+            # Trace 包装：lookup_knowledge（含 duration）
+            async def _traced_lookup_knowledge(query):
+                import time
+                t_start = time.monotonic()
+                await self._emit_session_event(
+                    session, "trace",
+                    {"tool": "lookup_knowledge", "input_summary": query[:200], "output_summary": ""},
+                )
+                result = ""
+                error_category = None
+                try:
+                    if lookup_knowledge_fn:
+                        result = await lookup_knowledge_fn(query)
+                except Exception as e:
+                    error_category = type(e).__name__
+                    duration_ms = int((time.monotonic() - t_start) * 1000)
+                    await self._emit_session_event(
+                        session, "trace",
+                        {"tool": "lookup_knowledge", "input_summary": query[:200],
+                         "output_summary": "", "duration_ms": duration_ms,
+                         "error_category": error_category},
+                    )
+                    raise
+                duration_ms = int((time.monotonic() - t_start) * 1000)
+                await self._emit_session_event(
+                    session, "trace",
+                    {"tool": "lookup_knowledge", "input_summary": query[:200],
+                     "output_summary": (result or "(无结果)")[:200],
+                     "duration_ms": duration_ms},
+                )
+                return result
+
+            # Trace 包装：call_dynamic_tool（含 duration + error category）
+            def _classify_tool_error(error_msg: str) -> str:
+                msg = error_msg.lower()
+                if "timeout" in msg:
+                    return "timeout"
+                if "disconnect" in msg or "offline" in msg or "connection" in msg:
+                    return "crash"
+                if "not found" in msg or "unknown tool" in msg:
+                    return "not_found"
+                if "invalid" in msg or "arg" in msg:
+                    return "invalid_args"
+                return "unknown"
+
+            async def _traced_tool_call(tool_name, arguments):
+                import time
+                t_start = time.monotonic()
+                await self._emit_session_event(
+                    session, "trace",
+                    {"tool": f"call_dynamic_tool:{tool_name}",
+                     "input_summary": f"{tool_name}({list(arguments.keys())})",
+                     "output_summary": ""},
+                )
+                result = {"status": "error", "error": "tool_call_fn not available"}
+                error_category = "not_found" if not tool_call_fn else None
+                if tool_call_fn:
+                    try:
+                        result = await tool_call_fn(tool_name, arguments)
+                    except asyncio.TimeoutError:
+                        error_category = "timeout"
+                        result = {"status": "error", "error": "timeout"}
+                    except ConnectionError:
+                        error_category = "crash"
+                        result = {"status": "error", "error": "agent disconnected"}
+                    except Exception as e:
+                        error_category = _classify_tool_error(str(e))
+                        result = {"status": "error", "error": str(e)}
+                # 解析 ws 层返回的 error dict
+                if error_category is None and result.get("status") == "error":
+                    error_category = _classify_tool_error(result.get("error", ""))
+                duration_ms = int((time.monotonic() - t_start) * 1000)
+                output_preview = result.get("result", result.get("error", ""))[:200]
+                await self._emit_session_event(
+                    session, "trace",
+                    {"tool": f"call_dynamic_tool:{tool_name}",
+                     "input_summary": f"{tool_name}({list(arguments.keys())})",
+                     "output_summary": output_preview or "(无输出)",
+                     "duration_ms": duration_ms,
+                     **({"error_category": error_category} if error_category else {})},
+                )
+                return result
+
             # 调用 run_agent
             outcome = await run_agent(
                 intent=session.intent,
@@ -546,7 +642,10 @@ class AgentSessionManager:
                 ask_user_fn=ask_fn,
                 project_aliases=known_aliases,
                 message_history=session.message_history,
-                lookup_knowledge_fn=lookup_knowledge_fn,
+                lookup_knowledge_fn=_traced_lookup_knowledge if lookup_knowledge_fn else None,
+                tool_call_fn=_traced_tool_call if tool_call_fn else None,
+                dynamic_tools=dynamic_tools,
+                include_lookup_knowledge=include_lookup_knowledge,
             )
 
             # 保存 Agent 发现的别名

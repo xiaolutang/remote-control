@@ -302,7 +302,7 @@ class TestTerminalBoundAgentApi:
             }
         )
 
-        async def _start_agent(agent_session, execute_cmd_fn):
+        async def _start_agent(agent_session, execute_cmd_fn, **kwargs):
             await agent_session.event_queue.put(None)
 
         with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
@@ -331,6 +331,174 @@ class TestTerminalBoundAgentApi:
         assert append_event.await_args.kwargs["event_type"] == "user_intent"
         assert append_event.await_args.kwargs["client_event_id"] == "client-run-1"
         assert append_event.await_args.kwargs["session_id"] == "agent-session-1"
+
+    def test_terminal_agent_run_filters_builtin_from_dynamic_tools(self):
+        """回归测试：runtime_api 只传递 kind=dynamic 工具给 start_agent。
+
+        验证 runtime_api 端点从 agent_conn.tool_catalog 过滤出 kind=dynamic 条目，
+        不将 builtin 工具泄露到 dynamic_tools 参数。
+        """
+        from app.agent_session_manager import AgentSessionManager
+        from app.ws_agent import AgentConnection
+
+        manager = AgentSessionManager()
+        append_event = AsyncMock(
+            return_value={
+                "event_index": 0,
+                "event_type": "user_intent",
+                "client_event_id": "client-filter-1",
+                "session_id": "agent-filter-1",
+            }
+        )
+
+        # 构造带混合工具目录的 AgentConnection
+        mock_ws = MagicMock()
+        agent_conn = AgentConnection("runtime-session-1", mock_ws)
+        agent_conn.tool_catalog = [
+            {"name": "execute_command", "kind": "builtin", "description": "执行命令"},
+            {"name": "lookup_knowledge", "kind": "builtin", "description": "知识检索"},
+            {"name": "my_skill.tool1", "kind": "dynamic", "description": "扩展工具1"},
+            {"name": "my_skill.tool2", "kind": "dynamic", "description": "扩展工具2"},
+        ]
+
+        captured_dynamic_tools = None
+
+        async def _start_agent(agent_session, execute_cmd_fn, **kwargs):
+            nonlocal captured_dynamic_tools
+            captured_dynamic_tools = kwargs.get("dynamic_tools", [])
+            await agent_session.event_queue.put(None)
+
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
+                with patch("app.runtime_api.get_or_create_agent_conversation", new=AsyncMock(return_value=self._conversation())):
+                    with patch("app.runtime_api.append_agent_conversation_event", new=append_event):
+                        with patch("app.runtime_api.list_agent_conversation_events", new=AsyncMock(return_value=[])):
+                            with patch("app.runtime_api.is_agent_connected", return_value=True):
+                                with patch("app.runtime_api.get_agent_connection", return_value=agent_conn):
+                                    with patch("app.runtime_api.get_agent_session_manager", return_value=manager):
+                                        with patch.object(manager, "start_agent", new=AsyncMock(side_effect=_start_agent)):
+                                            response = self.client.post(
+                                                "/api/runtime/devices/mbp-01/terminals/term-1/assistant/agent/run",
+                                                headers=self.headers,
+                                                json={
+                                                    "intent": "test dynamic tools filter",
+                                                    "conversation_id": "conv-filter",
+                                                    "client_event_id": "client-filter-1",
+                                                    "session_id": "agent-filter-1",
+                                                },
+                                            )
+
+        assert response.status_code == 200
+        assert captured_dynamic_tools is not None
+        assert len(captured_dynamic_tools) == 2
+        assert all(t["kind"] == "dynamic" for t in captured_dynamic_tools)
+        names = [t["name"] for t in captured_dynamic_tools]
+        assert "my_skill.tool1" in names
+        assert "my_skill.tool2" in names
+        assert "execute_command" not in names
+        assert "lookup_knowledge" not in names
+
+    def test_lookup_knowledge_not_registered_without_snapshot(self):
+        """回归测试：snapshot 未到达（空 catalog）时不注册 lookup_knowledge。"""
+        from app.agent_session_manager import AgentSessionManager
+        from app.ws_agent import AgentConnection
+
+        manager = AgentSessionManager()
+        append_event = AsyncMock(
+            return_value={
+                "event_index": 0,
+                "event_type": "user_intent",
+                "client_event_id": "client-lk-1",
+                "session_id": "agent-lk-1",
+            }
+        )
+
+        # Agent 连接但无 tool_catalog（旧 Agent 或 snapshot 未到达）
+        mock_ws = MagicMock()
+        agent_conn = AgentConnection("runtime-session-1", mock_ws)
+        agent_conn.tool_catalog = []  # 空 snapshot
+
+        captured_kwargs = {}
+
+        async def _start_agent(agent_session, execute_cmd_fn, **kwargs):
+            captured_kwargs.update(kwargs)
+            await agent_session.event_queue.put(None)
+
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
+                with patch("app.runtime_api.get_or_create_agent_conversation", new=AsyncMock(return_value=self._conversation())):
+                    with patch("app.runtime_api.append_agent_conversation_event", new=append_event):
+                        with patch("app.runtime_api.list_agent_conversation_events", new=AsyncMock(return_value=[])):
+                            with patch("app.runtime_api.is_agent_connected", return_value=True):
+                                with patch("app.runtime_api.get_agent_connection", return_value=agent_conn):
+                                    with patch("app.runtime_api.get_agent_session_manager", return_value=manager):
+                                        with patch.object(manager, "start_agent", new=AsyncMock(side_effect=_start_agent)):
+                                            response = self.client.post(
+                                                "/api/runtime/devices/mbp-01/terminals/term-1/assistant/agent/run",
+                                                headers=self.headers,
+                                                json={
+                                                    "intent": "test no lookup_knowledge",
+                                                    "conversation_id": "conv-lk",
+                                                    "client_event_id": "client-lk-1",
+                                                    "session_id": "agent-lk-1",
+                                                },
+                                            )
+
+        assert response.status_code == 200
+        assert captured_kwargs.get("include_lookup_knowledge") is False
+        assert captured_kwargs.get("lookup_knowledge_fn") is None
+
+    def test_lookup_knowledge_registered_with_snapshot(self):
+        """回归测试：snapshot 包含 builtin lookup_knowledge 时正确注册。"""
+        from app.agent_session_manager import AgentSessionManager
+        from app.ws_agent import AgentConnection
+
+        manager = AgentSessionManager()
+        append_event = AsyncMock(
+            return_value={
+                "event_index": 0,
+                "event_type": "user_intent",
+                "client_event_id": "client-lk-2",
+                "session_id": "agent-lk-2",
+            }
+        )
+
+        mock_ws = MagicMock()
+        agent_conn = AgentConnection("runtime-session-1", mock_ws)
+        agent_conn.tool_catalog = [
+            {"name": "execute_command", "kind": "builtin"},
+            {"name": "lookup_knowledge", "kind": "builtin"},
+        ]
+
+        captured_kwargs = {}
+
+        async def _start_agent(agent_session, execute_cmd_fn, **kwargs):
+            captured_kwargs.update(kwargs)
+            await agent_session.event_queue.put(None)
+
+        with patch("app.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
+                with patch("app.runtime_api.get_or_create_agent_conversation", new=AsyncMock(return_value=self._conversation())):
+                    with patch("app.runtime_api.append_agent_conversation_event", new=append_event):
+                        with patch("app.runtime_api.list_agent_conversation_events", new=AsyncMock(return_value=[])):
+                            with patch("app.runtime_api.is_agent_connected", return_value=True):
+                                with patch("app.runtime_api.get_agent_connection", return_value=agent_conn):
+                                    with patch("app.runtime_api.get_agent_session_manager", return_value=manager):
+                                        with patch.object(manager, "start_agent", new=AsyncMock(side_effect=_start_agent)):
+                                            response = self.client.post(
+                                                "/api/runtime/devices/mbp-01/terminals/term-1/assistant/agent/run",
+                                                headers=self.headers,
+                                                json={
+                                                    "intent": "test with lookup_knowledge",
+                                                    "conversation_id": "conv-lk2",
+                                                    "client_event_id": "client-lk-2",
+                                                    "session_id": "agent-lk-2",
+                                                },
+                                            )
+
+        assert response.status_code == 200
+        assert captured_kwargs.get("include_lookup_knowledge") is True
+        assert captured_kwargs.get("lookup_knowledge_fn") is not None
 
     def test_terminal_agent_run_duplicate_client_event_reuses_active_session(self):
         from app.agent_session_manager import AgentSessionManager

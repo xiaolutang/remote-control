@@ -283,12 +283,15 @@ class MCPClientManager:
         if validation_error:
             return {"status": "error", "error": validation_error}
 
+        # 剥离 schema 未声明的额外参数，只转发已知字段
+        filtered_args = self._filter_known_args(tool_info, arguments)
+
         # 调用 MCP Server
         try:
             result = await self._send_jsonrpc(
                 state,
                 "tools/call",
-                {"name": tool_name, "arguments": arguments},
+                {"name": tool_name, "arguments": filtered_args},
             )
         except Exception as e:
             return {"status": "error", "error": f"调用异常: {e}"}
@@ -344,6 +347,16 @@ class MCPClientManager:
                         return f"invalid_args:type_mismatch:{key}:expected_{expected_type}"
 
         return None
+
+    def _filter_known_args(self, tool_info: MCPToolInfo, arguments: dict) -> dict:
+        """过滤参数，只保留 schema 中声明的字段。"""
+        schema = tool_info.parameters
+        if not schema:
+            return arguments
+        properties = schema.get("properties", {})
+        if not properties:
+            return arguments
+        return {k: v for k, v in arguments.items() if k in properties}
 
     def _serialize_result(self, result: Any) -> str:
         """序列化 MCP Server 返回的结果为文本。"""

@@ -7,6 +7,10 @@ B079/B089: Pydantic AI ReAct 智能体核心实现。
 B089 变更：重新定位为"AI 编程启动器"——Agent 的核心价值是与用户讨论编程意图，
 然后将讨论上下文组装成 claude/codex 命令直接执行。lookup_knowledge 提供项目知识丰富生成的 prompt。
 
+B093 变更：Session-scoped Agent factory——每次会话创建独立 Agent 实例，
+动态工具注册为真实 Pydantic AI tool（非 prompt 注入）。
+全局 `terminal_agent` 保留仅用于无动态工具的兼容场景。
+
 架构约束：
 - 不变量 #43: 最终产物必须收口为 CommandSequence
 - 不变量 #47: 只能基于已有事实、planner memory、用户输入、受约束的只读探索命令
@@ -17,7 +21,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, create_model
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
@@ -118,6 +122,8 @@ class AgentDeps:
     execute_command_fn: Callable[[str, str, Optional[str]], Awaitable['ExecuteCommandResult']]  # noqa: E501
     ask_user_fn: Callable[[str, list[str], bool], Awaitable[str]]
     lookup_knowledge_fn: Optional[Callable[[str], Awaitable[str]]] = None  # B089: 知识检索回调
+    tool_call_fn: Optional[Callable[[str, dict], Awaitable[dict]]] = None  # B093: 动态工具调用回调 (tool_name, arguments) -> dict
+    dynamic_tools: list[dict] = field(default_factory=list)  # B093: 可用动态工具目录（仅用于 prompt 注入兼容）
     project_aliases: dict[str, str] = field(default_factory=dict)  # 已知项目别名
 
 
@@ -138,7 +144,7 @@ def _build_model() -> OpenAIModel:
 # System Prompt
 # ---------------------------------------------------------------------------
 
-SYSTEM_PROMPT = """你是 AI 编程启动器，帮助用户将编程意图转化为可执行的 AI 编程工具命令（claude / codex）。
+SYSTEM_PROMPT = """你是 AI 编程启动器，帮助用户将编程意图转化为可执行的 AI 编程工具命令。
 
 # 最高优先级规则（不可违反）
 你的每一次回复都必须且只能是合法 JSON 对象，格式如下：
@@ -151,17 +157,19 @@ SYSTEM_PROMPT = """你是 AI 编程启动器，帮助用户将编程意图转化
 你的核心工作是：
 1. 与用户讨论编程意图（做什么、怎么做）
 2. 使用 lookup_knowledge 获取 AI 编程技巧和项目知识
-3. 将讨论结果组装成 claude 或 codex 命令，让用户直接在终端执行
+3. 将讨论结果组装成 claude 命令，让用户直接在终端执行
 
 # AI 编程工具映射
-- "Claude Code" / "Claude" / "用 Claude" → 命令 `claude`
-- "Codex CLI" → 仅用于知识说明（info-only），不生成 `codex` 执行命令
+- "Claude Code" / "Claude" / "用 Claude" / "claude code" → 命令 `claude`
+- "Codex CLI" / "Codex" / "用 Codex" / "codex" → 仅知识说明（info-only），**不生成 `codex` 执行命令**
 - 推荐用 `which claude` 验证工具是否可用，不存在时提示用户安装
+- 如果远端设备有动态扩展工具可用，可以直接调用对应工具名
 
 # 工具使用优先级
 1. **lookup_knowledge**：用户问 AI 编程相关问题或需要项目知识时优先调用
 2. **execute_command**：探索远端设备（目录、文件、项目结构）
-3. **ask_user**：多选项消歧或追问澄清
+3. **动态扩展工具**：按名称调用远端设备上注册的扩展工具（如 MCP 技能）
+4. **ask_user**：多选项消歧或追问澄清
 
 # 用户旅程
 ## 编程意图 → 生成命令（主旅程）
@@ -186,6 +194,10 @@ SYSTEM_PROMPT = """你是 AI 编程启动器，帮助用户将编程意图转化
 - lookup_knowledge 返回空/未命中：在 summary 中说明，不阻塞命令生成
 - 禁止在 lookup_knowledge 不可用时自行编造知识内容
 
+# 动态扩展工具降级规则
+- 扩展工具不可用（远端设备无注册工具）：忽略，继续正常处理
+- 扩展工具返回错误：在 summary 中说明，不阻塞命令生成
+
 # 探索规范
 - 推荐命令：ls、find、cat、pwd、git remote/status/log、which
 - 每次只执行一个命令，分析输出后再决定下一步
@@ -194,8 +206,9 @@ SYSTEM_PROMPT = """你是 AI 编程启动器，帮助用户将编程意图转化
 # 决策优先级
 1. 自主探索：优先用 execute_command 获取事实
 2. 知识增强：用 lookup_knowledge 获取 AI 编程技巧
-3. 选项消歧：多个可能时用 ask_user 让用户选择
-4. 坦诚告知：无法确定时告知并建议手动操作
+3. 扩展能力：有动态工具时按需调用
+4. 选项消歧：多个可能时用 ask_user 让用户选择
+5. 坦诚告知：无法确定时告知并建议手动操作
 
 # 项目别名
 发现项目目录时，在 aliases 字段中记录路径和名称映射。
@@ -203,29 +216,14 @@ SYSTEM_PROMPT = """你是 AI 编程启动器，帮助用户将编程意图转化
 # 限制
 - 只能执行只读命令，不能执行写、删、改、安装、更新、部署
 - 用户请求超出范围时，返回 steps 为空、need_confirm 为 false 的 JSON
-- Codex CLI 仅用于知识说明，不生成 codex 执行命令
 """  # noqa: E501
 
 
 # ---------------------------------------------------------------------------
-# Agent 定义
+# Built-in tool implementations（纯函数，不绑定到特定 Agent 实例）
 # ---------------------------------------------------------------------------
 
-terminal_agent = Agent(
-    model=_build_model(),
-    deps_type=AgentDeps,
-    output_type=AgentResult,
-    system_prompt=SYSTEM_PROMPT,
-    retries=3,
-)
-
-
-# ---------------------------------------------------------------------------
-# Tools
-# ---------------------------------------------------------------------------
-
-@terminal_agent.tool
-async def execute_command(
+async def _tool_execute_command(
     ctx: RunContext[AgentDeps],
     command: str,
     cwd: str | None = None,
@@ -238,7 +236,6 @@ async def execute_command(
         command: 要执行的命令字符串
         cwd: 工作目录（可选）
     """
-    # 白名单 + 元字符 + 敏感路径 三重验证
     valid, reason = validate_command(command)
     if not valid:
         return f"错误：命令被拒绝 - {reason}"
@@ -259,8 +256,7 @@ async def execute_command(
         return f"错误：执行失败 - {type(e).__name__}: {e}"
 
 
-@terminal_agent.tool
-async def ask_user(
+async def _tool_ask_user(
     ctx: RunContext[AgentDeps],
     question: str,
     options: list[str] | None = None,
@@ -279,8 +275,7 @@ async def ask_user(
     return result
 
 
-@terminal_agent.tool
-async def lookup_knowledge(
+async def _tool_lookup_knowledge(
     ctx: RunContext[AgentDeps],
     query: str,
 ) -> str:
@@ -303,6 +298,335 @@ async def lookup_knowledge(
 
 
 # ---------------------------------------------------------------------------
+# Agent Factory（Session-scoped）
+# ---------------------------------------------------------------------------
+
+def _register_builtin_tools(agent: Agent[AgentDeps, AgentResult]) -> None:
+    """在 Agent 实例上注册内置工具。"""
+    agent.tool(_tool_execute_command)
+    agent.tool(_tool_ask_user)
+
+
+def _register_lookup_knowledge(agent: Agent[AgentDeps, AgentResult]) -> None:
+    """条件注册 lookup_knowledge 工具（仅当 Agent 支持时）。"""
+    agent.tool(_tool_lookup_knowledge)
+
+
+# ---------------------------------------------------------------------------
+# JSON Schema → Pydantic model 转换（用于动态工具参数签名）
+# ---------------------------------------------------------------------------
+
+_TYPE_MAP = {
+    "string": str,
+    "integer": int,
+    "number": float,
+    "boolean": bool,
+    "array": list,
+    "object": dict,
+}
+
+
+def _json_schema_to_fields(schema: dict) -> dict:
+    """将 JSON Schema properties 转为 create_model 字段定义。
+
+    仅处理顶层 properties 中的简单类型。
+    嵌套 object/array 使用 dict/list fallback。
+    """
+    fields = {}
+    props = schema.get("properties", {})
+    required = set(schema.get("required", []))
+    for name, prop in props.items():
+        prop_type = prop.get("type", "string")
+        python_type = _TYPE_MAP.get(prop_type, str)
+        if name in required:
+            fields[name] = (python_type, ...)
+        else:
+            fields[name] = (python_type, None)
+    return fields
+
+
+def _register_dynamic_tool(
+    agent: Agent[AgentDeps, AgentResult],
+    tool_info: dict,
+) -> None:
+    """将一个动态工具注册为独立的 Pydantic AI tool。
+
+    从 tool_info.parameters JSON Schema 创建动态 Pydantic model，
+    作为工具参数的类型签名，让模型感知 per-tool 参数结构。
+    创建失败时 fallback 到泛泛的 arguments: dict。
+
+    Args:
+        agent: 目标 Agent 实例
+        tool_info: 工具信息 {"name", "description", "parameters", ...}
+    """
+    tool_name = tool_info.get("name", "unknown")
+    tool_description = tool_info.get("description", "")
+    parameters = tool_info.get("parameters", {})
+
+    # 从 JSON Schema 创建动态参数 model
+    param_model = None
+    if parameters and isinstance(parameters, dict) and parameters.get("properties"):
+        try:
+            fields = _json_schema_to_fields(parameters)
+            model_name = f'{tool_name.replace(".", "_")}_params'
+            param_model = create_model(
+                model_name,
+                __config__=ConfigDict(extra="allow"),
+                **fields,
+            )
+        except Exception:
+            logger.warning("动态工具 %s 参数 model 创建失败，使用 dict fallback", tool_name)
+            param_model = None
+
+    def _make_dynamic_tool(name: str, desc: str, pmodel: type[BaseModel] | None):
+        if pmodel is not None:
+            async def _dynamic_tool(
+                ctx: RunContext[AgentDeps],
+                arguments: pmodel,  # type: ignore[valid-type]
+            ) -> str:
+                """动态工具（带参数 schema）。"""
+                if ctx.deps.tool_call_fn is None:
+                    return "错误：动态工具不可用（远端设备未注册扩展工具）"
+                try:
+                    result = await ctx.deps.tool_call_fn(name, arguments.model_dump())
+                    if result.get("status") == "error":
+                        return f"工具调用失败：{result.get('error', '未知错误')}"
+                    return result.get("result", "")
+                except Exception as e:
+                    logger.warning("dynamic_tool %s error: %s", name, e)
+                    return f"错误：动态工具调用失败 - {type(e).__name__}: {e}"
+        else:
+            async def _dynamic_tool(
+                ctx: RunContext[AgentDeps],
+                arguments: dict,
+            ) -> str:
+                """动态工具（无 schema fallback）。"""
+                if ctx.deps.tool_call_fn is None:
+                    return "错误：动态工具不可用（远端设备未注册扩展工具）"
+                try:
+                    result = await ctx.deps.tool_call_fn(name, arguments)
+                    if result.get("status") == "error":
+                        return f"工具调用失败：{result.get('error', '未知错误')}"
+                    return result.get("result", "")
+                except Exception as e:
+                    logger.warning("dynamic_tool %s error: %s", name, e)
+                    return f"错误：动态工具调用失败 - {type(e).__name__}: {e}"
+
+        _dynamic_tool.__name__ = name.replace(".", "_")
+        _dynamic_tool.__qualname__ = f"dynamic_{name.replace('.', '_')}"
+        _dynamic_tool.__doc__ = desc or f"调用远端动态工具 {name}。"
+        return _dynamic_tool
+
+    tool_fn = _make_dynamic_tool(tool_name, tool_description, param_model)
+    agent.tool(name=tool_name, description=tool_description or f"动态工具 {tool_name}")(tool_fn)
+
+
+def build_session_agent(
+    dynamic_tools: list[dict] | None = None,
+    include_lookup_knowledge: bool = True,
+) -> Agent[AgentDeps, AgentResult]:
+    """构建 session-scoped Agent 实例。
+
+    每次会话创建独立 Agent，动态工具注册为真实 Pydantic AI tool。
+    不修改任何全局状态。
+
+    Args:
+        dynamic_tools: 已验证的动态工具列表
+        include_lookup_knowledge: 是否注册 lookup_knowledge 工具
+
+    Returns:
+        配置好工具的 Agent 实例
+    """
+    agent = Agent(
+        model=_build_model(),
+        deps_type=AgentDeps,
+        output_type=AgentResult,
+        system_prompt=SYSTEM_PROMPT,
+        retries=3,
+    )
+
+    # 注册内置工具
+    _register_builtin_tools(agent)
+
+    # 条件注册 lookup_knowledge
+    if include_lookup_knowledge:
+        _register_lookup_knowledge(agent)
+
+    # 注册动态工具
+    for tool_info in (dynamic_tools or []):
+        _register_dynamic_tool(agent, tool_info)
+
+    return agent
+
+
+# ---------------------------------------------------------------------------
+# 全局 terminal_agent（仅用于无动态工具的兼容场景 / 测试）
+# ---------------------------------------------------------------------------
+
+terminal_agent = Agent(
+    model=_build_model(),
+    deps_type=AgentDeps,
+    output_type=AgentResult,
+    system_prompt=SYSTEM_PROMPT,
+    retries=3,
+)
+
+# 在全局 Agent 上注册所有内置工具
+terminal_agent.tool(_tool_execute_command)
+terminal_agent.tool(_tool_ask_user)
+terminal_agent.tool(_tool_lookup_knowledge)
+
+
+# 保留旧名称兼容（测试直接 import 这些函数名）
+execute_command = _tool_execute_command
+ask_user = _tool_ask_user
+lookup_knowledge = _tool_lookup_knowledge
+
+
+# ---------------------------------------------------------------------------
+# 通用动态工具调用函数（用于测试 + 未通过 factory 注册时的 fallback）
+# ---------------------------------------------------------------------------
+
+async def call_dynamic_tool(
+    ctx: RunContext[AgentDeps],
+    tool_name: str,
+    arguments: dict,
+) -> str:
+    """调用远端设备上的动态扩展工具（通用版）。
+
+    用于 session-scoped factory 的动态注册工具内部实现，
+    以及测试中直接调用的场景。
+
+    Args:
+        ctx: Pydantic AI RunContext
+        tool_name: 动态工具名称（namespaced 格式：skill.tool）
+        arguments: 工具参数
+    """
+    if ctx.deps.tool_call_fn is None:
+        return "错误：动态工具不可用（远端设备未注册扩展工具）"
+    try:
+        result = await ctx.deps.tool_call_fn(tool_name, arguments)
+        if result.get("status") == "error":
+            return f"工具调用失败：{result.get('error', '未知错误')}"
+        return result.get("result", "")
+    except Exception as e:
+        logger.warning("call_dynamic_tool error: %s", e)
+        return f"错误：动态工具调用失败 - {type(e).__name__}: {e}"
+
+
+# ---------------------------------------------------------------------------
+# 动态工具校验（Finding 2: Server-side snapshot validation）
+# ---------------------------------------------------------------------------
+
+# 校验常量
+MAX_TOOLS_PER_SNAPSHOT = 50
+MAX_DESCRIPTION_LENGTH = 500
+MAX_SCHEMA_SIZE = 4096  # 4KB
+MAX_SNAPSHOT_SIZE = 256 * 1024  # 256KB
+ALLOWED_CAPABILITIES = {"read_only", "info_only"}
+
+
+def validate_tool_catalog(tools: list[dict]) -> list[dict]:
+    """校验 Agent 上报的工具目录，返回过滤后的合法工具列表。
+
+    校验规则（对应 B093 AC #786-790）：
+    - 最多 MAX_TOOLS_PER_SNAPSHOT 个工具
+    - description 超过 MAX_DESCRIPTION_LENGTH 截断
+    - parameters schema 超过 MAX_SCHEMA_SIZE 忽略该工具
+    - capability 不在 ALLOWED_CAPABILITIES 中则拒绝该工具
+    - name 必须是 namespaced 格式（含 .）
+    - parameters 必须是合法 dict（如果存在）
+
+    Args:
+        tools: Agent 上报的原始工具列表
+
+    Returns:
+        校验通过的工具列表（空列表如果 snapshot 超过 MAX_SNAPSHOT_SIZE）
+    """
+    import json
+
+    # Snapshot 级 256KB 边界校验（按 UTF-8 字节数）
+    try:
+        snapshot_bytes = len(json.dumps(tools).encode("utf-8"))
+        if snapshot_bytes > MAX_SNAPSHOT_SIZE:
+            logger.warning(
+                "Tool catalog snapshot 超过 %d 字节（实际 %d），拒绝整个 snapshot",
+                MAX_SNAPSHOT_SIZE, snapshot_bytes,
+            )
+            return []
+    except (TypeError, ValueError):
+        logger.warning("Tool catalog snapshot 序列化失败，拒绝")
+        return []
+
+    validated = []
+    for i, tool in enumerate(tools):
+        if len(validated) >= MAX_TOOLS_PER_SNAPSHOT:
+            logger.warning(
+                "Tool catalog 超过 %d 上限，截断剩余工具",
+                MAX_TOOLS_PER_SNAPSHOT,
+            )
+            break
+
+        name = tool.get("name", "")
+        kind = tool.get("kind", "dynamic")
+
+        # namespaced 校验（仅 dynamic 类型）
+        if kind == "dynamic" and "." not in name:
+            logger.warning("工具 '%s' 缺少 namespace 前缀，忽略", name)
+            continue
+
+        # skill 字段校验（仅 dynamic 类型）
+        if kind == "dynamic":
+            skill = tool.get("skill")
+            if not skill or not isinstance(skill, str):
+                logger.warning("工具 '%s' 缺少 skill 字段，忽略", name)
+                continue
+
+        # capability 校验
+        capability = tool.get("capability", "read_only")
+        if capability not in ALLOWED_CAPABILITIES:
+            logger.warning(
+                "工具 '%s' capability='%s' 不在允许列表 %s，忽略",
+                name, capability, ALLOWED_CAPABILITIES,
+            )
+            continue
+
+        # parameters 校验（所有工具必填，且必须是合法 JSON Schema）
+        parameters = tool.get("parameters")
+        if parameters is None:
+            logger.warning("工具 '%s' 缺少 parameters，忽略", name)
+            continue
+        if not isinstance(parameters, dict):
+            logger.warning("工具 '%s' parameters 不是 dict，忽略", name)
+            continue
+        # JSON Schema 基本合法性
+        if not any(k in parameters for k in ("type", "properties", "$schema")):
+            logger.warning("工具 '%s' parameters 不是合法 JSON Schema，忽略", name)
+            continue
+        try:
+            schema_size = len(json.dumps(parameters).encode("utf-8"))
+            if schema_size > MAX_SCHEMA_SIZE:
+                logger.warning(
+                    "工具 '%s' schema 超过 %d 字节，忽略",
+                    name, MAX_SCHEMA_SIZE,
+                )
+                continue
+        except (TypeError, ValueError):
+            logger.warning("工具 '%s' schema 序列化失败，忽略", name)
+            continue
+
+        # description 截断
+        description = tool.get("description", "")
+        if len(description) > MAX_DESCRIPTION_LENGTH:
+            tool = {**tool, "description": description[:MAX_DESCRIPTION_LENGTH]}
+            logger.info("工具 '%s' description 截断至 %d 字符", name, MAX_DESCRIPTION_LENGTH)
+
+        validated.append(tool)
+
+    return validated
+
+
+# ---------------------------------------------------------------------------
 # 公开接口
 # ---------------------------------------------------------------------------
 
@@ -314,6 +638,9 @@ async def run_agent(
     project_aliases: dict[str, str] | None = None,
     message_history: list | None = None,
     lookup_knowledge_fn: Callable[[str], Awaitable[str]] | None = None,
+    tool_call_fn: Callable[[str, dict], Awaitable[dict]] | None = None,
+    dynamic_tools: list[dict] | None = None,
+    include_lookup_knowledge: bool = True,
 ) -> AgentRunOutcome:
     """运行 Agent 处理用户意图。
 
@@ -325,6 +652,9 @@ async def run_agent(
         project_aliases: 已知项目别名
         message_history: 对话历史（用于多轮）
         lookup_knowledge_fn: 知识检索回调 (query) -> str，可选
+        tool_call_fn: 动态工具调用回调 (tool_name, arguments) -> dict，可选
+        dynamic_tools: 已验证的动态工具目录，可选
+        include_lookup_knowledge: 是否注册 lookup_knowledge（基于 Agent 版本）
 
     Returns:
         AgentRunOutcome 包含 AgentResult + token usage 统计
@@ -334,8 +664,18 @@ async def run_agent(
         execute_command_fn=execute_command_fn,
         ask_user_fn=ask_user_fn,
         lookup_knowledge_fn=lookup_knowledge_fn,
+        tool_call_fn=tool_call_fn,
+        dynamic_tools=dynamic_tools or [],
         project_aliases=project_aliases or {},
     )
+
+    # Session-scoped Agent factory：为每个会话创建独立 Agent
+    has_dynamic = bool(dynamic_tools)
+    agent = build_session_agent(
+        dynamic_tools=dynamic_tools,
+        include_lookup_knowledge=include_lookup_knowledge,
+    )
+
     if not planner_api_key():
         raise AgentUserFacingError("智能服务 Token 未配置，请联系开发者")
 
@@ -346,7 +686,7 @@ async def run_agent(
     retry_hint = None
     for attempt in range(1, max_attempts + 1):
         try:
-            run_result = await terminal_agent.run(
+            run_result = await agent.run(
                 user_prompt=intent if retry_hint is None else f"{intent}\n\n{retry_hint}",
                 deps=deps,
                 message_history=message_history,

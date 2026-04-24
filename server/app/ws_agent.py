@@ -45,12 +45,14 @@ pending_terminal_creates: dict[tuple[str, str], asyncio.Future] = {}
 pending_terminal_closes: dict[tuple[str, str], asyncio.Future] = {}
 pending_terminal_snapshots: dict[tuple[str, str], asyncio.Future] = {}
 
-# B078: execute_command pending futures
-pending_execute_commands: dict[str, asyncio.Future] = {}  # request_id -> Future
+# B078: execute_command pending futures (session-scoped)
+# key: request_id, value: (session_id, Future)
+pending_execute_commands: dict[str, tuple[str, asyncio.Future]] = {}
 
 # B093: lookup_knowledge / tool_call pending futures
-pending_lookup_knowledge: dict[str, asyncio.Future] = {}  # request_id -> Future
-pending_tool_calls: dict[str, asyncio.Future] = {}  # call_id -> Future
+# key: request_id/call_id, value: (session_id, Future)
+pending_lookup_knowledge: dict[str, tuple[str, asyncio.Future]] = {}
+pending_tool_calls: dict[str, tuple[str, asyncio.Future]] = {}
 
 # B078: 频率限制追踪（每 session_id 的请求时间戳列表）
 _execute_command_rate_tracker: dict[str, list[float]] = defaultdict(list)
@@ -453,24 +455,33 @@ async def _handle_agent_message(websocket, session_id: str, message: dict):
         # B093: Agent 上报工具目录
         tools = message.get("tools", [])
         if isinstance(tools, list):
+            from app.terminal_agent import validate_tool_catalog
+            validated = validate_tool_catalog(tools)
             agent_conn = get_agent_connection(session_id)
             if agent_conn:
-                agent_conn.tool_catalog = tools
-                logger.info("Agent %s 上报工具目录: %d 个工具", session_id, len(tools))
+                agent_conn.tool_catalog = validated
+                logger.info(
+                    "Agent %s 上报工具目录: %d/%d 通过校验",
+                    session_id, len(validated), len(tools),
+                )
 
     elif msg_type == "lookup_knowledge_result":
         # B093: lookup_knowledge 结果回流
         request_id = message.get("request_id", "")
-        future = pending_lookup_knowledge.pop(request_id, None)
-        if future and not future.done():
-            future.set_result(message.get("result", ""))
+        entry = pending_lookup_knowledge.pop(request_id, None)
+        if entry:
+            _, future = entry
+            if not future.done():
+                future.set_result(message.get("result", ""))
 
     elif msg_type == "tool_result":
         # B093: 动态工具调用结果回流
         call_id = message.get("call_id", "")
-        future = pending_tool_calls.pop(call_id, None)
-        if future and not future.done():
-            future.set_result(message)
+        entry = pending_tool_calls.pop(call_id, None)
+        if entry:
+            _, future = entry
+            if not future.done():
+                future.set_result(message)
 
     elif msg_type == "agent_metadata":
         platform_name = (message.get("platform") or "").strip()
@@ -548,6 +559,8 @@ async def _cleanup_agent(
     _cleanup_pending_futures(pending_terminal_closes, session_id, reason)
     _cleanup_pending_futures(pending_terminal_snapshots, session_id, reason)
     _cleanup_execute_command_futures(session_id, reason)
+    _cleanup_pending_futures_by_id(pending_lookup_knowledge, session_id, reason)
+    _cleanup_pending_futures_by_id(pending_tool_calls, session_id, reason)
 
     # 清理频率限制追踪
     _execute_command_rate_tracker.pop(session_id, None)
@@ -922,32 +935,48 @@ def _handle_execute_command_result(message: dict):
     request_id = message.get("request_id")
     if not request_id:
         return
-    future = pending_execute_commands.pop(request_id, None)
-    if future and not future.done():
-        future.set_result(ExecuteCommandResult(
-            exit_code=int(message.get("exit_code", -1)),
-            stdout=str(message.get("stdout", "")),
-            stderr=str(message.get("stderr", "")),
-            truncated=bool(message.get("truncated", False)),
-            timed_out=bool(message.get("timed_out", False)),
-        ))
+    entry = pending_execute_commands.pop(request_id, None)
+    if entry:
+        _, future = entry
+        if not future.done():
+            future.set_result(ExecuteCommandResult(
+                exit_code=int(message.get("exit_code", -1)),
+                stdout=str(message.get("stdout", "")),
+                stderr=str(message.get("stderr", "")),
+                truncated=bool(message.get("truncated", False)),
+                timed_out=bool(message.get("timed_out", False)),
+            ))
 
 
 def _cleanup_execute_command_futures(session_id: str, reason: str):
-    """清理指定 session 的所有 pending execute_command futures。
-
-    因为 pending_execute_commands 按 request_id 索引，需要遍历所有条目。
-    正常情况下同一个 session 的 pending 数量极少（受频率限制），
-    遍历开销可以忽略。
-    """
-    # request_id 格式为 uuid4 hex，不含 session 信息，
-    # 所以需要借助 AgentConnection.session_id 来判断。
-    # 但这里我们直接清理所有 pending（断连通常很少），
-    # 更精确的做法是在 future 的 context 中记录 session_id。
-    # 当前设计下，agent 断连时 pending 数量极小，直接全部清理即可。
+    """清理指定 session 的所有 pending execute_command futures。"""
     for rid in list(pending_execute_commands.keys()):
-        future = pending_execute_commands.pop(rid, None)
-        if future and not future.done():
+        entry = pending_execute_commands.get(rid)
+        if entry is None:
+            continue
+        owner_session, future = entry
+        if owner_session != session_id:
+            continue
+        pending_execute_commands.pop(rid, None)
+        if not future.done():
+            future.set_exception(ConnectionError(f"agent disconnected: {reason}"))
+
+
+def _cleanup_pending_futures_by_id(
+    pending_dict: dict[str, tuple[str, asyncio.Future]],
+    session_id: str,
+    reason: str,
+) -> None:
+    """清理指定 session 的 pending futures（按 tuple 中附带的 session_id 过滤）。"""
+    for key in list(pending_dict.keys()):
+        entry = pending_dict.get(key)
+        if entry is None:
+            continue
+        owner_session, future = entry
+        if owner_session != session_id:
+            continue
+        pending_dict.pop(key, None)
+        if not future.done():
             future.set_exception(ConnectionError(f"agent disconnected: {reason}"))
 
 
@@ -1019,7 +1048,7 @@ async def send_execute_command(
     request_id = uuid4().hex
     loop = asyncio.get_running_loop()
     future: asyncio.Future = loop.create_future()
-    pending_execute_commands[request_id] = future
+    pending_execute_commands[request_id] = (session_id, future)
 
     await agent_conn.send({
         "type": "execute_command",
@@ -1070,7 +1099,7 @@ async def send_lookup_knowledge(
     request_id = uuid4().hex
     loop = asyncio.get_running_loop()
     future: asyncio.Future = loop.create_future()
-    pending_lookup_knowledge[request_id] = future
+    pending_lookup_knowledge[request_id] = (session_id, future)
 
     try:
         await agent_conn.send({
@@ -1108,7 +1137,7 @@ async def send_tool_call(
 
     loop = asyncio.get_running_loop()
     future: asyncio.Future = loop.create_future()
-    pending_tool_calls[call_id] = future
+    pending_tool_calls[call_id] = (session_id, future)
 
     try:
         await agent_conn.send({

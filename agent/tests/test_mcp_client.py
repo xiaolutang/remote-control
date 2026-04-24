@@ -249,3 +249,54 @@ class TestMCPServerCrash:
         assert result["status"] == "error"
 
         await manager.stop_all()
+
+
+class TestMCPArgFiltering:
+    """B093: 参数过滤测试。"""
+
+    def test_filter_known_args_strips_extra(self):
+        """额外参数应在调用前被剥离。"""
+        from app.mcp_client import MCPToolInfo
+        manager = MCPClientManager()
+        tool_info = MCPToolInfo(
+            skill_name="test",
+            tool_name="read",
+            namespaced_name="test.read",
+            description="test",
+            parameters={
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"],
+            },
+        )
+        filtered = manager._filter_known_args(tool_info, {"path": "/tmp", "extra": "removed"})
+        assert "path" in filtered
+        assert "extra" not in filtered
+
+    def test_filter_known_args_keeps_all_when_no_properties(self):
+        """无 properties 时不做过滤。"""
+        from app.mcp_client import MCPToolInfo
+        manager = MCPClientManager()
+        tool_info = MCPToolInfo(
+            skill_name="test",
+            tool_name="any",
+            namespaced_name="test.any",
+            description="test",
+            parameters={"type": "object"},
+        )
+        filtered = manager._filter_known_args(tool_info, {"a": 1, "b": 2})
+        assert filtered == {"a": 1, "b": 2}
+
+    def test_filter_known_args_empty_schema(self):
+        """空 schema 时不做过滤。"""
+        from app.mcp_client import MCPToolInfo
+        manager = MCPClientManager()
+        tool_info = MCPToolInfo(
+            skill_name="test",
+            tool_name="any",
+            namespaced_name="test.any",
+            description="test",
+            parameters={},
+        )
+        filtered = manager._filter_known_args(tool_info, {"a": 1})
+        assert filtered == {"a": 1}

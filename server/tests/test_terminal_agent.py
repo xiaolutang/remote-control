@@ -32,6 +32,12 @@ from app.terminal_agent import (
     _build_model,
     execute_command,
     ask_user,
+    call_dynamic_tool,
+    build_session_agent,
+    validate_tool_catalog,
+    MAX_TOOLS_PER_SNAPSHOT,
+    MAX_DESCRIPTION_LENGTH,
+    MAX_SCHEMA_SIZE,
     run_agent,
     terminal_agent,
     lookup_knowledge,
@@ -63,6 +69,8 @@ def _make_deps(
     execute_fn=None,
     ask_fn=None,
     lookup_knowledge_fn=None,
+    tool_call_fn=None,
+    dynamic_tools=None,
     session_id: str = "test-session",
     aliases: dict | None = None,
 ) -> AgentDeps:
@@ -75,6 +83,8 @@ def _make_deps(
         execute_command_fn=execute_fn,
         ask_user_fn=ask_fn,
         lookup_knowledge_fn=lookup_knowledge_fn,
+        tool_call_fn=tool_call_fn,
+        dynamic_tools=dynamic_tools or [],
         project_aliases=aliases or {},
     )
 
@@ -552,7 +562,7 @@ class TestRunAgent:
         mock_usage.requests = 2
         mock_result.usage = MagicMock(return_value=mock_usage)
 
-        with patch.object(terminal_agent, 'run', new_callable=AsyncMock, return_value=mock_result):
+        with patch('pydantic_ai.Agent.run', new_callable=AsyncMock, return_value=mock_result):
             outcome = await run_agent(
                 intent="进入 my-project",
                 session_id="session-1",
@@ -586,7 +596,7 @@ class TestRunAgent:
         ask_fn = AsyncMock()
         aliases = {"/app": "my-app"}
 
-        with patch.object(terminal_agent, 'run', new_callable=AsyncMock, return_value=mock_result) as mock_run:
+        with patch('pydantic_ai.Agent.run', new_callable=AsyncMock, return_value=mock_result) as mock_run:
             await run_agent(
                 intent="打开项目",
                 session_id="sess-1",
@@ -614,7 +624,7 @@ class TestRunAgent:
 
         history = [{"role": "user", "content": "之前说打开 project-a"}]
 
-        with patch.object(terminal_agent, 'run', new_callable=AsyncMock, return_value=mock_result) as mock_run:
+        with patch('pydantic_ai.Agent.run', new_callable=AsyncMock, return_value=mock_result) as mock_run:
             await run_agent(
                 intent="现在打开 project-b",
                 session_id="sess-1",
@@ -636,7 +646,7 @@ class TestRunAgent:
             input_tokens=0, output_tokens=0, total_tokens=0, requests=0,
         ))
 
-        with patch.object(terminal_agent, 'run', new_callable=AsyncMock, return_value=mock_result) as mock_run:
+        with patch('pydantic_ai.Agent.run', new_callable=AsyncMock, return_value=mock_result) as mock_run:
             await run_agent(
                 intent="test",
                 session_id="s1",
@@ -656,7 +666,7 @@ class TestRunAgent:
             input_tokens=0, output_tokens=0, total_tokens=0, requests=0,
         ))
 
-        with patch.object(terminal_agent, 'run', new_callable=AsyncMock, return_value=mock_result) as mock_run:
+        with patch('pydantic_ai.Agent.run', new_callable=AsyncMock, return_value=mock_result) as mock_run:
             await run_agent(
                 intent="test",
                 session_id="s1",
@@ -772,9 +782,18 @@ class TestS085PromptKnowledge:
         assert "claude" in SYSTEM_PROMPT.lower()
         assert "Claude Code" in SYSTEM_PROMPT
 
-    def test_system_prompt_contains_codex_info_only(self):
-        """SYSTEM_PROMPT 明确 Codex CLI 仅用于知识说明。"""
-        assert "info-only" in SYSTEM_PROMPT or "仅用于知识说明" in SYSTEM_PROMPT
+    def test_system_prompt_codex_info_only(self):
+        """SYSTEM_PROMPT 明确 Codex 仅 info-only，不生成执行命令。"""
+        assert "Codex" in SYSTEM_PROMPT
+        assert "info-only" in SYSTEM_PROMPT
+        # 明确禁止生成 codex 命令
+        assert "不生成" in SYSTEM_PROMPT and "codex" in SYSTEM_PROMPT.lower()
+
+    def test_system_prompt_codex_negative_case(self):
+        """SYSTEM_PROMPT 负向约束：用户说'用 Codex 打开项目'应被 info-only 规则覆盖。"""
+        # 应包含明确的禁止规则
+        assert any(phrase in SYSTEM_PROMPT for phrase in
+                   ["不生成 `codex` 执行命令", "不生成 codex", "禁止生成 codex"])
 
     def test_system_prompt_contains_user_journeys(self):
         """SYSTEM_PROMPT 定义了用户旅程边界。"""
@@ -831,7 +850,7 @@ class TestS085RunAgentWithKnowledge:
     @pytest.mark.asyncio
     async def test_run_agent_passes_lookup_knowledge_fn(self):
         """run_agent 正确将 lookup_knowledge_fn 传入 AgentDeps。"""
-        with patch.object(terminal_agent, "run", new_callable=AsyncMock) as mock_run:
+        with patch('pydantic_ai.Agent.run', new_callable=AsyncMock) as mock_run:
             mock_usage = MagicMock()
             mock_usage.input_tokens = 100
             mock_usage.output_tokens = 50
@@ -863,7 +882,7 @@ class TestS085RunAgentWithKnowledge:
     @pytest.mark.asyncio
     async def test_run_agent_without_lookup_knowledge_fn(self):
         """run_agent 不传 lookup_knowledge_fn 时默认为 None。"""
-        with patch.object(terminal_agent, "run", new_callable=AsyncMock) as mock_run:
+        with patch('pydantic_ai.Agent.run', new_callable=AsyncMock) as mock_run:
             mock_usage = MagicMock(
                 input_tokens=0, output_tokens=0, total_tokens=0, requests=1,
             )
@@ -881,3 +900,444 @@ class TestS085RunAgentWithKnowledge:
 
             call_args = mock_run.call_args
             assert call_args.kwargs.get("deps").lookup_knowledge_fn is None
+
+
+class TestCallDynamicTool:
+    """B093: call_dynamic_tool 工具测试。"""
+
+    @pytest.mark.asyncio
+    async def test_call_dynamic_tool_with_fn(self):
+        """有回调时正确调用并返回结果。"""
+        mock_fn = AsyncMock(return_value={"status": "success", "result": "工具执行结果"})
+        deps = _make_deps(tool_call_fn=mock_fn)
+        ctx = _make_run_context(deps)
+
+        result = await call_dynamic_tool(ctx, "my_skill.my_tool", {"arg1": "value1"})
+        assert "工具执行结果" in result
+        mock_fn.assert_called_once_with("my_skill.my_tool", {"arg1": "value1"})
+
+    @pytest.mark.asyncio
+    async def test_call_dynamic_tool_without_fn(self):
+        """无回调时返回降级消息。"""
+        deps = _make_deps(tool_call_fn=None)
+        ctx = _make_run_context(deps)
+
+        result = await call_dynamic_tool(ctx, "my_skill.my_tool", {})
+        assert "不可用" in result
+
+    @pytest.mark.asyncio
+    async def test_call_dynamic_tool_error_response(self):
+        """工具返回错误时显示错误消息。"""
+        mock_fn = AsyncMock(return_value={"status": "error", "error": "工具不存在"})
+        deps = _make_deps(tool_call_fn=mock_fn)
+        ctx = _make_run_context(deps)
+
+        result = await call_dynamic_tool(ctx, "bad.tool", {})
+        assert "工具不存在" in result
+
+    @pytest.mark.asyncio
+    async def test_call_dynamic_tool_fn_exception(self):
+        """回调异常时返回错误消息。"""
+        mock_fn = AsyncMock(side_effect=RuntimeError("连接失败"))
+        deps = _make_deps(tool_call_fn=mock_fn)
+        ctx = _make_run_context(deps)
+
+        result = await call_dynamic_tool(ctx, "tool", {})
+        assert "连接失败" in result
+
+
+class TestRunAgentWithDynamicTools:
+    """B093: run_agent 传入 dynamic_tools 测试。"""
+
+    @pytest.mark.asyncio
+    async def test_run_agent_registers_dynamic_tools_on_agent(self):
+        """run_agent 将 dynamic_tools 注册为真实 Pydantic AI tool（session-scoped factory）。"""
+        with patch('pydantic_ai.Agent.run', new_callable=AsyncMock) as mock_run:
+            mock_usage = MagicMock(
+                input_tokens=0, output_tokens=0, total_tokens=0, requests=1,
+            )
+            mock_run.return_value = MagicMock(
+                output=AgentResult(summary="test", steps=[], need_confirm=False),
+                usage=mock_usage,
+            )
+
+            tools = [
+                {"name": "my_skill.read_file", "description": "读取文件内容"},
+            ]
+            await run_agent(
+                intent="测试意图",
+                session_id="s1",
+                execute_command_fn=AsyncMock(),
+                ask_user_fn=AsyncMock(),
+                dynamic_tools=tools,
+                tool_call_fn=AsyncMock(return_value={"status": "success", "result": "ok"}),
+            )
+
+            mock_run.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_run_agent_passes_tool_call_fn_to_deps(self):
+        """run_agent 将 tool_call_fn 传入 AgentDeps。"""
+        with patch('pydantic_ai.Agent.run', new_callable=AsyncMock) as mock_run:
+            mock_usage = MagicMock(
+                input_tokens=0, output_tokens=0, total_tokens=0, requests=1,
+            )
+            mock_run.return_value = MagicMock(
+                output=AgentResult(summary="test", steps=[], need_confirm=False),
+                usage=mock_usage,
+            )
+
+            mock_tool_fn = AsyncMock(return_value={"status": "success", "result": "ok"})
+            await run_agent(
+                intent="test",
+                session_id="s1",
+                execute_command_fn=AsyncMock(),
+                ask_user_fn=AsyncMock(),
+                tool_call_fn=mock_tool_fn,
+                dynamic_tools=[{"name": "t1", "description": "d1"}],
+            )
+
+            call_args = mock_run.call_args
+            deps = call_args.kwargs.get("deps")
+            assert deps.tool_call_fn == mock_tool_fn
+            assert len(deps.dynamic_tools) == 1
+
+    @pytest.mark.asyncio
+    async def test_dynamic_tools_excludes_builtin(self):
+        """run_agent 不应将 kind=builtin 工具注入 dynamic_tools。"""
+        with patch('pydantic_ai.Agent.run', new_callable=AsyncMock) as mock_run:
+            mock_usage = MagicMock(
+                input_tokens=0, output_tokens=0, total_tokens=0, requests=1,
+            )
+            mock_run.return_value = MagicMock(
+                output=AgentResult(summary="test", steps=[], need_confirm=False),
+                usage=mock_usage,
+            )
+
+            mixed_tools = [
+                {"name": "lookup_knowledge", "kind": "builtin", "description": "知识检索"},
+                {"name": "my_skill.tool1", "kind": "dynamic", "description": "扩展工具"},
+            ]
+            # 模拟 runtime_api 的过滤逻辑
+            dynamic_only = [t for t in mixed_tools if t.get("kind") == "dynamic"]
+
+            await run_agent(
+                intent="test",
+                session_id="s1",
+                execute_command_fn=AsyncMock(),
+                ask_user_fn=AsyncMock(),
+                dynamic_tools=dynamic_only,
+            )
+
+            call_args = mock_run.call_args
+            deps = call_args.kwargs.get("deps")
+            assert len(deps.dynamic_tools) == 1
+            assert deps.dynamic_tools[0]["name"] == "my_skill.tool1"
+
+
+# ---------------------------------------------------------------------------
+# B093 Finding 1: Session-scoped Agent factory tests
+# ---------------------------------------------------------------------------
+
+class TestSessionAgentFactory:
+    """测试 build_session_agent factory。"""
+
+    def _tool_names(self, agent):
+        return set(agent._function_toolset.tools.keys())
+
+    def test_factory_creates_agent_with_builtins(self):
+        agent = build_session_agent()
+        names = self._tool_names(agent)
+        assert "_tool_execute_command" in names
+        assert "_tool_ask_user" in names
+        assert "_tool_lookup_knowledge" in names
+
+    def test_factory_without_lookup_knowledge(self):
+        agent = build_session_agent(include_lookup_knowledge=False)
+        names = self._tool_names(agent)
+        assert "_tool_lookup_knowledge" not in names
+
+    def test_factory_registers_dynamic_tools(self):
+        tools = [
+            {"name": "my_skill.read_file", "description": "读取文件"},
+            {"name": "my_skill.list_dir", "description": "列出目录"},
+        ]
+        agent = build_session_agent(dynamic_tools=tools)
+        names = self._tool_names(agent)
+        assert "my_skill.read_file" in names
+        assert "my_skill.list_dir" in names
+
+    def test_factory_creates_independent_instances(self):
+        """每次调用应创建独立 Agent 实例。"""
+        agent1 = build_session_agent(dynamic_tools=[
+            {"name": "skill_a.tool", "description": "A"},
+        ])
+        agent2 = build_session_agent(dynamic_tools=[
+            {"name": "skill_b.tool", "description": "B"},
+        ])
+        names1 = self._tool_names(agent1)
+        names2 = self._tool_names(agent2)
+        assert "skill_a.tool" in names1
+        assert "skill_a.tool" not in names2
+        assert "skill_b.tool" in names2
+        assert "skill_b.tool" not in names1
+
+
+# ---------------------------------------------------------------------------
+# B093 Finding 2: validate_tool_catalog tests
+# ---------------------------------------------------------------------------
+
+class TestValidateToolCatalog:
+    """测试 validate_tool_catalog 校验。"""
+
+    def test_valid_tools_pass(self):
+        tools = [
+            {"name": "my_skill.read", "kind": "dynamic", "skill": "my_skill",
+             "description": "读取", "parameters": {"type": "object", "properties": {}}},
+            {"name": "my_skill.list", "kind": "dynamic", "skill": "my_skill",
+             "description": "列表", "parameters": {"type": "object", "properties": {}}},
+        ]
+        result = validate_tool_catalog(tools)
+        assert len(result) == 2
+
+    def test_reject_non_namespaced_dynamic_tool(self):
+        tools = [
+            {"name": "bad_tool", "kind": "dynamic", "description": "无命名空间"},
+        ]
+        result = validate_tool_catalog(tools)
+        assert len(result) == 0
+
+    def test_reject_forbidden_capability(self):
+        tools = [
+            {"name": "my_skill.exec", "kind": "dynamic", "skill": "my_skill",
+             "capability": "execute", "description": "执行",
+             "parameters": {"type": "object", "properties": {}}},
+            {"name": "my_skill.write", "kind": "dynamic", "skill": "my_skill",
+             "capability": "write", "description": "写入",
+             "parameters": {"type": "object", "properties": {}}},
+        ]
+        result = validate_tool_catalog(tools)
+        assert len(result) == 0
+
+    def test_allow_read_only_capability(self):
+        tools = [
+            {"name": "my_tool.read", "kind": "dynamic", "skill": "my_tool",
+             "capability": "read_only", "description": "读取",
+             "parameters": {"type": "object", "properties": {}}},
+        ]
+        result = validate_tool_catalog(tools)
+        assert len(result) == 1
+
+    def test_allow_info_only_capability(self):
+        tools = [
+            {"name": "my_tool.info", "kind": "dynamic", "skill": "my_tool",
+             "capability": "info_only", "description": "信息",
+             "parameters": {"type": "object", "properties": {}}},
+        ]
+        result = validate_tool_catalog(tools)
+        assert len(result) == 1
+
+    def test_truncate_long_description(self):
+        tools = [
+            {"name": "my_tool.x", "kind": "dynamic", "skill": "my_tool",
+             "description": "x" * 600,
+             "parameters": {"type": "object", "properties": {}}},
+        ]
+        result = validate_tool_catalog(tools)
+        assert len(result) == 1
+        assert len(result[0]["description"]) == MAX_DESCRIPTION_LENGTH
+
+    def test_reject_oversized_schema(self):
+        tools = [
+            {"name": "my_tool.big", "kind": "dynamic", "skill": "my_tool",
+             "description": "大schema",
+             "parameters": {"properties": {f"field_{i}": {"type": "string"} for i in range(500)}}},
+        ]
+        result = validate_tool_catalog(tools)
+        assert len(result) == 0
+
+    def test_max_tools_limit(self):
+        tools = [
+            {"name": f"s{i}.tool", "kind": "dynamic", "skill": f"s{i}",
+             "description": f"tool {i}",
+             "parameters": {"type": "object", "properties": {}}}
+            for i in range(MAX_TOOLS_PER_SNAPSHOT + 5)
+        ]
+        result = validate_tool_catalog(tools)
+        assert len(result) == MAX_TOOLS_PER_SNAPSHOT
+
+    def test_builtin_tools_skip_namespace_check(self):
+        tools = [
+            {"name": "execute_command", "kind": "builtin", "description": "内置",
+             "parameters": {"type": "object", "properties": {}}},
+        ]
+        result = validate_tool_catalog(tools)
+        assert len(result) == 1
+
+    def test_reject_builtin_without_parameters(self):
+        """builtin 工具缺少 parameters 也应被拒绝。"""
+        tools = [
+            {"name": "execute_command", "kind": "builtin", "description": "内置"},
+        ]
+        result = validate_tool_catalog(tools)
+        assert len(result) == 0
+
+    def test_invalid_parameters_type_rejected(self):
+        tools = [
+            {"name": "my_tool.bad", "kind": "dynamic", "skill": "my_tool",
+             "description": "坏参数", "parameters": "not a dict"},
+        ]
+        result = validate_tool_catalog(tools)
+        assert len(result) == 0
+
+    def test_reject_dynamic_tool_without_skill(self):
+        """dynamic 工具缺少 skill 字段应被拒绝。"""
+        tools = [
+            {"name": "my_tool.read", "kind": "dynamic", "description": "读取",
+             "parameters": {"type": "object", "properties": {}}},
+        ]
+        result = validate_tool_catalog(tools)
+        assert len(result) == 0
+
+    def test_reject_dynamic_tool_without_parameters(self):
+        """dynamic 工具缺少 parameters 应被拒绝。"""
+        tools = [
+            {"name": "my_tool.read", "kind": "dynamic", "skill": "my_tool",
+             "description": "读取"},
+        ]
+        result = validate_tool_catalog(tools)
+        assert len(result) == 0
+
+    def test_reject_dynamic_tool_invalid_json_schema(self):
+        """dynamic 工具 parameters 不含 type/properties/$schema 应被拒绝。"""
+        tools = [
+            {"name": "my_tool.read", "kind": "dynamic", "skill": "my_tool",
+             "description": "读取", "parameters": {"random_key": "value"}},
+        ]
+        result = validate_tool_catalog(tools)
+        assert len(result) == 0
+
+
+# ---------------------------------------------------------------------------
+# B093 Finding 3: lookup_knowledge gating test
+# ---------------------------------------------------------------------------
+
+class TestLookupKnowledgeGating:
+    """测试 lookup_knowledge 版本门控。"""
+
+    @pytest.mark.asyncio
+    async def test_run_agent_without_lookup_knowledge(self):
+        """include_lookup_knowledge=False 时不应注册 lookup_knowledge。"""
+        with patch('pydantic_ai.Agent.run', new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = MagicMock(
+                output=AgentResult(summary="test", steps=[], need_confirm=False),
+                usage=MagicMock(input_tokens=0, output_tokens=0, total_tokens=0, requests=1),
+            )
+            await run_agent(
+                intent="test",
+                session_id="s1",
+                execute_command_fn=AsyncMock(),
+                ask_user_fn=AsyncMock(),
+                include_lookup_knowledge=False,
+            )
+            mock_run.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# B093 Finding 2 补充: snapshot 256KB 边界测试
+# ---------------------------------------------------------------------------
+
+class TestValidateToolCatalogSnapshotBoundary:
+    """测试 validate_tool_catalog snapshot 级边界。"""
+
+    def test_reject_oversized_snapshot(self):
+        """整个 snapshot 超过 256KB 时拒绝。"""
+        import json
+        large_tools = [
+            {"name": f"s{i}.tool", "kind": "dynamic", "skill": f"s{i}",
+             "description": "x" * 5000,
+             "parameters": {"type": "object", "properties": {}}}
+            for i in range(60)
+        ]
+        assert len(json.dumps(large_tools).encode("utf-8")) > 256 * 1024
+        result = validate_tool_catalog(large_tools)
+        assert result == []
+
+    def test_reject_multibyte_oversized_snapshot(self):
+        """UTF-8 bytes 校验：确保用 bytes 而非字符数判断 snapshot 大小。"""
+        import json
+        # 大量中文描述，json.dumps 默认转义为 \uXXXX 使 bytes > 256KB
+        tools = [{"name": f"s{i}.tool", "kind": "dynamic", "skill": f"s{i}",
+                  "description": "中文描述" * 2000,
+                  "parameters": {"type": "object", "properties": {}}} for i in range(30)]
+        raw = json.dumps(tools)
+        assert len(raw.encode("utf-8")) > 256 * 1024
+        result = validate_tool_catalog(tools)
+        assert result == []
+
+    def test_accept_within_snapshot_limit(self):
+        """snapshot 在 256KB 内正常通过。"""
+        small_tools = [
+            {"name": "s1.tool", "kind": "dynamic", "skill": "s1",
+             "description": "小工具", "parameters": {"type": "object", "properties": {}}},
+        ]
+        result = validate_tool_catalog(small_tools)
+        assert len(result) == 1
+
+
+# ---------------------------------------------------------------------------
+# B093 Finding 2 补充: _register_dynamic_tool 参数 schema 描述测试
+# ---------------------------------------------------------------------------
+
+class TestDynamicToolParameterSchema:
+    """测试动态工具参数 schema 注册到 Pydantic AI 签名。"""
+
+    def test_parameters_registered_as_pydantic_model(self):
+        """有 parameters 时应创建动态 Pydantic model，注册到工具签名中。"""
+        agent = build_session_agent(dynamic_tools=[
+            {"name": "my_skill.read_file", "description": "读取文件",
+             "parameters": {
+                 "type": "object",
+                 "properties": {"path": {"type": "string"}},
+                 "required": ["path"],
+             }},
+        ])
+        tool_obj = agent._function_toolset.tools["my_skill.read_file"]
+        json_schema = tool_obj.function_schema.json_schema
+        # path 应作为顶层参数
+        assert "path" in json_schema.get("properties", {})
+        assert "path" in json_schema.get("required", [])
+
+    def test_no_properties_falls_back_to_dict(self):
+        """parameters 无 properties 时使用 dict fallback。"""
+        agent = build_session_agent(dynamic_tools=[
+            {"name": "my_skill.tool", "description": "简单工具",
+             "parameters": {"type": "object"}},
+        ])
+        tool_obj = agent._function_toolset.tools["my_skill.tool"]
+        json_schema = tool_obj.function_schema.json_schema
+        # fallback: arguments 是 generic object
+        args_schema = json_schema.get("properties", {}).get("arguments", {})
+        assert args_schema.get("type") == "object"
+
+    def test_optional_parameter_defaults_to_none(self):
+        """可选参数（不在 required 中）默认值应为 None。"""
+        agent = build_session_agent(dynamic_tools=[
+            {"name": "my_skill.search", "description": "搜索",
+             "parameters": {
+                 "type": "object",
+                 "properties": {
+                     "query": {"type": "string"},
+                     "limit": {"type": "integer"},
+                 },
+                 "required": ["query"],
+             }},
+        ])
+        tool_obj = agent._function_toolset.tools["my_skill.search"]
+        json_schema = tool_obj.function_schema.json_schema
+        props = json_schema.get("properties", {})
+        assert "query" in props
+        assert "limit" in props
+        # query 应在 required 中，limit 不在
+        assert "query" in json_schema.get("required", [])
+        assert "limit" not in json_schema.get("required", [])

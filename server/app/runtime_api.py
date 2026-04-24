@@ -59,11 +59,13 @@ from app.session import (
     update_session_terminal_status,
 )
 from app.ws_agent import (
+    get_agent_connection,
     is_agent_connected,
     request_agent_close_terminal_with_ack,
     request_agent_create_terminal,
     send_execute_command,
     send_lookup_knowledge,
+    send_tool_call,
 )
 from app.ws_client import get_view_counts
 from app.agent_session_manager import (
@@ -2350,7 +2352,33 @@ async def run_terminal_agent_session(
             query=query,
         )
 
-    await manager.start_agent(agent_session, _execute_cmd_fn, lookup_knowledge_fn=_lookup_knowledge_fn)
+    # B093: 动态工具调用回调 + 从 Agent 连接获取工具目录
+    async def _tool_call_fn(tool_name, arguments):
+        call_id = uuid4().hex
+        return await send_tool_call(
+            session_id=session["session_id"],
+            call_id=call_id,
+            tool_name=tool_name,
+            arguments=arguments,
+        )
+
+    agent_conn = get_agent_connection(session["session_id"])
+    _all_tools = agent_conn.tool_catalog if agent_conn else []
+    _dynamic_tools = [t for t in _all_tools if t.get("kind") == "dynamic"]
+    # Finding 3: lookup_knowledge 版本门控——只有 snapshot 明确声明 builtin lookup_knowledge 才注册
+    # 旧 Agent（无 snapshot）和 snapshot 未到达时降级为 built-in-only（execute_command + ask_user）
+    _include_lookup_knowledge = any(
+        t.get("name") == "lookup_knowledge" and t.get("kind") == "builtin"
+        for t in _all_tools
+    )
+
+    await manager.start_agent(
+        agent_session, _execute_cmd_fn,
+        lookup_knowledge_fn=_lookup_knowledge_fn if _include_lookup_knowledge else None,
+        tool_call_fn=_tool_call_fn,
+        dynamic_tools=_dynamic_tools,
+        include_lookup_knowledge=_include_lookup_knowledge,
+    )
 
     return StreamingResponse(
         _agent_sse_response_wrapper(manager, agent_session),

@@ -42,7 +42,7 @@ class TestHandleExecuteCommandResult:
         loop = asyncio.new_event_loop()
         future = loop.create_future()
         request_id = "test-req-123"
-        pending_execute_commands[request_id] = future
+        pending_execute_commands[request_id] = ("session-1", future)
 
         _handle_execute_command_result({
             "type": "execute_command_result",
@@ -69,7 +69,7 @@ class TestHandleExecuteCommandResult:
         loop = asyncio.new_event_loop()
         future = loop.create_future()
         request_id = "test-req-err"
-        pending_execute_commands[request_id] = future
+        pending_execute_commands[request_id] = ("session-1", future)
 
         _handle_execute_command_result({
             "type": "execute_command_result",
@@ -91,7 +91,7 @@ class TestHandleExecuteCommandResult:
         loop = asyncio.new_event_loop()
         future = loop.create_future()
         request_id = "test-req-timeout"
-        pending_execute_commands[request_id] = future
+        pending_execute_commands[request_id] = ("session-1", future)
 
         _handle_execute_command_result({
             "type": "execute_command_result",
@@ -113,7 +113,7 @@ class TestHandleExecuteCommandResult:
         loop = asyncio.new_event_loop()
         future = loop.create_future()
         request_id = "test-req-trunc"
-        pending_execute_commands[request_id] = future
+        pending_execute_commands[request_id] = ("session-1", future)
 
         _handle_execute_command_result({
             "type": "execute_command_result",
@@ -134,7 +134,7 @@ class TestHandleExecuteCommandResult:
         """未知 request_id 的消息应被忽略。"""
         loop = asyncio.new_event_loop()
         future = loop.create_future()
-        pending_execute_commands["known-id"] = future
+        pending_execute_commands["known-id"] = ("session-1", future)
 
         _handle_execute_command_result({
             "type": "execute_command_result",
@@ -165,7 +165,7 @@ class TestHandleExecuteCommandResult:
             truncated=False, timed_out=False,
         ))
         request_id = "already-done"
-        pending_execute_commands[request_id] = future
+        pending_execute_commands[request_id] = ("session-1", future)
 
         _handle_execute_command_result({
             "type": "execute_command_result",
@@ -188,8 +188,8 @@ class TestCleanupExecuteCommandFutures:
         loop = asyncio.new_event_loop()
         future1 = loop.create_future()
         future2 = loop.create_future()
-        pending_execute_commands["req-1"] = future1
-        pending_execute_commands["req-2"] = future2
+        pending_execute_commands["req-1"] = ("session-1", future1)
+        pending_execute_commands["req-2"] = ("session-1", future2)
 
         _cleanup_execute_command_futures("session-1", "agent_shutdown")
 
@@ -209,7 +209,7 @@ class TestCleanupExecuteCommandFutures:
             exit_code=0, stdout="", stderr="",
             truncated=False, timed_out=False,
         ))
-        pending_execute_commands["req-done"] = future
+        pending_execute_commands["req-done"] = ("session-1", future)
 
         _cleanup_execute_command_futures("session-1", "agent_shutdown")
 
@@ -318,9 +318,10 @@ class TestSendExecuteCommand:
         async def simulate_response():
             await asyncio.sleep(0.05)
             # 找到 pending future 并 resolve
-            for rid, future in list(pending_execute_commands.items()):
-                if not future.done():
-                    future.set_result(ExecuteCommandResult(
+            for rid, entry in list(pending_execute_commands.items()):
+                _, fut = entry
+                if not fut.done():
+                    fut.set_result(ExecuteCommandResult(
                         exit_code=0,
                         stdout="file1.txt\nfile2.txt\n",
                         stderr="",
@@ -401,3 +402,60 @@ class TestExecuteCommandResultDataclass:
         )
         assert result.exit_code == 127
         assert "not found" in result.stderr
+
+
+class TestSessionIsolation:
+    """测试跨 session 的 pending futures 隔离。"""
+
+    def test_cleanup_only_affects_target_session(self):
+        """一个 session 断连不应清理另一个 session 的 pending futures。"""
+        loop = asyncio.new_event_loop()
+        future_a = loop.create_future()
+        future_b = loop.create_future()
+        pending_execute_commands["req-a"] = ("session-a", future_a)
+        pending_execute_commands["req-b"] = ("session-b", future_b)
+
+        _cleanup_execute_command_futures("session-a", "agent_shutdown")
+
+        # session-a 的 future 被清理
+        assert future_a.done()
+        with pytest.raises(ConnectionError):
+            future_a.result()
+        assert "req-a" not in pending_execute_commands
+
+        # session-b 的 future 不受影响
+        assert not future_b.done()
+        assert "req-b" in pending_execute_commands
+        loop.close()
+
+    def test_cleanup_session_scoped_lookup_knowledge(self):
+        """pending_lookup_knowledge 按 session 隔离清理。"""
+        from app.ws_agent import pending_lookup_knowledge, _cleanup_pending_futures_by_id
+        loop = asyncio.new_event_loop()
+        future_a = loop.create_future()
+        future_b = loop.create_future()
+        pending_lookup_knowledge["req-a"] = ("session-a", future_a)
+        pending_lookup_knowledge["req-b"] = ("session-b", future_b)
+
+        _cleanup_pending_futures_by_id(pending_lookup_knowledge, "session-a", "shutdown")
+
+        assert future_a.done()
+        assert not future_b.done()
+        pending_lookup_knowledge.clear()
+        loop.close()
+
+    def test_cleanup_session_scoped_tool_calls(self):
+        """pending_tool_calls 按 session 隔离清理。"""
+        from app.ws_agent import pending_tool_calls, _cleanup_pending_futures_by_id
+        loop = asyncio.new_event_loop()
+        future_a = loop.create_future()
+        future_b = loop.create_future()
+        pending_tool_calls["call-a"] = ("session-a", future_a)
+        pending_tool_calls["call-b"] = ("session-b", future_b)
+
+        _cleanup_pending_futures_by_id(pending_tool_calls, "session-a", "shutdown")
+
+        assert future_a.done()
+        assert not future_b.done()
+        pending_tool_calls.clear()
+        loop.close()
