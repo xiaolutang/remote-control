@@ -31,6 +31,9 @@ COPY --from=builder /app/.venv .venv
 # 复制应用代码
 COPY agent/app ./app
 
+# 内置知识文件（随分发包）
+# knowledge/ 已包含在 agent/app/ 中，无需额外 COPY
+
 # 设置文件所有权（非 root 时）
 RUN if [ "$RUN_USER" != "root" ]; then chown -R appuser:appuser /app; fi
 

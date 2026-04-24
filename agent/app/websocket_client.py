@@ -25,6 +25,11 @@ from app.command_validator import (
     MAX_STDERR_LEN,
     DEFAULT_COMMAND_TIMEOUT,
 )
+from app.knowledge_tool import (
+    lookup_knowledge,
+    ensure_user_knowledge_dir,
+    get_knowledge_catalog_entry,
+)
 from app.pty_wrapper import PTYWrapper, PTYConfig
 
 
@@ -455,6 +460,14 @@ class WebSocketClient:
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     })
 
+                    # B091: 初始化 user_knowledge 目录 + 发送 tool_catalog_snapshot
+                    ensure_user_knowledge_dir()
+                    await self._send_ws_message({
+                        "type": "tool_catalog_snapshot",
+                        "tools": [get_knowledge_catalog_entry()],
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    })
+
                     # 启动 PTY
                     self.pty = PTYWrapper(self.command)
                     if not self.pty.start():
@@ -698,6 +711,11 @@ class WebSocketClient:
                         self._handle_execute_command(data)
                     )
 
+                elif msg_type == "lookup_knowledge":
+                    asyncio.create_task(
+                        self._handle_lookup_knowledge(data)
+                    )
+
                 elif msg_type == "pong":
                     # 心跳响应，忽略
                     pass
@@ -798,6 +816,27 @@ class WebSocketClient:
                 "stderr": str(e),
                 "truncated": False,
                 "timed_out": False,
+            })
+
+    async def _handle_lookup_knowledge(self, data: dict):
+        """B091: 处理 lookup_knowledge 消息，检索知识文件并返回结果。"""
+        request_id = data.get("request_id", "")
+        query = data.get("query", "")
+
+        try:
+            result = lookup_knowledge(query)
+            await self._send_ws_message({
+                "type": "lookup_knowledge_result",
+                "request_id": request_id,
+                "result": result,
+            })
+        except Exception as e:
+            _log(f"lookup_knowledge 检索异常: {e}")
+            await self._send_ws_message({
+                "type": "lookup_knowledge_result",
+                "request_id": request_id,
+                "result": "",
+                "error": str(e),
             })
 
     async def _send_ws_message(self, message: dict):
