@@ -41,9 +41,9 @@
   },
   "summary": {
     "total": 63,
-    "pending": 7,
+    "pending": 6,
     "in_progress": 0,
-    "completed": 50,
+    "completed": 51,
     "blocked": 0,
     "cancelled": 6
   },
@@ -502,7 +502,12 @@
       "description": "在 terminal_agent.py 中：\n1. SYSTEM_PROMPT 重新定位为'AI 编程启动器'：Agent 的核心价值是与用户讨论编程意图，然后将讨论上下文组装成 claude/codex 命令直接执行\n2. 增加 Claude Code → claude / Codex → codex 的命令映射，作为主要执行工具而非知识说明\n3. 增加 lookup_knowledge 工具描述：检索项目知识和 AI 编程技巧，用于丰富生成的命令 prompt\n4. 增加 'which <tool>' 验证工作流规则\n5. 明确用户旅程：讨论意图 → 调用 lookup_knowledge 获取上下文 → 生成 claude/codex 命令\n6. 修改非终端意图处理，允许回答工具使用问题\n7. 注册 lookup_knowledge 工具到 Pydantic AI Agent（回调通过 WebSocket 转发到 Agent 设备）",
       "verification": "L2",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
+      "started_at": "2026-04-24T21:20:00+0800",
+      "completed_at": "2026-04-24T21:25:00+0800",
+      "actual_minutes": 5,
+      "execution_notes": "SYSTEM_PROMPT 重写为 AI 编程启动器；lookup_knowledge 工具注册到 Pydantic AI Agent；AgentDeps 增加 lookup_knowledge_fn；agent_session_manager 透传；191 测试全部通过",
+      "commit": "8f14641",
       "priority": "P1",
       "acceptance_criteria": [
         "SYSTEM_PROMPT 定位为 AI 编程启动器：核心工作是帮用户将编程意图转化为 claude/codex 命令",
