@@ -516,7 +516,7 @@ class _SmartTerminalSidePanelContentState
     for (final event in events) {
       switch (event.type) {
         case 'user_intent':
-          archiveCurrent();
+          archiveCurrent(archivedResult: result);
           final text = (event.payload['text']?.toString() ?? '').trim();
           if (text.isEmpty) {
             state = AgentPanelState.idle;
@@ -564,7 +564,6 @@ class _SmartTerminalSidePanelContentState
           );
           error = null;
           state = AgentPanelState.result;
-          archiveCurrent(archivedResult: result);
 
         case 'error':
           error = AgentErrorEvent.fromJson(
@@ -829,8 +828,6 @@ class _SmartTerminalSidePanelContentState
           _activeSessionId = null;
           // 从 AgentResult 构建 CommandSequenceDraft
           _draft = _buildDraftFromAgentResult(result);
-          // 归档当前对话轮次到历史
-          _archiveAgentTurn(result: result);
         });
         _restartConversationStreamForCurrentScope();
         unawaited(_refreshUsageSummary(controller: controller));

@@ -620,7 +620,7 @@ void main() {
 
       expect(agentService.fetchConversationCount, 1);
       expect(find.text('打开日知项目'), findsOneWidget);
-      expect(find.text('已定位到日知项目。'), findsNWidgets(2));
+      expect(find.text('已定位到日知项目。'), findsOneWidget);
       expect(find.byKey(const Key('side-panel-execute')), findsOneWidget);
 
       await tester.enterText(
@@ -768,7 +768,7 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
-      expect(find.text('远端结果已同步'), findsNWidgets(2));
+      expect(find.text('远端结果已同步'), findsOneWidget);
       expect(find.text('Agent 正在分析...'), findsNothing);
       unawaited(streamController.close());
     });
