@@ -553,7 +553,6 @@ class AgentSessionManager:
 
             # Trace 包装：lookup_knowledge（含 duration）
             async def _traced_lookup_knowledge(query):
-                import time
                 t_start = time.monotonic()
                 await self._emit_session_event(
                     session, "trace",
@@ -597,7 +596,6 @@ class AgentSessionManager:
                 return "unknown"
 
             async def _traced_tool_call(tool_name, arguments):
-                import time
                 t_start = time.monotonic()
                 await self._emit_session_event(
                     session, "trace",
