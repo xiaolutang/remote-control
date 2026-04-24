@@ -34,6 +34,7 @@ from app.terminal_agent import (
     ask_user,
     run_agent,
     terminal_agent,
+    lookup_knowledge,
 )
 from pydantic_ai import RunContext
 
@@ -61,6 +62,7 @@ def _make_execute_result(
 def _make_deps(
     execute_fn=None,
     ask_fn=None,
+    lookup_knowledge_fn=None,
     session_id: str = "test-session",
     aliases: dict | None = None,
 ) -> AgentDeps:
@@ -72,6 +74,7 @@ def _make_deps(
         session_id=session_id,
         execute_command_fn=execute_fn,
         ask_user_fn=ask_fn,
+        lookup_knowledge_fn=lookup_knowledge_fn,
         project_aliases=aliases or {},
     )
 
@@ -751,3 +754,130 @@ class TestExecuteCommandComprehensive:
 
         result = await execute_command(ctx, "find . -name '*.tmp' -exec rm {} +")
         assert "错误" in result
+
+
+# ---------------------------------------------------------------------------
+# S085: Prompt 增强 + lookup_knowledge + 动态工具测试
+# ---------------------------------------------------------------------------
+
+class TestS085PromptKnowledge:
+    """S085: SYSTEM_PROMPT 知识增强验证。"""
+
+    def test_system_prompt_contains_lookup_knowledge(self):
+        """SYSTEM_PROMPT 包含 lookup_knowledge 工具描述。"""
+        assert "lookup_knowledge" in SYSTEM_PROMPT
+
+    def test_system_prompt_contains_claude_code_mapping(self):
+        """SYSTEM_PROMPT 包含 Claude Code 命令映射。"""
+        assert "claude" in SYSTEM_PROMPT.lower()
+        assert "Claude Code" in SYSTEM_PROMPT
+
+    def test_system_prompt_contains_codex_info_only(self):
+        """SYSTEM_PROMPT 明确 Codex CLI 仅用于知识说明。"""
+        assert "info-only" in SYSTEM_PROMPT or "仅用于知识说明" in SYSTEM_PROMPT
+
+    def test_system_prompt_contains_user_journeys(self):
+        """SYSTEM_PROMPT 定义了用户旅程边界。"""
+        assert "信息型问答" in SYSTEM_PROMPT
+        assert "编程意图" in SYSTEM_PROMPT
+
+    def test_system_prompt_info_only_steps_empty(self):
+        """SYSTEM_PROMPT 明确信息型问答 steps=[]。"""
+        # 检查 journeys section 中有 steps=[] 的描述
+        assert '"steps": []' in SYSTEM_PROMPT
+
+    def test_system_prompt_contains_which_verification(self):
+        """SYSTEM_PROMPT 包含 which 验证工作流。"""
+        assert "which" in SYSTEM_PROMPT
+
+
+class TestS085LookupKnowledgeTool:
+    """S085: lookup_knowledge 工具测试。"""
+
+    @pytest.mark.asyncio
+    async def test_lookup_knowledge_with_fn(self):
+        """有回调时正确调用并返回结果。"""
+        mock_fn = AsyncMock(return_value="Claude Code 使用技巧：...")
+        deps = _make_deps(lookup_knowledge_fn=mock_fn)
+        ctx = _make_run_context(deps)
+
+        result = await lookup_knowledge(ctx, "Claude Code")
+        assert "Claude Code" in result
+        mock_fn.assert_called_once_with("Claude Code")
+
+    @pytest.mark.asyncio
+    async def test_lookup_knowledge_without_fn(self):
+        """无回调时返回空字符串（降级）。"""
+        deps = _make_deps(lookup_knowledge_fn=None)
+        ctx = _make_run_context(deps)
+
+        result = await lookup_knowledge(ctx, "Claude Code")
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_lookup_knowledge_fn_error(self):
+        """回调异常时返回空字符串（降级）。"""
+        mock_fn = AsyncMock(side_effect=RuntimeError("fail"))
+        deps = _make_deps(lookup_knowledge_fn=mock_fn)
+        ctx = _make_run_context(deps)
+
+        result = await lookup_knowledge(ctx, "test")
+        assert result == ""
+
+
+class TestS085RunAgentWithKnowledge:
+    """S085: run_agent 传入 lookup_knowledge_fn 测试。"""
+
+    @pytest.mark.asyncio
+    async def test_run_agent_passes_lookup_knowledge_fn(self):
+        """run_agent 正确将 lookup_knowledge_fn 传入 AgentDeps。"""
+        with patch.object(terminal_agent, "run", new_callable=AsyncMock) as mock_run:
+            mock_usage = MagicMock()
+            mock_usage.input_tokens = 100
+            mock_usage.output_tokens = 50
+            mock_usage.total_tokens = 150
+            mock_usage.requests = 1
+            mock_run.return_value = MagicMock(
+                output=AgentResult(
+                    summary="test",
+                    steps=[],
+                    need_confirm=False,
+                ),
+                usage=mock_usage,
+            )
+
+            mock_lookup_fn = AsyncMock(return_value="知识内容")
+            result = await run_agent(
+                intent="test",
+                session_id="s1",
+                execute_command_fn=AsyncMock(),
+                ask_user_fn=AsyncMock(),
+                lookup_knowledge_fn=mock_lookup_fn,
+            )
+
+            assert isinstance(result, AgentRunOutcome)
+            # 验证 deps 中包含了 lookup_knowledge_fn
+            call_args = mock_run.call_args
+            assert call_args.kwargs.get("deps").lookup_knowledge_fn == mock_lookup_fn
+
+    @pytest.mark.asyncio
+    async def test_run_agent_without_lookup_knowledge_fn(self):
+        """run_agent 不传 lookup_knowledge_fn 时默认为 None。"""
+        with patch.object(terminal_agent, "run", new_callable=AsyncMock) as mock_run:
+            mock_usage = MagicMock(
+                input_tokens=0, output_tokens=0, total_tokens=0, requests=1,
+            )
+            mock_run.return_value = MagicMock(
+                output=AgentResult(summary="test", steps=[], need_confirm=False),
+                usage=mock_usage,
+            )
+
+            await run_agent(
+                intent="test",
+                session_id="s1",
+                execute_command_fn=AsyncMock(),
+                ask_user_fn=AsyncMock(),
+            )
+
+            call_args = mock_run.call_args
+            assert call_args.kwargs.get("deps").lookup_knowledge_fn is None
