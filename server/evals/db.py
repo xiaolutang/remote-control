@@ -113,10 +113,6 @@ class EvalDatabase:
     @asynccontextmanager
     async def _connect(self) -> AsyncIterator[aiosqlite.Connection]:
         """内部连接管理器，启用 FK 约束。"""
-        db_dir = os.path.dirname(self.db_path)
-        if db_dir:
-            os.makedirs(db_dir, exist_ok=True)
-
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             await db.execute("PRAGMA foreign_keys = ON")
@@ -124,6 +120,9 @@ class EvalDatabase:
 
     async def init_db(self) -> None:
         """初始化数据库，创建 6 张表（如果不存在）。"""
+        db_dir = os.path.dirname(self.db_path)
+        if db_dir:
+            os.makedirs(db_dir, exist_ok=True)
         async with self._connect() as db:
             # 1. eval_task_defs
             await db.execute("""

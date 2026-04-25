@@ -224,12 +224,13 @@ async def list_candidates(
     return [c.model_dump() for c in candidates]
 
 
-async def approve_candidate(
+async def _review_candidate(
     eval_db: EvalDatabase,
     candidate_id: str,
     reviewer: str,
+    target_status: CandidateStatus,
 ) -> Optional[Dict[str, Any]]:
-    """审核通过候选任务"""
+    """审核候选任务的共享逻辑（approve / reject）。"""
     candidate = await eval_db.get_task_candidate(candidate_id)
     if not candidate:
         return None
@@ -238,14 +239,23 @@ async def approve_candidate(
         return {"error": f"候选任务状态为 {candidate.status.value}，无法审核"}
 
     updated = await eval_db.update_candidate_status(
-        candidate_id, CandidateStatus.APPROVED, reviewer
+        candidate_id, target_status, reviewer
     )
     if not updated:
         return None
 
-    candidate.status = CandidateStatus.APPROVED
+    candidate.status = target_status
     candidate.reviewed_by = reviewer
     return candidate.model_dump()
+
+
+async def approve_candidate(
+    eval_db: EvalDatabase,
+    candidate_id: str,
+    reviewer: str,
+) -> Optional[Dict[str, Any]]:
+    """审核通过候选任务"""
+    return await _review_candidate(eval_db, candidate_id, reviewer, CandidateStatus.APPROVED)
 
 
 async def reject_candidate(
@@ -254,19 +264,4 @@ async def reject_candidate(
     reviewer: str,
 ) -> Optional[Dict[str, Any]]:
     """审核拒绝候选任务"""
-    candidate = await eval_db.get_task_candidate(candidate_id)
-    if not candidate:
-        return None
-
-    if candidate.status != CandidateStatus.PENDING:
-        return {"error": f"候选任务状态为 {candidate.status.value}，无法审核"}
-
-    updated = await eval_db.update_candidate_status(
-        candidate_id, CandidateStatus.REJECTED, reviewer
-    )
-    if not updated:
-        return None
-
-    candidate.status = CandidateStatus.REJECTED
-    candidate.reviewed_by = reviewer
-    return candidate.model_dump()
+    return await _review_candidate(eval_db, candidate_id, reviewer, CandidateStatus.REJECTED)

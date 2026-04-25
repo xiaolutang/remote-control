@@ -30,6 +30,9 @@ from evals.models import (
     CandidateStatus,
     EvalTaskCandidate,
     EvalTaskDef,
+    EvalTaskExpected,
+    EvalTaskInput,
+    EvalTaskMetadata,
     EvalTrial,
 )
 
@@ -540,8 +543,6 @@ class EvalHarness:
 
         for candidate in candidates:
             try:
-                from evals.models import EvalTaskInput, EvalTaskExpected, EvalTaskMetadata
-
                 expected = candidate.suggested_expected_json or {}
                 task = EvalTaskDef(
                     id=f"candidate-{candidate.candidate_id[:8]}",

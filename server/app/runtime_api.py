@@ -2868,6 +2868,7 @@ async def report_agent_execution(
 # ---------------------------------------------------------------------------
 
 _eval_db_instance: Optional[EvalDatabase] = None
+_eval_db_initialized: bool = False
 
 
 def _get_eval_db() -> EvalDatabase:
@@ -2880,9 +2881,12 @@ def _get_eval_db() -> EvalDatabase:
 
 
 async def _ensure_eval_db() -> EvalDatabase:
-    """获取 EvalDatabase 单例并确保表已创建。"""
+    """获取 EvalDatabase 单例并确保表已创建（仅首次调用时执行 init_db）。"""
+    global _eval_db_initialized
     db = _get_eval_db()
-    await db.init_db()
+    if not _eval_db_initialized:
+        await db.init_db()
+        _eval_db_initialized = True
     return db
 
 
@@ -2969,15 +2973,16 @@ async def get_eval_candidates(
         )
 
 
-@router.post("/eval/candidates/{candidate_id}/approve")
-async def approve_eval_candidate(
+async def _handle_candidate_review(
+    action_fn,
     candidate_id: str,
-    _user_id: str = Depends(get_current_user_id),
+    user_id: str,
+    action_label: str,
 ):
-    """审核通过候选任务（approved 后可被 harness 加载执行）。"""
+    """审核候选任务的共享 handler（approve / reject）。"""
     try:
         db = await _ensure_eval_db()
-        result = await approve_candidate(db, candidate_id, reviewer=_user_id)
+        result = await action_fn(db, candidate_id, reviewer=user_id)
         if result is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -2992,11 +2997,20 @@ async def approve_eval_candidate(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Failed to approve candidate: %s", e, exc_info=True)
+        logger.error("Failed to %s candidate: %s", action_label, e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"审核候选任务失败: {type(e).__name__}",
+            detail=f"{action_label}候选任务失败: {type(e).__name__}",
         )
+
+
+@router.post("/eval/candidates/{candidate_id}/approve")
+async def approve_eval_candidate(
+    candidate_id: str,
+    _user_id: str = Depends(get_current_user_id),
+):
+    """审核通过候选任务（approved 后可被 harness 加载执行）。"""
+    return await _handle_candidate_review(approve_candidate, candidate_id, _user_id, "审核")
 
 
 @router.post("/eval/candidates/{candidate_id}/reject")
@@ -3005,25 +3019,4 @@ async def reject_eval_candidate(
     _user_id: str = Depends(get_current_user_id),
 ):
     """审核拒绝候选任务。"""
-    try:
-        db = await _ensure_eval_db()
-        result = await reject_candidate(db, candidate_id, reviewer=_user_id)
-        if result is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"候选任务 {candidate_id} 不存在",
-            )
-        if "error" in result:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=result["error"],
-            )
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Failed to reject candidate: %s", e, exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"拒绝候选任务失败: {type(e).__name__}",
-        )
+    return await _handle_candidate_review(reject_candidate, candidate_id, _user_id, "拒绝")
