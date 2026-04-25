@@ -51,9 +51,9 @@
   },
   "summary": {
     "total": 81,
-    "pending": 8,
+    "pending": 7,
     "in_progress": 0,
-    "completed": 61,
+    "completed": 62,
     "blocked": 0,
     "cancelled": 6
   },
@@ -673,16 +673,11 @@
       ]
     },
     {
-      "id": "B100",
-      "phase": "eval-dataset",
-      "module": "server",
-      "name": "LLM-as-Judge Grader",
-      "description": "实现 LLM 评分 Grader：通过 rubric prompt 调用 LLM 对 Agent 输出做多维度评分（相关性/完整性/安全性/有用性，各 1-5 分）。输出结构化 JSON。Judge 模型使用 EVAL_JUDGE_MODEL + EVAL_JUDGE_BASE_URL + EVAL_JUDGE_API_KEY 独立配置（可选），未配置时该 grader 跳过（降级为仅 code grader）。BASE_URL/API_KEY 默认复用 EVAL_AGENT_BASE_URL/API_KEY。提供校准工具：对比 LLM 评分与人工评分的一致性。",
-      "verification": "L2",
-      "depends_on": [
-        "B098"
-      ],
-      "status": "pending",
+      "status": "completed",
+      "completed_at": "2026-04-25T16:45:00+0800",
+      "actual_minutes": 10,
+      "execution_notes": "LLM Judge 4 维度 + CalibrationTool。53 新测试通过。",
+      "commit": "pending",
       "priority": 2,
       "acceptance_criteria": [
         "LLMJudgeGrader 实现 4 维度评分",
