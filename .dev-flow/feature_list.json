@@ -51,9 +51,9 @@
   },
   "summary": {
     "total": 81,
-    "pending": 10,
+    "pending": 9,
     "in_progress": 0,
-    "completed": 59,
+    "completed": 60,
     "blocked": 0,
     "cancelled": 6
   },
@@ -830,16 +830,13 @@
       ]
     },
     {
-      "id": "S089",
-      "phase": "eval-core",
-      "module": "server",
-      "name": "Eval 框架核心测试",
-      "description": "覆盖 B096 + B097：数据模型创建与序列化、SQLite CRUD、YAML task 加载、harness mock transport 执行、transcript 收集、pass@k/pass^k 计算、配置缺失拦截。",
-      "verification": "L1",
-      "depends_on": [
-        "B097"
-      ],
-      "status": "pending",
+      "status": "completed",
+      "started_at": "2026-04-25T16:15:00+0800",
+      "completed_at": "2026-04-25T16:15:00+0800",
+      "actual_minutes": 0,
+      "evidence_file": ".dev-flow/evidence/S089.md",
+      "execution_notes": "验收确认：112 个既有测试完整覆盖 S089 全部 6 条验收条件。",
+      "commit": "pending",
       "priority": 1,
       "acceptance_criteria": [
         "数据模型序列化/反序列化测试通过",
