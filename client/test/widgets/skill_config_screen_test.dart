@@ -263,7 +263,7 @@ void main() {
       expect(find.text('重启 Agent 后生效'), findsOneWidget);
     });
 
-    testWidgets('toggle knowledge writes to service and shows restart hint',
+    testWidgets('toggle knowledge shows new-terminal hint',
         (tester) async {
       final fakeService = _FakeSkillConfigService(
         skillsResult: [],
@@ -288,8 +288,8 @@ void main() {
       expect(fakeService.toggleKnowledgeCalls.first.key, equals('notes.md'));
       expect(fakeService.toggleKnowledgeCalls.first.value, isTrue);
 
-      // Restart hint shown
-      expect(find.text('重启 Agent 后生效'), findsOneWidget);
+      // New terminal hint shown
+      expect(find.text('新建终端后生效'), findsOneWidget);
     });
 
     testWidgets('shows empty state when skill list is empty', (tester) async {

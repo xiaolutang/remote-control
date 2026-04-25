@@ -111,7 +111,7 @@ class _SkillConfigScreenState extends State<SkillConfigScreen>
       setState(() {
         _togglingSkills.remove(key);
       });
-      _showRestartHint();
+      _showHint('重启 Agent 后生效');
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -143,7 +143,7 @@ class _SkillConfigScreenState extends State<SkillConfigScreen>
       setState(() {
         _togglingKnowledge.remove(key);
       });
-      _showRestartHint();
+      _showHint('新建终端后生效');
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -329,12 +329,12 @@ class _SkillConfigScreenState extends State<SkillConfigScreen>
 
   // ============== UI 辅助 ==============
 
-  void _showRestartHint() {
+  void _showHint(String message) {
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('重启 Agent 后生效'),
-        duration: Duration(seconds: 2),
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 2),
       ),
     );
   }
