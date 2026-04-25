@@ -1,0 +1,19 @@
+id: cg_008_multi_step_cd_run
+category: command_generation
+description: "测试 Agent 生成多步骤命令：切换目录后运行测试"
+input:
+  intent: "进入 server 目录然后运行测试"
+  context:
+    cwd: /home/user/project
+    device_online: true
+    mock_tool_responses: {}
+expected:
+  response_type: ["command"]
+  steps_contain: ["cd", "test"]
+  steps_not_contain: []
+graders: ["response_type_match", "steps_contain_match"]
+metadata:
+  source: daily_usage
+  difficulty: medium
+  tags: ["command", "multi_step", "cd", "test"]
+  reference_solution: "response_type=command, steps=[cd server && pytest]"

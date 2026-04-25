@@ -1,0 +1,19 @@
+id: ic_005_command_create_dir
+category: intent_classification
+description: "测试 Agent 正确识别创建目录需求为 command 类型"
+input:
+  intent: "创建一个新的目录叫 output"
+  context:
+    cwd: /home/user/project
+    device_online: true
+    mock_tool_responses: {}
+expected:
+  response_type: ["command"]
+  steps_contain: ["mkdir"]
+  steps_not_contain: []
+graders: ["response_type_match", "steps_structure"]
+metadata:
+  source: daily_usage
+  difficulty: easy
+  tags: ["command", "mkdir"]
+  reference_solution: "response_type=command, steps=[mkdir output]"

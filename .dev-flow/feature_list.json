@@ -51,9 +51,9 @@
   },
   "summary": {
     "total": 81,
-    "pending": 9,
+    "pending": 8,
     "in_progress": 0,
-    "completed": 60,
+    "completed": 61,
     "blocked": 0,
     "cancelled": 6
   },
@@ -647,7 +647,11 @@
       "depends_on": [
         "B096"
       ],
-      "status": "pending",
+      "status": "completed",
+      "completed_at": "2026-04-25T16:30:00+0800",
+      "actual_minutes": 10,
+      "execution_notes": "30 个 YAML task 覆盖 5 类别。全部通过 EvalTaskDef 加载验证。",
+      "commit": "pending",
       "priority": 2,
       "acceptance_criteria": [
         "30 个 YAML 文件在 server/evals/tasks/ 下",

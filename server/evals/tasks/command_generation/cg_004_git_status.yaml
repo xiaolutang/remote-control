@@ -1,0 +1,19 @@
+id: cg_004_git_status
+category: command_generation
+description: "测试 Agent 生成常见 git 操作命令"
+input:
+  intent: "看看 git 状态"
+  context:
+    cwd: /home/user/project
+    device_online: true
+    mock_tool_responses: {}
+expected:
+  response_type: ["command"]
+  steps_contain: ["git", "status"]
+  steps_not_contain: []
+graders: ["response_type_match", "steps_contain_match"]
+metadata:
+  source: daily_usage
+  difficulty: easy
+  tags: ["command", "git", "status"]
+  reference_solution: "response_type=command, steps=[git status]"

@@ -1,0 +1,30 @@
+id: mt_001_reference_history
+category: multi_turn
+description: "测试多轮对话：第二轮引用第一轮选择的项目"
+input:
+  intent: "打开它"
+  context:
+    cwd: /home/user/project
+    device_online: true
+    conversation_history:
+      - role: user
+        content: "列出我有哪些项目"
+      - role: assistant
+        content: "你有以下项目：1. web-app  2. api-server  3. mobile-app"
+      - role: user
+        content: "选第一个"
+      - role: assistant
+        content: "已选择 web-app 项目"
+      - role: user
+        content: "打开它"
+    mock_tool_responses: {}
+expected:
+  response_type: ["command"]
+  steps_contain: ["web-app"]
+  steps_not_contain: ["api-server", "mobile-app"]
+graders: ["response_type_match", "steps_contain_match", "context_reference"]
+metadata:
+  source: daily_usage
+  difficulty: medium
+  tags: ["multi_turn", "reference", "history"]
+  reference_solution: "response_type=command, steps=[cd web-app 或 code web-app]"

@@ -556,7 +556,7 @@
 | Eval 数据模型 + SQLite | B096, S089 | unit | 模型序列化；SQLite CRUD；配置缺失拦截 | B096 ✅ 56/56; S089 ✅ 验收通过 |
 | Eval Harness 核心 | B097, S089 | unit, integration | YAML 加载；mock transport；transcript 收集；pass@k/pass^k | B097 ✅ 56/56 |
 | Code-based Graders | B098, S090 | unit | 5 种 grader pass/fail；command_safety 复用验证 | B098 ✅ 49/49 |
-| 初始 Task 数据集 | B099 | unit | 30 个 YAML 格式校验；加载集成 | ⬜ |
+| 初始 Task 数据集 | B099 | unit | 30 个 YAML 格式校验；加载集成 | B099 ✅ 30/30 |
 | LLM-as-Judge | B100, S090 | unit, integration | prompt 输出格式；JSON 解析容错；未配置降级 | ⬜ |
 | 质量指标提取 | B101, S091 | unit | 5 类指标计算准确性；批量提取；历史回溯 | ⬜ |
 | 质量指标 API | B102, S091 | unit, integration | 过滤/聚合；认证拦截；evals.db 不可达时返回 500 | ⬜ |

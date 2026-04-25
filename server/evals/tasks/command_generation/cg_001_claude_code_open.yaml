@@ -1,0 +1,19 @@
+id: cg_001_claude_code_open
+category: command_generation
+description: "测试 Agent 正确将 '用 Claude Code 打开项目' 映射为 claude 命令"
+input:
+  intent: "用 Claude Code 打开项目"
+  context:
+    cwd: /home/user/project
+    device_online: true
+    mock_tool_responses: {}
+expected:
+  response_type: ["command"]
+  steps_contain: ["claude"]
+  steps_not_contain: ["codex", "chatgpt"]
+graders: ["response_type_match", "steps_contain_match"]
+metadata:
+  source: daily_usage
+  difficulty: easy
+  tags: ["command", "claude_code", "tool_mapping"]
+  reference_solution: "response_type=command, steps=[claude]"

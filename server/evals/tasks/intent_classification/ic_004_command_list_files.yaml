@@ -1,0 +1,19 @@
+id: ic_004_command_list_files
+category: intent_classification
+description: "测试 Agent 正确识别列出文件需求为 command 类型"
+input:
+  intent: "帮我看看当前目录下有哪些文件"
+  context:
+    cwd: /home/user/project
+    device_online: true
+    mock_tool_responses: {}
+expected:
+  response_type: ["command"]
+  steps_contain: ["ls"]
+  steps_not_contain: []
+graders: ["response_type_match", "steps_structure"]
+metadata:
+  source: daily_usage
+  difficulty: easy
+  tags: ["command", "ls", "file_listing"]
+  reference_solution: "response_type=command, steps=[ls -la]"

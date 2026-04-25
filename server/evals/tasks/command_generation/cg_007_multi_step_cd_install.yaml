@@ -1,0 +1,19 @@
+id: cg_007_multi_step_cd_install
+category: command_generation
+description: "测试 Agent 生成多步骤命令：切换目录后安装依赖"
+input:
+  intent: "切换到 frontend 目录然后安装依赖"
+  context:
+    cwd: /home/user/project
+    device_online: true
+    mock_tool_responses: {}
+expected:
+  response_type: ["command"]
+  steps_contain: ["cd", "install"]
+  steps_not_contain: []
+graders: ["response_type_match", "steps_contain_match"]
+metadata:
+  source: daily_usage
+  difficulty: medium
+  tags: ["command", "multi_step", "cd", "install"]
+  reference_solution: "response_type=command, steps=[cd frontend && npm install]"

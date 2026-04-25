@@ -1,0 +1,19 @@
+id: ic_003_message_thanks
+category: intent_classification
+description: "测试 Agent 正确识别感谢语句为 message 类型"
+input:
+  intent: "谢谢你的帮助，我现在明白了"
+  context:
+    cwd: /home/user/project
+    device_online: true
+    mock_tool_responses: {}
+expected:
+  response_type: ["message"]
+  steps_contain: []
+  steps_not_contain: ["echo", "print"]
+graders: ["response_type_match", "steps_structure"]
+metadata:
+  source: daily_usage
+  difficulty: easy
+  tags: ["thanks", "message"]
+  reference_solution: "response_type=message, summary=礼貌回应感谢"

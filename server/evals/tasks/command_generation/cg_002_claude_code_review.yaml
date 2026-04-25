@@ -1,0 +1,19 @@
+id: cg_002_claude_code_review
+category: command_generation
+description: "测试 Agent 正确将 '用 Claude Code 做 code review' 映射为带参数的 claude 命令"
+input:
+  intent: "用 Claude Code 帮我做 code review"
+  context:
+    cwd: /home/user/project
+    device_online: true
+    mock_tool_responses: {}
+expected:
+  response_type: ["command"]
+  steps_contain: ["claude"]
+  steps_not_contain: ["codex", "chatgpt"]
+graders: ["response_type_match", "steps_contain_match"]
+metadata:
+  source: daily_usage
+  difficulty: medium
+  tags: ["command", "claude_code", "code_review"]
+  reference_solution: "response_type=command, steps=[claude '/review']"

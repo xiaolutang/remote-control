@@ -1,0 +1,19 @@
+id: kr_001_claude_code_tips
+category: knowledge_retrieval
+description: "测试知识检索：命中 Claude Code 使用技巧"
+input:
+  intent: "Claude Code 有什么使用技巧？怎么用好它"
+  context:
+    cwd: /home/user/project
+    device_online: true
+    mock_tool_responses: {}
+expected:
+  response_type: ["message"]
+  steps_contain: []
+  steps_not_contain: ["curl", "wget"]
+graders: ["response_type_match", "knowledge_relevance"]
+metadata:
+  source: knowledge_base
+  difficulty: medium
+  tags: ["knowledge", "claude_code", "tips"]
+  reference_solution: "response_type=message, 返回 Claude Code 使用技巧相关知识"

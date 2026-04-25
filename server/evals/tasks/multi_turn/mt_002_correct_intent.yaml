@@ -1,0 +1,26 @@
+id: mt_002_correct_intent
+category: multi_turn
+description: "测试多轮对话：用户修正之前的命令"
+input:
+  intent: "不对，我说的是 build 不是 start"
+  context:
+    cwd: /home/user/project
+    device_online: true
+    conversation_history:
+      - role: user
+        content: "运行项目"
+      - role: assistant
+        content: "好的，执行 npm start 启动项目"
+      - role: user
+        content: "不对，我说的是 build 不是 start"
+    mock_tool_responses: {}
+expected:
+  response_type: ["command"]
+  steps_contain: ["build"]
+  steps_not_contain: ["start"]
+graders: ["response_type_match", "steps_contain_match", "intent_correction"]
+metadata:
+  source: daily_usage
+  difficulty: medium
+  tags: ["multi_turn", "correction", "intent_fix"]
+  reference_solution: "response_type=command, steps=[npm run build]"

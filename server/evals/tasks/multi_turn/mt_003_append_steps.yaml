@@ -1,0 +1,26 @@
+id: mt_003_append_steps
+category: multi_turn
+description: "测试多轮对话：在已有命令基础上追加步骤"
+input:
+  intent: "然后再跑一下测试"
+  context:
+    cwd: /home/user/project
+    device_online: true
+    conversation_history:
+      - role: user
+        content: "安装依赖"
+      - role: assistant
+        content: "好的，执行 npm install 安装依赖"
+      - role: user
+        content: "然后再跑一下测试"
+    mock_tool_responses: {}
+expected:
+  response_type: ["command"]
+  steps_contain: ["test"]
+  steps_not_contain: []
+graders: ["response_type_match", "steps_contain_match", "step_append"]
+metadata:
+  source: daily_usage
+  difficulty: medium
+  tags: ["multi_turn", "append", "sequential"]
+  reference_solution: "response_type=command, steps=[npm test 或 pytest]"
