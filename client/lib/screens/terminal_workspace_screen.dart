@@ -964,13 +964,13 @@ class _WorkspaceHeaderBar extends StatelessWidget {
                 case AccountMenuAction.logout:
                   onLogout?.call();
                   break;
-                case AccountMenuAction.skillConfig:
+                case AccountMenuAction.knowledgeConfig:
                   onSkillConfig?.call();
                   break;
               }
             },
             itemBuilder: (context) => buildAccountMenuEntries(
-              includeSkillConfig: true,
+              includeKnowledgeConfig: true,
             ),
           ),
         ],

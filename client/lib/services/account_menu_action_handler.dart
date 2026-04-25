@@ -16,8 +16,8 @@ Future<void> handleAccountMenuAction(
   Future<void> Function()? onTheme,
 }) async {
   switch (action) {
-    case AccountMenuAction.skillConfig:
-      await _openSkillConfig(context);
+    case AccountMenuAction.knowledgeConfig:
+      await _openKnowledgeConfig(context);
       return;
     case AccountMenuAction.theme:
       if (onTheme != null) {
@@ -114,7 +114,7 @@ Future<void> _confirmAndLogout(
   );
 }
 
-Future<void> _openSkillConfig(BuildContext context) async {
+Future<void> _openKnowledgeConfig(BuildContext context) async {
   if (!context.mounted) return;
   await Navigator.of(context).push(
     MaterialPageRoute(

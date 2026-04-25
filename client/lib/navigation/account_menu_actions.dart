@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
-enum AccountMenuAction { theme, skillConfig, profile, feedback, logout }
+enum AccountMenuAction { theme, knowledgeConfig, profile, feedback, logout }
 
 List<PopupMenuEntry<AccountMenuAction>> buildAccountMenuEntries({
   bool includeTheme = true,
-  bool includeSkillConfig = false,
+  bool includeKnowledgeConfig = false,
 }) {
   return [
     if (includeTheme)
@@ -18,14 +18,14 @@ List<PopupMenuEntry<AccountMenuAction>> buildAccountMenuEntries({
           ],
         ),
       ),
-    if (includeSkillConfig)
+    if (includeKnowledgeConfig)
       const PopupMenuItem<AccountMenuAction>(
-        value: AccountMenuAction.skillConfig,
+        value: AccountMenuAction.knowledgeConfig,
         child: Row(
           children: [
-            Icon(Icons.build_circle_outlined, size: 20),
+            Icon(Icons.menu_book_outlined, size: 20),
             SizedBox(width: 12),
-            Text('技能管理'),
+            Text('知识管理'),
           ],
         ),
       ),
