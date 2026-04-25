@@ -558,10 +558,10 @@
 | Code-based Graders | B098, S090 | unit | 5 种 grader pass/fail；command_safety 复用验证 | B098 ✅ 49/49 |
 | 初始 Task 数据集 | B099 | unit | 30 个 YAML 格式校验；加载集成 | B099 ✅ 30/30 |
 | LLM-as-Judge | B100, S090 | unit, integration | prompt 输出格式；JSON 解析容错；未配置降级 | B100 ✅ 53/53 |
-| 质量指标提取 | B101, S091 | unit | 5 类指标计算准确性；批量提取；历史回溯 | B101 ✅ 49/49 |
+| 质量指标提取 | B101, S091 | unit | 5 类指标计算准确性；批量提取；历史回溯 | B101 ✅ 49/49; S091 ✅ 验收通过 |
 | 质量指标 API | B102, S091 | unit, integration | 过滤/聚合；认证拦截；evals.db 不可达时返回 500 | B102 ✅ 23/23 |
 | 反馈→Eval Task | B103, S092 | unit, integration | 反馈→candidate 流程；未配置降级；审核 API | B103 ✅ 32/32 |
-| 回归测试 + CLI | B104, S092 | unit, integration | 回归检测；趋势查询；CLI 子命令；配置缺失提示 | B104 ✅ 30/30 |
+| 回归测试 + CLI | B104, S092 | unit, integration | 回归检测；趋势查询；CLI 子命令；配置缺失提示 | B104 ✅ 30/30; S092 ✅ 验收通过 |
 
 #### Agent 评估体系关键测试场景
 
