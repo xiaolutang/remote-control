@@ -51,9 +51,9 @@
   },
   "summary": {
     "total": 81,
-    "pending": 12,
+    "pending": 11,
     "in_progress": 0,
-    "completed": 57,
+    "completed": 58,
     "blocked": 0,
     "cancelled": 6
   },
@@ -576,7 +576,13 @@
       "depends_on": [
         "B096"
       ],
-      "status": "pending",
+      "status": "completed",
+      "started_at": "2026-04-25T15:35:00+0800",
+      "completed_at": "2026-04-25T15:50:00+0800",
+      "actual_minutes": 15,
+      "evidence_file": ".dev-flow/evidence/B097.md",
+      "execution_notes": "Harness + MockTransport + pass@k/pass^k + LLM 调用容错。56 新测试通过。code-review pass。",
+      "commit": "pending",
       "priority": 1,
       "acceptance_criteria": [
         "Task loader 从 YAML 目录批量加载 EvalTaskDef",
