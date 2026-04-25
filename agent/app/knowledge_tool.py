@@ -101,6 +101,47 @@ def _scan_knowledge_files(config: KnowledgeConfig) -> list[tuple[str, Path]]:
     return files
 
 
+def _scan_all_knowledge_files() -> list[tuple[str, Path]]:
+    """扫描所有知识文件，返回 [(文件名, 路径)] 列表，不跳过禁用文件。
+
+    B095: 用于 /knowledge API，需要列出所有文件及其启用状态。
+    """
+    files = []
+    seen_names: set[str] = set()
+
+    # 内置知识优先
+    builtin_dir = _get_builtin_knowledge_dir()
+    if builtin_dir.is_dir():
+        for p in sorted(builtin_dir.glob("*.md")):
+            name = p.name
+            if name not in seen_names:
+                files.append((name, p))
+                seen_names.add(name)
+
+    # 用户自定义知识
+    user_dir = _get_user_knowledge_dir()
+    if user_dir.is_dir():
+        for p in sorted(user_dir.glob("*.md")):
+            name = p.name
+            if name not in seen_names:
+                files.append((name, p))
+                seen_names.add(name)
+
+    return files
+
+
+def save_knowledge_config(config: KnowledgeConfig) -> None:
+    """保存知识文件配置到 knowledge_config.json。
+
+    B095: 用于 /knowledge/toggle API。
+    """
+    config_path = _get_knowledge_config_path()
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    data = {"disabled_files": sorted(config.disabled_files)}
+    with open(config_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+
 def _compute_relevance(query: str, name: str, content: str) -> int:
     """计算匹配度分数。基于关键词命中次数。"""
     query_lower = query.lower()

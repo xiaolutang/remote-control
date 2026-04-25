@@ -434,3 +434,471 @@ class TestTerminalInputValidation:
         """command='rm -rf /' 允许（字符串，用户决定信任）"""
         from app.websocket_client import _validate_terminal_input
         assert _validate_terminal_input("rm -rf /", None, {}) is None
+
+
+# ─── B095: Skill/Knowledge 管理 API 测试 ───
+
+
+# 使用固定端口范围避免冲突
+_B095_PORT_COUNTER = 18780
+
+
+def _next_b095_port():
+    global _B095_PORT_COUNTER
+    _B095_PORT_COUNTER += 1
+    return _B095_PORT_COUNTER
+
+
+class TestSkillsAPI:
+    """B095: GET/POST /skills 端点测试"""
+
+    @pytest.fixture
+    def mock_client(self):
+        return MockAgentClient()
+
+    @pytest.mark.asyncio
+    async def test_get_skills_returns_list(self, mock_client, tmp_path, monkeypatch):
+        """GET /skills 返回正确的 skill 列表"""
+        from aiohttp import ClientSession
+        from app.skill_registry import SkillEntry, SkillManifest
+
+        # 准备 skills 目录
+        skills_dir = tmp_path / "skills"
+        skills_dir.mkdir()
+        skill_dir = skills_dir / "test-skill"
+        skill_dir.mkdir()
+        (skill_dir / "skill.json").write_text(json.dumps({
+            "name": "test-skill",
+            "description": "A test skill",
+            "command": "echo",
+            "transport": "stdio",
+        }))
+
+        monkeypatch.setattr("app.skill_registry._get_agent_data_dir", lambda: tmp_path)
+        monkeypatch.setattr("app.skill_registry.discover_skills",
+                            lambda: [SkillEntry(
+                                name="test-skill",
+                                enabled=True,
+                                manifest=SkillManifest(
+                                    name="test-skill",
+                                    description="A test skill",
+                                    command="echo",
+                                    transport="stdio",
+                                ),
+                            )])
+
+        port = _next_b095_port()
+        server = LocalServer(mock_client, port=port)
+        await server.start()
+        try:
+            async with ClientSession() as session:
+                headers = {"Authorization": f"Bearer {server._local_token}"}
+                async with session.get(
+                    f"http://{BIND_ADDRESS}:{port}/skills", headers=headers,
+                ) as resp:
+                    assert resp.status == 200
+                    data = await resp.json()
+                    assert "skills" in data
+                    assert data["count"] == 1
+                    assert data["skills"][0]["name"] == "test-skill"
+                    assert data["skills"][0]["description"] == "A test skill"
+                    assert data["skills"][0]["enabled"] is True
+        finally:
+            await server.stop()
+
+    @pytest.mark.asyncio
+    async def test_get_skills_empty(self, mock_client, tmp_path, monkeypatch):
+        """skills/ 目录为空时 GET /skills 返回空列表"""
+        from aiohttp import ClientSession
+
+        monkeypatch.setattr("app.skill_registry.discover_skills", lambda: [])
+
+        port = _next_b095_port()
+        server = LocalServer(mock_client, port=port)
+        await server.start()
+        try:
+            async with ClientSession() as session:
+                headers = {"Authorization": f"Bearer {server._local_token}"}
+                async with session.get(
+                    f"http://{BIND_ADDRESS}:{port}/skills", headers=headers,
+                ) as resp:
+                    assert resp.status == 200
+                    data = await resp.json()
+                    assert data["skills"] == []
+                    assert data["count"] == 0
+        finally:
+            await server.stop()
+
+    @pytest.mark.asyncio
+    async def test_skills_toggle_enable(self, mock_client, tmp_path, monkeypatch):
+        """POST /skills/toggle 正确更新 registry"""
+        from aiohttp import ClientSession
+        from app.skill_registry import SkillEntry, SkillManifest
+
+        monkeypatch.setattr("app.skill_registry.discover_skills",
+                            lambda: [SkillEntry(
+                                name="my-skill",
+                                enabled=True,
+                                manifest=SkillManifest(name="my-skill", command="echo", transport="stdio"),
+                            )])
+        monkeypatch.setattr("app.skill_registry.load_skill_registry", lambda: {"my-skill": True})
+        saved = {}
+        monkeypatch.setattr("app.skill_registry.save_skill_registry", lambda e: saved.update(e))
+
+        port = _next_b095_port()
+        server = LocalServer(mock_client, port=port)
+        await server.start()
+        try:
+            async with ClientSession() as session:
+                headers = {"Authorization": f"Bearer {server._local_token}"}
+                async with session.post(
+                    f"http://{BIND_ADDRESS}:{port}/skills/toggle",
+                    json={"name": "my-skill", "enabled": False},
+                    headers=headers,
+                ) as resp:
+                    assert resp.status == 200
+                    data = await resp.json()
+                    assert data["ok"] is True
+                    assert data["name"] == "my-skill"
+                    assert data["enabled"] is False
+                    assert saved["my-skill"] is False
+        finally:
+            await server.stop()
+
+    @pytest.mark.asyncio
+    async def test_skills_toggle_not_found(self, mock_client, monkeypatch):
+        """POST /skills/toggle 不存在的 skill 返回 404"""
+        from aiohttp import ClientSession
+
+        monkeypatch.setattr("app.skill_registry.discover_skills", lambda: [])
+
+        port = _next_b095_port()
+        server = LocalServer(mock_client, port=port)
+        await server.start()
+        try:
+            async with ClientSession() as session:
+                headers = {"Authorization": f"Bearer {server._local_token}"}
+                async with session.post(
+                    f"http://{BIND_ADDRESS}:{port}/skills/toggle",
+                    json={"name": "nonexistent", "enabled": True},
+                    headers=headers,
+                ) as resp:
+                    assert resp.status == 404
+        finally:
+            await server.stop()
+
+    @pytest.mark.asyncio
+    async def test_skills_toggle_invalid_json(self, mock_client):
+        """POST /skills/toggle 无效 JSON 返回 400"""
+        from aiohttp import ClientSession
+
+        port = _next_b095_port()
+        server = LocalServer(mock_client, port=port)
+        await server.start()
+        try:
+            async with ClientSession() as session:
+                headers = {"Authorization": f"Bearer {server._local_token}"}
+                async with session.post(
+                    f"http://{BIND_ADDRESS}:{port}/skills/toggle",
+                    data="not json",
+                    headers={**headers, "Content-Type": "application/json"},
+                ) as resp:
+                    assert resp.status == 400
+        finally:
+            await server.stop()
+
+    @pytest.mark.asyncio
+    async def test_skills_toggle_missing_name(self, mock_client, monkeypatch):
+        """POST /skills/toggle 缺少 name 参数返回 400"""
+        from aiohttp import ClientSession
+
+        port = _next_b095_port()
+        server = LocalServer(mock_client, port=port)
+        await server.start()
+        try:
+            async with ClientSession() as session:
+                headers = {"Authorization": f"Bearer {server._local_token}"}
+                async with session.post(
+                    f"http://{BIND_ADDRESS}:{port}/skills/toggle",
+                    json={"enabled": True},
+                    headers=headers,
+                ) as resp:
+                    assert resp.status == 400
+        finally:
+            await server.stop()
+
+    @pytest.mark.asyncio
+    async def test_skills_toggle_missing_enabled(self, mock_client, monkeypatch):
+        """POST /skills/toggle 缺少 enabled 参数返回 400"""
+        from aiohttp import ClientSession
+
+        port = _next_b095_port()
+        server = LocalServer(mock_client, port=port)
+        await server.start()
+        try:
+            async with ClientSession() as session:
+                headers = {"Authorization": f"Bearer {server._local_token}"}
+                async with session.post(
+                    f"http://{BIND_ADDRESS}:{port}/skills/toggle",
+                    json={"name": "foo"},
+                    headers=headers,
+                ) as resp:
+                    assert resp.status == 400
+        finally:
+            await server.stop()
+
+
+class TestKnowledgeAPI:
+    """B095: GET/POST /knowledge 端点测试"""
+
+    @pytest.fixture
+    def mock_client(self):
+        return MockAgentClient()
+
+    @pytest.mark.asyncio
+    async def test_get_knowledge_returns_list(self, mock_client, tmp_path, monkeypatch):
+        """GET /knowledge 返回正确的知识文件列表"""
+        from aiohttp import ClientSession
+        from app.knowledge_tool import KnowledgeConfig
+
+        # 使用内置 knowledge 目录里的真实文件
+        monkeypatch.setattr("app.knowledge_tool.load_knowledge_config",
+                            lambda: KnowledgeConfig())
+        monkeypatch.setattr("app.knowledge_tool._scan_all_knowledge_files",
+                            lambda: [("file1.md", Path("/fake/file1.md"))])
+
+        port = _next_b095_port()
+        server = LocalServer(mock_client, port=port)
+        await server.start()
+        try:
+            async with ClientSession() as session:
+                headers = {"Authorization": f"Bearer {server._local_token}"}
+                async with session.get(
+                    f"http://{BIND_ADDRESS}:{port}/knowledge", headers=headers,
+                ) as resp:
+                    assert resp.status == 200
+                    data = await resp.json()
+                    assert "knowledge" in data
+                    assert data["count"] == 1
+                    assert data["knowledge"][0]["filename"] == "file1.md"
+                    assert data["knowledge"][0]["enabled"] is True
+        finally:
+            await server.stop()
+
+    @pytest.mark.asyncio
+    async def test_get_knowledge_config_missing_all_enabled(self, mock_client, monkeypatch):
+        """knowledge_config.json 缺失时 GET /knowledge 返回全部启用"""
+        from aiohttp import ClientSession
+        from app.knowledge_tool import KnowledgeConfig
+
+        monkeypatch.setattr("app.knowledge_tool.load_knowledge_config",
+                            lambda: KnowledgeConfig())
+        monkeypatch.setattr("app.knowledge_tool._scan_all_knowledge_files",
+                            lambda: [
+                                ("a.md", Path("/a.md")),
+                                ("b.md", Path("/b.md")),
+                            ])
+
+        port = _next_b095_port()
+        server = LocalServer(mock_client, port=port)
+        await server.start()
+        try:
+            async with ClientSession() as session:
+                headers = {"Authorization": f"Bearer {server._local_token}"}
+                async with session.get(
+                    f"http://{BIND_ADDRESS}:{port}/knowledge", headers=headers,
+                ) as resp:
+                    assert resp.status == 200
+                    data = await resp.json()
+                    assert data["count"] == 2
+                    assert all(f["enabled"] is True for f in data["knowledge"])
+        finally:
+            await server.stop()
+
+    @pytest.mark.asyncio
+    async def test_knowledge_toggle_disable(self, mock_client, tmp_path, monkeypatch):
+        """POST /knowledge/toggle 正确更新 config"""
+        from aiohttp import ClientSession
+        from app.knowledge_tool import KnowledgeConfig
+
+        monkeypatch.setattr("app.knowledge_tool._scan_all_knowledge_files",
+                            lambda: [("tips.md", Path("/fake/tips.md"))])
+        monkeypatch.setattr("app.knowledge_tool.load_knowledge_config",
+                            lambda: KnowledgeConfig())
+        saved_configs = []
+        monkeypatch.setattr("app.knowledge_tool.save_knowledge_config",
+                            lambda c: saved_configs.append(c))
+
+        port = _next_b095_port()
+        server = LocalServer(mock_client, port=port)
+        await server.start()
+        try:
+            async with ClientSession() as session:
+                headers = {"Authorization": f"Bearer {server._local_token}"}
+                async with session.post(
+                    f"http://{BIND_ADDRESS}:{port}/knowledge/toggle",
+                    json={"filename": "tips.md", "enabled": False},
+                    headers=headers,
+                ) as resp:
+                    assert resp.status == 200
+                    data = await resp.json()
+                    assert data["ok"] is True
+                    assert data["filename"] == "tips.md"
+                    assert data["enabled"] is False
+                    assert "tips.md" in saved_configs[0].disabled_files
+        finally:
+            await server.stop()
+
+    @pytest.mark.asyncio
+    async def test_knowledge_toggle_not_found(self, mock_client, monkeypatch):
+        """POST /knowledge/toggle 不存在的文件返回 404"""
+        from aiohttp import ClientSession
+
+        monkeypatch.setattr("app.knowledge_tool._scan_all_knowledge_files", lambda: [])
+
+        port = _next_b095_port()
+        server = LocalServer(mock_client, port=port)
+        await server.start()
+        try:
+            async with ClientSession() as session:
+                headers = {"Authorization": f"Bearer {server._local_token}"}
+                async with session.post(
+                    f"http://{BIND_ADDRESS}:{port}/knowledge/toggle",
+                    json={"filename": "nonexistent.md", "enabled": True},
+                    headers=headers,
+                ) as resp:
+                    assert resp.status == 404
+        finally:
+            await server.stop()
+
+    @pytest.mark.asyncio
+    async def test_knowledge_toggle_invalid_json(self, mock_client):
+        """POST /knowledge/toggle 无效 JSON 返回 400"""
+        from aiohttp import ClientSession
+
+        port = _next_b095_port()
+        server = LocalServer(mock_client, port=port)
+        await server.start()
+        try:
+            async with ClientSession() as session:
+                headers = {"Authorization": f"Bearer {server._local_token}"}
+                async with session.post(
+                    f"http://{BIND_ADDRESS}:{port}/knowledge/toggle",
+                    data="bad json{{{",
+                    headers={**headers, "Content-Type": "application/json"},
+                ) as resp:
+                    assert resp.status == 400
+        finally:
+            await server.stop()
+
+    @pytest.mark.asyncio
+    async def test_knowledge_toggle_missing_filename(self, mock_client):
+        """POST /knowledge/toggle 缺少 filename 参数返回 400"""
+        from aiohttp import ClientSession
+
+        port = _next_b095_port()
+        server = LocalServer(mock_client, port=port)
+        await server.start()
+        try:
+            async with ClientSession() as session:
+                headers = {"Authorization": f"Bearer {server._local_token}"}
+                async with session.post(
+                    f"http://{BIND_ADDRESS}:{port}/knowledge/toggle",
+                    json={"enabled": True},
+                    headers=headers,
+                ) as resp:
+                    assert resp.status == 400
+        finally:
+            await server.stop()
+
+    @pytest.mark.asyncio
+    async def test_knowledge_toggle_missing_enabled(self, mock_client):
+        """POST /knowledge/toggle 缺少 enabled 参数返回 400"""
+        from aiohttp import ClientSession
+
+        port = _next_b095_port()
+        server = LocalServer(mock_client, port=port)
+        await server.start()
+        try:
+            async with ClientSession() as session:
+                headers = {"Authorization": f"Bearer {server._local_token}"}
+                async with session.post(
+                    f"http://{BIND_ADDRESS}:{port}/knowledge/toggle",
+                    json={"filename": "foo.md"},
+                    headers=headers,
+                ) as resp:
+                    assert resp.status == 400
+        finally:
+            await server.stop()
+
+    @pytest.mark.asyncio
+    async def test_knowledge_no_auth_returns_401(self, mock_client):
+        """无 auth token 请求 /knowledge 返回 401"""
+        from aiohttp import ClientSession
+
+        port = _next_b095_port()
+        server = LocalServer(mock_client, port=port)
+        await server.start()
+        try:
+            async with ClientSession() as session:
+                async with session.get(
+                    f"http://{BIND_ADDRESS}:{port}/knowledge",
+                ) as resp:
+                    assert resp.status == 401
+        finally:
+            await server.stop()
+
+    @pytest.mark.asyncio
+    async def test_skills_no_auth_returns_401(self, mock_client):
+        """无 auth token 请求 /skills 返回 401"""
+        from aiohttp import ClientSession
+
+        port = _next_b095_port()
+        server = LocalServer(mock_client, port=port)
+        await server.start()
+        try:
+            async with ClientSession() as session:
+                async with session.get(
+                    f"http://{BIND_ADDRESS}:{port}/skills",
+                ) as resp:
+                    assert resp.status == 401
+        finally:
+            await server.stop()
+
+
+class TestSkillRegistryCorrupt:
+    """B095: skill-registry.json 格式损坏时不崩溃"""
+
+    @pytest.mark.asyncio
+    async def test_corrupt_registry_returns_empty_via_api(self, tmp_path, monkeypatch):
+        """skill-registry.json 格式损坏时 GET /skills 返回 200 + 空列表，不崩溃"""
+        from aiohttp import ClientSession
+
+        mock_client = MockAgentClient()
+
+        # 将数据目录指向 tmp_path，这样 skill-registry.json 和 skills/ 都在临时目录下
+        monkeypatch.setattr("app.skill_registry._get_agent_data_dir", lambda: tmp_path)
+
+        # 写入损坏的 JSON
+        registry_path = tmp_path / "skill-registry.json"
+        registry_path.write_text("{invalid json!!!")
+
+        # 确保 skills/ 目录存在（为空）
+        skills_dir = tmp_path / "skills"
+        skills_dir.mkdir()
+
+        port = _next_b095_port()
+        server = LocalServer(mock_client, port=port)
+        await server.start()
+        try:
+            async with ClientSession() as session:
+                headers = {"Authorization": f"Bearer {server._local_token}"}
+                async with session.get(
+                    f"http://{BIND_ADDRESS}:{port}/skills", headers=headers,
+                ) as resp:
+                    assert resp.status == 200
+                    data = await resp.json()
+                    assert data["skills"] == []
+                    assert data["count"] == 0
+        finally:
+            await server.stop()

@@ -1219,8 +1219,10 @@
         "B091",
         "B092"
       ],
-      "status": "pending",
+      "status": "in_progress",
       "priority": "P2",
+      "started_at": "2026-04-25T19:25:00+0800",
+      "evidence_file": ".dev-flow/evidence/B095.md",
       "acceptance_criteria": [
         "GET /skills 返回 skills/ 目录下所有 skill，包含 name、description、enabled 状态",
         "POST /skills/toggle 接受 {name, enabled} 参数，更新 skill-registry.json",

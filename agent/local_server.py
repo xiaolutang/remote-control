@@ -171,6 +171,11 @@ class LocalServer:
             web.post("/stop", self._handle_stop),
             web.post("/config", self._handle_config),
             web.get("/terminals", self._handle_terminals),
+            # B095: Skill/Knowledge 管理 API
+            web.get("/skills", self._handle_skills),
+            web.post("/skills/toggle", self._handle_skills_toggle),
+            web.get("/knowledge", self._handle_knowledge),
+            web.post("/knowledge/toggle", self._handle_knowledge_toggle),
         ])
         # B068: 添加 token 认证中间件（health 端点除外）
         self.app.middlewares.append(self._auth_middleware)
@@ -274,6 +279,135 @@ class LocalServer:
             "terminals": terminals,
             "count": len(terminals),
         })
+
+    # ─── B095: Skill/Knowledge 管理 API ───
+
+    async def _handle_skills(self, request: web.Request) -> web.Response:
+        """GET /skills — 返回所有已发现 skill 列表及启用状态"""
+        from app.skill_registry import discover_skills
+
+        entries = discover_skills()
+        skills = []
+        for entry in entries:
+            item = {
+                "name": entry.name,
+                "description": entry.manifest.description if entry.manifest else "",
+                "enabled": entry.enabled,
+            }
+            skills.append(item)
+
+        return web.json_response({"skills": skills, "count": len(skills)})
+
+    async def _handle_skills_toggle(self, request: web.Request) -> web.Response:
+        """POST /skills/toggle — 切换指定 skill 启用/禁用"""
+        from app.skill_registry import (
+            discover_skills,
+            load_skill_registry,
+            save_skill_registry,
+        )
+
+        try:
+            data = await request.json()
+        except (json.JSONDecodeError, ValueError):
+            return web.json_response(
+                {"ok": False, "error": "无效的 JSON"},
+                status=400,
+            )
+
+        name = data.get("name")
+        enabled = data.get("enabled")
+
+        if not isinstance(name, str) or not name.strip():
+            return web.json_response(
+                {"ok": False, "error": "缺少有效的 name 参数"},
+                status=400,
+            )
+        if not isinstance(enabled, bool):
+            return web.json_response(
+                {"ok": False, "error": "缺少有效的 enabled 参数"},
+                status=400,
+            )
+
+        # 检查 skill 是否存在
+        entries = discover_skills()
+        found = any(e.name == name for e in entries)
+        if not found:
+            return web.json_response(
+                {"ok": False, "error": f"Skill '{name}' 不存在"},
+                status=404,
+            )
+
+        # 更新 registry
+        registry = load_skill_registry()
+        registry[name] = enabled
+        save_skill_registry(registry)
+
+        return web.json_response({"ok": True, "name": name, "enabled": enabled})
+
+    async def _handle_knowledge(self, request: web.Request) -> web.Response:
+        """GET /knowledge — 返回所有知识文件列表及启用状态"""
+        from app.knowledge_tool import load_knowledge_config, _scan_all_knowledge_files
+
+        config = load_knowledge_config()
+        all_files = _scan_all_knowledge_files()
+
+        files = []
+        for filename, path in all_files:
+            files.append({
+                "filename": filename,
+                "enabled": config.is_enabled(filename),
+            })
+
+        return web.json_response({"knowledge": files, "count": len(files)})
+
+    async def _handle_knowledge_toggle(self, request: web.Request) -> web.Response:
+        """POST /knowledge/toggle — 切换指定知识文件启用/禁用"""
+        from app.knowledge_tool import (
+            load_knowledge_config,
+            save_knowledge_config,
+            _scan_all_knowledge_files,
+        )
+
+        try:
+            data = await request.json()
+        except (json.JSONDecodeError, ValueError):
+            return web.json_response(
+                {"ok": False, "error": "无效的 JSON"},
+                status=400,
+            )
+
+        filename = data.get("filename")
+        enabled = data.get("enabled")
+
+        if not isinstance(filename, str) or not filename.strip():
+            return web.json_response(
+                {"ok": False, "error": "缺少有效的 filename 参数"},
+                status=400,
+            )
+        if not isinstance(enabled, bool):
+            return web.json_response(
+                {"ok": False, "error": "缺少有效的 enabled 参数"},
+                status=400,
+            )
+
+        # 检查文件是否存在
+        all_files = _scan_all_knowledge_files()
+        found = any(f[0] == filename for f in all_files)
+        if not found:
+            return web.json_response(
+                {"ok": False, "error": f"Knowledge file '{filename}' 不存在"},
+                status=404,
+            )
+
+        # 更新配置
+        config = load_knowledge_config()
+        if enabled:
+            config.disabled_files.discard(filename)
+        else:
+            config.disabled_files.add(filename)
+        save_knowledge_config(config)
+
+        return web.json_response({"ok": True, "filename": filename, "enabled": enabled})
 
     async def start(self) -> bool:
         """
