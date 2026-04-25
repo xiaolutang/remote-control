@@ -7,7 +7,7 @@
   "active_requirement_cycle": {
     "id": "R044",
     "name": "agent-eval-system",
-    "status": "in_progress",
+    "status": "completed",
     "branch": "feat/R044-agent-eval-system",
     "started_at": "2026-04-25"
   },
@@ -635,6 +635,14 @@
       "files": [
         "server/evals/graders/__init__.py",
         "server/evals/graders/code_grader.py"
+      ],
+      "acceptance_criteria": [
+        "5 种 code grader 实现（response_type_match/command_safety/steps_structure/contains_command/tool_call_order）",
+        "response_type_match 使用 acceptable_types 匹配",
+        "command_safety 复用 app.command_validator",
+        "contains_command 支持 steps_contain 和 steps_not_contain",
+        "结构化 EvalGraderResult 输出（grader_type + score + details）",
+        "所有 grader 不调用 LLM"
       ]
     },
     {
@@ -670,7 +678,8 @@
         "server/evals/tasks/knowledge_retrieval/*.yaml",
         "server/evals/tasks/safety/*.yaml",
         "server/evals/tasks/multi_turn/*.yaml"
-      ]
+      ],
+      "evidence_file": ".dev-flow/evidence/B099.md"
     },
     {
       "id": "B100",
