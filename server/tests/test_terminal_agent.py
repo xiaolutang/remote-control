@@ -405,10 +405,12 @@ class TestAgentResultFormat:
         assert hasattr(step, 'command')
 
     def test_empty_steps_valid(self):
-        """空 steps 列表应该是合法的（agent 无法确定时）。"""
+        """空 steps + response_type='message' 列表应该是合法的（agent 无法确定时）。"""
         result = AgentResult(
             summary="无法确定项目位置",
             steps=[],
+            response_type="message",
+            need_confirm=False,
         )
         assert result.steps == []
 
@@ -617,6 +619,8 @@ class TestRunAgent:
         mock_result.output = AgentResult(
             summary="ok",
             steps=[],
+            response_type="message",
+            need_confirm=False,
         )
         mock_result.usage = MagicMock(return_value=MagicMock(
             input_tokens=0, output_tokens=0, total_tokens=0, requests=0,
@@ -641,7 +645,7 @@ class TestRunAgent:
     async def test_run_agent_defaults_aliases_to_empty(self):
         """project_aliases 默认应为空 dict。"""
         mock_result = MagicMock()
-        mock_result.output = AgentResult(summary="ok", steps=[])
+        mock_result.output = AgentResult(summary="ok", steps=[], response_type="message", need_confirm=False)
         mock_result.usage = MagicMock(return_value=MagicMock(
             input_tokens=0, output_tokens=0, total_tokens=0, requests=0,
         ))
@@ -661,7 +665,7 @@ class TestRunAgent:
     async def test_run_agent_defaults_history_to_none(self):
         """message_history 默认应为 None。"""
         mock_result = MagicMock()
-        mock_result.output = AgentResult(summary="ok", steps=[])
+        mock_result.output = AgentResult(summary="ok", steps=[], response_type="message", need_confirm=False)
         mock_result.usage = MagicMock(return_value=MagicMock(
             input_tokens=0, output_tokens=0, total_tokens=0, requests=0,
         ))
@@ -797,7 +801,7 @@ class TestS085PromptKnowledge:
 
     def test_system_prompt_contains_user_journeys(self):
         """SYSTEM_PROMPT 定义了用户旅程边界。"""
-        assert "信息型问答" in SYSTEM_PROMPT
+        assert "信息型回复" in SYSTEM_PROMPT
         assert "编程意图" in SYSTEM_PROMPT
 
     def test_system_prompt_info_only_steps_empty(self):
@@ -860,6 +864,7 @@ class TestS085RunAgentWithKnowledge:
                 output=AgentResult(
                     summary="test",
                     steps=[],
+                    response_type="message",
                     need_confirm=False,
                 ),
                 usage=mock_usage,
@@ -887,7 +892,7 @@ class TestS085RunAgentWithKnowledge:
                 input_tokens=0, output_tokens=0, total_tokens=0, requests=1,
             )
             mock_run.return_value = MagicMock(
-                output=AgentResult(summary="test", steps=[], need_confirm=False),
+                output=AgentResult(summary="test", steps=[], response_type="message", need_confirm=False),
                 usage=mock_usage,
             )
 
@@ -957,7 +962,7 @@ class TestRunAgentWithDynamicTools:
                 input_tokens=0, output_tokens=0, total_tokens=0, requests=1,
             )
             mock_run.return_value = MagicMock(
-                output=AgentResult(summary="test", steps=[], need_confirm=False),
+                output=AgentResult(summary="test", steps=[], response_type="message", need_confirm=False),
                 usage=mock_usage,
             )
 
@@ -983,7 +988,7 @@ class TestRunAgentWithDynamicTools:
                 input_tokens=0, output_tokens=0, total_tokens=0, requests=1,
             )
             mock_run.return_value = MagicMock(
-                output=AgentResult(summary="test", steps=[], need_confirm=False),
+                output=AgentResult(summary="test", steps=[], response_type="message", need_confirm=False),
                 usage=mock_usage,
             )
 
@@ -1010,7 +1015,7 @@ class TestRunAgentWithDynamicTools:
                 input_tokens=0, output_tokens=0, total_tokens=0, requests=1,
             )
             mock_run.return_value = MagicMock(
-                output=AgentResult(summary="test", steps=[], need_confirm=False),
+                output=AgentResult(summary="test", steps=[], response_type="message", need_confirm=False),
                 usage=mock_usage,
             )
 
@@ -1230,7 +1235,7 @@ class TestLookupKnowledgeGating:
         """include_lookup_knowledge=False 时不应注册 lookup_knowledge。"""
         with patch('pydantic_ai.Agent.run', new_callable=AsyncMock) as mock_run:
             mock_run.return_value = MagicMock(
-                output=AgentResult(summary="test", steps=[], need_confirm=False),
+                output=AgentResult(summary="test", steps=[], response_type="message", need_confirm=False),
                 usage=MagicMock(input_tokens=0, output_tokens=0, total_tokens=0, requests=1),
             )
             await run_agent(
@@ -1341,3 +1346,154 @@ class TestDynamicToolParameterSchema:
         # query 应在 required 中，limit 不在
         assert "query" in json_schema.get("required", [])
         assert "limit" not in json_schema.get("required", [])
+
+
+# ---------------------------------------------------------------------------
+# B094: AgentResult response_type 模型验证
+# ---------------------------------------------------------------------------
+
+class TestAgentResultResponseType:
+    """测试 AgentResult 的 response_type 三种语义。"""
+
+    def test_default_response_type_is_command(self):
+        """response_type 默认值为 'command'（向后兼容）。"""
+        result = AgentResult(
+            summary="test",
+            steps=[CommandSequenceStep(id="s1", label="step", command="ls")],
+        )
+        assert result.response_type == "command"
+        assert result.ai_prompt == ""
+
+    def test_response_type_message(self):
+        """response_type='message' 时 steps=[], need_confirm=false。"""
+        result = AgentResult(
+            summary="Claude Code 使用技巧：1. ...",
+            steps=[],
+            response_type="message",
+            need_confirm=False,
+        )
+        assert result.response_type == "message"
+        assert result.steps == []
+        assert result.need_confirm is False
+        assert result.ai_prompt == ""
+
+    def test_response_type_ai_prompt(self):
+        """response_type='ai_prompt' 时 ai_prompt 非空, steps=[]。"""
+        result = AgentResult(
+            summary="已生成 prompt",
+            steps=[],
+            response_type="ai_prompt",
+            ai_prompt="请用 Python 实现一个简单的 HTTP server",
+            need_confirm=True,
+        )
+        assert result.response_type == "ai_prompt"
+        assert result.ai_prompt == "请用 Python 实现一个简单的 HTTP server"
+        assert result.steps == []
+        assert result.need_confirm is True
+
+    def test_response_type_invalid_rejected(self):
+        """response_type 非法值应被 Pydantic 拒绝。"""
+        import pydantic
+        with pytest.raises(pydantic.ValidationError):
+            AgentResult(
+                summary="test",
+                steps=[],
+                response_type="invalid_type",
+            )
+
+    def test_command_type_backward_compatible(self):
+        """response_type='command' 行为与现有完全一致。"""
+        result = AgentResult(
+            summary="启动 Claude Code",
+            steps=[CommandSequenceStep(id="s1", label="run claude", command="claude")],
+            response_type="command",
+            need_confirm=True,
+            aliases={"remote-control": "~/remote-control"},
+        )
+        assert result.response_type == "command"
+        assert len(result.steps) == 1
+        assert result.steps[0].command == "claude"
+        assert result.need_confirm is True
+        assert result.aliases == {"remote-control": "~/remote-control"}
+
+    # --- 负向测试：model_validator 约束校验 ---
+
+    def test_message_type_with_need_confirm_rejected(self):
+        """response_type='message' + need_confirm=True → 校验失败。"""
+        import pydantic
+        with pytest.raises(pydantic.ValidationError, match="need_confirm"):
+            AgentResult(
+                summary="test",
+                steps=[],
+                response_type="message",
+                need_confirm=True,
+            )
+
+    def test_command_type_with_empty_steps_rejected(self):
+        """response_type='command' + steps=[] → 校验失败。"""
+        import pydantic
+        with pytest.raises(pydantic.ValidationError, match="steps"):
+            AgentResult(
+                summary="test",
+                steps=[],
+                response_type="command",
+            )
+
+    def test_ai_prompt_type_with_empty_prompt_rejected(self):
+        """response_type='ai_prompt' + ai_prompt='' → 校验失败。"""
+        import pydantic
+        with pytest.raises(pydantic.ValidationError, match="ai_prompt"):
+            AgentResult(
+                summary="test",
+                steps=[],
+                response_type="ai_prompt",
+                ai_prompt="",
+                need_confirm=True,
+            )
+
+    def test_ai_prompt_type_with_non_empty_steps_rejected(self):
+        """response_type='ai_prompt' + steps 非空 → 校验失败。"""
+        import pydantic
+        with pytest.raises(pydantic.ValidationError, match="steps"):
+            AgentResult(
+                summary="test",
+                steps=[CommandSequenceStep(id="s1", label="step", command="echo hi")],
+                response_type="ai_prompt",
+                ai_prompt="some prompt",
+                need_confirm=True,
+            )
+
+
+# ---------------------------------------------------------------------------
+# B094: SYSTEM_PROMPT 指导内容验证
+# ---------------------------------------------------------------------------
+
+class TestSystemPromptB094:
+    """测试 B094 SYSTEM_PROMPT 更新。"""
+
+    def test_contains_response_type_guidance(self):
+        """SYSTEM_PROMPT 包含 response_type 选择指导。"""
+        assert "response_type" in SYSTEM_PROMPT
+        assert "message" in SYSTEM_PROMPT
+        assert "command" in SYSTEM_PROMPT
+        assert "ai_prompt" in SYSTEM_PROMPT
+
+    def test_no_prohibit_plain_text(self):
+        """SYSTEM_PROMPT 不包含'禁止输出纯文本'等刚性约束。"""
+        assert "禁止输出纯文本" not in SYSTEM_PROMPT
+        assert "禁止输出：纯文本" not in SYSTEM_PROMPT
+        assert "每一次回复都必须且只能是合法 JSON" not in SYSTEM_PROMPT
+
+    def test_contains_three_response_type_examples(self):
+        """SYSTEM_PROMPT 包含三种 response_type 的示例。"""
+        # message 示例
+        assert 'response_type\'message\'' in SYSTEM_PROMPT or '"response_type": "message"' in SYSTEM_PROMPT
+        # command 示例
+        assert 'response_type\'command\'' in SYSTEM_PROMPT or '"response_type": "command"' in SYSTEM_PROMPT
+        # ai_prompt 示例
+        assert 'response_type\'ai_prompt\'' in SYSTEM_PROMPT or '"response_type": "ai_prompt"' in SYSTEM_PROMPT
+
+    def test_contains_ai_prompt_guidance(self):
+        """SYSTEM_PROMPT 包含 ai_prompt 的使用指导。"""
+        assert "ai_prompt" in SYSTEM_PROMPT
+        assert "prompt" in SYSTEM_PROMPT.lower()

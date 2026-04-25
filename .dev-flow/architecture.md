@@ -83,12 +83,12 @@ Docker Agent（辅助）：显式启用 profile 后与 Server 同一 docker-comp
 40. 同一 client view 同时只能有一个 active terminal transport；inactive terminal 只保留本地 renderer cache，不维持同 view 的额外 live WS
 41. Agent 是 terminal 内容恢复的主权威源；Server 维护 metadata / ownership / routing 真相，output history 只可作为诊断级辅助材料，不能与 agent snapshot 形成双主恢复源
 42. 智能终端进入只能使用“当前设备事实 + recent terminal 上下文 + planner memory + 用户输入”作为规划输入；不得复用其他设备上下文污染当前计划
-43. 智能规划的最终产物必须收口为 `CommandSequence`，而不是直接执行动作或 `TerminalLaunchPlan`
-44. `CommandSequence` 至少包含 `summary`、`steps[]`、`provider`、`source`、`need_confirm`；其中每个 `step` 必须是用户可读、可审查的单条 shell 命令
+43. 智能规划的最终产物必须收口为 `AgentResult`，通过 `response_type` 区分三种语义：`message`（信息型问答，steps=[]）、`command`（可执行命令序列）、`ai_prompt`（AI prompt 文本注入终端 stdin）
+44. `response_type='command'` 时，AgentResult 至少包含 `summary`、`steps[]`、`provider`、`source`、`need_confirm`；其中每个 `step` 必须是用户可读、可审查的单条 shell 命令
 45. `CommandSequence` 必须在同一个 terminal shell session 内顺序执行；前一步失败时停止后续步骤，且失败输出必须对用户可见
 46. 产品层当前只暴露 Claude 模式，但架构层必须通过 `PlannerService/CommandPlanner` 抽象隔离 `service_llm` / `claude_cli` / `local_rules`；页面/UI 不得直接拼接 `claude -p`
 47. Planner/Agent 只能基于当前设备已有事实、planner memory、用户输入，或通过受约束的只读探索命令主动发现的事实来生成步骤；探索命令必须只读、超时受限（默认 10 秒）、且不得改变远端文件系统状态
-48. 所有 AI 生成的 `CommandSequence` 都必须在执行前得到用户显式确认；禁止静默自动执行
+48. 所有 AI 生成的 `CommandSequence` 和 `ai_prompt` 都必须在执行前得到用户显式确认；禁止静默自动执行
 49. 服务端 LLM provider 的凭证只允许保存在服务端受控环境变量或密钥管理中；客户端只允许保存开发态 fallback 所需的本机配置，且不得下发到 Agent
 50. 聊天式智能助手只展示结构化阶段、工具结果、fallback 与命令卡片，不展示模型原始 chain-of-thought
 51. 每次智能规划都必须产出可回放 trace（输入摘要、上下文摘要、工具调用、provider、fallback、最终命令、执行结果），供评估与审计使用

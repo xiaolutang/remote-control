@@ -2,12 +2,12 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-24T23:15:00+0800",
+  "updated_at": "2026-04-25T10:00:00+0800",
   "status": "in_progress",
   "active_requirement_cycle": {
     "id": "R043",
     "name": "agent-knowledge-skill-mcp",
-    "status": "completed",
+    "status": "in_progress",
     "branch": "feat/R043-agent-knowledge-skill-mcp",
     "started_at": "2026-04-24"
   },
@@ -40,8 +40,8 @@
     "risk_provider": "local"
   },
   "summary": {
-    "total": 63,
-    "pending": 6,
+    "total": 68,
+    "pending": 5,
     "in_progress": 0,
     "completed": 51,
     "blocked": 0,
@@ -986,6 +986,332 @@
       ],
       "title": "R043 实现完成后状态回写与证据归档",
       "contracts": [
+        "CONTRACT-050"
+      ]
+    },
+    {
+      "id": "B094",
+      "phase": "agent-knowledge",
+      "module": "server",
+      "name": "AgentResult response_type 三类型 + SYSTEM_PROMPT 松绑",
+      "description": "Agent 角色已从'命令生成器'演进为'AI 编程助手'，需要支持三种响应语义：\n1. message：纯信息型回复（知识问答、使用建议），steps=[], 无需确认\n2. command：命令序列（现有行为），steps 含可执行 shell 命令，需用户确认\n3. ai_prompt：AI prompt 注入，将讨论结果组装为 prompt 文本注入终端 stdin，供 claude/codex 执行\n\n改动范围：\n- AgentResult 增加 response_type 字段（Literal['message', 'command', 'ai_prompt']）和 ai_prompt 字段\n- SYSTEM_PROMPT 重写：移除'禁止输出纯文本'等刚性约束，改为引导 LLM 根据 response_type 选择正确格式\n- agent_session_manager.py SSE result event 增加 response_type + ai_prompt\n- runtime_api.py fallback stream 同步更新\n\n架构约束变更：\n- 不变量 #43 从'收口为 CommandSequence'扩展为'收口为 AgentResult，response_type 区分三种语义'\n- 不变量 #44 作用域限定为 response_type=command\n- 不变量 #48 扩展到 response_type=ai_prompt",
+      "verification": "L2",
+      "depends_on": ["B089", "B093"],
+      "status": "in_progress",
+      "priority": "P1",
+      "started_at": "2026-04-25T18:00:00+0800",
+      "evidence_file": ".dev-flow/evidence/B094.md",
+      "acceptance_criteria": [
+        "AgentResult 模型包含 response_type: Literal['message', 'command', 'ai_prompt']，默认值 'command'（向后兼容）",
+        "AgentResult 模型包含 ai_prompt: str = ''，仅 response_type=ai_prompt 时使用",
+        "SYSTEM_PROMPT 不再包含'禁止输出纯文本'或'每一次回复都必须且只能是合法 JSON'等刚性约束",
+        "SYSTEM_PROMPT 包含 response_type 选择指导：message 用于知识问答、command 用于命令生成、ai_prompt 用于组装 AI prompt 注入终端",
+        "SYSTEM_PROMPT 包含三种 response_type 的示例",
+        "agent_session_manager.py SSE result event 包含 response_type 和 ai_prompt 字段",
+        "runtime_api.py fallback stream 输出包含 response_type 字段",
+        "response_type='command' 时行为与现有完全一致（向后兼容）",
+        "response_type='message' 时 steps=[]、need_confirm=false、summary 包含完整回答",
+        "response_type='ai_prompt' 时 steps=[]、ai_prompt 包含完整 prompt 文本、need_confirm=true",
+        "现有测试全部通过（response_type 默认值 'command' 保证兼容）",
+        "api_contracts.md CONTRACT-047/050 已更新 response_type + ai_prompt 字段"
+      ],
+      "risk_tags": [
+        "state_sync"
+      ],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "AgentResult response_type 模型验证",
+          "scenarios": [
+            "response_type='command' 默认值向后兼容",
+            "response_type='message' 时 steps=[] need_confirm=false",
+            "response_type='ai_prompt' 时 ai_prompt 非空 steps=[]",
+            "response_type 非法值被 Pydantic 拒绝"
+          ]
+        },
+        {
+          "type": "unit",
+          "description": "SYSTEM_PROMPT 指导内容验证",
+          "scenarios": [
+            "SYSTEM_PROMPT 包含 response_type 选择指导",
+            "SYSTEM_PROMPT 不包含'禁止输出纯文本'",
+            "SYSTEM_PROMPT 包含三种 response_type 的示例"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "SSE result event 格式验证",
+          "scenarios": [
+            "response_type='message' 的 SSE event 包含正确字段",
+            "response_type='command' 的 SSE event 向后兼容",
+            "response_type='ai_prompt' 的 SSE event 包含 ai_prompt 字段"
+          ]
+        }
+      ],
+      "files": [
+        "server/app/terminal_agent.py",
+        "server/app/agent_session_manager.py",
+        "server/app/runtime_api.py"
+      ],
+      "title": "AgentResult response_type 三类型 + SYSTEM_PROMPT 松绑",
+      "contracts": [
+        "CONTRACT-047",
+        "CONTRACT-050"
+      ]
+    },
+    {
+      "id": "F088",
+      "phase": "agent-knowledge",
+      "module": "client",
+      "name": "Client 三类型渲染 + ai_prompt 终端注入",
+      "description": "客户端适配 AgentResult 三种 response_type：\n1. message：以聊天气泡展示 summary，无执行按钮，可直接编辑再次发送\n2. command：保持现有命令卡片 + 确认执行流程\n3. ai_prompt：展示 prompt 预览卡片 + 确认按钮，确认后将 ai_prompt 文本注入终端 stdin\n\nai_prompt 注入机制：\n- 用户确认后，客户端将 ai_prompt 文本通过 Server → Agent → PTY stdin 链路发送（与手动终端输入等价，遵循不变量 #8）\n- 文本后自动追加换行符（模拟 Enter 键）\n- 注入后 agent panel 回到 idle 状态，可继续对话\n\n改动范围：\n- AgentResultEvent 模型增加 responseType + aiPrompt 字段\n- smart_terminal_side_panel_content.dart 按 response_type 分支渲染\n- ai_prompt 确认后写入终端 stdin",
+      "verification": "F2",
+      "depends_on": [
+        "B094"
+      ],
+      "status": "pending",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "AgentResultEvent 包含 responseType 和 aiPrompt 字段，向后兼容（缺失时默认 'command'）",
+        "responseType='message'：summary 以可折叠卡片展示，无执行按钮，显示'已回复'状态标签",
+        "responseType='command'：保持现有命令序列卡片 + 确认执行流程不变",
+        "responseType='ai_prompt'：展示 prompt 预览卡片（显示 aiPrompt 文本），有'注入终端'确认按钮",
+        "ai_prompt 确认后文本写入终端 stdin（追加换行），agent panel 回到 idle 状态",
+        "手机端和桌面端均可触发 ai_prompt 注入（通过 Server → Agent → PTY stdin 链路，与现有终端输入等价）",
+        "三种类型结果状态下均可编辑再次发送（修复之前的编辑 bug）",
+        "error 状态下仍可编辑再次发送",
+        "跨端同步：A 端收到 message/ai_prompt 类型结果，B 端同步看到相同内容"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "AgentResultEvent response_type 解析",
+          "scenarios": [
+            "fromJson 正确解析 response_type='message'",
+            "fromJson response_type 缺失时默认 'command'",
+            "fromJson 正确解析 ai_prompt 字段"
+          ]
+        },
+        {
+          "type": "widget",
+          "description": "三类型渲染验证",
+          "scenarios": [
+            "response_type='message' 显示 summary 卡片，无执行按钮",
+            "response_type='command' 显示命令卡片，有执行按钮",
+            "response_type='ai_prompt' 显示 prompt 预览，有注入按钮",
+            "所有类型 result 状态下可编辑再次发送",
+            "response_type 未知值时降级为 command 渲染"
+          ]
+        },
+        {
+          "type": "widget",
+          "description": "ai_prompt stdin 注入验证",
+          "scenarios": [
+            "确认后 ai_prompt 文本通过终端 stdin 写入",
+            "注入后 agent panel 回到 idle 状态",
+            "注入文本末尾自动追加换行符"
+          ]
+        }
+      ],
+      "files": [
+        "client/lib/models/agent_session_event.dart",
+        "client/lib/widgets/smart_terminal_side_panel_content.dart"
+      ],
+      "title": "Client 三类型渲染 + ai_prompt 终端注入",
+      "contracts": [
+        "CONTRACT-047",
+        "CONTRACT-050"
+      ]
+    },
+    {
+      "id": "S088",
+      "phase": "agent-knowledge",
+      "module": "test",
+      "name": "response_type 三类型测试覆盖 + 配套产物更新",
+      "description": "R043 增量测试覆盖和配套产物更新：\n1. Server 测试：response_type 三类型 happy path + 边界 + 降级\n2. Client 测试：三类型渲染 + ai_prompt 注入 + 编辑/重发\n3. 配套产物：test_coverage.md、alignment_checklist.md 更新",
+      "verification": "L2",
+      "depends_on": [
+        "B094",
+        "F088"
+      ],
+      "status": "pending",
+      "priority": "P2",
+      "acceptance_criteria": [
+        "Server 测试覆盖：message/command/ai_prompt 三类型 result 构建和 SSE 推送",
+        "Server 测试覆盖：response_type 默认值 'command' 向后兼容",
+        "Server 测试覆盖：SYSTEM_PROMPT 不含刚性 JSON-only 约束",
+        "Client 测试覆盖：三类型 AgentResultEvent 解析和渲染",
+        "Client 测试覆盖：ai_prompt 确认后注入终端 stdin",
+        "Client 测试覆盖：result/error 状态下编辑再次发送",
+        "现有 server/client 测试全部通过",
+        "test_coverage.md 已更新 R043 增量测试条目",
+        "alignment_checklist.md 已更新 B094/F088 对齐状态"
+      ],
+      "risk_tags": [
+        "boundary"
+      ],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "Server response_type 三类型 result 构建",
+          "scenarios": [
+            "response_type='message' 的 AgentResult 构建",
+            "response_type='command' 默认值向后兼容",
+            "response_type='ai_prompt' 的 AgentResult 构建（含 ai_prompt 字段）",
+            "response_type 非法值被 Pydantic 拒绝"
+          ]
+        },
+        {
+          "type": "integration",
+          "description": "SSE result event response_type 推送",
+          "scenarios": [
+            "response_type='message' 的 SSE event 正确推送",
+            "response_type='command' 的 SSE event 向后兼容（含 response_type 字段）",
+            "response_type='ai_prompt' 的 SSE event 含 ai_prompt 字段",
+            "跨端同步：A 端收到 message 结果，B 端同步看到相同内容"
+          ]
+        },
+        {
+          "type": "unit",
+          "description": "Client AgentResultEvent 解析",
+          "scenarios": [
+            "fromJson 正确解析三种 response_type",
+            "response_type 缺失时默认 'command'",
+            "response_type 未知值时降级为 'command'"
+          ]
+        },
+        {
+          "type": "widget",
+          "description": "Client 三类型渲染 + ai_prompt 注入",
+          "scenarios": [
+            "response_type='message' 渲染为气泡/卡片，无执行按钮",
+            "response_type='command' 渲染为命令卡片，有执行按钮",
+            "response_type='ai_prompt' 渲染为预览卡片，有注入按钮",
+            "ai_prompt 确认后 stdin 注入 + panel idle 回归",
+            "所有类型 result/error 状态下可编辑再次发送"
+          ]
+        }
+      ],
+      "title": "response_type 三类型测试覆盖 + 配套产物更新",
+      "contracts": [
+        "CONTRACT-047",
+        "CONTRACT-050"
+      ]
+    },
+    {
+      "id": "B095",
+      "phase": "agent-knowledge",
+      "module": "agent",
+      "name": "Agent 本地 HTTP Server 新增 Skill/Knowledge 管理 API",
+      "description": "在 Agent 本地 HTTP Server (local_server.py) 新增 skill 和 knowledge 文件的管理端点：\n1. GET /skills - 返回所有已发现 skill 列表及启用状态\n2. POST /skills/toggle - 切换指定 skill 启用/禁用，更新 skill-registry.json\n3. GET /knowledge - 返回所有知识文件列表及启用状态\n4. POST /knowledge/toggle - 切换指定知识文件启用/禁用，更新 knowledge_config.json\n\n变更后提示需重启 Agent 生效。复用现有 skill_registry.py 和 knowledge_tool.py 的读写函数。",
+      "verification": "L2",
+      "depends_on": [
+        "B091",
+        "B092"
+      ],
+      "status": "pending",
+      "priority": "P2",
+      "acceptance_criteria": [
+        "GET /skills 返回 skills/ 目录下所有 skill，包含 name、description、enabled 状态",
+        "POST /skills/toggle 接受 {name, enabled} 参数，更新 skill-registry.json",
+        "GET /knowledge 返回所有知识文件，包含 filename、enabled 状态",
+        "POST /knowledge/toggle 接受 {filename, enabled} 参数，更新 knowledge_config.json",
+        "所有端点受现有 _auth_middleware 保护",
+        "skill/knowledge 不存在时返回 404",
+        "请求格式错误时返回 400",
+        "现有 Agent 端测试全部通过"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "Skill/Knowledge HTTP 端点 happy path",
+          "scenarios": [
+            "GET /skills 返回正确的 skill 列表",
+            "POST /skills/toggle 正确更新 registry",
+            "GET /knowledge 返回正确的知识文件列表",
+            "POST /knowledge/toggle 正确更新 config"
+          ]
+        },
+        {
+          "type": "unit",
+          "description": "Skill/Knowledge HTTP 端点边界与错误",
+          "scenarios": [
+            "不存在的 skill/knowledge 返回 404",
+            "无效 JSON 请求返回 400",
+            "无 auth token 请求返回 401",
+            "skills/ 目录为空时 GET /skills 返回空列表",
+            "knowledge_config.json 缺失时 GET /knowledge 返回全部启用",
+            "skill-registry.json 格式损坏时不崩溃，返回空列表"
+          ]
+        }
+      ],
+      "files": [
+        "agent/local_server.py",
+        "agent/app/skill_registry.py",
+        "agent/app/knowledge_tool.py"
+      ],
+      "title": "Agent 本地 HTTP Server 新增 Skill/Knowledge 管理 API",
+      "contracts": [
+        "CONTRACT-024",
+        "CONTRACT-050"
+      ]
+    },
+    {
+      "id": "F089",
+      "phase": "agent-knowledge",
+      "module": "client",
+      "name": "Desktop 客户端 Skill 配置面板",
+      "description": "在桌面端添加 Skill/Knowledge 配置面板，用户可查看和管理 Agent 上的技能和知识文件：\n1. 桌面端 workspace 菜单添加'技能管理'入口（仅桌面端可见，手机端不显示）\n2. 新建 SkillConfigScreen：展示 skill 列表 + 启用/禁用开关\n3. 展示知识文件列表 + 启用/禁用开关\n4. 变更后提示'重启 Agent 后生效'\n5. 数据来源：通过 Agent 本地 HTTP Server 的 /skills 和 /knowledge 端点获取",
+      "verification": "F2",
+      "depends_on": [
+        "B095"
+      ],
+      "status": "pending",
+      "priority": "P2",
+      "acceptance_criteria": [
+        "桌面端 terminal workspace 菜单中新增'技能管理'入口",
+        "点击后打开 SkillConfigScreen",
+        "SkillConfigScreen 展示 skill 列表（名称 + 描述 + 开关）",
+        "SkillConfigScreen 展示知识文件列表（文件名 + 开关）",
+        "切换开关后调用 Agent 本地 HTTP API 更新配置",
+        "变更后显示'重启 Agent 后生效'提示",
+        "仅桌面端显示此菜单入口",
+        "通过 Agent 本地 HTTP /skills 和 /knowledge 获取数据"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        {
+          "type": "widget",
+          "description": "Skill 配置面板渲染与交互",
+          "scenarios": [
+            "正确展示 skill 列表和开关状态",
+            "正确展示知识文件列表和开关状态",
+            "开关切换触发 API 调用",
+            "变更后显示重启提示",
+            "仅桌面端显示菜单入口，手机端不显示",
+            "Agent 离线时加载失败显示错误提示"
+          ]
+        },
+        {
+          "type": "widget",
+          "description": "Skill 配置面板边界场景",
+          "scenarios": [
+            "skill/knowledge 列表为空时显示空状态提示",
+            "API 调用失败时开关恢复原位并显示错误",
+            "首次打开无本地 HTTP 连接时降级提示"
+          ]
+        }
+      ],
+      "files": [
+        "client/lib/screens/skill_config_screen.dart",
+        "client/lib/navigation/account_menu_actions.dart",
+        "client/lib/screens/terminal_workspace_screen.dart"
+      ],
+      "title": "Desktop 客户端 Skill 配置面板",
+      "contracts": [
+        "CONTRACT-024",
         "CONTRACT-050"
       ]
     }

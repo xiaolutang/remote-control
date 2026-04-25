@@ -2460,6 +2460,8 @@ async def _agent_fallback_stream(
         result_data = {
             "summary": result.command_sequence.summary,
             "steps": [step.model_dump() for step in result.command_sequence.steps],
+            "response_type": "command",
+            "ai_prompt": "",
             "provider": result.command_sequence.provider,
             "source": result.command_sequence.source,
             "need_confirm": result.command_sequence.need_confirm,

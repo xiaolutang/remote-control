@@ -242,7 +242,7 @@
 | 产品与评估基线 | S079, S080 | design | 聊天流 + 命令卡片；结构化 trace；评估指标与人工验收口径 | S079 ✅ / S080 ⬜ |
 | 服务端 planner / memory / 回写契约 | B075, B076, B077 | integration,contract,unit | `assistant/plan`、`executions/report`、memory 只在真实回写后更新 | ✅ |
 | 桌面空终端与侧滑面板骨架 | F094, F087 | widget,integration,manual | 空终端创建；侧滑面板入口；桌面/移动端分流稳定 | ✅ |
-| 旧聊天流 UI / fallback / 注入链路 | F088, F089, F090, F093 | widget,integration | 已被 `react-terminal-agent` 收口替代，不再继续执行 | cancelled |
+| 旧聊天流 UI / fallback / 注入链路 | F088_old, F089_old, F090, F093 | widget,integration | 已被 `react-terminal-agent` 收口替代，不再继续执行。注：F088/F089 已在 R043 增量中复用为新任务 | cancelled |
 | benchmark 与真机验收 | F091, F092 | unit,integration,manual,smoke | benchmark 数据集；trace 回放；全链路人工验收 | ⬜ |
 
 ### ReAct 智能体（react-terminal-agent phase，当前执行阶段）
@@ -591,3 +591,55 @@
 - [ ] Agent 断连时 pending dynamic tool calls 立即返回 timeout error
 - [ ] 动态工具调用 trace 含 skill attribution
 - [ ] MCP Server 启动失败时跳过并记录 error，不阻塞 Agent 主流程
+
+### R043 增量：response_type 三类型（agent-knowledge phase）
+
+| Module | Task IDs | Test Type | Required Scenarios | Status |
+|--------|----------|-----------|--------------------|--------|
+| AgentResult response_type | B094 | unit, integration | response_type 三类型模型 + SYSTEM_PROMPT 松绑 + SSE event 含 response_type + ai_prompt | ⬜ |
+| Client 三类型渲染 | F088 | unit, widget | AgentResultEvent 解析 + 三类型渲染 + ai_prompt stdin 注入 + 编辑重发 | ⬜ |
+| 测试覆盖 + 产物更新 | S088 | unit, integration, widget | Server 三类型 result 构建 + SSE 推送 + Client 解析/渲染 + ai_prompt 注入 + 跨端同步 | ⬜ |
+
+#### R043 增量 response_type 关键测试场景
+
+##### B094 AgentResult + SYSTEM_PROMPT
+- [ ] response_type='command' 默认值向后兼容
+- [ ] response_type='message' 时 steps=[], need_confirm=false
+- [ ] response_type='ai_prompt' 时 ai_prompt 非空, steps=[]
+- [ ] SYSTEM_PROMPT 不含"禁止输出纯文本"
+- [ ] SYSTEM_PROMPT 含 response_type 选择指导
+- [ ] SSE result event 含 response_type 和 ai_prompt 字段
+
+##### F088 Client 三类型渲染
+- [ ] AgentResultEvent.fromJson 正确解析三种 response_type
+- [ ] response_type 缺失时默认 'command'
+- [ ] response_type='message' 渲染为卡片，无执行按钮
+- [ ] response_type='ai_prompt' 渲染为预览卡片，有注入按钮
+- [ ] ai_prompt 确认后 stdin 注入 + panel idle 回归
+- [ ] 所有类型 result 状态下可编辑再次发送
+
+### R043 增量：Skill 配置入口（agent-knowledge phase）
+
+| Module | Task IDs | Test Type | Required Scenarios | Status |
+|--------|----------|-----------|--------------------|--------|
+| Agent HTTP Skill/Knowledge API | B095 | unit | GET/POST /skills + /knowledge 端点 + toggle + auth + 边界 | ⬜ |
+| Desktop Skill 配置面板 | F089 | widget | 列表渲染 + 开关交互 + 重启提示 + 桌面端独占 + 错误降级 | ⬜ |
+
+#### R043 增量 Skill 配置关键测试场景
+
+##### B095 HTTP 端点
+- [ ] GET /skills 返回 skill 列表
+- [ ] POST /skills/toggle 更新 registry
+- [ ] GET /knowledge 返回知识文件列表
+- [ ] POST /knowledge/toggle 更新 config
+- [ ] 无 auth token 返回 401
+- [ ] skills/ 目录为空时返回空列表
+- [ ] skill-registry.json 损坏时不崩溃
+
+##### F089 Desktop 配置面板
+- [ ] skill 列表和开关正确渲染
+- [ ] 开关切换触发 API 调用
+- [ ] 变更后显示重启提示
+- [ ] 仅桌面端显示菜单入口
+- [ ] Agent 离线时显示错误提示
+- [ ] skill/knowledge 列表为空时显示空状态

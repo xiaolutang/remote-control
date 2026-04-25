@@ -958,3 +958,135 @@ class TestSessionState:
         assert "error" in state_values
         assert "expired" in state_values
         assert "cancelled" in state_values
+
+
+# ---------------------------------------------------------------------------
+# B094: SSE result event response_type 格式验证
+# ---------------------------------------------------------------------------
+
+class TestSSEResultEventType:
+    """测试 SSE result event 包含 response_type 和 ai_prompt 字段。"""
+
+    @pytest.mark.asyncio
+    async def test_message_type_sse_event(self, manager):
+        """response_type='message' 的 SSE event 包含正确字段。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="rt-msg",
+        )
+
+        # 模拟 message 类型的 AgentResult
+        mock_result = AgentResult(
+            summary="Claude Code 使用技巧：1. ...",
+            steps=[],
+            response_type="message",
+            need_confirm=False,
+        )
+        mock_outcome = AgentRunOutcome(
+            result=mock_result,
+            input_tokens=50,
+            output_tokens=30,
+            total_tokens=80,
+            requests=1,
+            model_name="test-model",
+        )
+
+        execute_fn = AsyncMock(return_value=_make_execute_result(stdout="file.txt"))
+
+        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, return_value=mock_outcome):
+            with patch("app.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True):
+                await manager.start_agent(s, execute_fn)
+                await asyncio.sleep(0.1)
+
+        # 检查 result event
+        events = []
+        while not s.event_queue.empty():
+            events.append(s.event_queue.get_nowait())
+        result_events = [e for e in events if e is not None and e[0] == "result"]
+        assert len(result_events) == 1
+        data = result_events[0][1]
+        assert data["response_type"] == "message"
+        assert data["ai_prompt"] == ""
+        assert data["steps"] == []
+        assert data["need_confirm"] is False
+
+    @pytest.mark.asyncio
+    async def test_command_type_sse_event_backward_compatible(self, manager):
+        """response_type='command' 的 SSE event 向后兼容。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="rt-cmd",
+        )
+
+        mock_result = AgentResult(
+            summary="启动 Claude Code",
+            steps=[CommandSequenceStep(id="s1", label="run claude", command="claude")],
+            response_type="command",
+            need_confirm=True,
+        )
+        mock_outcome = AgentRunOutcome(
+            result=mock_result,
+            input_tokens=100,
+            output_tokens=50,
+            total_tokens=150,
+            requests=2,
+            model_name="test-model",
+        )
+
+        execute_fn = AsyncMock(return_value=_make_execute_result(stdout="file.txt"))
+
+        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, return_value=mock_outcome):
+            with patch("app.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True):
+                await manager.start_agent(s, execute_fn)
+                await asyncio.sleep(0.1)
+
+        events = []
+        while not s.event_queue.empty():
+            events.append(s.event_queue.get_nowait())
+        result_events = [e for e in events if e is not None and e[0] == "result"]
+        assert len(result_events) == 1
+        data = result_events[0][1]
+        assert data["response_type"] == "command"
+        assert data["ai_prompt"] == ""
+        assert len(data["steps"]) == 1
+        assert data["need_confirm"] is True
+
+    @pytest.mark.asyncio
+    async def test_ai_prompt_type_sse_event(self, manager):
+        """response_type='ai_prompt' 的 SSE event 包含 ai_prompt 字段。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="rt-aip",
+        )
+
+        prompt_text = "请用 Python 实现一个简单的 HTTP server，支持 GET 请求返回 Hello World"
+        mock_result = AgentResult(
+            summary="已生成 prompt",
+            steps=[],
+            response_type="ai_prompt",
+            ai_prompt=prompt_text,
+            need_confirm=True,
+        )
+        mock_outcome = AgentRunOutcome(
+            result=mock_result,
+            input_tokens=200,
+            output_tokens=100,
+            total_tokens=300,
+            requests=3,
+            model_name="test-model",
+        )
+
+        execute_fn = AsyncMock(return_value=_make_execute_result(stdout="file.txt"))
+
+        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, return_value=mock_outcome):
+            with patch("app.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True):
+                await manager.start_agent(s, execute_fn)
+                await asyncio.sleep(0.1)
+
+        events = []
+        while not s.event_queue.empty():
+            events.append(s.event_queue.get_nowait())
+        result_events = [e for e in events if e is not None and e[0] == "result"]
+        assert len(result_events) == 1
+        data = result_events[0][1]
+        assert data["response_type"] == "ai_prompt"
+        assert data["ai_prompt"] == prompt_text
+        assert data["steps"] == []
+        assert data["need_confirm"] is True

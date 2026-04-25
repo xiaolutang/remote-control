@@ -692,6 +692,8 @@ class AgentSessionManager:
                 {
                     "summary": outcome.result.summary,
                     "steps": [step.model_dump() for step in outcome.result.steps],
+                    "response_type": outcome.result.response_type,
+                    "ai_prompt": outcome.result.ai_prompt,
                     "provider": outcome.result.provider,
                     "source": outcome.result.source,
                     "need_confirm": outcome.result.need_confirm,
