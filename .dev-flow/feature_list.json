@@ -980,7 +980,8 @@
         "配置缺失时 CLI 报错并提示"
       ],
       "files": [
-        "server/tests/test_feedback_loop.py"
+        "server/tests/test_eval_feedback_loop.py",
+        "server/tests/test_eval_regression.py"
       ],
       "commit": "58b8e5c"
     }
