@@ -140,8 +140,8 @@
 | **R043 增量: skill 配置** | **Agent HTTP Skill/Knowledge 管理 API** | **CONTRACT-024, CONTRACT-050** | **done** | **not_applicable** | **done** | **B095: GET/POST /skills + /knowledge 端点 + toggle** |
 | **R043 增量: skill 配置** | **Desktop 客户端 Skill 配置面板** | **CONTRACT-024, CONTRACT-050** | **not_applicable** | **done** | **done** | **F089: 桌面端菜单入口 + SkillConfigScreen + 开关 + 重启提示** |
 | **Agent 评估体系** | **Eval 数据模型 + SQLite schema** | **CONTRACT-051** | **done** | **not_applicable** | **done** | **B096: 6 张表 + Pydantic 模型 + 配置检查，56 测试通过** |
-| **Agent 评估体系** | **Eval Harness + Code Graders** | **CONTRACT-051** | **pending** | **not_applicable** | **pending** | **B097-B098: harness + 5 种 code grader** |
-| **Agent 评估体系** | **初始 Task 数据集 + LLM-as-Judge** | **CONTRACT-051** | **pending** | **not_applicable** | **pending** | **B099-B100: 30 个 eval task + Judge grader** |
-| **Agent 评估体系** | **在线质量指标提取与 API** | **CONTRACT-052** | **pending** | **not_applicable** | **pending** | **B101-B102: 质量指标持久化 + REST API** |
-| **Agent 评估体系** | **反馈闭环 + 回归测试** | **CONTRACT-053** | **pending** | **not_applicable** | **pending** | **B103-B104: 反馈→eval task + 回归运行器** |
-| **Agent 评估体系** | **评估体系测试覆盖** | **CONTRACT-051..053** | **pending** | **not_applicable** | **pending** | **S089-S092: 框架/Grader/质量/反馈测试** |
+| **Agent 评估体系** | **Eval Harness + Code Graders** | **CONTRACT-051** | **done** | **not_applicable** | **done** | **B097-B098: harness + 5 种 code grader，105 测试通过** |
+| **Agent 评估体系** | **初始 Task 数据集 + LLM-as-Judge** | **CONTRACT-051** | **done** | **not_applicable** | **done** | **B099-B100: 30 个 eval task + Judge grader，83 测试通过** |
+| **Agent 评估体系** | **在线质量指标提取与 API** | **CONTRACT-052** | **done** | **not_applicable** | **done** | **B101-B102: 质量指标持久化 + REST API，72 测试通过** |
+| **Agent 评估体系** | **反馈闭环 + 回归测试** | **CONTRACT-053** | **done** | **not_applicable** | **done** | **B103-B104: 反馈→eval task + 回归运行器，62 测试通过** |
+| **Agent 评估体系** | **评估体系测试覆盖** | **CONTRACT-051..053** | **done** | **not_applicable** | **done** | **S089-S092: 框架/Grader/质量/反馈测试，355 总测试通过** |

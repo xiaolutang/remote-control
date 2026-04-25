@@ -538,7 +538,7 @@
       "actual_minutes": 30,
       "evidence_file": ".dev-flow/evidence/B096.md",
       "execution_notes": "6 张表 + 8 个 Pydantic 模型 + 配置检查。56 测试全通过。code-review pass，audit done。",
-      "commit": "pending",
+      "commit": "a44dfae",
       "priority": 1,
       "acceptance_criteria": [
         "server/evals/__init__.py, models.py, db.py 创建",
@@ -582,7 +582,7 @@
       "actual_minutes": 15,
       "evidence_file": ".dev-flow/evidence/B097.md",
       "execution_notes": "Harness + MockTransport + pass@k/pass^k + LLM 调用容错。56 新测试通过。code-review pass。",
-      "commit": "pending",
+      "commit": "6e1502f",
       "priority": 1,
       "acceptance_criteria": [
         "Task loader 从 YAML 目录批量加载 EvalTaskDef",
@@ -626,7 +626,7 @@
       "actual_minutes": 15,
       "evidence_file": ".dev-flow/evidence/B098.md",
       "execution_notes": "5 种 code grader + 注册表。49 测试通过。command_safety 复用 validate_command。",
-      "commit": "pending",
+      "commit": "0eac758",
       "test_tasks": [
         "每种 grader 的 pass/fail case",
         "command_safety 复用验证",
@@ -651,7 +651,7 @@
       "completed_at": "2026-04-25T16:30:00+0800",
       "actual_minutes": 10,
       "execution_notes": "30 个 YAML task 覆盖 5 类别。全部通过 EvalTaskDef 加载验证。",
-      "commit": "pending",
+      "commit": "6d70daf",
       "priority": 2,
       "acceptance_criteria": [
         "30 个 YAML 文件在 server/evals/tasks/ 下",
@@ -673,11 +673,16 @@
       ]
     },
     {
+      "id": "B100",
+      "phase": "eval-dataset",
+      "module": "evals",
+      "name": "LLM-as-Judge Grader",
+      "description": "LLM Judge 4 维度评分（relevance/accuracy/completeness/safety），含 calibration 工具",
+      "verification": "L2",
+      "depends_on": [
+        "B098"
+      ],
       "status": "completed",
-      "completed_at": "2026-04-25T16:45:00+0800",
-      "actual_minutes": 10,
-      "execution_notes": "LLM Judge 4 维度 + CalibrationTool。53 新测试通过。",
-      "commit": "pending",
       "priority": 2,
       "acceptance_criteria": [
         "LLMJudgeGrader 实现 4 维度评分",
@@ -688,7 +693,6 @@
         "EVAL_JUDGE_BASE_URL/API_KEY 默认复用 EVAL_AGENT_BASE_URL/API_KEY"
       ],
       "risk_tags": [
-        "network",
         "config"
       ],
       "test_tasks": [
@@ -699,16 +703,24 @@
         "LLM Judge 超时/5xx 容错：grader 捕获异常并返回 error",
         "LLM 畸形 JSON 响应降级：解析失败时返回 error 而非 crash"
       ],
-      "files": [
-        "server/evals/graders/llm_judge.py"
-      ]
+      "started_at": "2026-04-25T16:30:00+0800",
+      "completed_at": "2026-04-25T16:45:00+0800",
+      "actual_minutes": 10,
+      "execution_notes": "LLM Judge 4 维度 + CalibrationTool。53 新测试通过。",
+      "evidence_file": ".dev-flow/evidence/B100.md",
+      "commit": "790e3cb"
     },
     {
+      "id": "B101",
+      "phase": "online-quality",
+      "module": "evals",
+      "name": "Agent 交互质量指标提取与持久化",
+      "description": "从 agent_conversation_events 提取 5 类质量指标并持久化到 quality_metrics 表",
+      "verification": "L2",
+      "depends_on": [
+        "B096"
+      ],
       "status": "completed",
-      "started_at": "2026-04-25T16:55:00+0800",
-      "completed_at": "2026-04-25T17:40:00+0800",
-      "evidence_file": ".dev-flow/evidence/B101.md",
-      "execution_state": {"current_step": "done", "retry_count": 0},
       "priority": 3,
       "acceptance_criteria": [
         "从 agent_conversation_events 提取 5 类指标",
@@ -717,14 +729,23 @@
         "提取过程不影响在线 Agent 运行性能",
         "提供 batch 提取入口（可回溯历史 session）"
       ],
+      "risk_tags": [
+        "startup"
+      ],
       "test_tasks": [
         "指标计算准确性",
         "批量提取性能",
         "历史数据回溯"
       ],
-      "files": [
-        "server/evals/quality_monitor.py"
-      ]
+      "started_at": "2026-04-25T16:55:00+0800",
+      "completed_at": "2026-04-25T17:40:00+0800",
+      "actual_minutes": 45,
+      "execution_state": {
+        "current_step": "done",
+        "retry_count": 0
+      },
+      "evidence_file": ".dev-flow/evidence/B101.md",
+      "commit": "cc2cbda"
     },
     {
       "id": "B102",
@@ -740,7 +761,10 @@
       "started_at": "2026-04-25T17:45:00+0800",
       "completed_at": "2026-04-25T18:15:00+0800",
       "evidence_file": ".dev-flow/evidence/B102.md",
-      "execution_state": {"current_step": "done", "retry_count": 0},
+      "execution_state": {
+        "current_step": "done",
+        "retry_count": 0
+      },
       "priority": 3,
       "acceptance_criteria": [
         "GET /api/eval/quality/metrics 支持 time_range/user_id/device_id 过滤",
@@ -756,7 +780,8 @@
       ],
       "files": [
         "server/app/runtime_api.py"
-      ]
+      ],
+      "commit": "50f9b4d"
     },
     {
       "id": "B103",
@@ -774,7 +799,10 @@
       "started_at": "2026-04-25T18:20:00+0800",
       "completed_at": "2026-04-25T18:55:00+0800",
       "evidence_file": ".dev-flow/evidence/B103.md",
-      "execution_state": {"current_step": "done", "retry_count": 0},
+      "execution_state": {
+        "current_step": "done",
+        "retry_count": 0
+      },
       "priority": 4,
       "acceptance_criteria": [
         "反馈提交后异步触发脱敏分析（不阻塞反馈 API 响应）",
@@ -797,7 +825,8 @@
       ],
       "files": [
         "server/evals/feedback_loop.py"
-      ]
+      ],
+      "commit": "84e9bb8"
     },
     {
       "id": "B104",
@@ -816,7 +845,10 @@
       "started_at": "2026-04-25T19:00:00+0800",
       "completed_at": "2026-04-25T19:30:00+0800",
       "evidence_file": ".dev-flow/evidence/B104.md",
-      "execution_state": {"current_step": "done", "retry_count": 0},
+      "execution_state": {
+        "current_step": "done",
+        "retry_count": 0
+      },
       "priority": 4,
       "acceptance_criteria": [
         "回归模式：与指定 baseline run 对比，输出 regression 列表",
@@ -833,16 +865,22 @@
       "files": [
         "server/evals/regression.py",
         "server/evals/__main__.py"
-      ]
+      ],
+      "commit": "7fbe0a1"
     },
     {
+      "id": "S089",
+      "phase": "eval-core",
+      "module": "evals",
+      "name": "Eval 框架核心测试验收",
+      "description": "验收确认：数据模型、SQLite CRUD、YAML 加载、harness mock transport、pass@k 计算测试通过",
+      "verification": "L1",
+      "depends_on": [
+        "B096",
+        "B097",
+        "B098"
+      ],
       "status": "completed",
-      "started_at": "2026-04-25T16:15:00+0800",
-      "completed_at": "2026-04-25T16:15:00+0800",
-      "actual_minutes": 0,
-      "evidence_file": ".dev-flow/evidence/S089.md",
-      "execution_notes": "验收确认：112 个既有测试完整覆盖 S089 全部 6 条验收条件。",
-      "commit": "pending",
       "priority": 1,
       "acceptance_criteria": [
         "数据模型序列化/反序列化测试通过",
@@ -852,18 +890,25 @@
         "pass@k / pass^k 计算正确",
         "EVAL_AGENT_MODEL/BASE_URL/API_KEY 缺失时 raise 明确错误，不复用 ASSISTANT_LLM_*"
       ],
-      "files": [
-        "server/tests/test_eval_harness.py"
-      ]
+      "started_at": "2026-04-25T16:15:00+0800",
+      "completed_at": "2026-04-25T16:15:00+0800",
+      "actual_minutes": 0,
+      "execution_notes": "验收确认：112 个既有测试完整覆盖 S089 全部 6 条验收条件。",
+      "evidence_file": ".dev-flow/evidence/S089.md",
+      "commit": "79328dd"
     },
     {
+      "id": "S090",
+      "phase": "eval-dataset",
+      "module": "evals",
+      "name": "Grader 测试覆盖验收",
+      "description": "验收确认：5 种 code grader、LLM Judge JSON 解析、EVAL_JUDGE_MODEL 未配置时 skipped 测试通过",
+      "verification": "L1",
+      "depends_on": [
+        "B099",
+        "B100"
+      ],
       "status": "completed",
-      "started_at": "2026-04-25T16:50:00+0800",
-      "completed_at": "2026-04-25T16:50:00+0800",
-      "actual_minutes": 0,
-      "evidence_file": ".dev-flow/evidence/S090.md",
-      "execution_notes": "验收确认：102 个既有测试完整覆盖 S090 全部 5 条验收条件。",
-      "commit": "pending",
       "priority": 2,
       "acceptance_criteria": [
         "5 种 code grader 各有 pass/fail 测试",
@@ -872,9 +917,12 @@
         "EVAL_JUDGE_MODEL 未配置时返回 skipped",
         "LLM Judge 评分有与 reference 对比的一致性基线"
       ],
-      "files": [
-        "server/tests/test_eval_graders.py"
-      ]
+      "started_at": "2026-04-25T16:50:00+0800",
+      "completed_at": "2026-04-25T16:50:00+0800",
+      "actual_minutes": 0,
+      "execution_notes": "验收确认：102 个既有测试完整覆盖 S090 全部 5 条验收条件。",
+      "evidence_file": ".dev-flow/evidence/S090.md",
+      "commit": "c47ca64"
     },
     {
       "id": "S091",
@@ -902,7 +950,8 @@
       ],
       "files": [
         "server/tests/test_quality_monitor.py"
-      ]
+      ],
+      "commit": "58b8e5c"
     },
     {
       "id": "S092",
@@ -932,7 +981,8 @@
       ],
       "files": [
         "server/tests/test_feedback_loop.py"
-      ]
+      ],
+      "commit": "58b8e5c"
     }
   ]
 }

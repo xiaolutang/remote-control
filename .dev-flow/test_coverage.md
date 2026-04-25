@@ -566,29 +566,29 @@
 #### Agent 评估体系关键测试场景
 
 ##### B097 Harness
-- [ ] YAML task 正确加载为 EvalTaskDef
-- [ ] mock transport 按预定义响应返回
-- [ ] 单 trial 完整 transcript 收集（LLM 请求/响应 + 工具调用/返回 + AgentResult）
-- [ ] pass@1 = 60% 时 pass@5 应接近 100%（数学验证）
-- [ ] EVAL_AGENT_MODEL/BASE_URL/API_KEY 缺失时 raise 明确错误，不复用 ASSISTANT_LLM_*
-- [ ] mock transport 不触达真实设备（无真实 WebSocket 连接）
-- [ ] LLM 超时/5xx/畸形响应：harness 捕获异常并标记 trial 为 error，不 crash
-- [ ] 单 trial 失败不阻塞后续 trial 执行
+- [x] YAML task 正确加载为 EvalTaskDef
+- [x] mock transport 按预定义响应返回
+- [x] 单 trial 完整 transcript 收集（LLM 请求/响应 + 工具调用/返回 + AgentResult）
+- [x] pass@1 = 60% 时 pass@5 应接近 100%（数学验证）
+- [x] EVAL_AGENT_MODEL/BASE_URL/API_KEY 缺失时 raise 明确错误，不复用 ASSISTANT_LLM_*
+- [x] mock transport 不触达真实设备（无真实 WebSocket 连接）
+- [x] LLM 超时/5xx/畸形响应：harness 捕获异常并标记 trial 为 error，不 crash
+- [x] 单 trial 失败不阻塞后续 trial 执行
 
 ##### B098 Code Graders
-- [ ] response_type_match: acceptable_types=["command","ai_prompt"] → command 通过
-- [ ] response_type_match: acceptable_types=["message"] → command 失败
-- [ ] command_safety: 白名单命令通过，`rm -rf` 失败，`sudo` 失败
-- [ ] contains_command: steps 包含 "claude" 通过，不包含 "rm" 通过
-- [ ] steps_structure: 空 steps 失败，非 shell 命令失败
+- [x] response_type_match: acceptable_types=["command","ai_prompt"] → command 通过
+- [x] response_type_match: acceptable_types=["message"] → command 失败
+- [x] command_safety: 白名单命令通过，`rm -rf` 失败，`sudo` 失败
+- [x] contains_command: steps 包含 "claude" 通过，不包含 "rm" 通过
+- [x] steps_structure: 空 steps 失败，非 shell 命令失败
 
 ##### B100 LLM Judge
-- [ ] Judge prompt 输出合法 JSON（relevance/completeness/safety/helpfulness）
-- [ ] JSON 解析失败时 grader 返回 error 而非 crash
-- [ ] EVAL_JUDGE_MODEL 未配置时返回 skipped
-- [ ] EVAL_JUDGE_BASE_URL/API_KEY 默认复用 EVAL_AGENT_BASE_URL/API_KEY
-- [ ] LLM Judge 超时/5xx：grader 捕获异常并返回 error，不阻塞其他 grader
-- [ ] LLM 返回非法 JSON 或截断响应：grader 降级返回 error 而非 crash
+- [x] Judge prompt 输出合法 JSON（relevance/completeness/safety/helpfulness）
+- [x] JSON 解析失败时 grader 返回 error 而非 crash
+- [x] EVAL_JUDGE_MODEL 未配置时返回 skipped
+- [x] EVAL_JUDGE_BASE_URL/API_KEY 默认复用 EVAL_AGENT_BASE_URL/API_KEY
+- [x] LLM Judge 超时/5xx：grader 捕获异常并返回 error，不阻塞其他 grader
+- [x] LLM 返回非法 JSON 或截断响应：grader 降级返回 error 而非 crash
 
 ##### B101 质量指标
 - [x] 构造已知 session，验证 5 类指标计算正确
