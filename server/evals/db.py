@@ -244,9 +244,17 @@ class EvalDatabase:
     # ── EvalTaskDef CRUD ──────────────────────────────────────────────────
 
     async def save_task_def(self, task_def: EvalTaskDef) -> None:
-        """保存评估任务定义（upsert）"""
+        """保存评估任务定义（upsert，保留已有记录的 created_at）。"""
         data = task_def.to_db_dict()
         async with self._connect() as db:
+            # 保留已有记录的 created_at，避免重复 run 覆盖原始时间
+            existing = await db.execute(
+                "SELECT created_at FROM eval_task_defs WHERE id = ?",
+                (data["id"],),
+            )
+            row = await existing.fetchone()
+            if row:
+                data["created_at"] = row["created_at"]
             await db.execute(
                 """
                 INSERT OR REPLACE INTO eval_task_defs
@@ -531,6 +539,31 @@ class EvalDatabase:
             rows = await cursor.fetchall()
             return [QualityMetric.from_db_row(dict(r)) for r in rows]
 
+    @staticmethod
+    def _build_metric_conditions(
+        metric_name=None, user_id=None, device_id=None,
+        start_time=None, end_time=None,
+    ) -> tuple:
+        """构建 quality_metrics 查询的共享 WHERE 条件。"""
+        conditions: List[str] = []
+        params: List[Any] = []
+        if metric_name is not None:
+            conditions.append("metric_name = ?")
+            params.append(metric_name)
+        if user_id is not None:
+            conditions.append("user_id = ?")
+            params.append(user_id)
+        if device_id is not None:
+            conditions.append("device_id = ?")
+            params.append(device_id)
+        if start_time is not None:
+            conditions.append("computed_at >= ?")
+            params.append(start_time)
+        if end_time is not None:
+            conditions.append("computed_at <= ?")
+            params.append(end_time)
+        return conditions, params
+
     async def query_quality_metrics(
         self,
         *,
@@ -547,27 +580,13 @@ class EvalDatabase:
         动态构建 WHERE 子句，只添加有值的过滤条件。
         ORDER BY computed_at DESC, LIMIT 防止大查询。
         """
-        conditions: List[str] = []
-        params: List[Any] = []
+        conditions, params = self._build_metric_conditions(
+            metric_name, user_id, device_id, start_time, end_time
+        )
 
-        if metric_name is not None:
-            conditions.append("metric_name = ?")
-            params.append(metric_name)
-        if user_id is not None:
-            conditions.append("user_id = ?")
-            params.append(user_id)
-        if device_id is not None:
-            conditions.append("device_id = ?")
-            params.append(device_id)
         if session_id is not None:
             conditions.append("session_id = ?")
             params.append(session_id)
-        if start_time is not None:
-            conditions.append("computed_at >= ?")
-            params.append(start_time)
-        if end_time is not None:
-            conditions.append("computed_at <= ?")
-            params.append(end_time)
 
         query = "SELECT * FROM quality_metrics"
         if conditions:
@@ -604,24 +623,9 @@ class EvalDatabase:
         else:
             group_expr = "strftime('%Y-%m-%d', computed_at)"
 
-        conditions: List[str] = []
-        params: List[Any] = []
-
-        if metric_name is not None:
-            conditions.append("metric_name = ?")
-            params.append(metric_name)
-        if user_id is not None:
-            conditions.append("user_id = ?")
-            params.append(user_id)
-        if device_id is not None:
-            conditions.append("device_id = ?")
-            params.append(device_id)
-        if start_time is not None:
-            conditions.append("computed_at >= ?")
-            params.append(start_time)
-        if end_time is not None:
-            conditions.append("computed_at <= ?")
-            params.append(end_time)
+        conditions, params = self._build_metric_conditions(
+            metric_name, user_id, device_id, start_time, end_time
+        )
 
         query = (
             f"SELECT {group_expr} as group_key, metric_name, "
@@ -638,15 +642,8 @@ class EvalDatabase:
             cursor = await db.execute(query, params)
             rows = await cursor.fetchall()
             return [
-                {
-                    "group_key": dict(r)["group_key"],
-                    "metric_name": dict(r)["metric_name"],
-                    "count": dict(r)["count"],
-                    "avg_value": dict(r)["avg_value"],
-                    "min_value": dict(r)["min_value"],
-                    "max_value": dict(r)["max_value"],
-                }
-                for r in rows
+                {k: d[k] for k in ("group_key", "metric_name", "count", "avg_value", "min_value", "max_value")}
+                for d in (dict(r) for r in rows)
             ]
 
     # ── EvalTaskCandidate CRUD ────────────────────────────────────────────

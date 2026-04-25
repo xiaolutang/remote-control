@@ -2867,10 +2867,23 @@ async def report_agent_execution(
 # B102: Eval Quality Metrics API
 # ---------------------------------------------------------------------------
 
+_eval_db_instance: Optional[EvalDatabase] = None
+
+
 def _get_eval_db() -> EvalDatabase:
-    """获取 EvalDatabase 实例（使用 EVALS_DB_PATH 环境变量或默认路径）。"""
-    db_path = os.environ.get("EVALS_DB_PATH", "/data/evals.db")
-    return EvalDatabase(db_path)
+    """获取 EvalDatabase 单例（使用 EVALS_DB_PATH 环境变量或默认路径）。"""
+    global _eval_db_instance
+    if _eval_db_instance is None:
+        db_path = os.environ.get("EVALS_DB_PATH", "/data/evals.db")
+        _eval_db_instance = EvalDatabase(db_path)
+    return _eval_db_instance
+
+
+async def _ensure_eval_db() -> EvalDatabase:
+    """获取 EvalDatabase 单例并确保表已创建。"""
+    db = _get_eval_db()
+    await db.init_db()
+    return db
 
 
 @router.get("/eval/quality/metrics")
@@ -2886,7 +2899,7 @@ async def get_quality_metrics(
 ):
     """查询质量指标记录，支持多条件过滤。"""
     try:
-        db = _get_eval_db()
+        db = await _ensure_eval_db()
         metrics = await db.query_quality_metrics(
             metric_name=metric_name,
             user_id=user_id,
@@ -2917,7 +2930,7 @@ async def get_quality_summary(
 ):
     """按时间窗口聚合质量指标（日/周/月）。"""
     try:
-        db = _get_eval_db()
+        db = await _ensure_eval_db()
         result = await db.aggregate_quality_metrics(
             metric_name=metric_name,
             user_id=user_id,
@@ -2945,7 +2958,7 @@ async def get_eval_candidates(
 ):
     """列出候选评估任务（可选按状态过滤）。"""
     try:
-        db = _get_eval_db()
+        db = await _ensure_eval_db()
         result = await list_candidates(db, status=status_filter)
         return result
     except Exception as e:
@@ -2963,7 +2976,7 @@ async def approve_eval_candidate(
 ):
     """审核通过候选任务（approved 后可被 harness 加载执行）。"""
     try:
-        db = _get_eval_db()
+        db = await _ensure_eval_db()
         result = await approve_candidate(db, candidate_id, reviewer=_user_id)
         if result is None:
             raise HTTPException(
@@ -2993,7 +3006,7 @@ async def reject_eval_candidate(
 ):
     """审核拒绝候选任务。"""
     try:
-        db = _get_eval_db()
+        db = await _ensure_eval_db()
         result = await reject_candidate(db, candidate_id, reviewer=_user_id)
         if result is None:
             raise HTTPException(

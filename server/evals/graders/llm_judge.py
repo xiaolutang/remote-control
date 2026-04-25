@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from evals.db import get_eval_agent_config
 from evals.graders.code_grader import CodeGraderBase, GRADER_REGISTRY, _register
-from evals.harness import LLMCallError, call_llm
+from evals.harness import LLMCallError, call_llm, _extract_text_response
 from evals.models import EvalGraderResult, EvalTaskDef, EvalTrial
 
 logger = logging.getLogger(__name__)
@@ -560,10 +560,7 @@ class LLMJudgeGrader(CodeGraderBase):
     @staticmethod
     def _extract_llm_text(response: Dict[str, Any]) -> str:
         """从 LLM API 响应中提取文本内容。"""
-        choices = response.get("choices", [])
-        if not choices:
-            return ""
-        return choices[0].get("message", {}).get("content", "")
+        return _extract_text_response(response)
 
 
 # ── CalibrationTool ─────────────────────────────────────────────────────

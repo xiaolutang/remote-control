@@ -54,7 +54,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     run_parser.add_argument(
         "--db",
-        default="evals.db",
+        default="/data/evals.db",
         help="evals.db 路径（默认 evals.db）",
     )
 
@@ -80,7 +80,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     reg_parser.add_argument(
         "--db",
-        default="evals.db",
+        default="/data/evals.db",
         help="evals.db 路径（默认 evals.db）",
     )
 
@@ -99,7 +99,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     trend_parser.add_argument(
         "--db",
-        default="evals.db",
+        default="/data/evals.db",
         help="evals.db 路径（默认 evals.db）",
     )
 
