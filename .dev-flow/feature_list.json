@@ -812,7 +812,11 @@
         "B103",
         "B099"
       ],
-      "status": "pending",
+      "status": "completed",
+      "started_at": "2026-04-25T19:00:00+0800",
+      "completed_at": "2026-04-25T19:30:00+0800",
+      "evidence_file": ".dev-flow/evidence/B104.md",
+      "execution_state": {"current_step": "done", "retry_count": 0},
       "priority": 4,
       "acceptance_criteria": [
         "回归模式：与指定 baseline run 对比，输出 regression 列表",
