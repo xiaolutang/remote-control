@@ -560,7 +560,7 @@
 | LLM-as-Judge | B100, S090 | unit, integration | prompt 输出格式；JSON 解析容错；未配置降级 | B100 ✅ 53/53 |
 | 质量指标提取 | B101, S091 | unit | 5 类指标计算准确性；批量提取；历史回溯 | B101 ✅ 49/49 |
 | 质量指标 API | B102, S091 | unit, integration | 过滤/聚合；认证拦截；evals.db 不可达时返回 500 | B102 ✅ 23/23 |
-| 反馈→Eval Task | B103, S092 | unit, integration | 反馈→candidate 流程；未配置降级；审核 API | ⬜ |
+| 反馈→Eval Task | B103, S092 | unit, integration | 反馈→candidate 流程；未配置降级；审核 API | B103 ✅ 32/32 |
 | 回归测试 + CLI | B104, S092 | unit, integration | 回归检测；趋势查询；CLI 子命令；配置缺失提示 | ⬜ |
 
 #### Agent 评估体系关键测试场景
@@ -603,10 +603,10 @@
 - [x] evals.db 不可达时返回 500 + 明确错误
 
 ##### B103 反馈闭环
-- [ ] 反馈→candidate 只传脱敏摘要，不传原始反馈文本
-- [ ] candidate 的 source_feedback_id 仅存引用 ID
-- [ ] approved candidate 可被 harness 加载执行
-- [ ] EVAL_FEEDBACK_MODEL 未配置时跳过自动转换
+- [x] 反馈→candidate 只传脱敏摘要，不传原始反馈文本
+- [x] candidate 的 source_feedback_id 仅存引用 ID
+- [x] approved candidate 可被 harness 加载执行
+- [x] EVAL_FEEDBACK_MODEL 未配置时跳过自动转换
 - [ ] 异步分析超时/LLM 5xx：分析失败不阻塞反馈保存，记录 warning
 - [ ] LLM 畸形响应：解析失败时跳过 candidate 生成，不 crash
 

@@ -77,6 +77,12 @@ from app.agent_session_manager import (
 )
 from app.project_alias_store import ProjectAliasStore
 from evals.db import EvalDatabase
+from evals.feedback_loop import (
+    analyze_feedback,
+    approve_candidate,
+    list_candidates,
+    reject_candidate,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -2926,4 +2932,85 @@ async def get_quality_summary(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"聚合质量指标失败: {type(e).__name__}",
+        )
+
+
+# ── Eval Feedback Loop Endpoints ────────────────────────────────────
+
+
+@router.get("/eval/candidates")
+async def get_eval_candidates(
+    status_filter: Optional[str] = None,
+    _user_id: str = Depends(get_current_user_id),
+):
+    """列出候选评估任务（可选按状态过滤）。"""
+    try:
+        db = _get_eval_db()
+        result = await list_candidates(db, status=status_filter)
+        return result
+    except Exception as e:
+        logger.error("Failed to list candidates: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"列出候选任务失败: {type(e).__name__}",
+        )
+
+
+@router.post("/eval/candidates/{candidate_id}/approve")
+async def approve_eval_candidate(
+    candidate_id: str,
+    _user_id: str = Depends(get_current_user_id),
+):
+    """审核通过候选任务（approved 后可被 harness 加载执行）。"""
+    try:
+        db = _get_eval_db()
+        result = await approve_candidate(db, candidate_id, reviewer=_user_id)
+        if result is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"候选任务 {candidate_id} 不存在",
+            )
+        if "error" in result:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result["error"],
+            )
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to approve candidate: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"审核候选任务失败: {type(e).__name__}",
+        )
+
+
+@router.post("/eval/candidates/{candidate_id}/reject")
+async def reject_eval_candidate(
+    candidate_id: str,
+    _user_id: str = Depends(get_current_user_id),
+):
+    """审核拒绝候选任务。"""
+    try:
+        db = _get_eval_db()
+        result = await reject_candidate(db, candidate_id, reviewer=_user_id)
+        if result is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"候选任务 {candidate_id} 不存在",
+            )
+        if "error" in result:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result["error"],
+            )
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to reject candidate: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"拒绝候选任务失败: {type(e).__name__}",
         )

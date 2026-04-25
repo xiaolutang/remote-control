@@ -770,7 +770,11 @@
         "B097",
         "B099"
       ],
-      "status": "pending",
+      "status": "completed",
+      "started_at": "2026-04-25T18:20:00+0800",
+      "completed_at": "2026-04-25T18:55:00+0800",
+      "evidence_file": ".dev-flow/evidence/B103.md",
+      "execution_state": {"current_step": "done", "retry_count": 0},
       "priority": 4,
       "acceptance_criteria": [
         "反馈提交后异步触发脱敏分析（不阻塞反馈 API 响应）",
