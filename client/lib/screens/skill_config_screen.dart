@@ -178,6 +178,157 @@ class _SkillConfigScreenState extends State<SkillConfigScreen>
     });
   }
 
+  // ============== 新增：导入/删除/编辑 ==============
+
+  Future<void> _importKnowledgeFile() async {
+    try {
+      final sourcePath = await _service.pickMarkdownFile();
+      if (sourcePath == null) return; // 用户取消
+
+      await _service.importKnowledgeFile(sourcePath);
+      if (!mounted) return;
+      _showSuccess('已导入知识文件');
+      await _loadData();
+    } catch (e) {
+      if (!mounted) return;
+      _showError('导入失败：$e');
+    }
+  }
+
+  Future<void> _importSkillDirectory() async {
+    try {
+      final sourceDir = await _service.pickSkillDirectory();
+      if (sourceDir == null) return; // 用户取消
+
+      await _service.importSkillDirectory(sourceDir);
+      if (!mounted) return;
+      _showSuccess('已导入技能');
+      await _loadData();
+    } catch (e) {
+      if (!mounted) return;
+      _showError('导入失败：$e');
+    }
+  }
+
+  Future<void> _deleteSkill(SkillInfo skill) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除技能'),
+        content: Text('确定要删除技能「${skill.name}」吗？此操作不可撤销。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(
+              '删除',
+              style: TextStyle(color: Theme.of(ctx).colorScheme.error),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await _service.deleteSkill(skill.name);
+      if (!mounted) return;
+      _showSuccess('已删除技能');
+      await _loadData();
+    } catch (e) {
+      if (!mounted) return;
+      _showError('删除失败：$e');
+    }
+  }
+
+  Future<void> _deleteKnowledgeFile(KnowledgeInfo item) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除知识文件'),
+        content: Text('确定要删除「${item.filename}」吗？此操作不可撤销。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(
+              '删除',
+              style: TextStyle(color: Theme.of(ctx).colorScheme.error),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await _service.deleteKnowledgeFile(item.filename);
+      if (!mounted) return;
+      _showSuccess('已删除知识文件');
+      await _loadData();
+    } catch (e) {
+      if (!mounted) return;
+      _showError('删除失败：$e');
+    }
+  }
+
+  Future<void> _editKnowledgeFile(KnowledgeInfo item) async {
+    try {
+      final content = await _service.readKnowledgeContent(item.filename);
+      if (!mounted) return;
+
+      final controller = TextEditingController(text: content);
+      final saved = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(item.filename),
+          content: SizedBox(
+            width: 500,
+            height: 400,
+            child: TextField(
+              key: const Key('knowledge-editor'),
+              controller: controller,
+              maxLines: null,
+              expands: true,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                hintText: '编辑内容...',
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              key: const Key('knowledge-save-btn'),
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('保存'),
+            ),
+          ],
+        ),
+      );
+
+      if (saved != true || !mounted) return;
+      await _service.writeKnowledgeContent(item.filename, controller.text);
+      _showSuccess('已保存');
+    } catch (e) {
+      if (!mounted) return;
+      _showError('编辑失败：$e');
+    }
+  }
+
+  // ============== UI 辅助 ==============
+
   void _showRestartHint() {
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
@@ -189,6 +340,16 @@ class _SkillConfigScreenState extends State<SkillConfigScreen>
   }
 
   void _showError(String message) {
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _showSuccess(String message) {
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -307,46 +468,79 @@ class _SkillConfigScreenState extends State<SkillConfigScreen>
   }
 
   Widget _buildSkillList() {
-    if (_skills.isEmpty) {
-      return _buildEmptyState('暂无技能');
-    }
-
-    return ListView.builder(
-      itemCount: _skills.length,
-      itemBuilder: (context, index) {
-        final skill = _skills[index];
-        final isToggling = _togglingSkills.contains(skill.name);
-        final verifyResult = _verifyResults[skill.name];
-        return ListTile(
-          key: Key('skill-${skill.name}'),
-          title: Row(
-            children: [
-              Text(skill.name),
-              const SizedBox(width: 8),
-              if (skill.version.isNotEmpty)
-                Text(
-                  'v${skill.version}',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              key: const Key('import-skill-btn'),
+              onPressed: () => unawaited(_importSkillDirectory()),
+              icon: const Icon(Icons.add),
+              label: const Text('导入 Skill 目录'),
+            ),
+          ),
+        ),
+        Expanded(
+          child: _skills.isEmpty
+              ? _buildEmptyState('暂无技能，点击上方按钮导入')
+              : ListView.builder(
+                  itemCount: _skills.length,
+                  itemBuilder: (context, index) {
+                    final skill = _skills[index];
+                    final isToggling = _togglingSkills.contains(skill.name);
+                    final verifyResult = _verifyResults[skill.name];
+                    return Dismissible(
+                      key: Key('skill-dismiss-${skill.name}'),
+                      direction: DismissDirection.endToStart,
+                      background: Container(
+                        color: Theme.of(context).colorScheme.error,
+                        alignment: Alignment.centerRight,
+                        padding: const EdgeInsets.only(right: 16),
+                        child: const Icon(Icons.delete, color: Colors.white),
                       ),
+                      confirmDismiss: (_) async {
+                        await _deleteSkill(skill);
+                        return false; // 手动处理删除
+                      },
+                      child: ListTile(
+                        key: Key('skill-${skill.name}'),
+                        title: Row(
+                          children: [
+                            Text(skill.name),
+                            const SizedBox(width: 8),
+                            if (skill.version.isNotEmpty)
+                              Text(
+                                'v${skill.version}',
+                                style:
+                                    Theme.of(context).textTheme.bodySmall?.copyWith(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurfaceVariant,
+                                        ),
+                              ),
+                            const SizedBox(width: 8),
+                            _buildVerifyIcon(verifyResult),
+                          ],
+                        ),
+                        subtitle: skill.description.isNotEmpty
+                            ? Text(skill.description,
+                                maxLines: 2, overflow: TextOverflow.ellipsis)
+                            : null,
+                        trailing: Switch(
+                          key: Key('skill-switch-${skill.name}'),
+                          value: skill.enabled,
+                          onChanged: isToggling
+                              ? null
+                              : (value) => unawaited(_toggleSkill(skill, value)),
+                        ),
+                      ),
+                    );
+                  },
                 ),
-              const SizedBox(width: 8),
-              _buildVerifyIcon(verifyResult),
-            ],
-          ),
-          subtitle: skill.description.isNotEmpty
-              ? Text(skill.description,
-                  maxLines: 2, overflow: TextOverflow.ellipsis)
-              : null,
-          trailing: Switch(
-            key: Key('skill-switch-${skill.name}'),
-            value: skill.enabled,
-            onChanged: isToggling
-                ? null
-                : (value) => unawaited(_toggleSkill(skill, value)),
-          ),
-        );
-      },
+        ),
+      ],
     );
   }
 
@@ -371,27 +565,70 @@ class _SkillConfigScreenState extends State<SkillConfigScreen>
   }
 
   Widget _buildKnowledgeList() {
-    if (_knowledge.isEmpty) {
-      return _buildEmptyState('暂无知识文件');
-    }
-
-    return ListView.builder(
-      itemCount: _knowledge.length,
-      itemBuilder: (context, index) {
-        final item = _knowledge[index];
-        final isToggling = _togglingKnowledge.contains(item.filename);
-        return ListTile(
-          key: Key('knowledge-${item.filename}'),
-          title: Text(item.filename),
-          trailing: Switch(
-            key: Key('knowledge-switch-${item.filename}'),
-            value: item.enabled,
-            onChanged: isToggling
-                ? null
-                : (value) => unawaited(_toggleKnowledge(item, value)),
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              key: const Key('import-knowledge-btn'),
+              onPressed: () => unawaited(_importKnowledgeFile()),
+              icon: const Icon(Icons.add),
+              label: const Text('导入 .md 文件'),
+            ),
           ),
-        );
-      },
+        ),
+        Expanded(
+          child: _knowledge.isEmpty
+              ? _buildEmptyState('暂无知识文件，点击上方按钮导入')
+              : ListView.builder(
+                  itemCount: _knowledge.length,
+                  itemBuilder: (context, index) {
+                    final item = _knowledge[index];
+                    final isToggling = _togglingKnowledge.contains(item.filename);
+                    return Dismissible(
+                      key: Key('knowledge-dismiss-${item.filename}'),
+                      direction: DismissDirection.endToStart,
+                      background: Container(
+                        color: Theme.of(context).colorScheme.error,
+                        alignment: Alignment.centerRight,
+                        padding: const EdgeInsets.only(right: 16),
+                        child: const Icon(Icons.delete, color: Colors.white),
+                      ),
+                      confirmDismiss: (_) async {
+                        await _deleteKnowledgeFile(item);
+                        return false;
+                      },
+                      child: ListTile(
+                        key: Key('knowledge-${item.filename}'),
+                        title: Text(item.filename),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              key: Key('knowledge-edit-${item.filename}'),
+                              icon: const Icon(Icons.edit_outlined, size: 20),
+                              tooltip: '编辑',
+                              onPressed: () =>
+                                  unawaited(_editKnowledgeFile(item)),
+                            ),
+                            Switch(
+                              key: Key('knowledge-switch-${item.filename}'),
+                              value: item.enabled,
+                              onChanged: isToggling
+                                  ? null
+                                  : (value) =>
+                                      unawaited(_toggleKnowledge(item, value)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
     );
   }
 

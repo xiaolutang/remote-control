@@ -259,7 +259,143 @@ class SkillConfigService {
     }
   }
 
+  /// 导入知识文件：从外部路径复制 .md 文件到 user_knowledge/ 目录
+  Future<void> importKnowledgeFile(String sourcePath) async {
+    final dataDir = getAgentDataDir();
+    if (dataDir == null) throw Exception('Agent 数据目录不存在');
+
+    final sourceFile = File(sourcePath);
+    if (!sourceFile.existsSync()) throw Exception('源文件不存在');
+
+    final filename = p.basename(sourcePath);
+    if (!filename.endsWith('.md')) throw Exception('仅支持 .md 文件');
+
+    final knowledgeDir = Directory(p.join(dataDir, 'user_knowledge'));
+    if (!knowledgeDir.existsSync()) {
+      knowledgeDir.createSync(recursive: true);
+    }
+
+    final destPath = p.join(knowledgeDir.path, filename);
+    await sourceFile.copy(destPath);
+  }
+
+  /// 删除知识文件
+  Future<void> deleteKnowledgeFile(String filename) async {
+    final dataDir = getAgentDataDir();
+    if (dataDir == null) throw Exception('Agent 数据目录不存在');
+
+    final file = File(p.join(dataDir, 'user_knowledge', filename));
+    if (file.existsSync()) {
+      await file.delete();
+    }
+
+    // 从 disabled 列表中也移除
+    final disabledFiles = await _loadDisabledKnowledgeFiles(dataDir);
+    disabledFiles.remove(filename);
+    await _saveDisabledKnowledgeFiles(dataDir, disabledFiles);
+  }
+
+  /// 导入 Skill：从外部目录（含 skill.json）复制到 skills/ 目录
+  Future<void> importSkillDirectory(String sourceDirPath) async {
+    final dataDir = getAgentDataDir();
+    if (dataDir == null) throw Exception('Agent 数据目录不存在');
+
+    final sourceDir = Directory(sourceDirPath);
+    if (!sourceDir.existsSync()) throw Exception('源目录不存在');
+
+    final skillJsonFile = File(p.join(sourceDirPath, 'skill.json'));
+    if (!skillJsonFile.existsSync()) throw Exception('目录中缺少 skill.json');
+
+    // 读取 skill.json 获取 name
+    final content = await skillJsonFile.readAsString();
+    final json = jsonDecode(content) as Map<String, dynamic>;
+    final name = json['name'] as String?;
+    if (name == null || name.isEmpty) throw Exception('skill.json 缺少 name 字段');
+
+    final destDir = Directory(p.join(dataDir, 'skills', name));
+    if (!destDir.parent.existsSync()) {
+      destDir.parent.createSync(recursive: true);
+    }
+
+    // 复制整个目录
+    await _copyDirectory(sourceDir, destDir);
+  }
+
+  /// 删除 Skill 目录
+  Future<void> deleteSkill(String name) async {
+    final dataDir = getAgentDataDir();
+    if (dataDir == null) throw Exception('Agent 数据目录不存在');
+
+    final skillDir = Directory(p.join(dataDir, 'skills', name));
+    if (skillDir.existsSync()) {
+      await skillDir.delete(recursive: true);
+    }
+
+    // 从 registry 中也移除
+    final registry = await _loadSkillRegistry(dataDir);
+    registry.remove(name);
+    await _saveSkillRegistry(dataDir, registry);
+  }
+
+  /// 读取知识文件内容
+  Future<String> readKnowledgeContent(String filename) async {
+    final dataDir = getAgentDataDir();
+    if (dataDir == null) throw Exception('Agent 数据目录不存在');
+
+    final file = File(p.join(dataDir, 'user_knowledge', filename));
+    if (!file.existsSync()) throw Exception('文件不存在');
+    return file.readAsString();
+  }
+
+  /// 写入知识文件内容
+  Future<void> writeKnowledgeContent(String filename, String content) async {
+    final dataDir = getAgentDataDir();
+    if (dataDir == null) throw Exception('Agent 数据目录不存在');
+
+    final file = File(p.join(dataDir, 'user_knowledge', filename));
+    await file.writeAsString(content);
+  }
+
+  /// 使用 macOS 原生对话框选择文件（.md）
+  Future<String?> pickMarkdownFile() async {
+    final result = await Process.run('osascript', [
+      '-e',
+      'set theFile to choose file of type {"md", "txt"} with prompt "选择知识文件"',
+      '-e',
+      'return POSIX path of theFile',
+    ]);
+    if (result.exitCode != 0) return null;
+    return (result.stdout as String).trim();
+  }
+
+  /// 使用 macOS 原生对话框选择目录（Skill 目录）
+  Future<String?> pickSkillDirectory() async {
+    final result = await Process.run('osascript', [
+      '-e',
+      'set theFolder to choose folder with prompt "选择 Skill 目录（需含 skill.json）"',
+      '-e',
+      'return POSIX path of theFolder',
+    ]);
+    if (result.exitCode != 0) return null;
+    return (result.stdout as String).trim();
+  }
+
   // ============== 私有方法 ==============
+
+  /// 递归复制目录
+  Future<void> _copyDirectory(Directory source, Directory destination) async {
+    if (!destination.existsSync()) {
+      destination.createSync(recursive: true);
+    }
+    await for (final entity in source.list()) {
+      final newPath = p.join(destination.path, p.basename(entity.path));
+      if (entity is File) {
+        await entity.copy(newPath);
+      } else if (entity is Directory) {
+        await _copyDirectory(entity, Directory(newPath));
+      }
+    }
+  }
 
   /// 读取 skill-registry.json，返回 {name: enabled} map
   Future<Map<String, bool>> _loadSkillRegistry(String dataDir) async {
