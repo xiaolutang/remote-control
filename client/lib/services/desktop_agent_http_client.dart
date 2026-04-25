@@ -24,6 +24,60 @@ void _logHttpClient(String message) {
   debugPrint('[DesktopAgentHttpClient] $message');
 }
 
+/// F089: 技能条目
+class SkillItem {
+  const SkillItem({
+    required this.name,
+    required this.description,
+    required this.enabled,
+  });
+
+  final String name;
+  final String description;
+  final bool enabled;
+
+  factory SkillItem.fromJson(Map<String, dynamic> json) {
+    return SkillItem(
+      name: json['name'] as String? ?? '',
+      description: json['description'] as String? ?? '',
+      enabled: json['enabled'] as bool? ?? false,
+    );
+  }
+
+  SkillItem copyWith({bool? enabled}) {
+    return SkillItem(
+      name: name,
+      description: description,
+      enabled: enabled ?? this.enabled,
+    );
+  }
+}
+
+/// F089: 知识文件条目
+class KnowledgeItem {
+  const KnowledgeItem({
+    required this.filename,
+    required this.enabled,
+  });
+
+  final String filename;
+  final bool enabled;
+
+  factory KnowledgeItem.fromJson(Map<String, dynamic> json) {
+    return KnowledgeItem(
+      filename: json['filename'] as String? ?? '',
+      enabled: json['enabled'] as bool? ?? false,
+    );
+  }
+
+  KnowledgeItem copyWith({bool? enabled}) {
+    return KnowledgeItem(
+      filename: filename,
+      enabled: enabled ?? this.enabled,
+    );
+  }
+}
+
 /// 本地 Agent 状态
 class LocalAgentStatus {
   const LocalAgentStatus({
@@ -182,6 +236,100 @@ class DesktopAgentHttpClient {
       return false;
     } catch (e) {
       _logHttpClient('updateConfig failed: $e');
+      return false;
+    }
+  }
+
+  /// F089: 获取技能列表
+  Future<List<SkillItem>> getSkills(int port) async {
+    try {
+      final client = await _getClient();
+      final request = await client
+          .getUrl(Uri.parse('http://127.0.0.1:$port/skills'))
+          .timeout(_timeout);
+      final response = await request.close().timeout(_timeout);
+      if (response.statusCode == 200) {
+        final body = await _readResponseBody(response);
+        final json = jsonDecode(body) as Map<String, dynamic>;
+        final skills = json['skills'] as List<dynamic>? ?? [];
+        return skills
+            .cast<Map<String, dynamic>>()
+            .map(SkillItem.fromJson)
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      _logHttpClient('getSkills failed: $e');
+      return [];
+    }
+  }
+
+  /// F089: 切换技能开关
+  Future<bool> toggleSkill(int port, {required String name, required bool enabled}) async {
+    try {
+      final client = await _getClient();
+      final request = await client
+          .postUrl(Uri.parse('http://127.0.0.1:$port/skills/toggle'))
+          .timeout(_timeout);
+      request.headers.contentType = ContentType.json;
+      final payload = jsonEncode({'name': name, 'enabled': enabled});
+      request.write(utf8.encode(payload));
+      final response = await request.close().timeout(_timeout);
+      if (response.statusCode == 200) {
+        final body = await _readResponseBody(response);
+        final json = jsonDecode(body) as Map<String, dynamic>;
+        return json['ok'] == true;
+      }
+      return false;
+    } catch (e) {
+      _logHttpClient('toggleSkill failed: $e');
+      return false;
+    }
+  }
+
+  /// F089: 获取知识文件列表
+  Future<List<KnowledgeItem>> getKnowledge(int port) async {
+    try {
+      final client = await _getClient();
+      final request = await client
+          .getUrl(Uri.parse('http://127.0.0.1:$port/knowledge'))
+          .timeout(_timeout);
+      final response = await request.close().timeout(_timeout);
+      if (response.statusCode == 200) {
+        final body = await _readResponseBody(response);
+        final json = jsonDecode(body) as Map<String, dynamic>;
+        final knowledge = json['knowledge'] as List<dynamic>? ?? [];
+        return knowledge
+            .cast<Map<String, dynamic>>()
+            .map(KnowledgeItem.fromJson)
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      _logHttpClient('getKnowledge failed: $e');
+      return [];
+    }
+  }
+
+  /// F089: 切换知识文件开关
+  Future<bool> toggleKnowledge(int port, {required String filename, required bool enabled}) async {
+    try {
+      final client = await _getClient();
+      final request = await client
+          .postUrl(Uri.parse('http://127.0.0.1:$port/knowledge/toggle'))
+          .timeout(_timeout);
+      request.headers.contentType = ContentType.json;
+      final payload = jsonEncode({'filename': filename, 'enabled': enabled});
+      request.write(utf8.encode(payload));
+      final response = await request.close().timeout(_timeout);
+      if (response.statusCode == 200) {
+        final body = await _readResponseBody(response);
+        final json = jsonDecode(body) as Map<String, dynamic>;
+        return json['ok'] == true;
+      }
+      return false;
+    } catch (e) {
+      _logHttpClient('toggleKnowledge failed: $e');
       return false;
     }
   }
