@@ -1071,10 +1071,12 @@
       "depends_on": [
         "B094"
       ],
-      "status": "in_progress",
+      "status": "completed",
       "priority": "P1",
       "started_at": "2026-04-25T18:35:00+0800",
+      "completed_at": "2026-04-25T19:10:00+0800",
       "evidence_file": ".dev-flow/evidence/F088.md",
+      "commit": "a21ebe6",
       "acceptance_criteria": [
         "AgentResultEvent 包含 responseType 和 aiPrompt 字段，向后兼容（缺失时默认 'command'）",
         "responseType='message'：summary 以可折叠卡片展示，无执行按钮，显示'已回复'状态标签",
@@ -1139,8 +1141,11 @@
         "B094",
         "F088"
       ],
-      "status": "pending",
+      "status": "completed",
       "priority": "P2",
+      "started_at": "2026-04-25T19:15:00+0800",
+      "completed_at": "2026-04-25T19:20:00+0800",
+      "evidence_file": ".dev-flow/evidence/S088.md",
       "acceptance_criteria": [
         "Server 测试覆盖：message/command/ai_prompt 三类型 result 构建和 SSE 推送",
         "Server 测试覆盖：response_type 默认值 'command' 向后兼容",

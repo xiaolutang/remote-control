@@ -596,9 +596,9 @@
 
 | Module | Task IDs | Test Type | Required Scenarios | Status |
 |--------|----------|-----------|--------------------|--------|
-| AgentResult response_type | B094 | unit, integration | response_type 三类型模型 + SYSTEM_PROMPT 松绑 + SSE event 含 response_type + ai_prompt | ⬜ |
-| Client 三类型渲染 | F088 | unit, widget | AgentResultEvent 解析 + 三类型渲染 + ai_prompt stdin 注入 + 编辑重发 | ⬜ |
-| 测试覆盖 + 产物更新 | S088 | unit, integration, widget | Server 三类型 result 构建 + SSE 推送 + Client 解析/渲染 + ai_prompt 注入 + 跨端同步 | ⬜ |
+| AgentResult response_type | B094 | unit, integration | response_type 三类型模型 + SYSTEM_PROMPT 松绑 + SSE event 含 response_type + ai_prompt | ✅ |
+| Client 三类型渲染 | F088 | unit, widget | AgentResultEvent 解析 + 三类型渲染 + ai_prompt stdin 注入 + 编辑重发 | ✅ |
+| 测试覆盖 + 产物更新 | S088 | unit, integration, widget | Server 三类型 result 构建 + SSE 推送 + Client 解析/渲染 + ai_prompt 注入 + 跨端同步 | ✅ |
 
 #### R043 增量 response_type 关键测试场景
 
