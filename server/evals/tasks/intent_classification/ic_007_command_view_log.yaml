@@ -6,7 +6,9 @@ input:
   context:
     cwd: /home/user/project
     device_online: true
-    mock_tool_responses: {}
+    mock_tool_responses:
+      "ls /var/log": "syslog\nauth.log\ndaemon.log\nserver.log"
+      "find": "server.log\naccess.log\nerror.log"
 expected:
   response_type: ["command"]
   steps_contain: ["tail"]

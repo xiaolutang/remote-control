@@ -6,7 +6,9 @@ input:
   context:
     cwd: /home/user/project
     device_online: true
-    mock_tool_responses: {}
+    mock_tool_responses:
+      "ls": "package.json\nsrc\ntests\nnode_modules"
+      "cat package.json": '{"name": "my-project", "scripts": {"build": "npm run build"}}'
 expected:
   response_type: ["command"]
   steps_contain: ["build"]
