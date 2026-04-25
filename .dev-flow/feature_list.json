@@ -704,16 +704,11 @@
       ]
     },
     {
-      "id": "B101",
-      "phase": "online-quality",
-      "module": "server",
-      "name": "Agent 交互质量指标提取与持久化",
-      "description": "从已完成 Agent session 的 SSE 事件和数据库记录中提取质量指标：response_type_accuracy（实际响应类型与意图是否匹配）、tool_usage_efficiency（工具调用次数/轮数）、command_safety_rate（生成的命令通过安全检查的比例）、ask_user_frequency（追问频率）、token_efficiency（token 消耗与任务复杂度的比值）。指标持久化到 evals.db 的 quality_metrics 表。",
-      "verification": "L2",
-      "depends_on": [
-        "B096"
-      ],
-      "status": "pending",
+      "status": "completed",
+      "started_at": "2026-04-25T16:55:00+0800",
+      "completed_at": "2026-04-25T17:40:00+0800",
+      "evidence_file": ".dev-flow/evidence/B101.md",
+      "execution_state": {"current_step": "done", "retry_count": 0},
       "priority": 3,
       "acceptance_criteria": [
         "从 agent_conversation_events 提取 5 类指标",

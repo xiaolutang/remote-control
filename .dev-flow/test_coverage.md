@@ -558,7 +558,7 @@
 | Code-based Graders | B098, S090 | unit | 5 种 grader pass/fail；command_safety 复用验证 | B098 ✅ 49/49 |
 | 初始 Task 数据集 | B099 | unit | 30 个 YAML 格式校验；加载集成 | B099 ✅ 30/30 |
 | LLM-as-Judge | B100, S090 | unit, integration | prompt 输出格式；JSON 解析容错；未配置降级 | B100 ✅ 53/53 |
-| 质量指标提取 | B101, S091 | unit | 5 类指标计算准确性；批量提取；历史回溯 | ⬜ |
+| 质量指标提取 | B101, S091 | unit | 5 类指标计算准确性；批量提取；历史回溯 | B101 ✅ 49/49 |
 | 质量指标 API | B102, S091 | unit, integration | 过滤/聚合；认证拦截；evals.db 不可达时返回 500 | ⬜ |
 | 反馈→Eval Task | B103, S092 | unit, integration | 反馈→candidate 流程；未配置降级；审核 API | ⬜ |
 | 回归测试 + CLI | B104, S092 | unit, integration | 回归检测；趋势查询；CLI 子命令；配置缺失提示 | ⬜ |
@@ -591,11 +591,11 @@
 - [ ] LLM 返回非法 JSON 或截断响应：grader 降级返回 error 而非 crash
 
 ##### B101 质量指标
-- [ ] 构造已知 session，验证 5 类指标计算正确
-- [ ] batch 提取不影响在线 Agent 性能
-- [ ] 历史数据可回溯提取
-- [ ] quality_monitor 只读 agent_conversation_events 元数据，不读对话文本
-- [ ] 指标只写 evals.db，不写 app.db
+- [x] 构造已知 session，验证 5 类指标计算正确
+- [x] batch 提取不影响在线 Agent 性能
+- [x] 历史数据可回溯提取
+- [x] quality_monitor 只读 agent_conversation_events 元数据，不读对话文本
+- [x] 指标只写 evals.db，不写 app.db
 
 ##### B102 质量指标 API
 - [ ] 查询已持久化指标，不依赖模型环境变量
