@@ -1229,7 +1229,7 @@ class _SmartTerminalSidePanelContentState
 
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFFFBFCFE),
+        color: colorScheme.surface,
         borderRadius: const BorderRadius.horizontal(
           left: Radius.circular(24),
         ),
@@ -1309,13 +1309,13 @@ class _SmartTerminalSidePanelContentState
               margin: const EdgeInsets.only(right: 8),
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: const Color(0xFFFFF3E0),
+                color: colorScheme.errorContainer,
                 borderRadius: BorderRadius.circular(999),
               ),
               child: Text(
                 '已关闭',
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: const Color(0xFFE65100),
+                      color: colorScheme.onErrorContainer,
                       fontWeight: FontWeight.w600,
                       fontSize: 10,
                     ),
@@ -1327,18 +1327,18 @@ class _SmartTerminalSidePanelContentState
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               minimumSize: const Size(0, 36),
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              foregroundColor: const Color(0xFF1F5EFF),
+              foregroundColor: colorScheme.primary,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(10),
               ),
-              backgroundColor: const Color(0xFFEAF0FF),
+              backgroundColor: colorScheme.primaryContainer,
             ),
             onPressed: _handleUsageButtonTap,
             child: Text(
               'Token 汇总',
               style: Theme.of(context).textTheme.labelLarge?.copyWith(
                     fontWeight: FontWeight.w600,
-                    color: const Color(0xFF1F5EFF),
+                    color: colorScheme.primary,
                   ),
             ),
           ),
@@ -1486,38 +1486,12 @@ class _SmartTerminalSidePanelContentState
       AgentResultEvent result, ColorScheme colorScheme) {
     final rt = result.responseType;
 
-    // message 类型：显示已回复标签
+    // message 类型：直接显示文本气泡
     if (rt == 'message') {
       return _buildAssistantBubble(
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.chat_bubble_outline,
-                    size: 14, color: colorScheme.primary),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    result.summary,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '已回复',
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: colorScheme.primary,
-                    fontWeight: FontWeight.w600,
-                  ),
-            ),
-          ],
+        Text(
+          result.summary,
+          style: Theme.of(context).textTheme.bodyMedium,
         ),
       );
     }
@@ -1713,7 +1687,7 @@ class _SmartTerminalSidePanelContentState
   Widget _buildAgentTraceExpansionTile(ColorScheme colorScheme) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.82),
+        color: colorScheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: colorScheme.outlineVariant.withValues(alpha: 0.14),
@@ -1840,7 +1814,7 @@ class _SmartTerminalSidePanelContentState
               side: BorderSide(
                 color: colorScheme.outlineVariant.withValues(alpha: 0.4),
               ),
-              backgroundColor: Colors.white,
+              backgroundColor: colorScheme.surface,
             ),
             onPressed: () => _handleAgentRespond(option),
             child: Text(
@@ -1862,7 +1836,7 @@ class _SmartTerminalSidePanelContentState
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.82),
+        color: colorScheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: colorScheme.outlineVariant.withValues(alpha: 0.14),
@@ -1883,7 +1857,7 @@ class _SmartTerminalSidePanelContentState
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
                 ),
-                backgroundColor: const Color(0xFF1F5EFF),
+                backgroundColor: colorScheme.primary,
               ),
               onPressed: _multiSelectChosen.isNotEmpty
                   ? () => _handleAgentRespond(
@@ -1959,76 +1933,13 @@ class _SmartTerminalSidePanelContentState
     return _buildCommandResultView(result, colorScheme, connected);
   }
 
-  /// message 类型：summary 可折叠卡片，无步骤，无执行按钮，收起时显示"已回复"标签
+  /// message 类型：直接显示文本气泡
   Widget _buildMessageResultView(
       AgentResultEvent result, ColorScheme colorScheme) {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.82),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: colorScheme.outlineVariant.withValues(alpha: 0.14),
-        ),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: ExpansionTile(
-          key: const Key('side-panel-message-expansion-tile'),
-          tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-          childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-          initiallyExpanded: false,
-          collapsedShape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
-          shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
-          backgroundColor: Colors.transparent,
-          collapsedBackgroundColor: Colors.transparent,
-          iconColor: colorScheme.primary,
-          collapsedIconColor: colorScheme.primary,
-          title: Row(
-            children: [
-              Icon(Icons.chat_bubble_outline,
-                  size: 16, color: colorScheme.primary),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  result.summary,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color:
-                      colorScheme.primaryContainer.withValues(alpha: 0.3),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '已回复',
-                  key: const Key('side-panel-message-replied-tag'),
-                  style:
-                      Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: colorScheme.primary,
-                            fontWeight: FontWeight.w600,
-                          ),
-                ),
-              ),
-            ],
-          ),
-          children: [
-            Text(
-              result.summary,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w400,
-                  ),
-            ),
-          ],
-        ),
+    return _buildAssistantBubble(
+      Text(
+        result.summary,
+        style: Theme.of(context).textTheme.bodyMedium,
       ),
     );
   }
@@ -2040,7 +1951,7 @@ class _SmartTerminalSidePanelContentState
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.82),
+        color: colorScheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: colorScheme.outlineVariant.withValues(alpha: 0.14),
@@ -2069,7 +1980,7 @@ class _SmartTerminalSidePanelContentState
             width: double.infinity,
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: const Color(0xFFF5F7FA),
+              color: colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
                 color: colorScheme.outlineVariant.withValues(alpha: 0.2),
@@ -2103,16 +2014,16 @@ class _SmartTerminalSidePanelContentState
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
-                backgroundColor: const Color(0xFF1F5EFF),
+                backgroundColor: colorScheme.primary,
               ),
               onPressed: connected && !_executing ? _injectAiPrompt : null,
               child: _executing
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 16,
                       height: 16,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: Colors.white,
+                        color: colorScheme.onPrimary,
                       ),
                     )
                   : const Text('注入终端'),
@@ -2130,7 +2041,7 @@ class _SmartTerminalSidePanelContentState
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.82),
+        color: colorScheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: colorScheme.outlineVariant.withValues(alpha: 0.14),
@@ -2160,7 +2071,7 @@ class _SmartTerminalSidePanelContentState
               margin: const EdgeInsets.only(bottom: 4),
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: const Color(0xFFF5F7FA),
+                color: colorScheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(
@@ -2205,17 +2116,17 @@ class _SmartTerminalSidePanelContentState
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  backgroundColor: const Color(0xFF1F5EFF),
+                  backgroundColor: colorScheme.primary,
                 ),
                 onPressed:
                     connected && !_executing ? _executeAgentResult : null,
                 child: _executing
-                    ? const SizedBox(
+                    ? SizedBox(
                         width: 16,
                         height: 16,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color: Colors.white,
+                          color: colorScheme.onPrimary,
                         ),
                       )
                     : const Text('执行'),
@@ -2233,7 +2144,7 @@ class _SmartTerminalSidePanelContentState
       key: const Key('side-panel-usage-toast'),
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colorScheme.surface,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
           color: colorScheme.outlineVariant.withValues(alpha: 0.2),
@@ -2282,13 +2193,13 @@ class _SmartTerminalSidePanelContentState
               key: const Key('side-panel-usage-error'),
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               decoration: BoxDecoration(
-                color: const Color(0xFFFFF5F2),
+                color: colorScheme.errorContainer,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(
                 _usageSummaryError!,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: const Color(0xFFB54708),
+                      color: colorScheme.onErrorContainer,
                     ),
               ),
             ),
@@ -2318,7 +2229,7 @@ class _SmartTerminalSidePanelContentState
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFFF6F8FC),
+        color: colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(14),
       ),
       child: Column(
@@ -2551,7 +2462,7 @@ class _SmartTerminalSidePanelContentState
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colorScheme.surface,
         border: Border(
           top: BorderSide(
             color: colorScheme.outlineVariant.withValues(alpha: 0.14),
@@ -2623,16 +2534,16 @@ class _SmartTerminalSidePanelContentState
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
                 ),
-                backgroundColor: const Color(0xFF1F5EFF),
+                backgroundColor: colorScheme.primary,
               ),
               onPressed: canSend ? _handleInputSubmit : null,
               child: _resolvingIntent || isExploring
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 16,
                       height: 16,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: Colors.white,
+                        color: colorScheme.onPrimary,
                       ),
                     )
                   : const Icon(Icons.arrow_upward, size: 18),
@@ -2648,6 +2559,7 @@ class _SmartTerminalSidePanelContentState
     int? historyIndex, // null=当前活跃意图, >=0=历史条目索引
     bool canEdit = false,
   }) {
+    final colorScheme = Theme.of(context).colorScheme;
     // 判断是否处于内联编辑模式
     final isEditing = canEdit &&
         ((historyIndex == null && _editingHistoryIndex == -1) ||
@@ -2666,7 +2578,7 @@ class _SmartTerminalSidePanelContentState
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
-              color: const Color(0xFFDCE8FF),
+              color: colorScheme.primaryContainer,
               borderRadius: const BorderRadius.only(
                 topLeft: Radius.circular(18),
                 topRight: Radius.circular(18),
@@ -2709,7 +2621,7 @@ class _SmartTerminalSidePanelContentState
         child: Container(
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: const Color(0xFFDCE8FF),
+            color: colorScheme.primaryContainer,
             borderRadius: const BorderRadius.only(
               topLeft: Radius.circular(18),
               topRight: Radius.circular(18),
@@ -2733,11 +2645,11 @@ class _SmartTerminalSidePanelContentState
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: Colors.grey.shade300),
+                    borderSide: BorderSide(color: colorScheme.outline),
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: Colors.grey.shade300),
+                    borderSide: BorderSide(color: colorScheme.outline),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
@@ -2745,7 +2657,7 @@ class _SmartTerminalSidePanelContentState
                         BorderSide(color: colorScheme.primary, width: 1.5),
                   ),
                   filled: true,
-                  fillColor: Colors.white,
+                  fillColor: colorScheme.surfaceContainerLow,
                 ),
               ),
               const SizedBox(height: 8),
@@ -2876,6 +2788,7 @@ class _SmartTerminalSidePanelContentState
   Future<void> _cancelAgentSessionSilent() => _doCancelAgentNetwork();
 
   Widget _buildAssistantBubble(Widget child) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Align(
       alignment: Alignment.centerLeft,
       child: ConstrainedBox(
@@ -2883,7 +2796,7 @@ class _SmartTerminalSidePanelContentState
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.9),
+            color: colorScheme.surfaceContainerLow,
             borderRadius: const BorderRadius.only(
               topLeft: Radius.circular(18),
               topRight: Radius.circular(18),
@@ -2891,7 +2804,7 @@ class _SmartTerminalSidePanelContentState
               bottomRight: Radius.circular(18),
             ),
             border: Border.all(
-              color: Colors.black.withValues(alpha: 0.035),
+              color: colorScheme.outlineVariant.withValues(alpha: 0.15),
             ),
           ),
           child: child,
@@ -2968,7 +2881,7 @@ class _SmartTerminalSidePanelContentState
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.82),
+        color: colorScheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: colorScheme.outlineVariant.withValues(alpha: 0.14),
@@ -3008,16 +2921,16 @@ class _SmartTerminalSidePanelContentState
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  backgroundColor: const Color(0xFF1F5EFF),
+                  backgroundColor: colorScheme.primary,
                 ),
                 onPressed: connected && !_executing ? _handleExecute : null,
                 child: _executing
-                    ? const SizedBox(
+                    ? SizedBox(
                         width: 16,
                         height: 16,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color: Colors.white,
+                          color: colorScheme.onPrimary,
                         ),
                       )
                     : const Text('执行'),
@@ -3131,14 +3044,10 @@ class _SidePanelStagePill extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final (label, bg, fg) = switch (stage) {
-      'tool' || 'tools' => ('工具', const Color(0xFFEAF2FF), colorScheme.primary),
-      'context' => ('上下文', const Color(0xFFF4EFE6), const Color(0xFF8B5E2B)),
-      'plan' || 'planner' => (
-          '思考',
-          const Color(0xFFF2EEFF),
-          const Color(0xFF6852C8)
-        ),
-      _ => ('处理', const Color(0xFFEFF3F8), colorScheme.onSurfaceVariant),
+      'tool' || 'tools' => ('工具', colorScheme.primaryContainer, colorScheme.primary),
+      'context' => ('上下文', colorScheme.tertiaryContainer, colorScheme.tertiary),
+      'plan' || 'planner' => ('思考', colorScheme.secondaryContainer, colorScheme.secondary),
+      _ => ('处理', colorScheme.surfaceContainerHighest, colorScheme.onSurfaceVariant),
     };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),

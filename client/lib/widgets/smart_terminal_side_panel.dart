@@ -218,9 +218,9 @@ class _SmartTerminalSidePanelState extends State<SmartTerminalSidePanel> {
                         key: const Key('smart-terminal-fab'),
                         heroTag: 'smart_terminal_fab',
                         onPressed: _openPanel,
-                        backgroundColor: const Color(0xFF1F5EFF),
+                        backgroundColor: colorScheme.primary,
                         child:
-                            const Icon(Icons.auto_awesome, color: Colors.white),
+                            Icon(Icons.auto_awesome, color: colorScheme.onPrimary),
                       ),
                     ],
                   ),
