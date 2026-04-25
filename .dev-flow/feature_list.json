@@ -7,7 +7,7 @@
   "active_requirement_cycle": {
     "id": "R043",
     "name": "agent-knowledge-skill-mcp",
-    "status": "in_progress",
+    "status": "completed",
     "branch": "feat/R043-agent-knowledge-skill-mcp",
     "started_at": "2026-04-24"
   },
@@ -41,9 +41,9 @@
   },
   "summary": {
     "total": 68,
-    "pending": 5,
+    "pending": 0,
     "in_progress": 0,
-    "completed": 51,
+    "completed": 56,
     "blocked": 0,
     "cancelled": 6
   },
@@ -1281,10 +1281,12 @@
       "depends_on": [
         "B095"
       ],
-      "status": "in_progress",
+      "status": "completed",
       "priority": "P2",
       "started_at": "2026-04-25T20:05:00+0800",
+      "completed_at": "2026-04-25T20:45:00+0800",
       "evidence_file": ".dev-flow/evidence/F089.md",
+      "commit": "9cd9907",
       "acceptance_criteria": [
         "桌面端 terminal workspace 菜单中新增'技能管理'入口",
         "点击后打开 SkillConfigScreen",

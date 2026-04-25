@@ -137,5 +137,5 @@
 | **R043 增量: response_type** | **AgentResult 三类型 + SYSTEM_PROMPT 松绑** | **CONTRACT-047, CONTRACT-050** | **done** | **done** | **done** | **B094: response_type(message/command/ai_prompt) + ai_prompt 字段 + SYSTEM_PROMPT 松绑** |
 | **R043 增量: response_type** | **Client 三类型渲染 + ai_prompt 注入** | **CONTRACT-047, CONTRACT-050** | **done** | **done** | **done** | **F088: 三类型渲染 + ai_prompt stdin 注入 + 编辑重发修复** |
 | **R043 增量: response_type** | **测试覆盖 + 产物更新** | **CONTRACT-047, CONTRACT-050** | **done** | **done** | **done** | **S088: Server + Client 三类型测试 + alignment/test_coverage 更新** |
-| **R043 增量: skill 配置** | **Agent HTTP Skill/Knowledge 管理 API** | **CONTRACT-024, CONTRACT-050** | **pending** | **not_applicable** | **pending** | **B095: GET/POST /skills + /knowledge 端点 + toggle** |
-| **R043 增量: skill 配置** | **Desktop 客户端 Skill 配置面板** | **CONTRACT-024, CONTRACT-050** | **not_applicable** | **pending** | **pending** | **F089: 桌面端菜单入口 + SkillConfigScreen + 开关 + 重启提示** |
+| **R043 增量: skill 配置** | **Agent HTTP Skill/Knowledge 管理 API** | **CONTRACT-024, CONTRACT-050** | **done** | **not_applicable** | **done** | **B095: GET/POST /skills + /knowledge 端点 + toggle** |
+| **R043 增量: skill 配置** | **Desktop 客户端 Skill 配置面板** | **CONTRACT-024, CONTRACT-050** | **not_applicable** | **done** | **done** | **F089: 桌面端菜单入口 + SkillConfigScreen + 开关 + 重启提示** |
