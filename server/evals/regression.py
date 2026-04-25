@@ -223,47 +223,27 @@ async def query_trend(
         [{run_id, started_at, pass_rate, total_tasks, passed_tasks}]
         如果指定了 task_id，则 total_tasks 和 passed_tasks 是该 task 的 trial 维度
     """
+    if task_id is not None:
+        # 使用聚合查询避免 N+1
+        return await db.query_task_trend(task_id, limit)
+
     runs = await db.list_runs(limit=limit)
 
     trend: List[Dict[str, Any]] = []
 
     for run in runs:
-        if task_id is not None:
-            # 按 task_id 过滤：获取该 run 中该 task 的 trials
-            all_trials = await db.list_trials_by_run(run.run_id)
-            task_trials = [t for t in all_trials if t.task_id == task_id]
+        # 整体 pass_rate
+        total = run.total_tasks
+        passed = run.passed_tasks
+        pass_rate = passed / total if total > 0 else 0.0
 
-            if not task_trials:
-                continue
-
-            pass_count = sum(
-                1 for t in task_trials if _is_trial_passed({
-                    "agent_result_json": t.agent_result_json,
-                })
-            )
-            total = len(task_trials)
-            pass_rate = pass_count / total if total > 0 else 0.0
-
-            trend.append({
-                "run_id": run.run_id,
-                "started_at": run.started_at,
-                "pass_rate": pass_rate,
-                "total_tasks": total,
-                "passed_tasks": pass_count,
-            })
-        else:
-            # 整体 pass_rate
-            total = run.total_tasks
-            passed = run.passed_tasks
-            pass_rate = passed / total if total > 0 else 0.0
-
-            trend.append({
-                "run_id": run.run_id,
-                "started_at": run.started_at,
-                "pass_rate": pass_rate,
-                "total_tasks": total,
-                "passed_tasks": passed,
-            })
+        trend.append({
+            "run_id": run.run_id,
+            "started_at": run.started_at,
+            "pass_rate": pass_rate,
+            "total_tasks": total,
+            "passed_tasks": passed,
+        })
 
     return trend
 

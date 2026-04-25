@@ -491,6 +491,68 @@ class EvalDatabase:
             rows = await cursor.fetchall()
             return [EvalRun.from_db_row(dict(r)) for r in rows]
 
+    async def query_task_trend(self, task_id: str, limit: int = 20) -> List[Dict]:
+        """单条 SQL 查询 task 的历史 pass_rate 趋势（避免 N+1）。
+
+        先查询 eval_trials 中 task_id=? 的所有 run_id + agent_result_json，
+        然后在 Python 中聚合，不依赖 SQLite 的 json_extract。
+
+        Args:
+            task_id: 任务 ID
+            limit: 返回记录数量限制
+
+        Returns:
+            [{run_id, started_at, pass_rate, total_tasks, passed_tasks}]
+        """
+        async with self._connect() as db:
+            cursor = await db.execute(
+                """
+                SELECT r.run_id, r.started_at, t.agent_result_json
+                FROM eval_runs r
+                JOIN eval_trials t ON r.run_id = t.run_id
+                WHERE t.task_id = ?
+                ORDER BY r.started_at DESC
+                """,
+                (task_id,),
+            )
+            rows = await cursor.fetchall()
+
+        # 在 Python 中按 run_id 聚合
+        from collections import OrderedDict
+        runs: "OrderedDict[str, Dict]" = OrderedDict()
+        for r in rows:
+            d = dict(r)
+            rid = d["run_id"]
+            if rid not in runs:
+                runs[rid] = {
+                    "run_id": rid,
+                    "started_at": d["started_at"],
+                    "total": 0,
+                    "passed": 0,
+                }
+            runs[rid]["total"] += 1
+            arj = d.get("agent_result_json") or "{}"
+            if isinstance(arj, str):
+                try:
+                    arj = json.loads(arj)
+                except (json.JSONDecodeError, TypeError):
+                    arj = {}
+            if isinstance(arj, dict) and arj.get("response_type") != "error":
+                runs[rid]["passed"] += 1
+
+        result = []
+        for v in list(runs.values())[:limit]:
+            total = v["total"]
+            passed = v["passed"]
+            result.append({
+                "run_id": v["run_id"],
+                "started_at": v["started_at"],
+                "pass_rate": passed / total if total > 0 else 0.0,
+                "total_tasks": total,
+                "passed_tasks": passed,
+            })
+        return result
+
     # ── QualityMetric CRUD ────────────────────────────────────────────────
 
     async def save_quality_metric(self, metric: QualityMetric) -> None:

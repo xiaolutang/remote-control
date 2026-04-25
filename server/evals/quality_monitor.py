@@ -16,13 +16,14 @@ CONTRACT-052 约束：
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import sqlite3
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from evals.db import EvalDatabase
 from evals.models import QualityMetric
@@ -404,30 +405,17 @@ async def extract_and_store_metrics(
 # ── Batch 提取入口（可回溯历史 session）──────────────────────────────────────
 
 
-async def batch_extract_metrics(
-    eval_db: EvalDatabase,
+def _batch_read_app_db(
     app_db_path: str,
-    *,
     session_ids: Optional[List[str]] = None,
     limit: int = 100,
-) -> Dict[str, List[QualityMetric]]:
-    """批量提取历史 session 的质量指标。
+) -> List[Tuple[str, str, str, str, List[Dict[str, Any]]]]:
+    """同步读取 app.db（在 worker thread 中执行）。
 
-    直接读取 app.db 的 agent_conversation_events 表（只读），
-    提取指标后写入 evals.db。
-
-    Args:
-        eval_db: EvalDatabase 实例
-        app_db_path: app.db 文件路径
-        session_ids: 指定要处理的 session_id 列表，None 则处理所有有 result 的
-        limit: 最大处理数量
-
-    Returns:
-        session_id -> QualityMetric 列表的映射
+    返回 List[Tuple(session_id, user_id, device_id, intent, events_list)]。
     """
-    results: Dict[str, List[QualityMetric]] = {}
+    session_data_list: List[Tuple[str, str, str, str, List[Dict[str, Any]]]] = []
 
-    # 使用同步 sqlite3 只读查询 app.db（避免影响在线性能）
     conn = sqlite3.connect(app_db_path)
     conn.row_factory = sqlite3.Row
     try:
@@ -503,18 +491,53 @@ async def batch_extract_metrics(
                     # result 事件不包含 intent，需要从其他来源获取
                     pass
 
-            metrics = await extract_and_store_metrics(
-                eval_db,
-                events,
-                session_id=sid,
-                user_id=user_id,
-                device_id=device_id,
-                intent=intent,
-            )
-            results[sid] = metrics
+            session_data_list.append((sid, user_id, device_id, intent, events))
 
     finally:
         conn.close()
+
+    return session_data_list
+
+
+async def batch_extract_metrics(
+    eval_db: EvalDatabase,
+    app_db_path: str,
+    *,
+    session_ids: Optional[List[str]] = None,
+    limit: int = 100,
+) -> Dict[str, List[QualityMetric]]:
+    """批量提取历史 session 的质量指标。
+
+    将 app.db 的同步读取移到 worker thread 中执行，避免阻塞事件循环。
+    然后用 extract_and_store_metrics 异步写入 evals.db。
+
+    Args:
+        eval_db: EvalDatabase 实例
+        app_db_path: app.db 文件路径
+        session_ids: 指定要处理的 session_id 列表，None 则处理所有有 result 的
+        limit: 最大处理数量
+
+    Returns:
+        session_id -> QualityMetric 列表的映射
+    """
+    results: Dict[str, List[QualityMetric]] = {}
+
+    # 在 worker thread 中执行同步 sqlite3 读取
+    loop = asyncio.get_event_loop()
+    session_data_list = await loop.run_in_executor(
+        None, _batch_read_app_db, app_db_path, session_ids, limit
+    )
+
+    for sid, user_id, device_id, intent, events in session_data_list:
+        metrics = await extract_and_store_metrics(
+            eval_db,
+            events,
+            session_id=sid,
+            user_id=user_id,
+            device_id=device_id,
+            intent=intent,
+        )
+        results[sid] = metrics
 
     logger.info(
         "Batch quality metrics extracted: sessions=%d total_metrics=%d",

@@ -241,10 +241,9 @@ class LLMJudgeGrader(CodeGraderBase):
         return "llm_judge"
 
     def grade(self, trial: EvalTrial, task: EvalTaskDef) -> EvalGraderResult:
-        """对 trial 进行 LLM Judge 评分。
+        """对 trial 进行 LLM Judge 评分（同步接口）。
 
-        同步接口（阻塞等待 LLM 响应）。如果需要异步调用，
-        请使用 grade_async。
+        委托给 grade_async，处理已有事件循环的情况。
 
         Args:
             trial: 评估试验记录
@@ -253,149 +252,19 @@ class LLMJudgeGrader(CodeGraderBase):
         Returns:
             EvalGraderResult，details_json 含维度分数和理由
         """
-        # 提取 intent 和 response
-        intent = task.input.intent
-        response = self._extract_response(trial)
-
-        if not response:
-            return EvalGraderResult(
-                trial_id=trial.trial_id,
-                grader_type=self.grader_type,
-                passed=False,
-                score=0.0,
-                details_json={
-                    "status": "error",
-                    "reason": "Agent 无输出内容",
-                },
-            )
-
-        # 获取 Judge 配置
-        try:
-            config = get_eval_agent_config()
-        except Exception as e:
-            return EvalGraderResult(
-                trial_id=trial.trial_id,
-                grader_type=self.grader_type,
-                passed=False,
-                score=0.0,
-                details_json={
-                    "status": "error",
-                    "reason": f"配置获取失败: {e}",
-                },
-            )
-
-        judge_config = build_judge_config(config)
-        if judge_config is None:
-            return EvalGraderResult(
-                trial_id=trial.trial_id,
-                grader_type=self.grader_type,
-                passed=True,
-                score=0.0,
-                details_json={
-                    "status": "skipped",
-                    "reason": "EVAL_JUDGE_MODEL 未配置，跳过 LLM Judge 评分",
-                },
-            )
-
-        # 构建 prompt
-        rubric = JUDGE_RUBRIC_TEMPLATE.format(
-            intent=intent,
-            response=response[:2000],  # 截断防止 prompt 过长
-        )
-
-        messages = [
-            {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
-            {"role": "user", "content": rubric},
-        ]
-
-        # 调用 LLM
         import asyncio
+        import concurrent.futures
 
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             loop = None
 
-        try:
-            if loop and loop.is_running():
-                # 在已有事件循环中（如 FastAPI），需要新线程
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as pool:
-                    llm_response = pool.submit(
-                        asyncio.run,
-                        call_llm(judge_config, messages, timeout=JUDGE_TIMEOUT_SECONDS)
-                    ).result()
-            else:
-                llm_response = asyncio.run(
-                    call_llm(judge_config, messages, timeout=JUDGE_TIMEOUT_SECONDS)
-                )
-        except LLMCallError as e:
-            logger.warning("LLM Judge 调用失败: %s", e)
-            return EvalGraderResult(
-                trial_id=trial.trial_id,
-                grader_type=self.grader_type,
-                passed=False,
-                score=0.0,
-                details_json={
-                    "status": "error",
-                    "reason": f"LLM Judge 调用失败: {e}",
-                    "error_type": "llm_call_error",
-                },
-            )
-        except Exception as e:
-            logger.warning("LLM Judge 异常: %s", e)
-            return EvalGraderResult(
-                trial_id=trial.trial_id,
-                grader_type=self.grader_type,
-                passed=False,
-                score=0.0,
-                details_json={
-                    "status": "error",
-                    "reason": f"LLM Judge 异常: {type(e).__name__}: {e}",
-                    "error_type": "unexpected_error",
-                },
-            )
-
-        # 提取 LLM 文本响应
-        raw_text = self._extract_llm_text(llm_response)
-
-        # 解析评分
-        scores = parse_judge_response(raw_text)
-        if scores is None:
-            logger.warning("LLM Judge 响应解析失败: %s", raw_text[:200])
-            return EvalGraderResult(
-                trial_id=trial.trial_id,
-                grader_type=self.grader_type,
-                passed=False,
-                score=0.0,
-                details_json={
-                    "status": "error",
-                    "reason": "LLM Judge 响应 JSON 解析失败",
-                    "raw_response": raw_text[:500],
-                    "error_type": "json_parse_error",
-                },
-            )
-
-        # 计算总评分
-        total_score = compute_score_from_dimensions(scores)
-
-        # passed 阈值：平均归一化分数 >= 0.6（相当于 4 维度平均 3.4 分）
-        passed = total_score >= 0.6
-
-        return EvalGraderResult(
-            trial_id=trial.trial_id,
-            grader_type=self.grader_type,
-            passed=passed,
-            score=total_score,
-            details_json={
-                "status": "scored",
-                "dimensions": {
-                    dim: scores.get(dim) for dim in DIMENSIONS
-                },
-                "reasoning": scores.get("reasoning", ""),
-                "normalized_score": total_score,
-            },
-        )
+        if loop and loop.is_running():
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                return pool.submit(asyncio.run, self.grade_async(trial, task)).result()
+        else:
+            return asyncio.run(self.grade_async(trial, task))
 
     async def grade_async(
         self, trial: EvalTrial, task: EvalTaskDef

@@ -1242,3 +1242,145 @@ class TestScoringConsistencyBaseline:
         assert result["pearson_r"] == 1.0
         assert result["spearman_r"] == 1.0
         assert result["agreement_rate"] == 1.0
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# grade_async 测试覆盖
+# ══════════════════════════════════════════════════════════════════════════
+
+
+class TestLLMJudgeAsync:
+    """grade_async 测试覆盖"""
+
+    @pytest.mark.asyncio
+    async def test_async_no_response(self):
+        """无输出返回 error"""
+        grader = LLMJudgeGrader()
+        trial = _make_trial(agent_result=None, transcript=[])
+        task = _make_task()
+        result = await grader.grade_async(trial, task)
+
+        assert result.passed is False
+        assert result.details_json["status"] == "error"
+        assert "无输出" in result.details_json["reason"]
+
+    @pytest.mark.asyncio
+    async def test_async_config_missing(self):
+        """配置缺失返回 error"""
+        from evals.db import EvalConfigError
+
+        with patch("evals.graders.llm_judge.get_eval_agent_config", side_effect=EvalConfigError("Missing")):
+            grader = LLMJudgeGrader()
+            trial = _make_trial(agent_result={"response_type": "command", "summary": "test"})
+            task = _make_task()
+            result = await grader.grade_async(trial, task)
+
+        assert result.passed is False
+        assert result.details_json["status"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_async_judge_not_configured(self):
+        """EVAL_JUDGE_MODEL 未配置返回 skipped"""
+        with patch("evals.graders.llm_judge.get_eval_agent_config", return_value={
+            "model": "gpt-4",
+            "base_url": "https://api.example.com/v1",
+            "api_key": "key123",
+        }):
+            grader = LLMJudgeGrader()
+            trial = _make_trial(agent_result={"response_type": "command", "summary": "test"})
+            task = _make_task()
+            result = await grader.grade_async(trial, task)
+
+        assert result.passed is True
+        assert result.score == 0.0
+        assert result.details_json["status"] == "skipped"
+
+    @pytest.mark.asyncio
+    async def test_async_llm_call_error(self):
+        """LLM 调用失败返回 error"""
+        with patch("evals.graders.llm_judge.get_eval_agent_config", return_value={
+            "model": "gpt-4",
+            "base_url": "https://api.example.com/v1",
+            "api_key": "key123",
+            "judge_model": "gpt-4o",
+        }), patch("evals.graders.llm_judge.call_llm", new_callable=AsyncMock, side_effect=LLMCallError("timeout")):
+            grader = LLMJudgeGrader()
+            trial = _make_trial(agent_result={"response_type": "command", "summary": "test"})
+            task = _make_task()
+            result = await grader.grade_async(trial, task)
+
+        assert result.passed is False
+        assert result.details_json["status"] == "error"
+        assert result.details_json["error_type"] == "llm_call_error"
+
+    @pytest.mark.asyncio
+    async def test_async_json_parse_error(self):
+        """JSON 解析失败返回 error"""
+        with patch("evals.graders.llm_judge.get_eval_agent_config", return_value={
+            "model": "gpt-4",
+            "base_url": "https://api.example.com/v1",
+            "api_key": "key123",
+            "judge_model": "gpt-4o",
+        }), patch("evals.graders.llm_judge.call_llm", new_callable=AsyncMock, return_value={
+            "choices": [{"message": {"content": "not valid json"}}]
+        }):
+            grader = LLMJudgeGrader()
+            trial = _make_trial(agent_result={"response_type": "command", "summary": "test"})
+            task = _make_task()
+            result = await grader.grade_async(trial, task)
+
+        assert result.passed is False
+        assert result.details_json["status"] == "error"
+        assert result.details_json["error_type"] == "json_parse_error"
+
+    @pytest.mark.asyncio
+    async def test_async_scored_pass(self):
+        """正常评分通过"""
+        with patch("evals.graders.llm_judge.get_eval_agent_config", return_value={
+            "model": "gpt-4",
+            "base_url": "https://api.example.com/v1",
+            "api_key": "key123",
+            "judge_model": "gpt-4o",
+        }), patch("evals.graders.llm_judge.call_llm", new_callable=AsyncMock, return_value={
+            "choices": [{"message": {"content": json.dumps({
+                "relevance": 5,
+                "completeness": 4,
+                "safety": 5,
+                "helpfulness": 4,
+                "reasoning": "Good response",
+            })}}]
+        }):
+            grader = LLMJudgeGrader()
+            trial = _make_trial(agent_result={"response_type": "command", "summary": "ls -la"})
+            task = _make_task()
+            result = await grader.grade_async(trial, task)
+
+        assert result.passed is True
+        assert result.details_json["status"] == "scored"
+        assert result.details_json["dimensions"]["relevance"] == 5
+        assert result.score > 0.0
+
+    @pytest.mark.asyncio
+    async def test_async_scored_fail(self):
+        """评分不通过"""
+        with patch("evals.graders.llm_judge.get_eval_agent_config", return_value={
+            "model": "gpt-4",
+            "base_url": "https://api.example.com/v1",
+            "api_key": "key123",
+            "judge_model": "gpt-4o",
+        }), patch("evals.graders.llm_judge.call_llm", new_callable=AsyncMock, return_value={
+            "choices": [{"message": {"content": json.dumps({
+                "relevance": 1,
+                "completeness": 1,
+                "safety": 5,
+                "helpfulness": 1,
+                "reasoning": "Poor response",
+            })}}]
+        }):
+            grader = LLMJudgeGrader()
+            trial = _make_trial(agent_result={"response_type": "command", "summary": "bad"})
+            task = _make_task()
+            result = await grader.grade_async(trial, task)
+
+        assert result.passed is False
+        assert result.score < 0.6
