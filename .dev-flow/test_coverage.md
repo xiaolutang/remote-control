@@ -1,8 +1,8 @@
 # 测试覆盖清单
 
 > 项目：remote-control
-> 更新时间：2026-04-24
-> 状态：版本 2 规划已对齐；`agent-knowledge-skill-mcp`（R043）为当前活跃需求周期
+> 更新时间：2026-04-25
+> 状态：R043 已归档；`agent-eval-system`（R044）为当前活跃需求周期
 
 ## 测试统计
 
@@ -37,7 +37,8 @@
 | **聊天式智能终端助手 (chat-terminal-assistant)** | design, contract, unit, integration, manual, smoke | 前置基线已收口，剩余验收并入当前阶段 | 🔶 |
 | **ReAct 智能体 (react-terminal-agent)** | design, unit, integration, widget, manual, smoke | 执行中 | 🔶 |
 | **Terminal-bound Agent 对话同步 (react-terminal-agent patch)** | contract, unit, integration, widget, e2e, smoke | 已规划 | ⬜ |
-| **Agent 知识增强 (agent-knowledge)** | unit, integration, smoke | 已规划 | ⬜ |
+| **Agent 知识增强 (agent-knowledge)** | unit, integration, smoke | 已完成 | ✅ |
+| **Agent 评估体系 (agent-eval-system)** | unit, integration | 已规划 | ⬜ |
 
 ## 模块覆盖详情
 
@@ -547,6 +548,67 @@
 - [ ] switch terminal 不触发 snapshot 覆盖已有 renderer
 - [ ] reconnect 才进入 recovering
 - [ ] Codex 高频刷新与切换场景内容不再明显丢失
+
+### Agent 评估体系（agent-eval-system phase，R044）
+
+| Module | Task IDs | Test Type | Required Scenarios | Status |
+|--------|----------|-----------|--------------------|--------|
+| Eval 数据模型 + SQLite | B096, S089 | unit | 模型序列化；SQLite CRUD；配置缺失拦截 | B096 ✅ 56/56 |
+| Eval Harness 核心 | B097, S089 | unit, integration | YAML 加载；mock transport；transcript 收集；pass@k/pass^k | ⬜ |
+| Code-based Graders | B098, S090 | unit | 5 种 grader pass/fail；command_safety 复用验证 | ⬜ |
+| 初始 Task 数据集 | B099 | unit | 30 个 YAML 格式校验；加载集成 | ⬜ |
+| LLM-as-Judge | B100, S090 | unit, integration | prompt 输出格式；JSON 解析容错；未配置降级 | ⬜ |
+| 质量指标提取 | B101, S091 | unit | 5 类指标计算准确性；批量提取；历史回溯 | ⬜ |
+| 质量指标 API | B102, S091 | unit, integration | 过滤/聚合；认证拦截；evals.db 不可达时返回 500 | ⬜ |
+| 反馈→Eval Task | B103, S092 | unit, integration | 反馈→candidate 流程；未配置降级；审核 API | ⬜ |
+| 回归测试 + CLI | B104, S092 | unit, integration | 回归检测；趋势查询；CLI 子命令；配置缺失提示 | ⬜ |
+
+#### Agent 评估体系关键测试场景
+
+##### B097 Harness
+- [ ] YAML task 正确加载为 EvalTaskDef
+- [ ] mock transport 按预定义响应返回
+- [ ] 单 trial 完整 transcript 收集（LLM 请求/响应 + 工具调用/返回 + AgentResult）
+- [ ] pass@1 = 60% 时 pass@5 应接近 100%（数学验证）
+- [ ] EVAL_AGENT_MODEL/BASE_URL/API_KEY 缺失时 raise 明确错误，不复用 ASSISTANT_LLM_*
+- [ ] mock transport 不触达真实设备（无真实 WebSocket 连接）
+- [ ] LLM 超时/5xx/畸形响应：harness 捕获异常并标记 trial 为 error，不 crash
+- [ ] 单 trial 失败不阻塞后续 trial 执行
+
+##### B098 Code Graders
+- [ ] response_type_match: acceptable_types=["command","ai_prompt"] → command 通过
+- [ ] response_type_match: acceptable_types=["message"] → command 失败
+- [ ] command_safety: 白名单命令通过，`rm -rf` 失败，`sudo` 失败
+- [ ] contains_command: steps 包含 "claude" 通过，不包含 "rm" 通过
+- [ ] steps_structure: 空 steps 失败，非 shell 命令失败
+
+##### B100 LLM Judge
+- [ ] Judge prompt 输出合法 JSON（relevance/completeness/safety/helpfulness）
+- [ ] JSON 解析失败时 grader 返回 error 而非 crash
+- [ ] EVAL_JUDGE_MODEL 未配置时返回 skipped
+- [ ] EVAL_JUDGE_BASE_URL/API_KEY 默认复用 EVAL_AGENT_BASE_URL/API_KEY
+- [ ] LLM Judge 超时/5xx：grader 捕获异常并返回 error，不阻塞其他 grader
+- [ ] LLM 返回非法 JSON 或截断响应：grader 降级返回 error 而非 crash
+
+##### B101 质量指标
+- [ ] 构造已知 session，验证 5 类指标计算正确
+- [ ] batch 提取不影响在线 Agent 性能
+- [ ] 历史数据可回溯提取
+- [ ] quality_monitor 只读 agent_conversation_events 元数据，不读对话文本
+- [ ] 指标只写 evals.db，不写 app.db
+
+##### B102 质量指标 API
+- [ ] 查询已持久化指标，不依赖模型环境变量
+- [ ] 未认证请求返回 401
+- [ ] evals.db 不可达时返回 500 + 明确错误
+
+##### B103 反馈闭环
+- [ ] 反馈→candidate 只传脱敏摘要，不传原始反馈文本
+- [ ] candidate 的 source_feedback_id 仅存引用 ID
+- [ ] approved candidate 可被 harness 加载执行
+- [ ] EVAL_FEEDBACK_MODEL 未配置时跳过自动转换
+- [ ] 异步分析超时/LLM 5xx：分析失败不阻塞反馈保存，记录 warning
+- [ ] LLM 畸形响应：解析失败时跳过 candidate 生成，不 crash
 
 ### Agent 知识增强（agent-knowledge phase）
 

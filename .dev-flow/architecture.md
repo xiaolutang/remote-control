@@ -409,15 +409,34 @@ Server 不是 terminal 内容真相，但必须是 **会话时序真相**；Agen
 
 ## R043 Agent 知识增强约束
 
-### 动态 MCP 工具信任边界
-
 - 动态 MCP 工具不执行 shell 命令，只返回结构化数据，不经过 command_validator
-- R043 阶段只允许 `read_only` 和 `info_only` capability 的动态工具注册
-- built-in 工具（execute_command/ask_user/lookup_knowledge）始终由 Server 定义注册，优先于动态工具
-- Agent 断连后其动态工具立即标记 stale，pending calls 返回 timeout error
-- capability 字段仅做注册筛选，不做运行时 sandbox
+- built-in 工具始终由 Server 定义注册，优先于动态工具
+- Agent 断连后其动态工具立即标记 stale
+- lookup_knowledge 结果裁剪：最多 3 个文件，每文件最多 2000 字符
 
-### 知识检索约束
+## R044 Agent 评估体系约束
 
-- lookup_knowledge 结果裁剪：最多 3 个文件，每文件最多 2000 字符，超长截断标注
-- 知识文件启用/禁用配置变更在下次 Agent 启动时生效（R043 不做热更新）
+### 评估隔离
+
+- eval 框架在 `server/evals/` 独立包内，不侵入业务代码
+- eval 使用独立 `evals.db`，与主业务 `app.db` 隔离
+- eval 运行使用 mock transport，不连接真实设备
+- eval 真实调用 LLM（不 mock），这是测试智能行为的核心
+
+### 模型配置强制
+
+- 评估体系所有模型配置独立于业务 agent，不复用 `ASSISTANT_LLM_*` 变量
+- 被测 Agent 模型：`EVAL_AGENT_MODEL` + `EVAL_AGENT_BASE_URL` + `EVAL_AGENT_API_KEY`（必填）
+- LLM-as-Judge 模型：`EVAL_JUDGE_MODEL` + `EVAL_JUDGE_BASE_URL` + `EVAL_JUDGE_API_KEY`（可选，未配置跳过 Judge grader）
+- 反馈打标模型：`EVAL_FEEDBACK_MODEL` + `EVAL_FEEDBACK_BASE_URL` + `EVAL_FEEDBACK_API_KEY`（可选，未配置跳过自动转换）
+- eval 命令和 harness 启动时检查必填配置，缺失时报错退出
+- 不允许任何默认模型回退
+
+### 评估安全
+
+- eval task 中的命令不实际执行（mock transport）
+- eval 不读取真实用户对话内容、不访问真实设备
+- 质量指标提取只读 agent_conversation_events 元数据（event_type/tool_name/response_type/token_usage），不读对话文本内容
+- 反馈闭环只接收脱敏摘要（LLM 分析后的 intent/category 摘要），不直接存原始反馈文本到 evals.db
+- candidate task 中的 `source_feedback_id` 仅存引用 ID，不存原始反馈内容
+- eval 不写 app.db，只写 evals.db

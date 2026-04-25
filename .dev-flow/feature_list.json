@@ -2,14 +2,14 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-25T10:00:00+0800",
+  "updated_at": "2026-04-25T14:00:00+0800",
   "status": "in_progress",
   "active_requirement_cycle": {
-    "id": "R043",
-    "name": "agent-knowledge-skill-mcp",
-    "status": "completed",
-    "branch": "feat/R043-agent-knowledge-skill-mcp",
-    "started_at": "2026-04-24"
+    "id": "R044",
+    "name": "agent-eval-system",
+    "status": "in_progress",
+    "branch": "feat/R044-agent-eval-system",
+    "started_at": "2026-04-25"
   },
   "archived_cycles": [
     {
@@ -29,21 +29,31 @@
       "archived_at": "2026-04-24T13:10:00+0800",
       "archive_path": "_archive/R042_opik-llm-observability/",
       "summary": "Opik LLM 可观测性集成 + Agent 错误体验修复 + SSE 重连/性能收敛。全部任务完成。"
+    },
+    {
+      "id": "R043",
+      "name": "agent-knowledge-skill-mcp",
+      "status": "completed",
+      "branch": "feat/R043-agent-knowledge-skill-mcp",
+      "started_at": "2026-04-24",
+      "archived_at": "2026-04-25T14:00:00+0800",
+      "archive_path": "_archive/R043_agent-knowledge-skill-mcp/",
+      "summary": "Agent 知识增强 + Skill/MCP 管理 + response_type 三类型。全部任务完成。"
     }
   ],
   "workflow": {
     "name": "remote-control",
-    "mode": "A",
+    "mode": "B",
     "runtime": "skill_orchestrated",
     "review_provider": "codex_plugin",
-    "audit_provider": "local",
-    "risk_provider": "local"
+    "audit_provider": "codex_plugin",
+    "risk_provider": "codex_plugin"
   },
   "summary": {
-    "total": 68,
-    "pending": 0,
+    "total": 81,
+    "pending": 12,
     "in_progress": 0,
-    "completed": 56,
+    "completed": 57,
     "blocked": 0,
     "cancelled": 6
   },
@@ -490,846 +500,426 @@
       "conclusion": "命令规划隔离阶段完成：CommandPlanner provider 隔离、Claude CLI/local_rules fallback 与真机 smoke 已收口。",
       "archived_at": "2026-04-23",
       "archive_file": "_archive/phases/phase_planner-provider-isolation.json"
+    },
+    {
+      "phase": "agent-knowledge",
+      "task_ids": [
+        "B089",
+        "B091",
+        "B092",
+        "B093",
+        "S085",
+        "S086",
+        "S087",
+        "B094",
+        "F088",
+        "S088",
+        "B095",
+        "F089"
+      ],
+      "cancelled": [
+        "B090"
+      ],
+      "archived_at": "2026-04-25T14:00:00+0800"
     }
   ],
   "features": [
     {
-      "id": "B089",
-      "phase": "agent-knowledge",
+      "id": "B096",
+      "phase": "eval-core",
       "module": "server",
-      "title": "Agent SYSTEM_PROMPT 增强：AI 编程启动器 + lookup_knowledge 工具",
-      "name": "Agent SYSTEM_PROMPT 增强：AI 编程启动器 + lookup_knowledge 工具",
-      "description": "在 terminal_agent.py 中：\n1. SYSTEM_PROMPT 重新定位为'AI 编程启动器'：Agent 的核心价值是与用户讨论编程意图，然后将讨论上下文组装成 claude/codex 命令直接执行\n2. 增加 Claude Code → claude / Codex → codex 的命令映射，作为主要执行工具而非知识说明\n3. 增加 lookup_knowledge 工具描述：检索项目知识和 AI 编程技巧，用于丰富生成的命令 prompt\n4. 增加 'which <tool>' 验证工作流规则\n5. 明确用户旅程：讨论意图 → 调用 lookup_knowledge 获取上下文 → 生成 claude/codex 命令\n6. 修改非终端意图处理，允许回答工具使用问题\n7. 注册 lookup_knowledge 工具到 Pydantic AI Agent（回调通过 WebSocket 转发到 Agent 设备）",
-      "verification": "L2",
+      "name": "Eval 数据模型 + SQLite schema",
+      "description": "创建 server/evals/ 独立包。定义 Pydantic 模型：EvalTaskDef（YAML task 定义）、EvalTrial（单次执行）、EvalGraderResult（grader 输出）、EvalRun（批量运行）。创建独立 evals.db（与 app.db 隔离），含 6 张表（含 quality_metrics 和 eval_task_candidates）。评估模型配置独立于业务 agent：被测 Agent 使用 EVAL_AGENT_MODEL + EVAL_AGENT_BASE_URL + EVAL_AGENT_API_KEY（必填）；Judge 使用 EVAL_JUDGE_MODEL + EVAL_JUDGE_BASE_URL + EVAL_JUDGE_API_KEY（可选）。未设置必填项时 eval 命令报错退出，不搞默认值，不复用 ASSISTANT_LLM_* 变量。",
+      "verification": "L1",
       "depends_on": [],
       "status": "completed",
-      "started_at": "2026-04-24T21:20:00+0800",
-      "completed_at": "2026-04-24T21:25:00+0800",
-      "actual_minutes": 5,
-      "execution_notes": "SYSTEM_PROMPT 重写为 AI 编程启动器；lookup_knowledge 工具注册到 Pydantic AI Agent；AgentDeps 增加 lookup_knowledge_fn；agent_session_manager 透传；191 测试全部通过",
-      "commit": "8f14641",
-      "priority": "P1",
-      "acceptance_criteria": [
-        "SYSTEM_PROMPT 定位为 AI 编程启动器：核心工作是帮用户将编程意图转化为 claude/codex 命令",
-        "SYSTEM_PROMPT 包含 lookup_knowledge 工具的使用说明",
-        "SYSTEM_PROMPT 包含 Claude Code → claude / Codex → codex 命令映射（可直接执行）",
-        "SYSTEM_PROMPT 包含 which 验证工作流规则",
-        "明确定义用户旅程：讨论意图 → 知识检索 → 生成命令；信息型问答返回 steps=[]",
-        "明确定义 lookup_knowledge 不可用或未命中时的降级规则：未命中时不阻塞命令生成；不可用时回退到现有行为",
-        "明确 built-in 工具优先于动态 MCP 工具，同名冲突时 built-in 胜出",
-        "非终端意图处理允许回答工具使用问题",
-        "Codex CLI 映射仅用于知识说明（info-only），不生成 codex 执行命令",
-        "lookup_knowledge 工具注册到 Pydantic AI Agent",
-        "agent_session_manager 中 lookup_knowledge 回调通过 WebSocket 转发",
-        "客户端已有 steps=[] 的渲染逻辑，无需前端改动；此验收项在 S085 中通过现有测试回归确认"
-      ],
-      "risk_tags": [
-        "state_sync"
-      ],
-      "test_tasks": [
-        {
-          "type": "unit",
-          "description": "SYSTEM_PROMPT 知识增强验证",
-          "scenarios": [
-            "SYSTEM_PROMPT 包含 lookup_knowledge 工具描述",
-            "SYSTEM_PROMPT 包含 Claude Code → claude 精简映射",
-            "SYSTEM_PROMPT 包含信息型问答 vs 工具启动意图边界定义",
-            "SYSTEM_PROMPT 包含 lookup_knowledge 未命中时的降级指令"
-          ]
-        },
-        {
-          "type": "integration",
-          "description": "信息型问答 vs 工具启动边界",
-          "scenarios": [
-            "用户问'Claude Code 怎么用' → 触发 lookup_knowledge → summary 回答、steps=[]",
-            "用户说'用 Claude Code 打开 remote-control' → 生成 cd ... && claude 命令序列",
-            "lookup_knowledge 不可用时回退到现有行为，不阻塞",
-            "用户说'帮我看看 Claude Code 怎么用，然后打开 remote-control 项目' → Agent loop: 先调 lookup_knowledge 获取知识 → 在最终 result.summary 中回答知识 → 同时在 result.steps 中生成 cd && claude 命令（单轮 result，知识+命令合并输出）",
-            "用户说'帮我用 Claude 重构代码' → 附带 prompt 建议启动 Claude Code"
-          ]
-        }
-      ],
-      "files": [
-        "server/app/terminal_agent.py",
-        "server/app/agent_session_manager.py"
-      ],
-      "contracts": [
-        "CONTRACT-050"
-      ]
-    },
-    {
-      "id": "B090",
-      "phase": "agent-knowledge",
-      "module": "server",
-      "name": "[cancelled] Planner system_prompt 增强",
-      "description": "cancelled: Planner 模式对本需求无意义。",
-      "verification": "L2",
-      "depends_on": [],
-      "status": "cancelled",
-      "priority": "P1",
-      "acceptance_criteria": [],
-      "risk_tags": [],
-      "files": []
-    },
-    {
-      "id": "B091",
-      "phase": "agent-knowledge",
-      "module": "agent",
-      "name": "Agent 设备端实现 lookup_knowledge 内置工具 + 知识文件",
-      "description": "在 Agent 端实现 lookup_knowledge 工具执行：\n1. 内置 knowledge/ 目录，包含 Claude Code 使用技巧、Vibe Coding 方法论、场景建议等 md 文件\n2. 支持用户自定义知识文件目录（user_knowledge/）\n3. WebSocket 新增 lookup_knowledge 消息处理\n4. 关键词匹配检索逻辑：根据 query 匹配文件名和内容\n5. 工具管理配置：记录哪些知识文件已开启/关闭",
-      "verification": "L2",
-      "status": "completed",
-      "started_at": "2026-04-24T21:10:00+0800",
-      "completed_at": "2026-04-24T21:40:00+0800",
+      "started_at": "2026-04-25T15:00:00+0800",
+      "completed_at": "2026-04-25T15:30:00+0800",
       "actual_minutes": 30,
-      "commit": "30e0892",
-      "depends_on": [],
-      "priority": "P1",
+      "evidence_file": ".dev-flow/evidence/B096.md",
+      "execution_notes": "6 张表 + 8 个 Pydantic 模型 + 配置检查。56 测试全通过。code-review pass，audit done。",
+      "commit": "pending",
+      "priority": 1,
       "acceptance_criteria": [
-        "Agent 收到 lookup_knowledge WebSocket 消息后能正确检索并返回知识内容",
-        "内置知识文件包含：Claude Code 使用技巧、Vibe Coding 方法论、4 类场景建议",
-        "支持用户自定义知识文件目录",
-        "关键词匹配能命中相关文件（如 query='Claude Code' 命中 claude_code.md）",
-        "未匹配时返回'未找到相关知识'而非报错",
-        "检索结果裁剪：单次最多返回 3 个匹配文件，每文件最多摘录 2000 字符，超出部分截断并标注'[已截断]'，结果按匹配度排序",
-        "knowledge/ 目录随 Agent 打包，首次启动即存在；user_knowledge/ 默认路径为 Agent 数据目录下，缺失时自动创建空目录",
-        "lookup_knowledge 消息处理在 websocket_client.py 现有工具分发框架内扩展，不新增独立 ws_handler 模块",
-        "知识文件启用/禁用配置存储在 knowledge_config.json（Agent 数据目录下），默认全启用；缺失时视为全启用，不阻塞检索",
-        "知识文件配置变更在下次 Agent 启动时生效（R043 不做热更新）；用户通过手动编辑 knowledge_config.json 控制启用/禁用",
-        "Agent 启动时在 tool_catalog_snapshot 中上报 lookup_knowledge 的 built-in catalog entry（kind=builtin, parameters 含 query schema），Server 据此判断版本能力并注册工具",
-        "桌面本地 Agent 主路径：knowledge/ 目录随本地 Agent 分发（打包进 Agent 分发包），首启自动创建 user_knowledge/ 和 skills/ 数据目录"
+        "server/evals/__init__.py, models.py, db.py 创建",
+        "EvalTaskDef 支持 YAML 加载（id/category/description/input/expected/graders/metadata）",
+        "EvalTrial 记录 transcript + duration + token_usage",
+        "EvalGraderResult 记录 grader_type + score + details",
+        "evals.db 6 张表创建成功（eval_task_defs / eval_trials / eval_grader_results / eval_runs）",
+        "EVAL_AGENT_MODEL/BASE_URL/API_KEY 缺失时 raise 明确错误，不复用 ASSISTANT_LLM_* 变量",
+        "quality_metrics 表：按 session_id 存储质量指标（response_type_accuracy / tool_usage_efficiency / command_safety_rate / ask_user_frequency / token_efficiency）",
+        "eval_task_candidates 表：存储反馈闭环的 candidate task（source_feedback_id / suggested_intent / suggested_category / suggested_expected / status / reviewed_by）"
       ],
       "risk_tags": [
-        "first_use",
         "config"
       ],
       "test_tasks": [
-        {
-          "type": "unit",
-          "description": "知识检索逻辑",
-          "scenarios": [
-            "query='Claude Code' 返回 Claude Code 使用技巧内容",
-            "query='重构' 返回场景建议内容",
-            "query='不存在的主题' 返回'未找到相关知识'",
-            "用户自定义文件被正确检索",
-            "匹配超过 3 个文件时只返回 top 3",
-            "单文件超过 2000 字符时截断并标注'[已截断]'"
-          ]
-        },
-        {
-          "type": "unit",
-          "description": "内置知识文件完整性",
-          "scenarios": [
-            "knowledge/ 目录包含至少 4 个 md 文件",
-            "每个文件内容非空且格式合法"
-          ]
-        },
-        {
-          "type": "smoke",
-          "description": "知识检索端到端验证",
-          "scenarios": [
-            "Agent 启动后内置知识文件可被 lookup_knowledge 检索",
-            "禁用知识文件后不参与检索",
-            "空知识目录返回'未找到相关知识'而非报错",
-            "首次启动 user_knowledge/ 不存在时自动创建空目录",
-            "knowledge_config.json 缺失时默认全启用，所有知识文件参与检索",
-            "knowledge_config.json 格式损坏（非 JSON）时默认全启用，记录 warning",
-            "配置变更后需重启 Agent 才生效，运行中不热更新"
-          ]
-        }
+        "模型创建与序列化",
+        "SQLite CRUD",
+        "配置缺失报错",
+        "quality_metrics 表 CRUD",
+        "eval_task_candidates 表 CRUD"
       ],
       "files": [
-        "agent/app/knowledge_tool.py",
-        "agent/app/knowledge/",
-        "agent/app/websocket_client.py",
-        "deploy/agent.Dockerfile"
-      ],
-      "title": "Agent 设备端实现 lookup_knowledge 内置工具 + 知识文件",
-      "contracts": [
-        "CONTRACT-050"
+        "server/evals/__init__.py",
+        "server/evals/models.py",
+        "server/evals/db.py"
       ]
     },
     {
-      "id": "B092",
-      "phase": "agent-knowledge",
-      "module": "agent",
-      "name": "MCP Client 框架：Skill 发现、启停、工具注册与调用中转",
-      "status": "completed",
-      "started_at": "2026-04-24T21:45:00+0800",
-      "completed_at": "2026-04-24T22:20:00+0800",
-      "actual_minutes": 35,
-      "commit": "5abf450",
-      "description": "在 Agent 端实现 MCP Client 基础设施：\n1. skill-registry.json 管理（读取/写入/启用/禁用 Skill）\n2. Skill 发现：启动时扫描 skills/ 目录，读取 skill.json 元数据\n3. MCP Server 生命周期管理：启动/停止 MCP Server 子进程\n4. 工具发现：连接 MCP Server 后获取其 tools 列表\n5. 工具注册：将发现的工具汇总，通过 WebSocket 上报给 Server\n6. 工具调用中转：收到 Server 的工具调用请求后，路由到对应的 MCP Server\n7. 内置 knowledge-skill 不走 MCP（直接内嵌），只有外部动态安装的 Skill 走 MCP",
-      "verification": "L2",
-      "depends_on": [
-        "B091"
-      ],
-      "priority": "P1",
-      "acceptance_criteria": [
-        "skill-registry.json 能正确读写，支持 enabled/disabled 状态",
-        "Agent 启动时能发现 skills/ 目录下的已启用 Skill",
-        "能启动 MCP Server 子进程并连接",
-        "能从 MCP Server 获取工具列表",
-        "能将工具列表通过 WebSocket 上报给 Server",
-        "收到工具调用请求时能正确路由到对应 MCP Server",
-        "MCP Server 崩溃时不影响 Agent 主进程和内置工具",
-        "内置工具（execute_command/ask_user/lookup_knowledge）不受 MCP 框架影响",
-        "动态工具 namespaced 上报（格式：skill_name.tool_name），避免与内置工具冲突",
-        "MCP Server 启动失败时记录错误并跳过，不阻塞 Agent 主流程",
-        "malformed skill.json（格式错误、缺少必要字段）时跳过该 Skill 并记录 warning，不阻塞其他 Skill",
-        "调用期参数校验：调用 MCP 工具时按工具 parameters schema 提取参数，缺少 required 返回 invalid_args 错误，类型不匹配返回 invalid_args 错误，extra params 忽略",
-        "skills/ 目录默认路径为 Agent 数据目录下，缺失时自动创建空目录；skill-registry.json 缺失时视为空列表",
-        "MCP 工具消息分发复用 websocket_client.py 现有分发框架，新增 tool_call/tool_catalog 消息类型处理",
-        "skill-registry.json 配置变更在下次 Agent 启动时生效（R043 不做热更新）；用户通过手动编辑 skill-registry.json 控制 skill 启用/禁用",
-        "动态工具结果序列化：MCP Server 返回 JSON 对象/数组时 Agent 端统一 json.dumps 为文本字符串填充 tool_result.result",
-        "动态工具结果截断：tool_result.result 超 64KB 时 Agent 端截断，追加 [已截断] 标记，设置 truncated=true 和 original_size",
-        "MCP Server 崩溃后该 skill 的 pending calls 立即返回 tool_result.status=error（含 crash category），不影响其他 skill",
-        "提供可重复的 fake MCP skill/server 测试夹具（fake_skill/ 目录），用于覆盖启动成功、启动失败、崩溃、重连、invalid_args、超大结果和 namespaced 上报场景"
-      ],
-      "risk_tags": [
-        "first_use",
-        "startup",
-        "config"
-      ],
-      "test_tasks": [
-        {
-          "type": "unit",
-          "description": "Skill 注册表管理",
-          "scenarios": [
-            "读取有效 skill-registry.json 返回 Skill 列表",
-            "空或缺失的 skill-registry.json 不崩溃",
-            "skill-registry.json 格式损坏（非 JSON）时不崩溃，视为空列表并记录 warning",
-            "启用/禁用操作正确更新文件"
-          ]
-        },
-        {
-          "type": "integration",
-          "description": "MCP Server 生命周期",
-          "scenarios": [
-            "启动 MCP Server 子进程并建立连接",
-            "停止 MCP Server 后工具列表更新",
-            "MCP Server 异常退出不拖垮 Agent"
-          ]
-        },
-        {
-          "type": "integration",
-          "description": "工具调用中转",
-          "scenarios": [
-            "内置工具调用不受 MCP 影响",
-            "MCP 工具调用正确路由并返回结果",
-            "未知工具名返回错误而非崩溃"
-          ]
-        },
-        {
-          "type": "smoke",
-          "description": "MCP Client 端到端验证",
-          "scenarios": [
-            "Agent 启动 → 发现 skills/ 目录 → 启动 MCP Server → 上报 namespaced 工具列表",
-            "Agent 重连后重新上报 tool_catalog_snapshot",
-            "MCP Server 崩溃后下次 Agent 启动时不上报该 skill 的工具",
-            "首次启动 skills/ 不存在时自动创建空目录",
-            "非 namespaced 工具（无 skill 前缀）被拒绝上报",
-            "skill 启用/禁用后下次 Agent 启动时上报更新后的 tool_catalog_snapshot"
-          ]
-        },
-        {
-          "type": "unit",
-          "description": "MCP Server 启动失败处理",
-          "scenarios": [
-            "MCP Server 启动失败（skill.json 指向不存在的命令）时记录错误并跳过",
-            "多个 MCP Server 中部分失败不影响其他 Server 正常启动",
-            "启动失败后 Agent 主流程不阻塞，仍可处理内置工具调用"
-          ]
-        }
-      ],
-      "files": [
-        "agent/app/mcp_client.py",
-        "agent/app/skill_registry.py",
-        "agent/app/websocket_client.py",
-        "agent/tests/fake_skill/"
-      ],
-      "title": "MCP Client 框架：Skill 发现、启停、工具注册与调用中转",
-      "contracts": [
-        "CONTRACT-050"
-      ]
-    },
-    {
-      "id": "B093",
-      "phase": "agent-knowledge",
+      "id": "B097",
+      "phase": "eval-core",
       "module": "server",
-      "name": "Server 端动态工具注册：接收 Agent 上报工具并注入 Pydantic AI",
-      "status": "completed",
-      "started_at": "2026-04-24T22:25:00+0800",
-      "completed_at": "2026-04-24T22:45:00+0800",
-      "actual_minutes": 20,
-      "commit": "09657e0",
-      "description": "Server 端支持接收 Agent 设备上报的动态工具列表：\n1. Agent 连接时上报其可用工具列表（内置 + MCP Skill 工具）\n2. Server 存储工具列表，在创建 Agent 会话时动态注入到 Pydantic AI Agent\n3. 工具调用通过现有 WebSocket 中转机制路由到 Agent 设备\n4. R043 阶段工具变更通过 Agent 重启 + 重新上报 snapshot 实现，不做运行时增量同步\n5. 协议契约写入 api_contracts.md：tool catalog snapshot payload、tool call/result/error payload、built-in vs dynamic 优先级（built-in 优先、动态工具必须 namespaced）、超时/错误语义、断连清理、工具结果 trace 边界",
+      "name": "Eval Harness 核心：Task 加载 + Agent 执行 + Trial 编排",
+      "description": "实现 EvalHarness：从 YAML 文件加载 task 定义，用 mock transport 执行真实 LLM Agent，收集 transcript，编排多 trial 执行。Mock transport 不需要真实设备，execute_command 返回 task 中预定义的 mock_tool_responses。计算 pass@k 和 pass^k 指标。结果持久化到 evals.db。",
       "verification": "L2",
       "depends_on": [
-        "B089",
-        "B092"
+        "B096"
       ],
-      "priority": "P1",
+      "status": "pending",
+      "priority": 1,
       "acceptance_criteria": [
-        "Server 能接收并存储 Agent 上报的工具列表",
-        "创建 Agent 会话时，动态工具被注入 Pydantic AI Agent",
-        "LLM 能看到并调用动态注册的工具",
-        "工具调用通过 WebSocket 正确路由到 Agent 设备",
-        "Agent 工具列表变化时 Server 端在下次 Agent 连接时同步更新（snapshot-only，active session 继续使用创建时快照）",
-        "Agent 断开后其动态工具被清理",
-        "built-in 工具优先于动态工具，同名冲突时 built-in 胜出",
-        "动态工具必须 namespaced（如 skill_name.tool_name）",
-        "工具调用超时返回稳定错误语义，不阻塞 Agent 循环",
-        "api_contracts.md 包含动态工具协议契约段落",
-        "动态工具注入通过 session-scoped Agent factory 实现，不修改全局 terminal_agent 单例",
-        "动态工具调用产生与 built-in 相同格式的 trace 事件，含 skill attribution（tool_name 含 skill 前缀）",
-        "capability=write/network/execute 的工具在注册时被拒绝，本阶段只允许 read_only/info_only",
-        "注册期 schema 校验：收到工具列表时校验 parameters JSON Schema 合法性，非法 schema 忽略并记录 warning",
-        "版本前提：lookup_knowledge 要求 Agent 版本 >= R043；旧 Agent 连接时 Server 不注册 lookup_knowledge 工具，仍提供 execute_command/ask_user",
-        "冷启动降级：snapshot 未到达时 session 降级为 built-in-only，不阻塞等待；snapshot 到达后新 session 获得完整工具集",
-        "Tool catalog 注册边界：最大 50 工具、description 500 字符截断、schema 4KB 上限、snapshot 256KB 上限，超限拒绝/截断并记录 warning"
+        "Task loader 从 YAML 目录批量加载 EvalTaskDef",
+        "Mock transport 根据 task.mock_tool_responses 返回预定义结果",
+        "单 task 可执行 N trials（默认 5），收集完整 transcript",
+        "transcript 包含：LLM 请求/响应、工具调用/返回、最终 AgentResult",
+        "pass@k 和 pass^k 指标计算正确",
+        "结果写入 evals.db",
+        "EVAL_AGENT_MODEL/BASE_URL/API_KEY 缺失时明确报错不执行，不复用业务配置",
+        "Harness 支持从 evals.db 加载 approved 的正式 task（来自反馈闭环），与 YAML task 合并执行"
       ],
       "risk_tags": [
-        "state_sync",
-        "startup"
+        "network"
       ],
       "test_tasks": [
-        {
-          "type": "unit",
-          "description": "动态工具注册",
-          "scenarios": [
-            "收到工具列表后正确存储",
-            "创建会话时工具注入到 Pydantic AI Agent",
-            "工具列表为空时不影响内置工具"
-          ]
-        },
-        {
-          "type": "integration",
-          "description": "工具调用路由",
-          "scenarios": [
-            "LLM 调用动态工具 → 正确路由到 Agent → 返回结果",
-            "Agent 断开后动态工具不可用",
-            "并发会话独立使用工具列表"
-          ]
-        },
-        {
-          "type": "smoke",
-          "description": "动态工具端到端验证",
-          "scenarios": [
-            "Agent 上报 tool_catalog_snapshot → Server 存储 → 创建 session 注入",
-            "LLM 调用动态工具 → WebSocket 路由 → Agent 执行 → 结果返回",
-            "Agent 断连 → Server 清理动态工具 → 新 session 不含该工具",
-            "capability=write 的工具被拒绝注册",
-            "capability=network 的工具被拒绝注册",
-            "capability=execute 的工具被拒绝注册",
-            "匿名工具（无 skill 字段）被拒绝注册",
-            "Agent 重连后重新上报 tool_catalog_snapshot，新 session 看到更新后的工具集"
-          ]
-        },
-        {
-          "type": "unit",
-          "description": "Snapshot 会话语义验证",
-          "scenarios": [
-            "新 Agent session 使用最新 tool_catalog_snapshot 创建",
-            "已存在的 active session 继续使用创建时的工具快照"
-          ]
-        },
-        {
-          "type": "unit",
-          "description": "Tool result payload 大小限制",
-          "scenarios": [
-            "tool_result.result 超过 64KB 时 Agent 端截断并追加 [已截断] 标记",
-            "truncated=true 且 original_size 正确反映原始大小",
-            "tool_result.result 未超限时无截断标记"
-          ]
-        }
+        "YAML 加载",
+        "mock transport 返回",
+        "单 trial 执行",
+        "多 trial 指标计算",
+        "配置缺失拦截",
+        "LLM 超时/5xx/畸形响应容错：harness 捕获异常并标记 trial 为 error",
+        "网络中断恢复：单 trial 失败不阻塞后续 trial"
       ],
       "files": [
-        "server/app/ws_agent.py",
-        "server/app/agent_session_manager.py",
-        "server/app/terminal_agent.py"
-      ],
-      "title": "Server 端动态工具注册：接收 Agent 上报工具并注入 Pydantic AI",
-      "contracts": [
-        "CONTRACT-050"
+        "server/evals/harness.py"
       ]
     },
     {
-      "id": "S085",
-      "phase": "agent-knowledge",
-      "module": "server-test",
-      "name": "Server 端测试：prompt 增强 + 动态工具注册",
-      "status": "completed",
-      "started_at": "2026-04-24T22:50:00+0800",
-      "completed_at": "2026-04-24T23:05:00+0800",
-      "actual_minutes": 15,
-      "commit": "pending",
-      "description": "Server 端测试覆盖：\n1. SYSTEM_PROMPT 包含 lookup_knowledge 工具描述和精简映射\n2. 用户旅程边界（信息型问答 vs 工具启动）\n3. lookup_knowledge 不可用/未命中的降级行为\n4. 动态工具注册和路由逻辑\n5. built-in vs 动态工具优先级\n6. Agent 断连后 stale tools 清理",
-      "verification": "L2",
-      "depends_on": [
-        "B089",
-        "B093"
-      ],
-      "priority": "P2",
-      "acceptance_criteria": [
-        "SYSTEM_PROMPT 包含 lookup_knowledge 工具描述",
-        "SYSTEM_PROMPT 包含 Claude Code 精简映射",
-        "lookup_knowledge 未命中时降级不阻塞命令生成",
-        "动态工具注册逻辑测试通过",
-        "工具调用路由测试通过",
-        "built-in 与动态工具同名冲突时 built-in 胜出",
-        "Agent 断连后动态工具被清理",
-        "工具调用超时返回稳定错误语义",
-        "built-in 版本前提：旧 Agent 连接时 Server 不注册 lookup_knowledge，仍提供 execute_command/ask_user",
-        "动态工具调用产生含 skill attribution 的 trace 事件",
-        "非法 schema 注册被忽略并记录 warning",
-        "缺少 required 参数时返回 invalid_args 错误",
-        "参数类型不匹配时返回 invalid_args 错误",
-        "Agent 断连时 pending dynamic tool calls 立即返回 timeout error",
-        "冷启动降级：snapshot 未到达时创建的 session 仅有 built-in 工具，snapshot 到达后新建 session 获得动态工具",
-        "跨端信息型问答验证：A端问知识问题 → steps=[] result → B端同步看到同一结果 → 无确认按钮 → B端 follow-up 继续同一 conversation（依赖现有 conversation 同步基础设施，R043 不新增同步逻辑，复用 CONTRACT-049 定义的事件投影机制）",
-        "tool_result.result 超 64KB 时 Agent 端截断并追加标记，truncated=true",
-        "客户端现有测试 smart_terminal_side_panel_agent_test.dart 增加 steps=[] + need_confirm=false 回归验证（确认 info-only result 正确渲染、不显示确认按钮）",
-        "混合意图旅程验证：用户请求同时包含知识问答和命令生成时，Agent 在单轮 result 中同时包含 summary 知识回答和 steps 命令序列",
-        "Tool catalog 注册边界测试：>50 工具时超限忽略、description >500 字符截断、schema >4KB 拒绝、snapshot >256KB 拒绝整个 snapshot",
-        "Codex 负向案例：用户说'用 Codex 打开项目'时 Agent 只返回知识说明（steps=[], need_confirm=false），不生成 codex 执行命令",
-        "现有 server 测试全部通过"
-      ],
-      "risk_tags": [
-        "boundary"
-      ],
-      "files": [
-        "server/tests/test_terminal_agent.py",
-        "server/tests/test_agent_session_manager.py",
-        "client/test/widgets/smart_terminal_side_panel_agent_test.dart"
-      ],
-      "title": "Server 端测试：prompt 增强 + 动态工具注册",
-      "contracts": [
-        "CONTRACT-050"
-      ]
-    },
-    {
-      "id": "S086",
-      "phase": "agent-knowledge",
-      "module": "agent-test",
-      "name": "Agent 端测试：知识工具 + MCP Client",
-      "status": "completed",
-      "started_at": "2026-04-24T23:05:00+0800",
-      "completed_at": "2026-04-24T23:10:00+0800",
-      "actual_minutes": 5,
-      "commit": "pending",
-      "description": "Agent 端测试覆盖：\n1. lookup_knowledge 检索逻辑（命中/未命中/空目录）\n2. 内置知识文件完整性\n3. MCP Client Skill 发现和生命周期（正常启动/崩溃/重连）\n4. malformed skill.json 处理\n5. 禁用知识文件不参与检索\n6. enable/disable 后下次启动时上报更新后的 snapshot",
-      "verification": "L2",
-      "depends_on": [
-        "B091",
-        "B092"
-      ],
-      "priority": "P2",
-      "acceptance_criteria": [
-        "知识检索关键词匹配测试通过（命中/未命中/空目录）",
-        "内置知识文件存在且内容非空",
-        "禁用知识文件不参与检索",
-        "Skill 注册表读写测试通过",
-        "malformed skill.json 不崩溃，跳过并记录错误",
-        "MCP Server 启动/崩溃/重连测试通过",
-        "enable/disable 后下次 Agent 启动时上报更新后的 tool_catalog_snapshot",
-        "缺少 required 参数时返回 invalid_args 错误",
-        "参数类型不匹配时返回 invalid_args 错误",
-        "未知 extra params 被忽略不报错",
-        "MCP Server 崩溃后 pending calls 返回稳定错误（含 crash category）",
-        "tool_catalog_snapshot 包含 lookup_knowledge 的 built-in entry（kind=builtin, parameters 含 query string schema）",
-        "knowledge_config.json 非 JSON/损坏时默认全启用并记录 warning，不阻塞检索",
-        "MCP Server 返回 JSON 对象/数组时，Agent 端正确序列化为文本字符串（json.dumps）后填充 tool_result.result",
-        "tool_result.result 超 64KB 时 Agent 端截断，truncated=true 且 original_size 正确",
-        "现有 agent 测试全部通过"
-      ],
-      "risk_tags": [
-        "boundary"
-      ],
-      "files": [
-        "agent/tests/test_knowledge_tool.py",
-        "agent/tests/test_mcp_client.py"
-      ],
-      "title": "Agent 端测试：知识工具 + MCP Client",
-      "contracts": [
-        "CONTRACT-050"
-      ]
-    },
-    {
-      "id": "S087",
-      "phase": "agent-knowledge",
-      "module": "dev-flow",
-      "name": "R043 实现完成后状态回写与证据归档",
-      "status": "completed",
-      "started_at": "2026-04-24T23:10:00+0800",
-      "completed_at": "2026-04-24T23:15:00+0800",
-      "actual_minutes": 5,
-      "commit": "pending",
-      "description": "R043 规划产物（api_contracts.md、test_coverage.md、alignment_checklist.md）已在规划阶段写入。本任务负责在 S085/S086 测试通过后，回写最终状态：任务完成标记、测试结果证据、配套产物一致性确认。",
+      "id": "B098",
+      "phase": "eval-core",
+      "module": "server",
+      "name": "Code-based Graders：response_type / command_safety / structure / pattern",
+      "description": "实现 5 种确定性 Grader：1) response_type_match（检查 AgentResult.response_type 是否在期望列表内）2) command_safety（复用 command_validator.py 验证 steps 中所有命令）3) steps_structure（验证 steps 非空、每条命令可解析）4) contains_command（steps 包含/不包含指定模式）5) tool_call_order（检查工具调用序列是否符合期望）。所有 grader 输出 EvalGraderResult。",
       "verification": "L1",
       "depends_on": [
-        "S085",
-        "S086"
+        "B096"
       ],
-      "priority": "P3",
+      "status": "pending",
+      "priority": 1,
       "acceptance_criteria": [
-        "所有 R043 任务标记为 completed",
-        "evidence/ 目录包含 B089-B093 的实现证据",
-        "B091/B092/B093 的 smoke 测试场景全部通过（结果记录在 evidence 中）",
-        "配套产物状态与任务实际状态一致"
+        "5 种 code grader 实现完成",
+        "response_type_match 支持 acceptable_types 列表",
+        "command_safety 复用 command_validator.validate_command，不重复实现",
+        "contains_command 支持 steps_contain 和 steps_not_contain",
+        "每个 grader 输出结构化 EvalGraderResult（pass/fail + details）",
+        "所有 grader 不调用 LLM，纯代码逻辑"
       ],
-      "risk_tags": [],
+      "test_tasks": [
+        "每种 grader 的 pass/fail case",
+        "command_safety 复用验证",
+        "边界：空 steps、多 pattern"
+      ],
       "files": [
-        ".dev-flow/test_coverage.md",
-        ".dev-flow/alignment_checklist.md",
-        ".dev-flow/api_contracts.md"
-      ],
-      "title": "R043 实现完成后状态回写与证据归档",
-      "contracts": [
-        "CONTRACT-050"
+        "server/evals/graders/__init__.py",
+        "server/evals/graders/code_grader.py"
       ]
     },
     {
-      "id": "B094",
-      "phase": "agent-knowledge",
+      "id": "B099",
+      "phase": "eval-dataset",
       "module": "server",
-      "name": "AgentResult response_type 三类型 + SYSTEM_PROMPT 松绑",
-      "description": "Agent 角色已从'命令生成器'演进为'AI 编程助手'，需要支持三种响应语义：\n1. message：纯信息型回复（知识问答、使用建议），steps=[], 无需确认\n2. command：命令序列（现有行为），steps 含可执行 shell 命令，需用户确认\n3. ai_prompt：AI prompt 注入，将讨论结果组装为 prompt 文本注入终端 stdin，供 claude/codex 执行\n\n改动范围：\n- AgentResult 增加 response_type 字段（Literal['message', 'command', 'ai_prompt']）和 ai_prompt 字段\n- SYSTEM_PROMPT 重写：移除'禁止输出纯文本'等刚性约束，改为引导 LLM 根据 response_type 选择正确格式\n- agent_session_manager.py SSE result event 增加 response_type + ai_prompt\n- runtime_api.py fallback stream 同步更新\n\n架构约束变更：\n- 不变量 #43 从'收口为 CommandSequence'扩展为'收口为 AgentResult，response_type 区分三种语义'\n- 不变量 #44 作用域限定为 response_type=command\n- 不变量 #48 扩展到 response_type=ai_prompt",
-      "verification": "L2",
-      "depends_on": ["B089", "B093"],
-      "status": "completed",
-      "priority": "P1",
-      "started_at": "2026-04-25T18:00:00+0800",
-      "completed_at": "2026-04-25T18:30:00+0800",
-      "evidence_file": ".dev-flow/evidence/B094.md",
-      "commit": "e5b71a7",
-      "acceptance_criteria": [
-        "AgentResult 模型包含 response_type: Literal['message', 'command', 'ai_prompt']，默认值 'command'（向后兼容）",
-        "AgentResult 模型包含 ai_prompt: str = ''，仅 response_type=ai_prompt 时使用",
-        "SYSTEM_PROMPT 不再包含'禁止输出纯文本'或'每一次回复都必须且只能是合法 JSON'等刚性约束",
-        "SYSTEM_PROMPT 包含 response_type 选择指导：message 用于知识问答、command 用于命令生成、ai_prompt 用于组装 AI prompt 注入终端",
-        "SYSTEM_PROMPT 包含三种 response_type 的示例",
-        "agent_session_manager.py SSE result event 包含 response_type 和 ai_prompt 字段",
-        "runtime_api.py fallback stream 输出包含 response_type 字段",
-        "response_type='command' 时行为与现有完全一致（向后兼容）",
-        "response_type='message' 时 steps=[]、need_confirm=false、summary 包含完整回答",
-        "response_type='ai_prompt' 时 steps=[]、ai_prompt 包含完整 prompt 文本、need_confirm=true",
-        "现有测试全部通过（response_type 默认值 'command' 保证兼容）",
-        "api_contracts.md CONTRACT-047/050 已更新 response_type + ai_prompt 字段"
+      "name": "初始 Eval Task 数据集（30 个 task）",
+      "description": "创建 30 个 YAML task 定义，覆盖 5 个类别：1) intent_classification（10 个）：message/command/ai_prompt 的正确分类 2) command_generation（8 个）：Claude Code/Codex 映射、常见编程任务 3) knowledge_retrieval（4 个）：lookup_knowledge 命中/未命中 4) safety（5 个）：注入攻击、敏感路径、越界命令 5) multi_turn（3 个）：对话历史利用。每个 task 含 mock_tool_responses、expected、reference_solution。数据来源：R043 已知失败 + 日常使用场景。",
+      "verification": "L1",
+      "depends_on": [
+        "B096"
       ],
-      "risk_tags": [
-        "state_sync"
+      "status": "pending",
+      "priority": 2,
+      "acceptance_criteria": [
+        "30 个 YAML 文件在 server/evals/tasks/ 下",
+        "每个文件包含 id/category/description/input/expected/graders/metadata",
+        "5 个类别各至少有对应数量的 task",
+        "每个 task 有 reference_solution 字段",
+        "YAML 格式可被 B097 harness 正确加载"
       ],
       "test_tasks": [
-        {
-          "type": "unit",
-          "description": "AgentResult response_type 模型验证",
-          "scenarios": [
-            "response_type='command' 默认值向后兼容",
-            "response_type='message' 时 steps=[] need_confirm=false",
-            "response_type='ai_prompt' 时 ai_prompt 非空 steps=[]",
-            "response_type 非法值被 Pydantic 拒绝"
-          ]
-        },
-        {
-          "type": "unit",
-          "description": "SYSTEM_PROMPT 指导内容验证",
-          "scenarios": [
-            "SYSTEM_PROMPT 包含 response_type 选择指导",
-            "SYSTEM_PROMPT 不包含'禁止输出纯文本'",
-            "SYSTEM_PROMPT 包含三种 response_type 的示例"
-          ]
-        },
-        {
-          "type": "integration",
-          "description": "SSE result event 格式验证",
-          "scenarios": [
-            "response_type='message' 的 SSE event 包含正确字段",
-            "response_type='command' 的 SSE event 向后兼容",
-            "response_type='ai_prompt' 的 SSE event 包含 ai_prompt 字段"
-          ]
-        }
+        "YAML 格式校验",
+        "task 加载集成验证"
       ],
       "files": [
-        "server/app/terminal_agent.py",
-        "server/app/agent_session_manager.py",
+        "server/evals/tasks/intent_classification/*.yaml",
+        "server/evals/tasks/command_generation/*.yaml",
+        "server/evals/tasks/knowledge_retrieval/*.yaml",
+        "server/evals/tasks/safety/*.yaml",
+        "server/evals/tasks/multi_turn/*.yaml"
+      ]
+    },
+    {
+      "id": "B100",
+      "phase": "eval-dataset",
+      "module": "server",
+      "name": "LLM-as-Judge Grader",
+      "description": "实现 LLM 评分 Grader：通过 rubric prompt 调用 LLM 对 Agent 输出做多维度评分（相关性/完整性/安全性/有用性，各 1-5 分）。输出结构化 JSON。Judge 模型使用 EVAL_JUDGE_MODEL + EVAL_JUDGE_BASE_URL + EVAL_JUDGE_API_KEY 独立配置（可选），未配置时该 grader 跳过（降级为仅 code grader）。BASE_URL/API_KEY 默认复用 EVAL_AGENT_BASE_URL/API_KEY。提供校准工具：对比 LLM 评分与人工评分的一致性。",
+      "verification": "L2",
+      "depends_on": [
+        "B098"
+      ],
+      "status": "pending",
+      "priority": 2,
+      "acceptance_criteria": [
+        "LLMJudgeGrader 实现 4 维度评分",
+        "Judge prompt 含清晰 rubric 和 JSON 输出格式要求",
+        "EVAL_JUDGE_MODEL 未配置时 grader 返回 skipped 而非报错",
+        "评分结果解析为 EvalGraderResult",
+        "提供 calibration 工具对比 LLM 与人工评分",
+        "EVAL_JUDGE_BASE_URL/API_KEY 默认复用 EVAL_AGENT_BASE_URL/API_KEY"
+      ],
+      "risk_tags": [
+        "network",
+        "config"
+      ],
+      "test_tasks": [
+        "prompt 输出格式验证",
+        "JSON 解析容错",
+        "未配置降级",
+        "评分一致性基线",
+        "LLM Judge 超时/5xx 容错：grader 捕获异常并返回 error",
+        "LLM 畸形 JSON 响应降级：解析失败时返回 error 而非 crash"
+      ],
+      "files": [
+        "server/evals/graders/llm_judge.py"
+      ]
+    },
+    {
+      "id": "B101",
+      "phase": "online-quality",
+      "module": "server",
+      "name": "Agent 交互质量指标提取与持久化",
+      "description": "从已完成 Agent session 的 SSE 事件和数据库记录中提取质量指标：response_type_accuracy（实际响应类型与意图是否匹配）、tool_usage_efficiency（工具调用次数/轮数）、command_safety_rate（生成的命令通过安全检查的比例）、ask_user_frequency（追问频率）、token_efficiency（token 消耗与任务复杂度的比值）。指标持久化到 evals.db 的 quality_metrics 表。",
+      "verification": "L2",
+      "depends_on": [
+        "B096"
+      ],
+      "status": "pending",
+      "priority": 3,
+      "acceptance_criteria": [
+        "从 agent_conversation_events 提取 5 类指标",
+        "quality_metrics 表写入正确",
+        "指标按 session_id / user_id / device_id 关联",
+        "提取过程不影响在线 Agent 运行性能",
+        "提供 batch 提取入口（可回溯历史 session）"
+      ],
+      "test_tasks": [
+        "指标计算准确性",
+        "批量提取性能",
+        "历史数据回溯"
+      ],
+      "files": [
+        "server/evals/quality_monitor.py"
+      ]
+    },
+    {
+      "id": "B102",
+      "phase": "online-quality",
+      "module": "server",
+      "name": "质量指标 API + 聚合查询",
+      "description": "在 runtime_api.py 新增 2 个 REST 端点：1) GET /api/eval/quality/metrics — 查询质量指标，支持 time_range / user_id / device_id 过滤和聚合 2) GET /api/eval/quality/summary — 按时间窗口（日/周/月）的质量趋势。端点需要认证。数据来源是已持久化的质量指标记录，不依赖模型环境变量。",
+      "verification": "L2",
+      "depends_on": [
+        "B101"
+      ],
+      "status": "pending",
+      "priority": 3,
+      "acceptance_criteria": [
+        "GET /api/eval/quality/metrics 支持 time_range/user_id/device_id 过滤",
+        "GET /api/eval/quality/summary 按日/周/月聚合",
+        "端点需要 async_verify_token 认证",
+        "查询已持久化指标记录，不依赖模型环境变量",
+        "查询不影响主业务性能"
+      ],
+      "test_tasks": [
+        "API 过滤和聚合正确性",
+        "认证拦截",
+        "evals.db 不可达时返回 500"
+      ],
+      "files": [
         "server/app/runtime_api.py"
-      ],
-      "title": "AgentResult response_type 三类型 + SYSTEM_PROMPT 松绑",
-      "contracts": [
-        "CONTRACT-047",
-        "CONTRACT-050"
       ]
     },
     {
-      "id": "F088",
-      "phase": "agent-knowledge",
-      "module": "client",
-      "name": "Client 三类型渲染 + ai_prompt 终端注入",
-      "description": "客户端适配 AgentResult 三种 response_type：\n1. message：以聊天气泡展示 summary，无执行按钮，可直接编辑再次发送\n2. command：保持现有命令卡片 + 确认执行流程\n3. ai_prompt：展示 prompt 预览卡片 + 确认按钮，确认后将 ai_prompt 文本注入终端 stdin\n\nai_prompt 注入机制：\n- 用户确认后，客户端将 ai_prompt 文本通过 Server → Agent → PTY stdin 链路发送（与手动终端输入等价，遵循不变量 #8）\n- 文本后自动追加换行符（模拟 Enter 键）\n- 注入后 agent panel 回到 idle 状态，可继续对话\n\n改动范围：\n- AgentResultEvent 模型增加 responseType + aiPrompt 字段\n- smart_terminal_side_panel_content.dart 按 response_type 分支渲染\n- ai_prompt 确认后写入终端 stdin",
-      "verification": "F2",
-      "depends_on": [
-        "B094"
-      ],
-      "status": "completed",
-      "priority": "P1",
-      "started_at": "2026-04-25T18:35:00+0800",
-      "completed_at": "2026-04-25T19:10:00+0800",
-      "evidence_file": ".dev-flow/evidence/F088.md",
-      "commit": "a21ebe6",
-      "acceptance_criteria": [
-        "AgentResultEvent 包含 responseType 和 aiPrompt 字段，向后兼容（缺失时默认 'command'）",
-        "responseType='message'：summary 以可折叠卡片展示，无执行按钮，显示'已回复'状态标签",
-        "responseType='command'：保持现有命令序列卡片 + 确认执行流程不变",
-        "responseType='ai_prompt'：展示 prompt 预览卡片（显示 aiPrompt 文本），有'注入终端'确认按钮",
-        "ai_prompt 确认后文本写入终端 stdin（追加换行），agent panel 回到 idle 状态",
-        "手机端和桌面端均可触发 ai_prompt 注入（通过 Server → Agent → PTY stdin 链路，与现有终端输入等价）",
-        "三种类型结果状态下均可编辑再次发送（修复之前的编辑 bug）",
-        "error 状态下仍可编辑再次发送",
-        "跨端同步：A 端收到 message/ai_prompt 类型结果，B 端同步看到相同内容"
-      ],
-      "risk_tags": [],
-      "test_tasks": [
-        {
-          "type": "unit",
-          "description": "AgentResultEvent response_type 解析",
-          "scenarios": [
-            "fromJson 正确解析 response_type='message'",
-            "fromJson response_type 缺失时默认 'command'",
-            "fromJson 正确解析 ai_prompt 字段"
-          ]
-        },
-        {
-          "type": "widget",
-          "description": "三类型渲染验证",
-          "scenarios": [
-            "response_type='message' 显示 summary 卡片，无执行按钮",
-            "response_type='command' 显示命令卡片，有执行按钮",
-            "response_type='ai_prompt' 显示 prompt 预览，有注入按钮",
-            "所有类型 result 状态下可编辑再次发送",
-            "response_type 未知值时降级为 command 渲染"
-          ]
-        },
-        {
-          "type": "widget",
-          "description": "ai_prompt stdin 注入验证",
-          "scenarios": [
-            "确认后 ai_prompt 文本通过终端 stdin 写入",
-            "注入后 agent panel 回到 idle 状态",
-            "注入文本末尾自动追加换行符"
-          ]
-        }
-      ],
-      "files": [
-        "client/lib/models/agent_session_event.dart",
-        "client/lib/widgets/smart_terminal_side_panel_content.dart"
-      ],
-      "title": "Client 三类型渲染 + ai_prompt 终端注入",
-      "contracts": [
-        "CONTRACT-047",
-        "CONTRACT-050"
-      ]
-    },
-    {
-      "id": "S088",
-      "phase": "agent-knowledge",
-      "module": "test",
-      "name": "response_type 三类型测试覆盖 + 配套产物更新",
-      "description": "R043 增量测试覆盖和配套产物更新：\n1. Server 测试：response_type 三类型 happy path + 边界 + 降级\n2. Client 测试：三类型渲染 + ai_prompt 注入 + 编辑/重发\n3. 配套产物：test_coverage.md、alignment_checklist.md 更新",
+      "id": "B103",
+      "phase": "feedback-loop",
+      "module": "server",
+      "name": "用户反馈 → Eval Task 自动转换",
+      "description": "当用户提交反馈时，触发异步脱敏流程：1) 从 feedback 记录中提取引用 ID，不传原始内容给 LLM 2) LLM 仅接收脱敏摘要（反馈类别 + 简短描述），判断是否为 Agent 质量问题 3) 如果是，生成 candidate eval task（含 suggested_intent / suggested_category / suggested_expected）4) 写入 eval_task_candidates 表（source_feedback_id 仅存引用 ID）5) 提供人工审核 API。EVAL_FEEDBACK_MODEL 未配置时跳过自动转换，反馈正常保存。架构约束：eval 不读取真实用户对话内容，反馈闭环只接收脱敏摘要。",
       "verification": "L2",
       "depends_on": [
-        "B094",
-        "F088"
+        "B096",
+        "B097",
+        "B099"
       ],
-      "status": "completed",
-      "priority": "P2",
-      "started_at": "2026-04-25T19:15:00+0800",
-      "completed_at": "2026-04-25T19:20:00+0800",
-      "evidence_file": ".dev-flow/evidence/S088.md",
+      "status": "pending",
+      "priority": 4,
       "acceptance_criteria": [
-        "Server 测试覆盖：message/command/ai_prompt 三类型 result 构建和 SSE 推送",
-        "Server 测试覆盖：response_type 默认值 'command' 向后兼容",
-        "Server 测试覆盖：SYSTEM_PROMPT 不含刚性 JSON-only 约束",
-        "Client 测试覆盖：三类型 AgentResultEvent 解析和渲染",
-        "Client 测试覆盖：ai_prompt 确认后注入终端 stdin",
-        "Client 测试覆盖：result/error 状态下编辑再次发送",
-        "现有 server/client 测试全部通过",
-        "test_coverage.md 已更新 R043 增量测试条目",
-        "alignment_checklist.md 已更新 B094/F088 对齐状态"
+        "反馈提交后异步触发脱敏分析（不阻塞反馈 API 响应）",
+        "LLM 只接收脱敏摘要，不接收原始反馈文本",
+        "candidate task 的 source_feedback_id 仅存引用 ID，不存原始内容",
+        "EVAL_FEEDBACK_MODEL 未配置时跳过，反馈正常保存",
+        "人工审核 API 支持 list/approve/reject（需认证）",
+        "approved 的 candidate 自动转为正式 eval task（写入 evals.db，可被 harness 加载）"
       ],
       "risk_tags": [
-        "boundary"
+        "network",
+        "config"
       ],
       "test_tasks": [
-        {
-          "type": "unit",
-          "description": "Server response_type 三类型 result 构建",
-          "scenarios": [
-            "response_type='message' 的 AgentResult 构建",
-            "response_type='command' 默认值向后兼容",
-            "response_type='ai_prompt' 的 AgentResult 构建（含 ai_prompt 字段）",
-            "response_type 非法值被 Pydantic 拒绝"
-          ]
-        },
-        {
-          "type": "integration",
-          "description": "SSE result event response_type 推送",
-          "scenarios": [
-            "response_type='message' 的 SSE event 正确推送",
-            "response_type='command' 的 SSE event 向后兼容（含 response_type 字段）",
-            "response_type='ai_prompt' 的 SSE event 含 ai_prompt 字段",
-            "跨端同步：A 端收到 message 结果，B 端同步看到相同内容"
-          ]
-        },
-        {
-          "type": "unit",
-          "description": "Client AgentResultEvent 解析",
-          "scenarios": [
-            "fromJson 正确解析三种 response_type",
-            "response_type 缺失时默认 'command'",
-            "response_type 未知值时降级为 'command'"
-          ]
-        },
-        {
-          "type": "widget",
-          "description": "Client 三类型渲染 + ai_prompt 注入",
-          "scenarios": [
-            "response_type='message' 渲染为气泡/卡片，无执行按钮",
-            "response_type='command' 渲染为命令卡片，有执行按钮",
-            "response_type='ai_prompt' 渲染为预览卡片，有注入按钮",
-            "ai_prompt 确认后 stdin 注入 + panel idle 回归",
-            "所有类型 result/error 状态下可编辑再次发送"
-          ]
-        }
+        "反馈→candidate 流程",
+        "未配置降级",
+        "审核 API CRUD",
+        "异步分析超时/LLM 5xx 降级：分析失败不阻塞反馈保存",
+        "LLM 畸形响应处理：解析失败时记录 warning 并跳过 candidate 生成"
       ],
-      "title": "response_type 三类型测试覆盖 + 配套产物更新",
-      "contracts": [
-        "CONTRACT-047",
-        "CONTRACT-050"
+      "files": [
+        "server/evals/feedback_loop.py"
       ]
     },
     {
-      "id": "B095",
-      "phase": "agent-knowledge",
-      "module": "agent",
-      "name": "Agent 本地 HTTP Server 新增 Skill/Knowledge 管理 API",
-      "description": "在 Agent 本地 HTTP Server (local_server.py) 新增 skill 和 knowledge 文件的管理端点：\n1. GET /skills - 返回所有已发现 skill 列表及启用状态\n2. POST /skills/toggle - 切换指定 skill 启用/禁用，更新 skill-registry.json\n3. GET /knowledge - 返回所有知识文件列表及启用状态\n4. POST /knowledge/toggle - 切换指定知识文件启用/禁用，更新 knowledge_config.json\n\n变更后提示需重启 Agent 生效。复用现有 skill_registry.py 和 knowledge_tool.py 的读写函数。",
+      "id": "B104",
+      "phase": "feedback-loop",
+      "module": "server",
+      "name": "回归测试运行器 + 趋势追踪 + CLI 入口",
+      "description": "实现回归测试运行器：运行全部 task，与 baseline 对比，检测 regression（之前通过的 task 现在失败）。趋势追踪：按 eval_run 记录历史 pass rate，支持按时间查询趋势。CLI 入口：python -m evals run [--tasks dir] [--trials N] [--regression] [--baseline run_id]。",
       "verification": "L2",
       "depends_on": [
-        "B091",
-        "B092"
+        "B097",
+        "B098",
+        "B103",
+        "B099"
       ],
-      "status": "completed",
-      "priority": "P2",
-      "started_at": "2026-04-25T19:25:00+0800",
-      "completed_at": "2026-04-25T20:00:00+0800",
-      "evidence_file": ".dev-flow/evidence/B095.md",
-      "commit": "8703d3c",
+      "status": "pending",
+      "priority": 4,
       "acceptance_criteria": [
-        "GET /skills 返回 skills/ 目录下所有 skill，包含 name、description、enabled 状态",
-        "POST /skills/toggle 接受 {name, enabled} 参数，更新 skill-registry.json",
-        "GET /knowledge 返回所有知识文件，包含 filename、enabled 状态",
-        "POST /knowledge/toggle 接受 {filename, enabled} 参数，更新 knowledge_config.json",
-        "所有端点受现有 _auth_middleware 保护",
-        "skill/knowledge 不存在时返回 404",
-        "请求格式错误时返回 400",
-        "现有 Agent 端测试全部通过"
+        "回归模式：与指定 baseline run 对比，输出 regression 列表",
+        "趋势查询：按时间窗口返回 pass_rate 变化",
+        "CLI 入口：run / regression / trend 三个子命令",
+        "配置缺失时 CLI 报错退出并提示需要设置的环境变量",
+        "输出 JSON + 人类可读的 summary"
       ],
-      "risk_tags": [],
       "test_tasks": [
-        {
-          "type": "unit",
-          "description": "Skill/Knowledge HTTP 端点 happy path",
-          "scenarios": [
-            "GET /skills 返回正确的 skill 列表",
-            "POST /skills/toggle 正确更新 registry",
-            "GET /knowledge 返回正确的知识文件列表",
-            "POST /knowledge/toggle 正确更新 config"
-          ]
-        },
-        {
-          "type": "unit",
-          "description": "Skill/Knowledge HTTP 端点边界与错误",
-          "scenarios": [
-            "不存在的 skill/knowledge 返回 404",
-            "无效 JSON 请求返回 400",
-            "无 auth token 请求返回 401",
-            "skills/ 目录为空时 GET /skills 返回空列表",
-            "knowledge_config.json 缺失时 GET /knowledge 返回全部启用",
-            "skill-registry.json 格式损坏时不崩溃，返回空列表"
-          ]
-        }
+        "回归检测准确性",
+        "趋势查询",
+        "CLI 子命令"
       ],
       "files": [
-        "agent/local_server.py",
-        "agent/app/skill_registry.py",
-        "agent/app/knowledge_tool.py"
-      ],
-      "title": "Agent 本地 HTTP Server 新增 Skill/Knowledge 管理 API",
-      "contracts": [
-        "CONTRACT-024",
-        "CONTRACT-050"
+        "server/evals/regression.py",
+        "server/evals/__main__.py"
       ]
     },
     {
-      "id": "F089",
-      "phase": "agent-knowledge",
-      "module": "client",
-      "name": "Desktop 客户端 Skill 配置面板",
-      "description": "在桌面端添加 Skill/Knowledge 配置面板，用户可查看和管理 Agent 上的技能和知识文件：\n1. 桌面端 workspace 菜单添加'技能管理'入口（仅桌面端可见，手机端不显示）\n2. 新建 SkillConfigScreen：展示 skill 列表 + 启用/禁用开关\n3. 展示知识文件列表 + 启用/禁用开关\n4. 变更后提示'重启 Agent 后生效'\n5. 数据来源：通过 Agent 本地 HTTP Server 的 /skills 和 /knowledge 端点获取",
-      "verification": "F2",
+      "id": "S089",
+      "phase": "eval-core",
+      "module": "server",
+      "name": "Eval 框架核心测试",
+      "description": "覆盖 B096 + B097：数据模型创建与序列化、SQLite CRUD、YAML task 加载、harness mock transport 执行、transcript 收集、pass@k/pass^k 计算、配置缺失拦截。",
+      "verification": "L1",
       "depends_on": [
-        "B095"
+        "B097"
       ],
-      "status": "completed",
-      "priority": "P2",
-      "started_at": "2026-04-25T20:05:00+0800",
-      "completed_at": "2026-04-25T20:45:00+0800",
-      "evidence_file": ".dev-flow/evidence/F089.md",
-      "commit": "9cd9907",
+      "status": "pending",
+      "priority": 1,
       "acceptance_criteria": [
-        "桌面端 terminal workspace 菜单中新增'技能管理'入口",
-        "点击后打开 SkillConfigScreen",
-        "SkillConfigScreen 展示 skill 列表（名称 + 描述 + 开关）",
-        "SkillConfigScreen 展示知识文件列表（文件名 + 开关）",
-        "切换开关后调用 Agent 本地 HTTP API 更新配置",
-        "变更后显示'重启 Agent 后生效'提示",
-        "仅桌面端显示此菜单入口",
-        "通过 Agent 本地 HTTP /skills 和 /knowledge 获取数据"
-      ],
-      "risk_tags": [],
-      "test_tasks": [
-        {
-          "type": "widget",
-          "description": "Skill 配置面板渲染与交互",
-          "scenarios": [
-            "正确展示 skill 列表和开关状态",
-            "正确展示知识文件列表和开关状态",
-            "开关切换触发 API 调用",
-            "变更后显示重启提示",
-            "仅桌面端显示菜单入口，手机端不显示",
-            "Agent 离线时加载失败显示错误提示"
-          ]
-        },
-        {
-          "type": "widget",
-          "description": "Skill 配置面板边界场景",
-          "scenarios": [
-            "skill/knowledge 列表为空时显示空状态提示",
-            "API 调用失败时开关恢复原位并显示错误",
-            "首次打开无本地 HTTP 连接时降级提示"
-          ]
-        }
+        "数据模型序列化/反序列化测试通过",
+        "SQLite CRUD 测试通过",
+        "YAML task 加载（正常 + 格式错误 + 文件缺失）测试通过",
+        "harness mock transport 返回正确结果",
+        "pass@k / pass^k 计算正确",
+        "EVAL_AGENT_MODEL/BASE_URL/API_KEY 缺失时 raise 明确错误，不复用 ASSISTANT_LLM_*"
       ],
       "files": [
-        "client/lib/screens/skill_config_screen.dart",
-        "client/lib/navigation/account_menu_actions.dart",
-        "client/lib/screens/terminal_workspace_screen.dart"
+        "server/tests/test_eval_harness.py"
+      ]
+    },
+    {
+      "id": "S090",
+      "phase": "eval-dataset",
+      "module": "server",
+      "name": "Grader 测试覆盖",
+      "description": "覆盖 B098 + B100：每种 code grader 的 pass/fail case、command_safety 复用验证、LLM Judge prompt 输出解析、未配置降级行为、评分一致性基线。",
+      "verification": "L1",
+      "depends_on": [
+        "B098",
+        "B100"
       ],
-      "title": "Desktop 客户端 Skill 配置面板",
-      "contracts": [
-        "CONTRACT-024",
-        "CONTRACT-050"
+      "status": "pending",
+      "priority": 2,
+      "acceptance_criteria": [
+        "5 种 code grader 各有 pass/fail 测试",
+        "command_safety grader 复用 command_validator 的测试",
+        "LLM Judge JSON 解析容错测试",
+        "EVAL_JUDGE_MODEL 未配置时返回 skipped",
+        "LLM Judge 评分有与 reference 对比的一致性基线"
+      ],
+      "files": [
+        "server/tests/test_eval_graders.py"
+      ]
+    },
+    {
+      "id": "S091",
+      "phase": "online-quality",
+      "module": "server",
+      "name": "质量监控测试覆盖",
+      "description": "覆盖 B101 + B102：指标提取准确性（构造已知 session 验证计算）、批量提取性能、API 过滤/聚合正确性、认证拦截、evals.db 不可达时返回 500。",
+      "verification": "L1",
+      "depends_on": [
+        "B102"
+      ],
+      "status": "pending",
+      "priority": 3,
+      "acceptance_criteria": [
+        "5 类指标各有计算准确性测试",
+        "API 过滤和聚合返回正确结果",
+        "未认证请求返回 401",
+        "evals.db 不可达时返回 500",
+        "批量提取不影响性能基线"
+      ],
+      "files": [
+        "server/tests/test_quality_monitor.py"
+      ]
+    },
+    {
+      "id": "S092",
+      "phase": "feedback-loop",
+      "module": "server",
+      "name": "反馈闭环测试覆盖",
+      "description": "覆盖 B103 + B104：反馈→candidate 流程、未配置降级、审核 API CRUD、回归检测准确性、趋势查询、CLI 子命令。",
+      "verification": "L1",
+      "depends_on": [
+        "B103",
+        "B104"
+      ],
+      "status": "pending",
+      "priority": 4,
+      "acceptance_criteria": [
+        "反馈→candidate 完整流程测试",
+        "EVAL_FEEDBACK_MODEL 未配置时跳过自动转换",
+        "审核 API list/approve/reject 测试",
+        "回归检测：已知 baseline 对比结果正确",
+        "CLI 子命令输出格式正确",
+        "配置缺失时 CLI 报错并提示"
+      ],
+      "files": [
+        "server/tests/test_feedback_loop.py"
       ]
     }
   ]
