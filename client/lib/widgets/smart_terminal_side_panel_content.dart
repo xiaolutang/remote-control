@@ -807,8 +807,10 @@ class _SmartTerminalSidePanelContentState
           _agentResult = result;
           _agentState = AgentPanelState.result;
           _activeSessionId = null;
-          // 从 AgentResult 构建 CommandSequenceDraft
-          _draft = _buildDraftFromAgentResult(result);
+          // 仅 command 类型构建 CommandSequenceDraft
+          if (_isCommandResult(result)) {
+            _draft = _buildDraftFromAgentResult(result);
+          }
         });
         _restartConversationStreamForCurrentScope();
         unawaited(_refreshUsageSummary(controller: controller));
@@ -864,6 +866,12 @@ class _SmartTerminalSidePanelContentState
       }
     });
     _scheduleScrollToLatest();
+  }
+
+  /// 判断 responseType 是否为 command 类型（含未知值降级）
+  bool _isCommandResult(AgentResultEvent result) {
+    final rt = result.responseType;
+    return rt != 'message' && rt != 'ai_prompt';
   }
 
   /// 从 AgentResultEvent 构建 CommandSequenceDraft
@@ -989,6 +997,42 @@ class _SmartTerminalSidePanelContentState
     if (!injectFailed) {
       widget.onClose();
     }
+  }
+
+  /// 注入 ai_prompt 文本到终端 stdin
+  void _injectAiPrompt() {
+    if (_executing || !_isConnected) return;
+    final result = _agentResult;
+    if (result == null || result.aiPrompt.isEmpty) return;
+
+    setState(() => _executing = true);
+
+    try {
+      final service = context.read<WebSocketService>();
+      service.send('${result.aiPrompt}\r');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _agentState = AgentPanelState.error;
+        _agentError = AgentErrorEvent(
+          code: 'INJECT_FAILED',
+          message: 'Prompt 注入失败：$e',
+        );
+      });
+      return;
+    }
+
+    if (!mounted) return;
+    // 归档当前轮次并回到 idle
+    _archiveAgentTurn(result: result);
+    setState(() {
+      _executing = false;
+      _agentState = AgentPanelState.idle;
+      _agentResult = null;
+      _traces.clear();
+      _agentAnswers.clear();
+      _currentQuestion = null;
+    });
   }
 
   // ============================================================
@@ -1437,9 +1481,88 @@ class _SmartTerminalSidePanelContentState
     );
   }
 
-  /// 历史结果气泡（不可执行，仅展示摘要）
+  /// 历史结果气泡（不可执行，仅展示摘要，按 responseType 分支渲染）
   Widget _buildHistoryResultBubble(
       AgentResultEvent result, ColorScheme colorScheme) {
+    final rt = result.responseType;
+
+    // message 类型：显示已回复标签
+    if (rt == 'message') {
+      return _buildAssistantBubble(
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.chat_bubble_outline,
+                    size: 14, color: colorScheme.primary),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    result.summary,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '已回复',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: colorScheme.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // ai_prompt 类型：显示 prompt 预览
+    if (rt == 'ai_prompt') {
+      return _buildAssistantBubble(
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.smart_toy_outlined,
+                    size: 14, color: colorScheme.primary),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    result.summary,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            if (result.aiPrompt.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                result.aiPrompt,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      fontFamily: 'monospace',
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ],
+        ),
+      );
+    }
+
+    // command 或未知类型：原有渲染
     return _buildAssistantBubble(
       Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1820,11 +1943,189 @@ class _SmartTerminalSidePanelContentState
     );
   }
 
-  /// Result：命令预览卡片 + 执行按钮
+  /// Result：根据 responseType 分支渲染
   Widget _buildResultView(ColorScheme colorScheme, bool connected) {
     final result = _agentResult;
     if (result == null) return const SizedBox.shrink();
 
+    final rt = result.responseType;
+    if (rt == 'message') {
+      return _buildMessageResultView(result, colorScheme);
+    }
+    if (rt == 'ai_prompt') {
+      return _buildAiPromptResultView(result, colorScheme, connected);
+    }
+    // command 或未知类型，降级为 command 渲染
+    return _buildCommandResultView(result, colorScheme, connected);
+  }
+
+  /// message 类型：summary 可折叠卡片，无步骤，无执行按钮，收起时显示"已回复"标签
+  Widget _buildMessageResultView(
+      AgentResultEvent result, ColorScheme colorScheme) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.82),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.14),
+        ),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: ExpansionTile(
+          key: const Key('side-panel-message-expansion-tile'),
+          tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          initiallyExpanded: false,
+          collapsedShape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+          shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+          backgroundColor: Colors.transparent,
+          collapsedBackgroundColor: Colors.transparent,
+          iconColor: colorScheme.primary,
+          collapsedIconColor: colorScheme.primary,
+          title: Row(
+            children: [
+              Icon(Icons.chat_bubble_outline,
+                  size: 16, color: colorScheme.primary),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  result.summary,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color:
+                      colorScheme.primaryContainer.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '已回复',
+                  key: const Key('side-panel-message-replied-tag'),
+                  style:
+                      Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: colorScheme.primary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                ),
+              ),
+            ],
+          ),
+          children: [
+            Text(
+              result.summary,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w400,
+                  ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// ai_prompt 类型：prompt 预览卡片 + 注入终端按钮
+  Widget _buildAiPromptResultView(
+      AgentResultEvent result, ColorScheme colorScheme, bool connected) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.82),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.14),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.smart_toy_outlined, size: 16, color: colorScheme.primary),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  result.summary,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // Prompt 预览文本
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF5F7FA),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: colorScheme.outlineVariant.withValues(alpha: 0.2),
+              ),
+            ),
+            child: Text(
+              result.aiPrompt,
+              key: const Key('side-panel-ai-prompt-preview'),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    fontFamily: 'monospace',
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+              maxLines: 8,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (!connected) ...[
+            const SizedBox(height: 6),
+            Text(
+              '终端未连接，请先确认连接状态。',
+              style: TextStyle(color: colorScheme.error, fontSize: 12),
+            ),
+          ],
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              key: const Key('side-panel-inject-prompt'),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(40),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                backgroundColor: const Color(0xFF1F5EFF),
+              ),
+              onPressed: connected && !_executing ? _injectAiPrompt : null,
+              child: _executing
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Text('注入终端'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// command 类型：命令预览卡片 + 执行按钮（保持原有逻辑）
+  Widget _buildCommandResultView(
+      AgentResultEvent result, ColorScheme colorScheme, bool connected) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),

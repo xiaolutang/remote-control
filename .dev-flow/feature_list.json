@@ -997,10 +997,12 @@
       "description": "Agent 角色已从'命令生成器'演进为'AI 编程助手'，需要支持三种响应语义：\n1. message：纯信息型回复（知识问答、使用建议），steps=[], 无需确认\n2. command：命令序列（现有行为），steps 含可执行 shell 命令，需用户确认\n3. ai_prompt：AI prompt 注入，将讨论结果组装为 prompt 文本注入终端 stdin，供 claude/codex 执行\n\n改动范围：\n- AgentResult 增加 response_type 字段（Literal['message', 'command', 'ai_prompt']）和 ai_prompt 字段\n- SYSTEM_PROMPT 重写：移除'禁止输出纯文本'等刚性约束，改为引导 LLM 根据 response_type 选择正确格式\n- agent_session_manager.py SSE result event 增加 response_type + ai_prompt\n- runtime_api.py fallback stream 同步更新\n\n架构约束变更：\n- 不变量 #43 从'收口为 CommandSequence'扩展为'收口为 AgentResult，response_type 区分三种语义'\n- 不变量 #44 作用域限定为 response_type=command\n- 不变量 #48 扩展到 response_type=ai_prompt",
       "verification": "L2",
       "depends_on": ["B089", "B093"],
-      "status": "in_progress",
+      "status": "completed",
       "priority": "P1",
       "started_at": "2026-04-25T18:00:00+0800",
+      "completed_at": "2026-04-25T18:30:00+0800",
       "evidence_file": ".dev-flow/evidence/B094.md",
+      "commit": "e5b71a7",
       "acceptance_criteria": [
         "AgentResult 模型包含 response_type: Literal['message', 'command', 'ai_prompt']，默认值 'command'（向后兼容）",
         "AgentResult 模型包含 ai_prompt: str = ''，仅 response_type=ai_prompt 时使用",
@@ -1069,8 +1071,10 @@
       "depends_on": [
         "B094"
       ],
-      "status": "pending",
+      "status": "in_progress",
       "priority": "P1",
+      "started_at": "2026-04-25T18:35:00+0800",
+      "evidence_file": ".dev-flow/evidence/F088.md",
       "acceptance_criteria": [
         "AgentResultEvent 包含 responseType 和 aiPrompt 字段，向后兼容（缺失时默认 'command'）",
         "responseType='message'：summary 以可折叠卡片展示，无执行按钮，显示'已回复'状态标签",

@@ -776,6 +776,135 @@ void main() {
       unawaited(streamController.close());
     });
 
+    testWidgets(
+        'conversation stream syncs message type result (response_type=message)',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final streamController = StreamController<AgentConversationEventItem>();
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onFetchConversation: (_, __) async =>
+            const AgentConversationProjection(
+          conversationId: 'conv-sync-msg',
+          deviceId: 'device-1',
+          terminalId: 'term-1',
+          status: 'active',
+          nextEventIndex: 0,
+          activeSessionId: null,
+          events: [],
+        ),
+        onStreamConversation: (_) => streamController.stream,
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+      await tester.pumpAndSettle();
+      await _openSidePanel(tester);
+
+      // 远端产生 user_intent + message 类型 result
+      streamController.add(const AgentConversationEventItem(
+        eventIndex: 0,
+        eventId: 'evt-msg-0',
+        type: 'user_intent',
+        role: 'user',
+        payload: {'text': '查一下部署状态'},
+      ));
+      streamController.add(const AgentConversationEventItem(
+        eventIndex: 1,
+        eventId: 'evt-msg-1',
+        type: 'result',
+        role: 'assistant',
+        payload: {
+          'summary': '所有服务运行正常，无异常日志。',
+          'steps': <Map<String, dynamic>>[],
+          'provider': 'agent',
+          'source': 'recommended',
+          'need_confirm': false,
+          'aliases': <String, dynamic>{},
+          'response_type': 'message',
+        },
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('查一下部署状态'), findsOneWidget);
+      expect(find.text('所有服务运行正常，无异常日志。'), findsOneWidget);
+      expect(
+          find.byKey(const Key('side-panel-message-replied-tag')),
+          findsOneWidget);
+      // message 类型无执行按钮、无注入按钮
+      expect(find.byKey(const Key('side-panel-execute')), findsNothing);
+      expect(
+          find.byKey(const Key('side-panel-inject-prompt')), findsNothing);
+      unawaited(streamController.close());
+    });
+
+    testWidgets(
+        'conversation stream syncs ai_prompt type result (response_type=ai_prompt)',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final streamController = StreamController<AgentConversationEventItem>();
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onFetchConversation: (_, __) async =>
+            const AgentConversationProjection(
+          conversationId: 'conv-sync-prompt',
+          deviceId: 'device-1',
+          terminalId: 'term-1',
+          status: 'active',
+          nextEventIndex: 0,
+          activeSessionId: null,
+          events: [],
+        ),
+        onStreamConversation: (_) => streamController.stream,
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+      await tester.pumpAndSettle();
+      await _openSidePanel(tester);
+
+      // 远端产生 user_intent + ai_prompt 类型 result
+      streamController.add(const AgentConversationEventItem(
+        eventIndex: 0,
+        eventId: 'evt-prompt-0',
+        type: 'user_intent',
+        role: 'user',
+        payload: {'text': '帮我生成部署脚本'},
+      ));
+      streamController.add(const AgentConversationEventItem(
+        eventIndex: 1,
+        eventId: 'evt-prompt-1',
+        type: 'result',
+        role: 'assistant',
+        payload: {
+          'summary': '已生成部署脚本',
+          'steps': <Map<String, dynamic>>[],
+          'provider': 'agent',
+          'source': 'recommended',
+          'need_confirm': false,
+          'aliases': <String, dynamic>{},
+          'response_type': 'ai_prompt',
+          'ai_prompt': 'kubectl apply -f deploy.yaml',
+        },
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('帮我生成部署脚本'), findsOneWidget);
+      expect(find.text('已生成部署脚本'), findsOneWidget);
+      // ai_prompt 类型展示 prompt 文本
+      expect(find.text('kubectl apply -f deploy.yaml'), findsOneWidget);
+      // 活跃结果无执行按钮
+      expect(find.byKey(const Key('side-panel-execute')), findsNothing);
+      // 活跃 ai_prompt 结果有注入按钮（跨端同步后可注入）
+      expect(
+          find.byKey(const Key('side-panel-inject-prompt')), findsOneWidget);
+      unawaited(streamController.close());
+    });
+
     testWidgets('conversation stream closed event disables smart input',
         (tester) async {
       final controller = _AgentFakeController();
@@ -1372,6 +1501,257 @@ void main() {
       );
       expect(event.reason, 'Agent 不可用');
       expect(event.code, 'AGENT_OFFLINE');
+    });
+  });
+
+  group('F088: response_type branching', () {
+    testWidgets('responseType=message shows summary card without execute button',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final ws = MockWebSocketService()..simulateConnect();
+      final agentService = _FakeAgentSessionService(
+        events: [
+          const AgentSessionCreatedEvent(sessionId: 'session-msg'),
+          AgentResultEvent(
+            summary: '这是消息回复',
+            steps: const [],
+            provider: 'agent',
+            source: 'recommended',
+            needConfirm: false,
+            aliases: const {},
+            responseType: 'message',
+          ),
+        ],
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        wsService: ws,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+
+      await _openSidePanel(tester);
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '发消息',
+      );
+      await tester.tap(find.byKey(const Key('side-panel-send')));
+      await tester.pumpAndSettle(const Duration(seconds: 5));
+
+      expect(find.text('这是消息回复'), findsOneWidget);
+      expect(find.byKey(const Key('side-panel-message-replied-tag')),
+          findsOneWidget);
+      // 无执行按钮
+      expect(find.byKey(const Key('side-panel-execute')), findsNothing);
+      // 无注入按钮
+      expect(find.byKey(const Key('side-panel-inject-prompt')), findsNothing);
+    });
+
+    testWidgets('responseType=command shows execute button', (tester) async {
+      final controller = _AgentFakeController();
+      final ws = MockWebSocketService()..simulateConnect();
+      final agentService = _FakeAgentSessionService(
+        events: [
+          const AgentSessionCreatedEvent(sessionId: 'session-cmd'),
+          AgentResultEvent(
+            summary: '进入项目目录',
+            steps: const [
+              AgentResultStep(
+                id: 'step-1',
+                label: '进入目录',
+                command: 'cd ~/project',
+              ),
+            ],
+            provider: 'agent',
+            source: 'recommended',
+            needConfirm: true,
+            aliases: {},
+            responseType: 'command',
+          ),
+        ],
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        wsService: ws,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+
+      await _openSidePanel(tester);
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '进入项目',
+      );
+      await tester.tap(find.byKey(const Key('side-panel-send')));
+      await tester.pumpAndSettle(const Duration(seconds: 5));
+
+      expect(find.text('进入项目目录'), findsOneWidget);
+      expect(find.byKey(const Key('side-panel-execute')), findsOneWidget);
+      expect(find.byKey(const Key('side-panel-inject-prompt')), findsNothing);
+    });
+
+    testWidgets('responseType=ai_prompt shows inject button and prompt preview',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final ws = MockWebSocketService()..simulateConnect();
+      final agentService = _FakeAgentSessionService(
+        events: [
+          const AgentSessionCreatedEvent(sessionId: 'session-ai'),
+          AgentResultEvent(
+            summary: '执行部署命令',
+            steps: const [],
+            provider: 'agent',
+            source: 'recommended',
+            needConfirm: false,
+            aliases: const {},
+            responseType: 'ai_prompt',
+            aiPrompt: 'kubectl apply -f deployment.yaml',
+          ),
+        ],
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        wsService: ws,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+
+      await _openSidePanel(tester);
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '部署',
+      );
+      await tester.tap(find.byKey(const Key('side-panel-send')));
+      await tester.pumpAndSettle(const Duration(seconds: 5));
+
+      expect(find.text('执行部署命令'), findsOneWidget);
+      expect(find.byKey(const Key('side-panel-ai-prompt-preview')),
+          findsOneWidget);
+      expect(find.text('kubectl apply -f deployment.yaml'), findsOneWidget);
+      expect(find.byKey(const Key('side-panel-inject-prompt')), findsOneWidget);
+      // 无执行按钮
+      expect(find.byKey(const Key('side-panel-execute')), findsNothing);
+    });
+
+    testWidgets('unknown responseType falls back to command rendering',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final ws = MockWebSocketService()..simulateConnect();
+      final agentService = _FakeAgentSessionService(
+        events: [
+          const AgentSessionCreatedEvent(sessionId: 'session-unknown'),
+          AgentResultEvent(
+            summary: '未知类型',
+            steps: const [
+              AgentResultStep(
+                id: 'step-1',
+                label: '执行',
+                command: 'echo test',
+              ),
+            ],
+            provider: 'agent',
+            source: 'recommended',
+            needConfirm: true,
+            aliases: {},
+            responseType: 'future_type',
+          ),
+        ],
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        wsService: ws,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+
+      await _openSidePanel(tester);
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '测试未知类型',
+      );
+      await tester.tap(find.byKey(const Key('side-panel-send')));
+      await tester.pumpAndSettle(const Duration(seconds: 5));
+
+      expect(find.text('未知类型'), findsOneWidget);
+      // 降级为 command 渲染，显示执行按钮
+      expect(find.byKey(const Key('side-panel-execute')), findsOneWidget);
+    });
+
+    testWidgets('all result types allow editing intent', (tester) async {
+      // Test message type allows edit
+      final controller = _AgentFakeController();
+      final ws = MockWebSocketService()..simulateConnect();
+      final agentService = _FakeAgentSessionService(
+        events: [
+          const AgentSessionCreatedEvent(sessionId: 'session-edit'),
+          AgentResultEvent(
+            summary: '消息结果',
+            steps: const [],
+            provider: 'agent',
+            source: 'recommended',
+            needConfirm: false,
+            aliases: const {},
+            responseType: 'message',
+          ),
+        ],
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        wsService: ws,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+
+      await _openSidePanel(tester);
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '编辑测试',
+      );
+      await tester.tap(find.byKey(const Key('side-panel-send')));
+      await tester.pumpAndSettle(const Duration(seconds: 5));
+
+      // 结果状态下，intent 气泡可编辑
+      final input = tester.widget<TextField>(
+        find.byKey(const Key('side-panel-intent-input')),
+      );
+      expect(input.enabled, isTrue);
+    });
+
+    testWidgets('ai_prompt inject sends prompt text via WebSocket',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final ws = MockWebSocketService()..simulateConnect();
+      final agentService = _FakeAgentSessionService(
+        events: [
+          const AgentSessionCreatedEvent(sessionId: 'session-inject'),
+          AgentResultEvent(
+            summary: '注入测试',
+            steps: const [],
+            provider: 'agent',
+            source: 'recommended',
+            needConfirm: false,
+            aliases: const {},
+            responseType: 'ai_prompt',
+            aiPrompt: 'echo injected',
+          ),
+        ],
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        wsService: ws,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+
+      await _openSidePanel(tester);
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '注入',
+      );
+      await tester.tap(find.byKey(const Key('side-panel-send')));
+      await tester.pumpAndSettle(const Duration(seconds: 5));
+
+      // 点击注入按钮
+      await tester.tap(find.byKey(const Key('side-panel-inject-prompt')));
+      await tester.pumpAndSettle();
+
+      // 验证 WebSocket 发送了 prompt 文本（追加回车）
+      expect(ws.sentMessages, isNotEmpty);
+      expect(ws.sentMessages.last, 'echo injected\r');
     });
   });
 }

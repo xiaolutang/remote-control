@@ -135,6 +135,8 @@ class AgentResultEvent extends AgentSessionEvent {
     required this.needConfirm,
     required this.aliases,
     this.usage,
+    this.responseType = 'command',
+    this.aiPrompt = '',
   });
 
   final String summary;
@@ -144,6 +146,12 @@ class AgentResultEvent extends AgentSessionEvent {
   final bool needConfirm;
   final Map<String, String> aliases;
   final AgentUsageData? usage;
+
+  /// 响应类型：'message' | 'command' | 'ai_prompt'，缺失或未知时默认 'command'
+  final String responseType;
+
+  /// ai_prompt 类型的 prompt 文本，用于注入终端 stdin
+  final String aiPrompt;
 
   factory AgentResultEvent.fromJson(Map<String, dynamic> json) {
     return AgentResultEvent(
@@ -162,6 +170,8 @@ class AgentResultEvent extends AgentSessionEvent {
       usage: json['usage'] != null
           ? AgentUsageData.fromJson(json['usage'] as Map<String, dynamic>)
           : null,
+      responseType: (json['response_type'] as String? ?? 'command').trim(),
+      aiPrompt: (json['ai_prompt'] as String? ?? '').trim(),
     );
   }
 }
