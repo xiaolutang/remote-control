@@ -531,6 +531,124 @@ class EvalDatabase:
             rows = await cursor.fetchall()
             return [QualityMetric.from_db_row(dict(r)) for r in rows]
 
+    async def query_quality_metrics(
+        self,
+        *,
+        metric_name: Optional[str] = None,
+        user_id: Optional[str] = None,
+        device_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[QualityMetric]:
+        """多条件过滤查询质量指标。
+
+        动态构建 WHERE 子句，只添加有值的过滤条件。
+        ORDER BY computed_at DESC, LIMIT 防止大查询。
+        """
+        conditions: List[str] = []
+        params: List[Any] = []
+
+        if metric_name is not None:
+            conditions.append("metric_name = ?")
+            params.append(metric_name)
+        if user_id is not None:
+            conditions.append("user_id = ?")
+            params.append(user_id)
+        if device_id is not None:
+            conditions.append("device_id = ?")
+            params.append(device_id)
+        if session_id is not None:
+            conditions.append("session_id = ?")
+            params.append(session_id)
+        if start_time is not None:
+            conditions.append("computed_at >= ?")
+            params.append(start_time)
+        if end_time is not None:
+            conditions.append("computed_at <= ?")
+            params.append(end_time)
+
+        query = "SELECT * FROM quality_metrics"
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " ORDER BY computed_at DESC LIMIT ?"
+        params.append(limit)
+
+        async with self._connect() as db:
+            cursor = await db.execute(query, params)
+            rows = await cursor.fetchall()
+            return [QualityMetric.from_db_row(dict(r)) for r in rows]
+
+    async def aggregate_quality_metrics(
+        self,
+        *,
+        metric_name: Optional[str] = None,
+        user_id: Optional[str] = None,
+        device_id: Optional[str] = None,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        group_by: str = "day",
+    ) -> List[Dict]:
+        """按时间窗口聚合质量指标。
+
+        group_by: "day" / "week" / "month"
+        返回 group_key, metric_name, count, avg_value, min_value, max_value。
+        """
+        if group_by == "day":
+            group_expr = "strftime('%Y-%m-%d', computed_at)"
+        elif group_by == "week":
+            group_expr = "strftime('%Y-W%W', computed_at)"
+        elif group_by == "month":
+            group_expr = "strftime('%Y-%m', computed_at)"
+        else:
+            group_expr = "strftime('%Y-%m-%d', computed_at)"
+
+        conditions: List[str] = []
+        params: List[Any] = []
+
+        if metric_name is not None:
+            conditions.append("metric_name = ?")
+            params.append(metric_name)
+        if user_id is not None:
+            conditions.append("user_id = ?")
+            params.append(user_id)
+        if device_id is not None:
+            conditions.append("device_id = ?")
+            params.append(device_id)
+        if start_time is not None:
+            conditions.append("computed_at >= ?")
+            params.append(start_time)
+        if end_time is not None:
+            conditions.append("computed_at <= ?")
+            params.append(end_time)
+
+        query = (
+            f"SELECT {group_expr} as group_key, metric_name, "
+            f"COUNT(*) as count, AVG(value) as avg_value, "
+            f"MIN(value) as min_value, MAX(value) as max_value "
+            f"FROM quality_metrics"
+        )
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " GROUP BY group_key, metric_name"
+        query += " ORDER BY group_key DESC, metric_name"
+
+        async with self._connect() as db:
+            cursor = await db.execute(query, params)
+            rows = await cursor.fetchall()
+            return [
+                {
+                    "group_key": dict(r)["group_key"],
+                    "metric_name": dict(r)["metric_name"],
+                    "count": dict(r)["count"],
+                    "avg_value": dict(r)["avg_value"],
+                    "min_value": dict(r)["min_value"],
+                    "max_value": dict(r)["max_value"],
+                }
+                for r in rows
+            ]
+
     # ── EvalTaskCandidate CRUD ────────────────────────────────────────────
 
     async def save_task_candidate(self, candidate: EvalTaskCandidate) -> None:

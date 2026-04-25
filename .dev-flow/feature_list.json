@@ -736,7 +736,11 @@
       "depends_on": [
         "B101"
       ],
-      "status": "pending",
+      "status": "completed",
+      "started_at": "2026-04-25T17:45:00+0800",
+      "completed_at": "2026-04-25T18:15:00+0800",
+      "evidence_file": ".dev-flow/evidence/B102.md",
+      "execution_state": {"current_step": "done", "retry_count": 0},
       "priority": 3,
       "acceptance_criteria": [
         "GET /api/eval/quality/metrics 支持 time_range/user_id/device_id 过滤",

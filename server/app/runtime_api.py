@@ -76,6 +76,7 @@ from app.agent_session_manager import (
     get_agent_session_manager,
 )
 from app.project_alias_store import ProjectAliasStore
+from evals.db import EvalDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -2854,3 +2855,75 @@ async def report_agent_execution(
         "session_id": session_id,
         "idempotent": False,
     }
+
+
+# ---------------------------------------------------------------------------
+# B102: Eval Quality Metrics API
+# ---------------------------------------------------------------------------
+
+def _get_eval_db() -> EvalDatabase:
+    """获取 EvalDatabase 实例（使用 EVALS_DB_PATH 环境变量或默认路径）。"""
+    db_path = os.environ.get("EVALS_DB_PATH", "/data/evals.db")
+    return EvalDatabase(db_path)
+
+
+@router.get("/eval/quality/metrics")
+async def get_quality_metrics(
+    metric_name: Optional[str] = None,
+    user_id: Optional[str] = None,
+    device_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+    limit: int = 100,
+    _user_id: str = Depends(get_current_user_id),
+):
+    """查询质量指标记录，支持多条件过滤。"""
+    try:
+        db = _get_eval_db()
+        metrics = await db.query_quality_metrics(
+            metric_name=metric_name,
+            user_id=user_id,
+            device_id=device_id,
+            session_id=session_id,
+            start_time=start_time,
+            end_time=end_time,
+            limit=limit,
+        )
+        return [m.model_dump() for m in metrics]
+    except Exception as e:
+        logger.error("Failed to query quality metrics: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"查询质量指标失败: {type(e).__name__}",
+        )
+
+
+@router.get("/eval/quality/summary")
+async def get_quality_summary(
+    metric_name: Optional[str] = None,
+    user_id: Optional[str] = None,
+    device_id: Optional[str] = None,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+    group_by: str = "day",
+    _user_id: str = Depends(get_current_user_id),
+):
+    """按时间窗口聚合质量指标（日/周/月）。"""
+    try:
+        db = _get_eval_db()
+        result = await db.aggregate_quality_metrics(
+            metric_name=metric_name,
+            user_id=user_id,
+            device_id=device_id,
+            start_time=start_time,
+            end_time=end_time,
+            group_by=group_by,
+        )
+        return result
+    except Exception as e:
+        logger.error("Failed to aggregate quality metrics: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"聚合质量指标失败: {type(e).__name__}",
+        )
