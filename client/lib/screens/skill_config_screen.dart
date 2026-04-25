@@ -2,21 +2,16 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../services/desktop_agent_http_client.dart';
+import '../services/skill_config_service.dart';
 
-/// F089: Agent 技能/知识文件配置面板
+/// F089 重写：Agent 技能/知识文件配置面板（直接读写本地文件，不依赖 HTTP API）
 class SkillConfigScreen extends StatefulWidget {
   const SkillConfigScreen({
     super.key,
-    this.agentPort,
-    this.httpClient,
-  });
+    SkillConfigService? skillConfigService,
+  }) : _skillConfigService = skillConfigService;
 
-  /// 已知的 Agent HTTP 端口（可选，不传则自动发现）
-  final int? agentPort;
-
-  /// 可注入的 HTTP 客户端（测试用）
-  final DesktopAgentHttpClient? httpClient;
+  final SkillConfigService? _skillConfigService;
 
   @override
   State<SkillConfigScreen> createState() => _SkillConfigScreenState();
@@ -25,73 +20,65 @@ class SkillConfigScreen extends StatefulWidget {
 class _SkillConfigScreenState extends State<SkillConfigScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
-  late final DesktopAgentHttpClient _httpClient;
+  late final SkillConfigService _service;
 
-  int? _resolvedPort;
-  List<SkillItem> _skills = [];
-  List<KnowledgeItem> _knowledge = [];
+  List<SkillInfo> _skills = [];
+  List<KnowledgeInfo> _knowledge = [];
   bool _loading = true;
   String? _errorMessage;
+  bool _noDataDir = false;
+
   // 追踪正在切换中的项，避免重复操作
   final Set<String> _togglingSkills = {};
   final Set<String> _togglingKnowledge = {};
+
+  // 验证状态：skill name -> verify result
+  final Map<String, SkillVerifyResult> _verifyResults = {};
+  bool _verifyingAll = false;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    _httpClient = widget.httpClient ?? DesktopAgentHttpClient();
+    _service =
+        widget._skillConfigService ?? SkillConfigService();
     unawaited(_loadData());
   }
 
   @override
   void dispose() {
     _tabController.dispose();
-    _httpClient.close();
     super.dispose();
-  }
-
-  Future<int?> _resolvePort() async {
-    if (_resolvedPort != null) return _resolvedPort;
-    if (widget.agentPort != null) {
-      _resolvedPort = widget.agentPort;
-      return _resolvedPort;
-    }
-    final status = await _httpClient.discoverAgent();
-    if (status != null && status.port > 0) {
-      _resolvedPort = status.port;
-      return _resolvedPort;
-    }
-    return null;
   }
 
   Future<void> _loadData() async {
     setState(() {
       _loading = true;
       _errorMessage = null;
+      _noDataDir = false;
     });
 
     try {
-      final port = await _resolvePort();
-      if (port == null) {
+      final dataDir = _service.getAgentDataDir();
+      if (dataDir == null) {
         if (!mounted) return;
         setState(() {
-          _errorMessage = '未发现本地 Agent，请确认 Agent 已启动';
+          _noDataDir = true;
           _loading = false;
         });
         return;
       }
 
       final results = await Future.wait([
-        _httpClient.getSkills(port),
-        _httpClient.getKnowledge(port),
+        _service.loadSkills(),
+        _service.loadKnowledge(),
       ]);
 
       if (!mounted) return;
 
       setState(() {
-        _skills = results[0] as List<SkillItem>;
-        _knowledge = results[1] as List<KnowledgeItem>;
+        _skills = results[0] as List<SkillInfo>;
+        _knowledge = results[1] as List<KnowledgeInfo>;
         _loading = false;
       });
     } catch (e) {
@@ -103,10 +90,9 @@ class _SkillConfigScreenState extends State<SkillConfigScreen>
     }
   }
 
-  Future<void> _toggleSkill(SkillItem skill, bool newValue) async {
+  Future<void> _toggleSkill(SkillInfo skill, bool newValue) async {
     final key = skill.name;
-    final port = _resolvedPort;
-    if (_togglingSkills.contains(key) || port == null) return;
+    if (_togglingSkills.contains(key)) return;
 
     setState(() {
       _togglingSkills.add(key);
@@ -119,33 +105,26 @@ class _SkillConfigScreenState extends State<SkillConfigScreen>
       _skills[index] = skill.copyWith(enabled: newValue);
     });
 
-    final ok = await _httpClient.toggleSkill(
-      port,
-      name: key,
-      enabled: newValue,
-    );
-
-    if (!mounted) return;
-
-    setState(() {
-      _togglingSkills.remove(key);
-    });
-
-    if (ok) {
-      _showRestartHint();
-    } else {
-      // 回滚
+    try {
+      await _service.toggleSkill(key, newValue);
+      if (!mounted) return;
       setState(() {
+        _togglingSkills.remove(key);
+      });
+      _showRestartHint();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _togglingSkills.remove(key);
         _skills[index] = skill;
       });
-      _showError('切换失败，请重试');
+      _showError('切换失败：$e');
     }
   }
 
-  Future<void> _toggleKnowledge(KnowledgeItem item, bool newValue) async {
+  Future<void> _toggleKnowledge(KnowledgeInfo item, bool newValue) async {
     final key = item.filename;
-    final port = _resolvedPort;
-    if (_togglingKnowledge.contains(key) || port == null) return;
+    if (_togglingKnowledge.contains(key)) return;
 
     setState(() {
       _togglingKnowledge.add(key);
@@ -158,27 +137,45 @@ class _SkillConfigScreenState extends State<SkillConfigScreen>
       _knowledge[index] = item.copyWith(enabled: newValue);
     });
 
-    final ok = await _httpClient.toggleKnowledge(
-      port,
-      filename: key,
-      enabled: newValue,
-    );
-
-    if (!mounted) return;
-
-    setState(() {
-      _togglingKnowledge.remove(key);
-    });
-
-    if (ok) {
-      _showRestartHint();
-    } else {
-      // 回滚
+    try {
+      await _service.toggleKnowledge(key, newValue);
+      if (!mounted) return;
       setState(() {
+        _togglingKnowledge.remove(key);
+      });
+      _showRestartHint();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _togglingKnowledge.remove(key);
         _knowledge[index] = item;
       });
-      _showError('切换失败，请重试');
+      _showError('切换失败：$e');
     }
+  }
+
+  Future<void> _verifyAll() async {
+    if (_verifyingAll || _skills.isEmpty) return;
+
+    setState(() {
+      _verifyingAll = true;
+      _verifyResults.clear();
+    });
+
+    for (final skill in _skills) {
+      final result = await _service.verifySkill(skill);
+      if (!mounted) {
+        _verifyingAll = false;
+        return;
+      }
+      setState(() {
+        _verifyResults[skill.name] = result;
+      });
+    }
+
+    setState(() {
+      _verifyingAll = false;
+    });
   }
 
   void _showRestartHint() {
@@ -206,6 +203,21 @@ class _SkillConfigScreenState extends State<SkillConfigScreen>
     return Scaffold(
       appBar: AppBar(
         title: const Text('技能管理'),
+        actions: [
+          if (!_loading && _errorMessage == null && !_noDataDir)
+            IconButton(
+              key: const Key('verify-all-btn'),
+              onPressed: _verifyingAll ? null : () => unawaited(_verifyAll()),
+              icon: _verifyingAll
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.verified),
+              tooltip: '验证全部',
+            ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
@@ -216,15 +228,49 @@ class _SkillConfigScreenState extends State<SkillConfigScreen>
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : _errorMessage != null
-              ? _buildErrorState()
-              : TabBarView(
-                  controller: _tabController,
-                  children: [
-                    _buildSkillList(),
-                    _buildKnowledgeList(),
-                  ],
-                ),
+          : _noDataDir
+              ? _buildNoDataDirState()
+              : _errorMessage != null
+                  ? _buildErrorState()
+                  : TabBarView(
+                      controller: _tabController,
+                      children: [
+                        _buildSkillList(),
+                        _buildKnowledgeList(),
+                      ],
+                    ),
+    );
+  }
+
+  Widget _buildNoDataDirState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.folder_off_outlined,
+              size: 48,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              '未找到 Agent 配置目录',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+            ),
+            const SizedBox(height: 16),
+            FilledButton(
+              key: const Key('skill-config-retry'),
+              onPressed: _loadData,
+              child: const Text('重试'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -270,11 +316,27 @@ class _SkillConfigScreenState extends State<SkillConfigScreen>
       itemBuilder: (context, index) {
         final skill = _skills[index];
         final isToggling = _togglingSkills.contains(skill.name);
+        final verifyResult = _verifyResults[skill.name];
         return ListTile(
           key: Key('skill-${skill.name}'),
-          title: Text(skill.name),
+          title: Row(
+            children: [
+              Text(skill.name),
+              const SizedBox(width: 8),
+              if (skill.version.isNotEmpty)
+                Text(
+                  'v${skill.version}',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                ),
+              const SizedBox(width: 8),
+              _buildVerifyIcon(verifyResult),
+            ],
+          ),
           subtitle: skill.description.isNotEmpty
-              ? Text(skill.description, maxLines: 2, overflow: TextOverflow.ellipsis)
+              ? Text(skill.description,
+                  maxLines: 2, overflow: TextOverflow.ellipsis)
               : null,
           trailing: Switch(
             key: Key('skill-switch-${skill.name}'),
@@ -286,6 +348,26 @@ class _SkillConfigScreenState extends State<SkillConfigScreen>
         );
       },
     );
+  }
+
+  Widget _buildVerifyIcon(SkillVerifyResult? result) {
+    if (result == null) return const SizedBox.shrink();
+
+    switch (result.status) {
+      case SkillVerifyStatus.ok:
+        return const Icon(Icons.check_circle, size: 16, color: Colors.green);
+      case SkillVerifyStatus.failed:
+        return Tooltip(
+          message: result.error ?? '验证失败',
+          child: const Icon(Icons.error, size: 16, color: Colors.red),
+        );
+      case SkillVerifyStatus.timeout:
+        return Tooltip(
+          message: result.error ?? '超时',
+          child:
+              const Icon(Icons.access_time, size: 16, color: Colors.orange),
+        );
+    }
   }
 
   Widget _buildKnowledgeList() {

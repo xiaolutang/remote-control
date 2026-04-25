@@ -3,64 +3,84 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rc_client/screens/skill_config_screen.dart';
-import 'package:rc_client/services/desktop_agent_http_client.dart';
+import 'package:rc_client/services/skill_config_service.dart';
 
-/// Fake DesktopAgentHttpClient 用于测试 SkillConfigScreen
-class _FakeDesktopAgentHttpClient extends DesktopAgentHttpClient {
-  _FakeDesktopAgentHttpClient({
-    this.skillsResult = const [],
-    this.knowledgeResult = const [],
-    this.toggleSkillResult = true,
-    this.toggleKnowledgeResult = true,
-    this.discoverResult,
-  }) : super(homeDirectory: '/tmp/test_home');
+/// Fake SkillConfigService 用于测试 SkillConfigScreen
+class _FakeSkillConfigService extends SkillConfigService {
+  _FakeSkillConfigService({
+    this.dataDirResult = '/tmp/test-agent-data',
+    List<SkillInfo>? skillsResult,
+    List<KnowledgeInfo>? knowledgeResult,
+    this.verifyResult,
+  })  : _skillsResult = skillsResult ?? [],
+        _knowledgeResult = knowledgeResult ?? [],
+        super(homeDirectory: '/tmp/test_home');
 
-  List<SkillItem> skillsResult;
-  List<KnowledgeItem> knowledgeResult;
-  bool toggleSkillResult;
-  bool toggleKnowledgeResult;
-  LocalAgentStatus? discoverResult;
+  String? dataDirResult;
+  List<SkillInfo> _skillsResult;
+  List<KnowledgeInfo> _knowledgeResult;
+  SkillVerifyResult? verifyResult;
 
   final List<_ToggleCall> toggleSkillCalls = [];
   final List<_ToggleCall> toggleKnowledgeCalls = [];
-  int getSkillsCallCount = 0;
-  int getKnowledgeCallCount = 0;
+  int loadSkillsCallCount = 0;
+  int loadKnowledgeCallCount = 0;
+  int verifySkillCallCount = 0;
 
-  @override
-  Future<List<SkillItem>> getSkills(int port) async {
-    getSkillsCallCount++;
-    return skillsResult;
+  // 控制是否抛出异常
+  bool toggleSkillShouldThrow = false;
+  bool toggleKnowledgeShouldThrow = false;
+  String? toggleSkillException;
+  String? toggleKnowledgeException;
+
+  void setSkillsResult(List<SkillInfo> skills) {
+    _skillsResult = skills;
+  }
+
+  void setKnowledgeResult(List<KnowledgeInfo> knowledge) {
+    _knowledgeResult = knowledge;
   }
 
   @override
-  Future<List<KnowledgeItem>> getKnowledge(int port) async {
-    getKnowledgeCallCount++;
-    return knowledgeResult;
+  String? getAgentDataDir() => dataDirResult;
+
+  @override
+  Future<List<SkillInfo>> loadSkills() async {
+    loadSkillsCallCount++;
+    return _skillsResult;
   }
 
   @override
-  Future<bool> toggleSkill(int port, {required String name, required bool enabled}) async {
+  Future<List<KnowledgeInfo>> loadKnowledge() async {
+    loadKnowledgeCallCount++;
+    return _knowledgeResult;
+  }
+
+  @override
+  Future<void> toggleSkill(String name, bool enabled) async {
     toggleSkillCalls.add(_ToggleCall(key: name, value: enabled));
-    final result = toggleSkillResult;
-    toggleSkillResult = true; // reset for subsequent calls
-    return result;
+    if (toggleSkillShouldThrow) {
+      throw Exception(toggleSkillException ?? '写入失败');
+    }
   }
 
   @override
-  Future<bool> toggleKnowledge(int port, {required String filename, required bool enabled}) async {
+  Future<void> toggleKnowledge(String filename, bool enabled) async {
     toggleKnowledgeCalls.add(_ToggleCall(key: filename, value: enabled));
-    final result = toggleKnowledgeResult;
-    toggleKnowledgeResult = true; // reset for subsequent calls
-    return result;
+    if (toggleKnowledgeShouldThrow) {
+      throw Exception(toggleKnowledgeException ?? '写入失败');
+    }
   }
 
   @override
-  Future<LocalAgentStatus?> discoverAgent() async {
-    return discoverResult;
+  Future<SkillVerifyResult> verifySkill(SkillInfo skill) async {
+    verifySkillCallCount++;
+    return verifyResult ??
+        const SkillVerifyResult(
+          status: SkillVerifyStatus.ok,
+          tools: ['tool1'],
+        );
   }
-
-  @override
-  void close() {}
 }
 
 class _ToggleCall {
@@ -74,29 +94,44 @@ void main() {
 
   group('SkillConfigScreen', () {
     Widget buildScreen({
-      _FakeDesktopAgentHttpClient? httpClient,
-      int? agentPort,
+      _FakeSkillConfigService? service,
     }) {
       return MaterialApp(
         home: SkillConfigScreen(
-          agentPort: agentPort ?? 18765,
-          httpClient: httpClient ?? _FakeDesktopAgentHttpClient(),
+          skillConfigService:
+              service ?? _FakeSkillConfigService(),
         ),
       );
     }
 
     testWidgets('shows loading indicator then skill list', (tester) async {
-      final fakeClient = _FakeDesktopAgentHttpClient(
+      final fakeService = _FakeSkillConfigService(
         skillsResult: [
-          const SkillItem(name: 'bash', description: 'Execute bash commands', enabled: true),
-          const SkillItem(name: 'python', description: 'Run Python scripts', enabled: false),
+          const SkillInfo(
+            name: 'bash',
+            description: 'Execute bash commands',
+            version: '1.0.0',
+            enabled: true,
+            command: 'python3',
+            args: ['-m', 'bash_skill'],
+            transport: 'stdio',
+          ),
+          const SkillInfo(
+            name: 'python',
+            description: 'Run Python scripts',
+            version: '2.0.0',
+            enabled: false,
+            command: 'python3',
+            args: ['-m', 'python_skill'],
+            transport: 'stdio',
+          ),
         ],
         knowledgeResult: [
-          const KnowledgeItem(filename: 'docs.md', enabled: true),
+          const KnowledgeInfo(filename: 'docs.md', enabled: true),
         ],
       );
 
-      await tester.pumpWidget(buildScreen(httpClient: fakeClient));
+      await tester.pumpWidget(buildScreen(service: fakeService));
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
 
       await tester.pumpAndSettle();
@@ -106,6 +141,10 @@ void main() {
       expect(find.text('Execute bash commands'), findsOneWidget);
       expect(find.text('python'), findsOneWidget);
       expect(find.text('Run Python scripts'), findsOneWidget);
+
+      // Verify version labels
+      expect(find.text('v1.0.0'), findsOneWidget);
+      expect(find.text('v2.0.0'), findsOneWidget);
 
       // Verify switch values
       final bashSwitch = tester.widget<Switch>(
@@ -120,15 +159,15 @@ void main() {
     });
 
     testWidgets('shows knowledge list on second tab', (tester) async {
-      final fakeClient = _FakeDesktopAgentHttpClient(
+      final fakeService = _FakeSkillConfigService(
         skillsResult: [],
         knowledgeResult: [
-          const KnowledgeItem(filename: 'guide.md', enabled: true),
-          const KnowledgeItem(filename: 'api.md', enabled: false),
+          const KnowledgeInfo(filename: 'guide.md', enabled: true),
+          const KnowledgeInfo(filename: 'api.md', enabled: false),
         ],
       );
 
-      await tester.pumpWidget(buildScreen(httpClient: fakeClient));
+      await tester.pumpWidget(buildScreen(service: fakeService));
       await tester.pumpAndSettle();
 
       // Switch to knowledge tab
@@ -149,39 +188,49 @@ void main() {
       expect(apiSwitch.value, isFalse);
     });
 
-    testWidgets('toggle skill calls API and shows restart hint', (tester) async {
-      final fakeClient = _FakeDesktopAgentHttpClient(
+    testWidgets('toggle skill writes to service and shows restart hint',
+        (tester) async {
+      final fakeService = _FakeSkillConfigService(
         skillsResult: [
-          const SkillItem(name: 'bash', description: 'Execute bash', enabled: true),
+          const SkillInfo(
+            name: 'bash',
+            description: 'Execute bash',
+            version: '1.0.0',
+            enabled: true,
+            command: 'python3',
+            args: [],
+            transport: 'stdio',
+          ),
         ],
         knowledgeResult: [],
       );
 
-      await tester.pumpWidget(buildScreen(httpClient: fakeClient));
+      await tester.pumpWidget(buildScreen(service: fakeService));
       await tester.pumpAndSettle();
 
       // Toggle bash off
       await tester.tap(find.byKey(const Key('skill-switch-bash')));
       await tester.pumpAndSettle();
 
-      // API call was made
-      expect(fakeClient.toggleSkillCalls, hasLength(1));
-      expect(fakeClient.toggleSkillCalls.first.key, equals('bash'));
-      expect(fakeClient.toggleSkillCalls.first.value, isFalse);
+      // Toggle call was made
+      expect(fakeService.toggleSkillCalls, hasLength(1));
+      expect(fakeService.toggleSkillCalls.first.key, equals('bash'));
+      expect(fakeService.toggleSkillCalls.first.value, isFalse);
 
       // Restart hint shown
       expect(find.text('重启 Agent 后生效'), findsOneWidget);
     });
 
-    testWidgets('toggle knowledge calls API and shows restart hint', (tester) async {
-      final fakeClient = _FakeDesktopAgentHttpClient(
+    testWidgets('toggle knowledge writes to service and shows restart hint',
+        (tester) async {
+      final fakeService = _FakeSkillConfigService(
         skillsResult: [],
         knowledgeResult: [
-          const KnowledgeItem(filename: 'notes.md', enabled: false),
+          const KnowledgeInfo(filename: 'notes.md', enabled: false),
         ],
       );
 
-      await tester.pumpWidget(buildScreen(httpClient: fakeClient));
+      await tester.pumpWidget(buildScreen(service: fakeService));
       await tester.pumpAndSettle();
 
       // Switch to knowledge tab
@@ -192,34 +241,35 @@ void main() {
       await tester.tap(find.byKey(const Key('knowledge-switch-notes.md')));
       await tester.pumpAndSettle();
 
-      // API call was made
-      expect(fakeClient.toggleKnowledgeCalls, hasLength(1));
-      expect(fakeClient.toggleKnowledgeCalls.first.key, equals('notes.md'));
-      expect(fakeClient.toggleKnowledgeCalls.first.value, isTrue);
+      // Toggle call was made
+      expect(fakeService.toggleKnowledgeCalls, hasLength(1));
+      expect(fakeService.toggleKnowledgeCalls.first.key, equals('notes.md'));
+      expect(fakeService.toggleKnowledgeCalls.first.value, isTrue);
 
       // Restart hint shown
       expect(find.text('重启 Agent 后生效'), findsOneWidget);
     });
 
     testWidgets('shows empty state when skill list is empty', (tester) async {
-      final fakeClient = _FakeDesktopAgentHttpClient(
+      final fakeService = _FakeSkillConfigService(
         skillsResult: [],
         knowledgeResult: [],
       );
 
-      await tester.pumpWidget(buildScreen(httpClient: fakeClient));
+      await tester.pumpWidget(buildScreen(service: fakeService));
       await tester.pumpAndSettle();
 
       expect(find.text('暂无技能'), findsOneWidget);
     });
 
-    testWidgets('shows empty state when knowledge list is empty', (tester) async {
-      final fakeClient = _FakeDesktopAgentHttpClient(
+    testWidgets('shows empty state when knowledge list is empty',
+        (tester) async {
+      final fakeService = _FakeSkillConfigService(
         skillsResult: [],
         knowledgeResult: [],
       );
 
-      await tester.pumpWidget(buildScreen(httpClient: fakeClient));
+      await tester.pumpWidget(buildScreen(service: fakeService));
       await tester.pumpAndSettle();
 
       // Switch to knowledge tab
@@ -229,24 +279,32 @@ void main() {
       expect(find.text('暂无知识文件'), findsOneWidget);
     });
 
-    testWidgets('API toggle failure reverts switch and shows error', (tester) async {
-      final fakeClient = _FakeDesktopAgentHttpClient(
+    testWidgets('toggle failure reverts switch and shows error', (tester) async {
+      final fakeService = _FakeSkillConfigService(
         skillsResult: [
-          const SkillItem(name: 'git', description: 'Git operations', enabled: true),
+          const SkillInfo(
+            name: 'git',
+            description: 'Git operations',
+            version: '1.0.0',
+            enabled: true,
+            command: 'python3',
+            args: [],
+            transport: 'stdio',
+          ),
         ],
         knowledgeResult: [],
-        toggleSkillResult: false,
       );
+      fakeService.toggleSkillShouldThrow = true;
 
-      await tester.pumpWidget(buildScreen(httpClient: fakeClient));
+      await tester.pumpWidget(buildScreen(service: fakeService));
       await tester.pumpAndSettle();
 
       // Toggle git off - this should fail and revert
       await tester.tap(find.byKey(const Key('skill-switch-git')));
       await tester.pumpAndSettle();
 
-      // API call was made
-      expect(fakeClient.toggleSkillCalls, hasLength(1));
+      // Toggle call was made
+      expect(fakeService.toggleSkillCalls, hasLength(1));
 
       // Switch should revert back to enabled=true
       final gitSwitch = tester.widget<Switch>(
@@ -255,59 +313,43 @@ void main() {
       expect(gitSwitch.value, isTrue);
 
       // Error message shown
-      expect(find.text('切换失败，请重试'), findsOneWidget);
+      expect(find.textContaining('切换失败'), findsOneWidget);
     });
 
-    testWidgets('shows error state when agent is offline', (tester) async {
-      // No agentPort provided and discoverAgent returns null
-      final fakeClient = _FakeDesktopAgentHttpClient(
-        discoverResult: null,
-      );
+    testWidgets('shows no-data-dir state when dataDir is null', (tester) async {
+      final fakeService = _FakeSkillConfigService();
+      fakeService.dataDirResult = null;
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: SkillConfigScreen(
-            httpClient: fakeClient,
-          ),
-        ),
-      );
+      await tester.pumpWidget(buildScreen(service: fakeService));
       await tester.pumpAndSettle();
 
-      expect(find.text('未发现本地 Agent，请确认 Agent 已启动'), findsOneWidget);
+      expect(find.text('未找到 Agent 配置目录'), findsOneWidget);
       expect(find.byKey(const Key('skill-config-retry')), findsOneWidget);
     });
 
     testWidgets('retry button reloads data', (tester) async {
-      final fakeClient = _FakeDesktopAgentHttpClient(
-        discoverResult: null,
-      );
+      final fakeService = _FakeSkillConfigService();
+      fakeService.dataDirResult = null;
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: SkillConfigScreen(
-            httpClient: fakeClient,
-          ),
-        ),
-      );
+      await tester.pumpWidget(buildScreen(service: fakeService));
       await tester.pumpAndSettle();
 
-      // Agent not found
-      expect(find.text('未发现本地 Agent，请确认 Agent 已启动'), findsOneWidget);
+      // No data dir
+      expect(find.text('未找到 Agent 配置目录'), findsOneWidget);
 
-      // Now make agent discoverable
-      fakeClient.discoverResult = const LocalAgentStatus(
-        running: true,
-        pid: 1,
-        port: 18765,
-        serverUrl: '',
-        connected: true,
-        sessionId: '',
-        terminalsCount: 0,
-        keepRunningInBackground: true,
-      );
-      fakeClient.skillsResult = [
-        const SkillItem(name: 'test-skill', description: 'A test', enabled: true),
-      ];
+      // Now make data dir available
+      fakeService.dataDirResult = '/tmp/test-agent-data';
+      fakeService.setSkillsResult([
+        const SkillInfo(
+          name: 'test-skill',
+          description: 'A test',
+          version: '1.0.0',
+          enabled: true,
+          command: 'python3',
+          args: [],
+          transport: 'stdio',
+        ),
+      ]);
 
       // Tap retry
       await tester.tap(find.byKey(const Key('skill-config-retry')));
@@ -316,59 +358,153 @@ void main() {
       // Should now show skill
       expect(find.text('test-skill'), findsOneWidget);
     });
+
+    testWidgets('verify all button triggers verification', (tester) async {
+      final fakeService = _FakeSkillConfigService(
+        skillsResult: [
+          const SkillInfo(
+            name: 'bash',
+            description: 'Bash skill',
+            version: '1.0.0',
+            enabled: true,
+            command: 'python3',
+            args: [],
+            transport: 'stdio',
+          ),
+        ],
+        knowledgeResult: [],
+        verifyResult: const SkillVerifyResult(
+          status: SkillVerifyStatus.ok,
+          tools: ['execute'],
+        ),
+      );
+
+      await tester.pumpWidget(buildScreen(service: fakeService));
+      await tester.pumpAndSettle();
+
+      // Tap verify all
+      await tester.tap(find.byKey(const Key('verify-all-btn')));
+      await tester.pumpAndSettle();
+
+      // Verify was called
+      expect(fakeService.verifySkillCallCount, equals(1));
+
+      // Check icon shown (green check)
+      expect(find.byIcon(Icons.check_circle), findsOneWidget);
+    });
+
+    testWidgets('verify shows failure icon', (tester) async {
+      final fakeService = _FakeSkillConfigService(
+        skillsResult: [
+          const SkillInfo(
+            name: 'bad-skill',
+            description: 'A bad skill',
+            version: '1.0.0',
+            enabled: true,
+            command: 'python3',
+            args: [],
+            transport: 'stdio',
+          ),
+        ],
+        knowledgeResult: [],
+        verifyResult: const SkillVerifyResult(
+          status: SkillVerifyStatus.failed,
+          error: 'Process exited',
+        ),
+      );
+
+      await tester.pumpWidget(buildScreen(service: fakeService));
+      await tester.pumpAndSettle();
+
+      // Tap verify all
+      await tester.tap(find.byKey(const Key('verify-all-btn')));
+      await tester.pumpAndSettle();
+
+      // Check error icon
+      expect(find.byIcon(Icons.error), findsOneWidget);
+    });
+
+    testWidgets('verify shows timeout icon', (tester) async {
+      final fakeService = _FakeSkillConfigService(
+        skillsResult: [
+          const SkillInfo(
+            name: 'slow-skill',
+            description: 'A slow skill',
+            version: '1.0.0',
+            enabled: true,
+            command: 'python3',
+            args: [],
+            transport: 'stdio',
+          ),
+        ],
+        knowledgeResult: [],
+        verifyResult: const SkillVerifyResult(
+          status: SkillVerifyStatus.timeout,
+          error: '超时',
+        ),
+      );
+
+      await tester.pumpWidget(buildScreen(service: fakeService));
+      await tester.pumpAndSettle();
+
+      // Tap verify all
+      await tester.tap(find.byKey(const Key('verify-all-btn')));
+      await tester.pumpAndSettle();
+
+      // Check timeout icon
+      expect(find.byIcon(Icons.access_time), findsOneWidget);
+    });
   });
 
-  group('SkillItem', () {
-    test('fromJson parses all fields', () {
-      final json = {
-        'name': 'bash',
-        'description': 'Execute bash commands',
-        'enabled': true,
-      };
-      final item = SkillItem.fromJson(json);
-      expect(item.name, equals('bash'));
-      expect(item.description, equals('Execute bash commands'));
-      expect(item.enabled, isTrue);
-    });
-
-    test('fromJson handles missing fields with defaults', () {
-      final item = SkillItem.fromJson({});
-      expect(item.name, equals(''));
-      expect(item.description, equals(''));
-      expect(item.enabled, isFalse);
-    });
-
+  group('SkillInfo', () {
     test('copyWith works', () {
-      const item = SkillItem(name: 'test', description: 'desc', enabled: true);
-      final copied = item.copyWith(enabled: false);
+      const info = SkillInfo(
+        name: 'test',
+        description: 'desc',
+        version: '1.0.0',
+        enabled: true,
+        command: 'python3',
+        args: ['-m', 'test'],
+        transport: 'stdio',
+      );
+      final copied = info.copyWith(enabled: false);
       expect(copied.name, equals('test'));
       expect(copied.description, equals('desc'));
+      expect(copied.version, equals('1.0.0'));
       expect(copied.enabled, isFalse);
+      expect(copied.command, equals('python3'));
+      expect(copied.args, equals(['-m', 'test']));
+      expect(copied.transport, equals('stdio'));
     });
   });
 
-  group('KnowledgeItem', () {
-    test('fromJson parses all fields', () {
-      final json = {
-        'filename': 'docs.md',
-        'enabled': true,
-      };
-      final item = KnowledgeItem.fromJson(json);
-      expect(item.filename, equals('docs.md'));
-      expect(item.enabled, isTrue);
-    });
-
-    test('fromJson handles missing fields with defaults', () {
-      final item = KnowledgeItem.fromJson({});
-      expect(item.filename, equals(''));
-      expect(item.enabled, isFalse);
-    });
-
+  group('KnowledgeInfo', () {
     test('copyWith works', () {
-      const item = KnowledgeItem(filename: 'test.md', enabled: false);
-      final copied = item.copyWith(enabled: true);
+      const info = KnowledgeInfo(filename: 'test.md', enabled: false);
+      final copied = info.copyWith(enabled: true);
       expect(copied.filename, equals('test.md'));
       expect(copied.enabled, isTrue);
+    });
+  });
+
+  group('SkillVerifyResult', () {
+    test('holds status and tools', () {
+      const result = SkillVerifyResult(
+        status: SkillVerifyStatus.ok,
+        tools: ['tool_a', 'tool_b'],
+      );
+      expect(result.status, equals(SkillVerifyStatus.ok));
+      expect(result.tools, equals(['tool_a', 'tool_b']));
+      expect(result.error, isNull);
+    });
+
+    test('holds error for failed', () {
+      const result = SkillVerifyResult(
+        status: SkillVerifyStatus.failed,
+        error: 'something broke',
+      );
+      expect(result.status, equals(SkillVerifyStatus.failed));
+      expect(result.error, equals('something broke'));
     });
   });
 }
