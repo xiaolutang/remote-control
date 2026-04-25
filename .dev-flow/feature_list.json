@@ -51,9 +51,9 @@
   },
   "summary": {
     "total": 81,
-    "pending": 11,
+    "pending": 10,
     "in_progress": 0,
-    "completed": 58,
+    "completed": 59,
     "blocked": 0,
     "cancelled": 6
   },
@@ -620,16 +620,13 @@
       "depends_on": [
         "B096"
       ],
-      "status": "pending",
-      "priority": 1,
-      "acceptance_criteria": [
-        "5 种 code grader 实现完成",
-        "response_type_match 支持 acceptable_types 列表",
-        "command_safety 复用 command_validator.validate_command，不重复实现",
-        "contains_command 支持 steps_contain 和 steps_not_contain",
-        "每个 grader 输出结构化 EvalGraderResult（pass/fail + details）",
-        "所有 grader 不调用 LLM，纯代码逻辑"
-      ],
+      "status": "completed",
+      "started_at": "2026-04-25T15:55:00+0800",
+      "completed_at": "2026-04-25T16:10:00+0800",
+      "actual_minutes": 15,
+      "evidence_file": ".dev-flow/evidence/B098.md",
+      "execution_notes": "5 种 code grader + 注册表。49 测试通过。command_safety 复用 validate_command。",
+      "commit": "pending",
       "test_tasks": [
         "每种 grader 的 pass/fail case",
         "command_safety 复用验证",
