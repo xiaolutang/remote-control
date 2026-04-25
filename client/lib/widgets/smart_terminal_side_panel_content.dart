@@ -85,6 +85,8 @@ class _SmartTerminalSidePanelContentState
 
   // --- 内联编辑状态 ---
   int? _editingHistoryIndex; // 正在编辑的历史条目索引 (null=无, -1=当前活跃意图)
+  int? _editingAnswerIndex; // 正在编辑的问答回答索引 (null=编辑意图)
+  String? _editingQuestionId; // 编辑问答回答时对应的 questionId
   late final TextEditingController _editingController;
 
   // --- SSE 重连已下沉到 AgentSessionService.streamConversationResilient ---
@@ -1422,7 +1424,7 @@ class _SmartTerminalSidePanelContentState
                 ),
                 const SizedBox(height: 8),
                 if (entry.answers.isNotEmpty)
-                  _buildAnswersSection(entry.answers, colorScheme),
+                  _buildAnswersSection(entry.answers, colorScheme, historyIndex: i),
                 if (entry.result != null)
                   _buildHistoryResultBubble(entry.result!, colorScheme)
                 else if (entry.error != null)
@@ -1443,7 +1445,7 @@ class _SmartTerminalSidePanelContentState
           ),
           const SizedBox(height: 8),
           if (_agentAnswers.isNotEmpty && _agentState != AgentPanelState.asking)
-            _buildAnswersSection(_agentAnswers, colorScheme),
+            _buildAnswersSection(_agentAnswers, colorScheme, isLive: true),
         ],
 
         switch (_agentState) {
@@ -1460,21 +1462,29 @@ class _SmartTerminalSidePanelContentState
   /// 问答交互气泡：展示 Agent 提问 + 用户回答
   Widget _buildAnswersSection(
     List<_AgentAnswerEntry> answers,
-    ColorScheme colorScheme,
-  ) {
+    ColorScheme colorScheme, {
+    int? historyIndex,
+    bool isLive = false,
+  }) {
     if (answers.isEmpty) return const SizedBox.shrink();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        for (final qa in answers) ...[
+        for (var j = 0; j < answers.length; j++) ...[
           _buildAssistantBubble(
             Text(
-              qa.question,
+              answers[j].question,
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ),
           const SizedBox(height: 4),
-          _buildUserBubble(qa.answer),
+          _buildUserBubble(
+            answers[j].answer,
+            canEdit: true,
+            historyIndex: historyIndex,
+            answerIndex: j,
+            isLiveAnswer: isLive,
+          ),
           const SizedBox(height: 6),
         ],
       ],
@@ -2558,12 +2568,17 @@ class _SmartTerminalSidePanelContentState
     String text, {
     int? historyIndex, // null=当前活跃意图, >=0=历史条目索引
     bool canEdit = false,
+    int? answerIndex, // null=意图, >=0=问答回答索引
+    bool isLiveAnswer = false, // 是否是当前活跃轮次的问答
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     // 判断是否处于内联编辑模式
     final isEditing = canEdit &&
-        ((historyIndex == null && _editingHistoryIndex == -1) ||
-            (historyIndex != null && _editingHistoryIndex == historyIndex));
+        _editingHistoryIndex != null &&
+        (isLiveAnswer
+            ? _editingHistoryIndex == -1
+            : _editingHistoryIndex == (historyIndex ?? -1)) &&
+        _editingAnswerIndex == answerIndex;
 
     if (isEditing) {
       return _buildInlineEditBubble(text, historyIndex: historyIndex);
@@ -2574,7 +2589,7 @@ class _SmartTerminalSidePanelContentState
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 280),
         child: GestureDetector(
-          onTap: canEdit ? () => _startInlineEdit(historyIndex) : null,
+          onTap: canEdit ? () => _startInlineEdit(historyIndex, answerIndex: answerIndex) : null,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
@@ -2701,13 +2716,25 @@ class _SmartTerminalSidePanelContentState
     );
   }
 
-  void _startInlineEdit(int? historyIndex) {
+  void _startInlineEdit(int? historyIndex, {int? answerIndex}) {
     // 获取对应的原始文本
-    final originalText = historyIndex != null
-        ? _agentHistory[historyIndex].intent
-        : _agentIntent ?? '';
+    String originalText;
+    if (answerIndex != null) {
+      // 编辑问答回答
+      if (historyIndex != null) {
+        originalText = _agentHistory[historyIndex].answers[answerIndex].answer;
+      } else {
+        originalText = _agentAnswers[answerIndex].answer;
+      }
+    } else {
+      // 编辑意图
+      originalText = historyIndex != null
+          ? _agentHistory[historyIndex].intent
+          : _agentIntent ?? '';
+    }
     setState(() {
       _editingHistoryIndex = historyIndex ?? -1;
+      _editingAnswerIndex = answerIndex;
       _editingController.text = originalText;
     });
   }
@@ -2715,6 +2742,8 @@ class _SmartTerminalSidePanelContentState
   void _cancelInlineEdit() {
     setState(() {
       _editingHistoryIndex = null;
+      _editingAnswerIndex = null;
+      _editingQuestionId = null;
       _editingController.clear();
     });
   }
@@ -2749,13 +2778,32 @@ class _SmartTerminalSidePanelContentState
     final newText = _editingController.text.trim();
     if (newText.isEmpty) return;
 
-    // 如果有正在进行的 Agent 会话，先取消
+    final editingAnswer = _editingAnswerIndex;
+    setState(() {
+      _editingHistoryIndex = null;
+      _editingAnswerIndex = null;
+      _editingQuestionId = null;
+      _editingController.clear();
+    });
+
+    if (editingAnswer != null) {
+      // 编辑问答回答：截断该回答之后的内容，用新回答继续 Agent 会话
+      await _submitAnswerEdit(
+        historyIndex: historyIndex,
+        answerIndex: editingAnswer,
+        newAnswer: newText,
+      );
+    } else {
+      // 编辑意图：原有逻辑
+      await _submitIntentEdit(historyIndex: historyIndex, newText: newText);
+    }
+  }
+
+  /// 编辑意图：截断 + 重新 run
+  Future<void> _submitIntentEdit({int? historyIndex, required String newText}) async {
     await _cancelAgentSessionSilent();
 
     setState(() {
-      _editingHistoryIndex = null;
-      _editingController.clear();
-
       // 截断编辑点之后的所有历史（包括当前活跃意图）
       if (historyIndex != null) {
         _agentHistory.removeRange(historyIndex, _agentHistory.length);
@@ -2768,20 +2816,114 @@ class _SmartTerminalSidePanelContentState
       _resetAgentRenderState();
     });
 
-    // 计算服务端截断索引：保留的最后一条事件的 eventIndex
-    // 传 -1 表示全部截断（服务端 DELETE WHERE event_index > -1 删除全部）
+    // 计算服务端截断索引
     final int truncateAfter;
     if (_serverConversationEvents.isNotEmpty) {
       truncateAfter = _serverConversationEvents.last.eventIndex;
     } else {
-      truncateAfter = -1; // 全部清空
+      truncateAfter = -1;
     }
 
-    // 用新意图直接触发重新解析，不经过 UI 控件
     await _handleResolveIntent(
       overrideIntent: newText,
       truncateAfterIndex: truncateAfter,
     );
+  }
+
+  /// 编辑问答回答：截断该回答之后的内容 + 用新回答 continue Agent
+  Future<void> _submitAnswerEdit({
+    int? historyIndex,
+    required int answerIndex,
+    required String newAnswer,
+  }) async {
+    await _cancelAgentSessionSilent();
+
+    // 确定要操作的 history entry
+    final isLive = historyIndex == null;
+    final entry = isLive ? null : _agentHistory[historyIndex!];
+
+    // 保留到 answerIndex 之前的问答，删掉之后的问答 + result + 后续 traces
+    // 对于服务端事件，需要找到该 answer 对应的 question 事件之后截断
+    setState(() {
+      if (isLive) {
+        // 活跃意图的问答
+        if (answerIndex < _agentAnswers.length) {
+          _agentAnswers.removeRange(answerIndex, _agentAnswers.length);
+        }
+        _agentResult = null;
+        _agentError = null;
+        _traces.clear();
+        _agentState = AgentPanelState.exploring;
+      } else {
+        // 历史条目的问答
+        if (answerIndex < entry!.answers.length) {
+          entry.answers.removeRange(answerIndex, entry.answers.length);
+        }
+        // 清除 result，因为要重新跑
+        // 但不删除 history entry 本身
+        // 用截断后的 entry 重新构建活跃状态
+        _agentIntent = entry!.intent;
+        _traces.clear();
+        _agentAnswers.clear();
+        _agentAnswers.addAll(entry.answers.sublist(0, answerIndex));
+        _agentResult = null;
+        _agentError = null;
+        _agentState = AgentPanelState.exploring;
+
+        // 从历史中移除该条目（它会变成活跃意图）
+        _agentHistory.removeRange(historyIndex!, _agentHistory.length);
+      }
+
+      // 截断服务端事件到该 answer 之前
+      _truncateConversationEventsForAnswer(historyIndex, answerIndex);
+    });
+
+    // 计算服务端截断索引
+    final int truncateAfter;
+    if (_serverConversationEvents.isNotEmpty) {
+      truncateAfter = _serverConversationEvents.last.eventIndex;
+    } else {
+      truncateAfter = -1;
+    }
+
+    // 重新 run 该意图
+    await _handleResolveIntent(
+      overrideIntent: isLive ? _agentIntent! : entry!.intent,
+      truncateAfterIndex: truncateAfter,
+    );
+  }
+
+  /// 截断服务端事件到指定问答之前（保留到 answerIndex 前一个 question 的事件）
+  void _truncateConversationEventsForAnswer(int? historyIndex, int answerIndex) {
+    if (_serverConversationEvents.isEmpty) return;
+
+    // 找到对应的 user_intent 起始位置
+    final intentListIndex = _findUserIntentEventListIndex(historyIndex: historyIndex);
+    if (intentListIndex == null) {
+      _serverConversationEvents.clear();
+      _nextConversationEventIndex = 0;
+      return;
+    }
+
+    // 从 intent 之后开始数 answer 事件（type='answer'）
+    int answerCount = 0;
+    int cutPoint = _serverConversationEvents.length;
+    for (int i = intentListIndex + 1; i < _serverConversationEvents.length; i++) {
+      if (_serverConversationEvents[i].type == 'answer') {
+        if (answerCount == answerIndex) {
+          cutPoint = i;
+          break;
+        }
+        answerCount++;
+      }
+    }
+
+    _serverConversationEvents.removeRange(cutPoint, _serverConversationEvents.length);
+    if (_serverConversationEvents.isNotEmpty) {
+      _nextConversationEventIndex = _serverConversationEvents.last.eventIndex + 1;
+    } else {
+      _nextConversationEventIndex = 0;
+    }
   }
 
   /// 静默取消当前 Agent 会话（不归档、不设状态）

@@ -830,9 +830,10 @@ void main() {
 
       expect(find.text('查一下部署状态'), findsOneWidget);
       expect(find.text('所有服务运行正常，无异常日志。'), findsOneWidget);
+      // message 类型不再显示折叠卡片和"已回复"标签
       expect(
           find.byKey(const Key('side-panel-message-replied-tag')),
-          findsOneWidget);
+          findsNothing);
       // message 类型无执行按钮、无注入按钮
       expect(find.byKey(const Key('side-panel-execute')), findsNothing);
       expect(
@@ -1538,8 +1539,9 @@ void main() {
       await tester.pumpAndSettle(const Duration(seconds: 5));
 
       expect(find.text('这是消息回复'), findsOneWidget);
+      // message 类型不再显示折叠卡片和"已回复"标签
       expect(find.byKey(const Key('side-panel-message-replied-tag')),
-          findsOneWidget);
+          findsNothing);
       // 无执行按钮
       expect(find.byKey(const Key('side-panel-execute')), findsNothing);
       // 无注入按钮
