@@ -577,7 +577,7 @@ void main() {
       expect(find.byKey(const Key('knowledge-save-btn')), findsOneWidget);
     });
 
-    testWidgets('delete skill via dismissible shows confirmation', (tester) async {
+    testWidgets('delete skill shows confirmation dialog', (tester) async {
       final fakeService = _FakeSkillConfigService(
         skillsResult: [
           const SkillInfo(
@@ -596,11 +596,35 @@ void main() {
       await tester.pumpWidget(buildScreen(service: fakeService));
       await tester.pumpAndSettle();
 
-      // Dismissible 的 confirmDismiss 返回 false 不会弹出对话框，
-      // 而是直接调用 _deleteSkill，由内部 showDialog 弹出确认
-      // 由于测试环境 Dismissible 可能不触发 confirmDismiss，
-      // 所以这里只验证 deleteSkill 方法在确认后被调用
-      expect(find.text('unused-skill'), findsOneWidget);
+      // Tap delete button
+      await tester.tap(find.byKey(const Key('skill-delete-unused-skill')));
+      await tester.pumpAndSettle();
+
+      // Confirmation dialog shown
+      expect(find.text('删除技能'), findsOneWidget);
+    });
+
+    testWidgets('delete knowledge shows confirmation dialog', (tester) async {
+      final fakeService = _FakeSkillConfigService(
+        skillsResult: [],
+        knowledgeResult: [
+          const KnowledgeInfo(filename: 'old.md', enabled: true),
+        ],
+      );
+
+      await tester.pumpWidget(buildScreen(service: fakeService));
+      await tester.pumpAndSettle();
+
+      // Switch to knowledge tab
+      await tester.tap(find.text('知识文件'));
+      await tester.pumpAndSettle();
+
+      // Tap delete button
+      await tester.tap(find.byKey(const Key('knowledge-delete-old.md')));
+      await tester.pumpAndSettle();
+
+      // Confirmation dialog shown
+      expect(find.text('删除知识文件'), findsOneWidget);
     });
   });
 

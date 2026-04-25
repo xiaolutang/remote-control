@@ -491,50 +491,72 @@ class _SkillConfigScreenState extends State<SkillConfigScreen>
                     final skill = _skills[index];
                     final isToggling = _togglingSkills.contains(skill.name);
                     final verifyResult = _verifyResults[skill.name];
-                    return Dismissible(
-                      key: Key('skill-dismiss-${skill.name}'),
-                      direction: DismissDirection.endToStart,
-                      background: Container(
-                        color: Theme.of(context).colorScheme.error,
-                        alignment: Alignment.centerRight,
-                        padding: const EdgeInsets.only(right: 16),
-                        child: const Icon(Icons.delete, color: Colors.white),
+                    final isVerifying = _verifyingAll;
+                    return ListTile(
+                      key: Key('skill-${skill.name}'),
+                      title: Row(
+                        children: [
+                          Text(skill.name),
+                          const SizedBox(width: 8),
+                          if (skill.version.isNotEmpty)
+                            Text(
+                              'v${skill.version}',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                  ),
+                            ),
+                          const SizedBox(width: 8),
+                          _buildVerifyIcon(verifyResult),
+                        ],
                       ),
-                      confirmDismiss: (_) async {
-                        await _deleteSkill(skill);
-                        return false; // 手动处理删除
-                      },
-                      child: ListTile(
-                        key: Key('skill-${skill.name}'),
-                        title: Row(
-                          children: [
-                            Text(skill.name),
-                            const SizedBox(width: 8),
-                            if (skill.version.isNotEmpty)
-                              Text(
-                                'v${skill.version}',
-                                style:
-                                    Theme.of(context).textTheme.bodySmall?.copyWith(
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .onSurfaceVariant,
-                                        ),
-                              ),
-                            const SizedBox(width: 8),
-                            _buildVerifyIcon(verifyResult),
-                          ],
-                        ),
-                        subtitle: skill.description.isNotEmpty
-                            ? Text(skill.description,
-                                maxLines: 2, overflow: TextOverflow.ellipsis)
-                            : null,
-                        trailing: Switch(
-                          key: Key('skill-switch-${skill.name}'),
-                          value: skill.enabled,
-                          onChanged: isToggling
-                              ? null
-                              : (value) => unawaited(_toggleSkill(skill, value)),
-                        ),
+                      subtitle: skill.description.isNotEmpty
+                          ? Text(skill.description,
+                              maxLines: 2, overflow: TextOverflow.ellipsis)
+                          : null,
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // 逐个验证按钮
+                          IconButton(
+                            key: Key('skill-verify-${skill.name}'),
+                            icon: isVerifying
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.play_circle_outline,
+                                    size: 20),
+                            tooltip: '验证',
+                            onPressed: isVerifying
+                                ? null
+                                : () => unawaited(_verifySingle(skill)),
+                          ),
+                          // 删除按钮
+                          IconButton(
+                            key: Key('skill-delete-${skill.name}'),
+                            icon: Icon(Icons.delete_outline,
+                                size: 20,
+                                color: Theme.of(context).colorScheme.error),
+                            tooltip: '删除',
+                            onPressed: () => unawaited(_deleteSkill(skill)),
+                          ),
+                          // 开关
+                          Switch(
+                            key: Key('skill-switch-${skill.name}'),
+                            value: skill.enabled,
+                            onChanged: isToggling
+                                ? null
+                                : (value) =>
+                                    unawaited(_toggleSkill(skill, value)),
+                          ),
+                        ],
                       ),
                     );
                   },
@@ -542,6 +564,17 @@ class _SkillConfigScreenState extends State<SkillConfigScreen>
         ),
       ],
     );
+  }
+
+  Future<void> _verifySingle(SkillInfo skill) async {
+    setState(() {
+      _verifyResults.remove(skill.name);
+    });
+    final result = await _service.verifySkill(skill);
+    if (!mounted) return;
+    setState(() {
+      _verifyResults[skill.name] = result;
+    });
   }
 
   Widget _buildVerifyIcon(SkillVerifyResult? result) {
@@ -587,42 +620,40 @@ class _SkillConfigScreenState extends State<SkillConfigScreen>
                   itemBuilder: (context, index) {
                     final item = _knowledge[index];
                     final isToggling = _togglingKnowledge.contains(item.filename);
-                    return Dismissible(
-                      key: Key('knowledge-dismiss-${item.filename}'),
-                      direction: DismissDirection.endToStart,
-                      background: Container(
-                        color: Theme.of(context).colorScheme.error,
-                        alignment: Alignment.centerRight,
-                        padding: const EdgeInsets.only(right: 16),
-                        child: const Icon(Icons.delete, color: Colors.white),
-                      ),
-                      confirmDismiss: (_) async {
-                        await _deleteKnowledgeFile(item);
-                        return false;
-                      },
-                      child: ListTile(
-                        key: Key('knowledge-${item.filename}'),
-                        title: Text(item.filename),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              key: Key('knowledge-edit-${item.filename}'),
-                              icon: const Icon(Icons.edit_outlined, size: 20),
-                              tooltip: '编辑',
-                              onPressed: () =>
-                                  unawaited(_editKnowledgeFile(item)),
-                            ),
-                            Switch(
-                              key: Key('knowledge-switch-${item.filename}'),
-                              value: item.enabled,
-                              onChanged: isToggling
-                                  ? null
-                                  : (value) =>
-                                      unawaited(_toggleKnowledge(item, value)),
-                            ),
-                          ],
-                        ),
+                    return ListTile(
+                      key: Key('knowledge-${item.filename}'),
+                      title: Text(item.filename),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // 编辑
+                          IconButton(
+                            key: Key('knowledge-edit-${item.filename}'),
+                            icon: const Icon(Icons.edit_outlined, size: 20),
+                            tooltip: '编辑',
+                            onPressed: () =>
+                                unawaited(_editKnowledgeFile(item)),
+                          ),
+                          // 删除
+                          IconButton(
+                            key: Key('knowledge-delete-${item.filename}'),
+                            icon: Icon(Icons.delete_outline,
+                                size: 20,
+                                color: Theme.of(context).colorScheme.error),
+                            tooltip: '删除',
+                            onPressed: () =>
+                                unawaited(_deleteKnowledgeFile(item)),
+                          ),
+                          // 开关
+                          Switch(
+                            key: Key('knowledge-switch-${item.filename}'),
+                            value: item.enabled,
+                            onChanged: isToggling
+                                ? null
+                                : (value) =>
+                                    unawaited(_toggleKnowledge(item, value)),
+                          ),
+                        ],
                       ),
                     );
                   },
