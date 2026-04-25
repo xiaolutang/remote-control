@@ -51,9 +51,9 @@
   },
   "summary": {
     "total": 81,
-    "pending": 7,
+    "pending": 6,
     "in_progress": 0,
-    "completed": 62,
+    "completed": 63,
     "blocked": 0,
     "cancelled": 6
   },
@@ -850,17 +850,13 @@
       ]
     },
     {
-      "id": "S090",
-      "phase": "eval-dataset",
-      "module": "server",
-      "name": "Grader 测试覆盖",
-      "description": "覆盖 B098 + B100：每种 code grader 的 pass/fail case、command_safety 复用验证、LLM Judge prompt 输出解析、未配置降级行为、评分一致性基线。",
-      "verification": "L1",
-      "depends_on": [
-        "B098",
-        "B100"
-      ],
-      "status": "pending",
+      "status": "completed",
+      "started_at": "2026-04-25T16:50:00+0800",
+      "completed_at": "2026-04-25T16:50:00+0800",
+      "actual_minutes": 0,
+      "evidence_file": ".dev-flow/evidence/S090.md",
+      "execution_notes": "验收确认：102 个既有测试完整覆盖 S090 全部 5 条验收条件。",
+      "commit": "pending",
       "priority": 2,
       "acceptance_criteria": [
         "5 种 code grader 各有 pass/fail 测试",
