@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 
-enum AccountMenuAction { theme, profile, feedback, logout }
+enum AccountMenuAction { theme, skillConfig, profile, feedback, logout }
 
 List<PopupMenuEntry<AccountMenuAction>> buildAccountMenuEntries({
   bool includeTheme = true,
+  bool includeSkillConfig = false,
 }) {
   return [
     if (includeTheme)
@@ -14,6 +15,17 @@ List<PopupMenuEntry<AccountMenuAction>> buildAccountMenuEntries({
             Icon(Icons.palette_outlined, size: 20),
             SizedBox(width: 12),
             Text('主题'),
+          ],
+        ),
+      ),
+    if (includeSkillConfig)
+      const PopupMenuItem<AccountMenuAction>(
+        value: AccountMenuAction.skillConfig,
+        child: Row(
+          children: [
+            Icon(Icons.build_circle_outlined, size: 20),
+            SizedBox(width: 12),
+            Text('技能管理'),
           ],
         ),
       ),

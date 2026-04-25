@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -11,7 +10,6 @@ import '../services/account_menu_action_handler.dart';
 import '../services/auth_service.dart';
 import '../services/config_service.dart';
 import '../services/desktop_agent_bootstrap_service.dart';
-import '../services/desktop_agent_http_client.dart';
 import '../services/desktop_agent_manager.dart';
 import '../services/desktop_workspace_controller.dart';
 import '../services/environment_service.dart';
@@ -261,6 +259,11 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
                   onLogout: () => _handleAccountAction(
                     context,
                     AccountMenuAction.logout,
+                  ),
+                  onSkillConfig: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const SkillConfigScreen(),
+                    ),
                   ),
                 ),
                 Expanded(
@@ -619,20 +622,6 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
                               context, controller, device));
                         },
                       ),
-                      ListTile(
-                        key: const Key('workspace-menu-skill-config'),
-                        enabled: agentOnline,
-                        contentPadding: EdgeInsets.zero,
-                        leading: const Icon(Icons.build_circle_outlined),
-                        title: const Text('技能管理'),
-                        subtitle: agentOnline
-                            ? null
-                            : const Text('Agent 离线时不可用'),
-                        onTap: agentOnline
-                            ? () => Navigator.of(context)
-                                .pop(const _TerminalMenuAction.skillConfig())
-                            : null,
-                      ),
                       const Divider(height: 24),
                     ],
                     ListTile(
@@ -769,15 +758,6 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
       case _TerminalMenuActionKind.switchTerminal:
         _workspaceController.selectTerminal(selectedAction.terminalId);
         break;
-      case _TerminalMenuActionKind.skillConfig:
-        if (context.mounted) {
-          await Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => const SkillConfigScreen(),
-            ),
-          );
-        }
-        break;
     }
   }
 
@@ -865,6 +845,7 @@ class _WorkspaceHeaderBar extends StatelessWidget {
     required this.onProfile,
     required this.onFeedback,
     required this.onLogout,
+    this.onSkillConfig,
   });
 
   final RuntimeDevice? device;
@@ -878,6 +859,7 @@ class _WorkspaceHeaderBar extends StatelessWidget {
   final VoidCallback? onProfile;
   final VoidCallback? onFeedback;
   final VoidCallback? onLogout;
+  final VoidCallback? onSkillConfig;
 
   @override
   Widget build(BuildContext context) {
@@ -982,9 +964,14 @@ class _WorkspaceHeaderBar extends StatelessWidget {
                 case AccountMenuAction.logout:
                   onLogout?.call();
                   break;
+                case AccountMenuAction.skillConfig:
+                  onSkillConfig?.call();
+                  break;
               }
             },
-            itemBuilder: (context) => buildAccountMenuEntries(),
+            itemBuilder: (context) => buildAccountMenuEntries(
+              includeSkillConfig: true,
+            ),
           ),
         ],
       ),
@@ -1058,7 +1045,7 @@ class _WorkspaceEmptyState extends StatelessWidget {
   }
 }
 
-enum _TerminalMenuActionKind { create, rename, close, switchTerminal, skillConfig }
+enum _TerminalMenuActionKind { create, rename, close, switchTerminal }
 
 class _TerminalMenuAction {
   const _TerminalMenuAction._(this.kind, [this.terminalId]);
@@ -1066,7 +1053,6 @@ class _TerminalMenuAction {
   const _TerminalMenuAction.create() : this._(_TerminalMenuActionKind.create);
   const _TerminalMenuAction.rename() : this._(_TerminalMenuActionKind.rename);
   const _TerminalMenuAction.close() : this._(_TerminalMenuActionKind.close);
-  const _TerminalMenuAction.skillConfig() : this._(_TerminalMenuActionKind.skillConfig);
   const _TerminalMenuAction.switchTo(String terminalId)
       : this._(_TerminalMenuActionKind.switchTerminal, terminalId);
 

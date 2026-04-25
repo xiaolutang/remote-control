@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../navigation/account_menu_actions.dart';
 import '../screens/feedback_screen.dart';
+import '../screens/skill_config_screen.dart';
 import '../screens/user_profile_screen.dart';
 import 'auth_service.dart';
 import 'logout_helper.dart';
@@ -15,6 +16,9 @@ Future<void> handleAccountMenuAction(
   Future<void> Function()? onTheme,
 }) async {
   switch (action) {
+    case AccountMenuAction.skillConfig:
+      await _openSkillConfig(context);
+      return;
     case AccountMenuAction.theme:
       if (onTheme != null) {
         await onTheme();
@@ -107,5 +111,14 @@ Future<void> _confirmAndLogout(
   await logoutAndNavigate(
     context: context,
     destinationBuilder: destinationBuilder,
+  );
+}
+
+Future<void> _openSkillConfig(BuildContext context) async {
+  if (!context.mounted) return;
+  await Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => const SkillConfigScreen(),
+    ),
   );
 }
