@@ -358,7 +358,7 @@
         "S109",
         "S110"
       ],
-      "status": "pending",
+      "status": "completed",
       "priority": 7,
       "acceptance_criteria": [
         "architecture.md 不变量/关键决策与实际代码实现一致（S104 已验证的基线无需重验）",
@@ -373,15 +373,17 @@
         ".dev-flow/api_contracts.md",
         ".dev-flow/test_coverage.md",
         ".dev-flow/alignment_checklist.md"
-      ]
+      ],
+      "summary": "architecture/api_contracts 无偏差。test_coverage + alignment_checklist 同步 S109/S111 状态",
+      "evidence_file": "evidence/S111.md"
     }
   ],
   "summary": {
     "total_tasks": 8,
     "by_status": {
-      "pending": 2,
+      "pending": 0,
       "in_progress": 0,
-      "completed": 6,
+      "completed": 8,
       "blocked": 0,
       "cancelled": 0
     },
