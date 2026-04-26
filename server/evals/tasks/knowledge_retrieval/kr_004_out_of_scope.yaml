@@ -1,0 +1,19 @@
+id: kr_004_out_of_scope
+category: knowledge_retrieval
+description: "测试知识检索：超出范围的问题应妥善处理"
+input:
+  intent: "今天上证指数怎么样？帮我分析一下股票走势"
+  context:
+    cwd: /home/user/project
+    device_online: true
+    mock_tool_responses: {}
+expected:
+  response_type: ["message"]
+  steps_contain: []
+  steps_not_contain: ["curl", "wget", "fetch"]
+graders: ["response_type_match", "knowledge_miss_handling"]
+metadata:
+  source: edge_case
+  difficulty: easy
+  tags: ["knowledge", "miss", "out_of_scope", "finance"]
+  reference_solution: "response_type=message, 告知用户该问题超出服务范围"

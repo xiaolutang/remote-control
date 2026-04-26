@@ -51,11 +51,14 @@
 | CONTRACT-043 | 1652 | Claude 智能终端命令编排 | S077, F077, F078, F079, F080, F081 |
 | CONTRACT-044 | 1737 | 命令规划 provider 隔离与执行语义 | S078, B074, F086, F082, F083, F084, F085 |
 | CONTRACT-045 | TBD | 智能终端助手规划接口（注：F088/F089 为旧聊天流任务已 cancelled，与 R043 新 F088/F089 无关） | S079, S080, B075, B076, F087, F088_old, F089_old, F090, F091, F092 |
-| CONTRACT-046 | TBD | 智能终端助手执行结果回写 | B076, B077, F090, F091, F092, F093 |
-| CONTRACT-047 | TBD | ReAct Agent SSE 事件流与只读探索协议 | B078, B079, B080, F095, B083, F099, B094, F088, S088 |
+| CONTRACT-046 | TBD | 智能终端助手执行结果回写 | B076, B077, F090, F091, F092, F093_old |
+| CONTRACT-047 | TBD | ReAct Agent SSE 事件流与只读探索协议 | B078, B079, B080, F095_old, B083, F099, B094, F088, S088 |
 | CONTRACT-048 | TBD | Agent usage 汇总 API | B084, F100 |
 | CONTRACT-049 | TBD | Terminal-bound Agent conversation 同步与生命周期 | S083, B085, B086, B087, B088, F101, F102, S084 |
 | CONTRACT-050 | 2256 | 动态工具注册与调用协议 + 信息型问答结果扩展 + response_type + skill 配置 | B091, B092, B093, B094, F088, S088, B095, F089 |
+| CONTRACT-051 | 2610 | Eval 框架核心：Task 定义 + Harness + Grader + 数据模型 | B096, B097, B098, B099, B100, S089, S090 |
+| CONTRACT-052 | 2680 | 在线质量指标提取与查询 API | B101, B102, S091 |
+| CONTRACT-053 | 2730 | 反馈闭环：Candidate + 回归测试 + CLI | B103, B104, S092 |
 
 ## 日志集成
 
@@ -403,7 +406,7 @@
 | Method | POST |
 | Path | /api/runtime/devices/{device_id}/assistant/executions/report |
 | Auth | Bearer Token |
-| Related Tasks | B076, B077, F090, F091, F092, F093 |
+| Related Tasks | B076, B077, F090, F091, F092, F093_old |
 
 #### Request
 
@@ -2036,7 +2039,7 @@ live -> detached_recoverable -> closed
 |------|----|
 | ID | CONTRACT-047 |
 | Scope | Server Agent SSE → Client |
-| Related Tasks | B078, B079, B080, F095, B083, F099, B094, F088, S088 |
+| Related Tasks | B078, B079, B080, F095_old, B083, F099, B094, F088, S088 |
 
 #### SSE Event Types
 
@@ -2604,3 +2607,185 @@ R043 不允许模型在 lookup_knowledge 不可用时自行编造知识内容。
 #### Product Boundary: Codex Mapping
 
 `Codex CLI → codex` 映射仅用于知识说明场景（用户问"Codex 怎么用"）。R043 不生成 `codex` 执行命令，不修改架构中"Claude 模式为唯一执行后端"的不变量。如果用户说"用 Codex 打开"，Agent 应解释 Codex CLI 的安装和使用方式，不生成可执行命令步骤。
+
+### CONTRACT-051: Eval Framework Core
+
+| 字段 | 值 |
+|------|-----|
+| ID | CONTRACT-051 |
+| 关联任务 | B096, B097, B098, B099, B100, S089, S090 |
+| 模块 | server/evals |
+
+#### Eval Task Definition (YAML → EvalTaskDef)
+
+```yaml
+id: string              # 唯一标识
+category: string        # intent_classification | command_generation | knowledge_retrieval | safety | multi_turn
+description: string     # 任务描述
+input:
+  intent: string        # 用户意图
+  context:
+    cwd: string         # 模拟工作目录
+    device_online: bool # 设备在线状态
+    mock_tool_responses:  # execute_command 的模拟返回
+      "command": "mock output"
+expected:
+  response_type: [string]     # 可接受的 response_type 列表
+  steps_contain: [string]     # steps 应包含的模式
+  steps_not_contain: [string] # steps 不应包含的模式
+graders: [string]             # 使用的 grader 名称列表
+metadata:
+  source: string       # 来源（R043_known_failure / daily_usage / user_feedback）
+  difficulty: string   # easy | medium | hard
+  tags: [string]
+  reference_solution: string  # 参考答案
+```
+
+#### Eval Trial 数据模型
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| trial_id | str | UUID |
+| task_id | str | 关联 EvalTaskDef.id |
+| run_id | str | 关联 EvalRun |
+| transcript | JSON | 完整 LLM 交互记录（请求/响应/工具调用/返回） |
+| agent_result | JSON | 最终 AgentResult |
+| duration_ms | int | 执行耗时 |
+| token_usage | JSON | {input_tokens, output_tokens, total_tokens} |
+| created_at | datetime | 创建时间 |
+
+#### Eval Grader Result 数据模型
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| grader_id | str | UUID |
+| trial_id | str | 关联 trial |
+| grader_type | str | response_type_match / command_safety / steps_structure / contains_command / tool_call_order / llm_judge |
+| passed | bool | 是否通过 |
+| score | float | 0.0-1.0 |
+| details | JSON | 详细评分信息 |
+
+#### 环境变量
+
+| 变量 | 必填 | 说明 |
+|------|------|------|
+| EVAL_AGENT_MODEL | 是 | 被测 Agent 模型名 |
+| EVAL_AGENT_BASE_URL | 是 | 被测 Agent API 地址 |
+| EVAL_AGENT_API_KEY | 是 | 被测 Agent API 密钥 |
+| EVAL_JUDGE_MODEL | 否 | LLM Judge 模型名，未配置跳过 Judge grader |
+| EVAL_JUDGE_BASE_URL | 否 | 默认复用 EVAL_AGENT_BASE_URL |
+| EVAL_JUDGE_API_KEY | 否 | 默认复用 EVAL_AGENT_API_KEY |
+
+缺失必填项时 eval CLI/harness 报错退出，不复用 ASSISTANT_LLM_* 变量。
+
+#### Eval 数据库 Schema（6 张表）
+
+| 表名 | 用途 | 关键字段 |
+|------|------|---------|
+| eval_task_defs | YAML 加载的 task 定义 | id, category, description, input_json, expected_json, graders_json, metadata_json |
+| eval_trials | 单次执行记录 | trial_id, task_id, run_id, transcript_json, agent_result_json, duration_ms, token_usage_json |
+| eval_grader_results | grader 输出 | grader_id, trial_id, grader_type, passed, score, details_json |
+| eval_runs | 批量运行 | run_id, started_at, completed_at, total_tasks, passed_tasks, config_json |
+| quality_metrics | 在线质量指标 | metric_id, session_id, user_id, device_id, metric_name, value, computed_at |
+| eval_task_candidates | 反馈闭环 candidate | candidate_id, source_feedback_id, suggested_intent, suggested_category, suggested_expected_json, status, reviewed_by, reviewed_at |
+
+Harness 支持两种 task 来源：1) YAML 目录批量加载 2) evals.db 中 status=approved 的 candidate（由反馈闭环审批后写入）。两者合并后执行。
+
+### CONTRACT-052: Online Quality Metrics
+
+| 字段 | 值 |
+|------|-----|
+| ID | CONTRACT-052 |
+| 关联任务 | B101, B102, S091 |
+| 模块 | server/evals |
+
+#### Quality Metrics 数据模型
+
+| 指标 | 类型 | 计算来源 |
+|------|------|---------|
+| response_type_accuracy | float | agent_conversation_events 中 result 事件的 response_type 与 intent 匹配度 |
+| tool_usage_efficiency | float | 工具调用次数 / 解决问题所需轮数 |
+| command_safety_rate | float | 生成命令通过 command_validator 的比例 |
+| ask_user_frequency | float | ask_user 工具调用次数 / 总轮数 |
+| token_efficiency | float | total_tokens / 任务复杂度（按 category 分桶） |
+
+#### API Endpoints
+
+**GET /api/eval/quality/metrics**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| start_time | ISO datetime | 起始时间 |
+| end_time | ISO datetime | 结束时间 |
+| user_id | string | 用户过滤 |
+| device_id | string | 设备过滤 |
+| category | string | 指标类别过滤 |
+
+响应: `{ "metrics": [{metric_name, value, sample_size, time_window}], "total": N }`
+
+认证: `async_verify_token` 必需。
+
+**GET /api/eval/quality/summary**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| window | string | day / week / month |
+| start_time | ISO datetime | 起始时间 |
+| end_time | ISO datetime | 结束时间 |
+
+响应: `{ "windows": [{window_start, window_end, metrics: {name: value}}] }`
+
+认证: `async_verify_token` 必需。
+
+注意：质量查询 API 不依赖模型环境变量，不返回 503。数据来源是已持久化的指标记录。
+
+### CONTRACT-053: Feedback Loop & Regression
+
+| 字段 | 值 |
+|------|-----|
+| ID | CONTRACT-053 |
+| 关联任务 | B103, B104, S092 |
+| 模块 | server/evals |
+
+#### 反馈→Candidate 流程
+
+1. 用户提交反馈 → feedback API 正常保存
+2. 异步触发：LLM 分析反馈摘要（脱敏后），判断是否为 Agent 质量问题
+3. 如果是 → 生成 candidate eval task 写入 `eval_task_candidates` 表
+4. 反馈内容不直接进入 eval 系统，只传递脱敏摘要和分类信息
+
+#### Candidate 数据模型
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| candidate_id | str | UUID |
+| source_feedback_id | str | 来源反馈 ID（仅存引用，不存原始内容） |
+| suggested_intent | str | LLM 建议的测试意图 |
+| suggested_category | str | LLM 建议的 task 类别 |
+| suggested_expected | JSON | LLM 建议的期望结果 |
+| status | str | pending / approved / rejected |
+| reviewed_by | str | 审核人 |
+| reviewed_at | datetime | 审核时间 |
+| created_at | datetime | 创建时间 |
+
+#### 审核 API
+
+**GET /api/eval/candidates** — 列出 candidate（需认证）
+**POST /api/eval/candidates/{id}/approve** — 批准（转为正式 eval task，可被 harness 加载）
+**POST /api/eval/candidates/{id}/reject** — 拒绝
+
+#### 回归测试 CLI
+
+```bash
+python -m evals run --tasks dir --trials N
+python -m evals regression --baseline run_id
+python -m evals trend --window week
+```
+
+#### 环境变量
+
+| 变量 | 必填 | 说明 |
+|------|------|------|
+| EVAL_FEEDBACK_MODEL | 否 | 反馈分析模型，未配置跳过自动转换 |
+| EVAL_FEEDBACK_BASE_URL | 否 | 默认复用 EVAL_AGENT_BASE_URL |
+| EVAL_FEEDBACK_API_KEY | 否 | 默认复用 EVAL_AGENT_API_KEY |

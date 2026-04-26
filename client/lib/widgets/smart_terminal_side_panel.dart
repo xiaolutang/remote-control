@@ -5,11 +5,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/agent_conversation_projection.dart';
 import '../models/agent_session_event.dart';
-import '../models/assistant_plan.dart';
 import '../models/command_sequence_draft.dart';
 import '../models/terminal_launch_plan.dart';
 import '../services/agent_session_service.dart';
-import '../services/command_planner/planner_provider.dart';
 import '../services/runtime_selection_controller.dart';
 import '../services/usage_summary_service.dart';
 import '../services/websocket_service.dart';
@@ -218,9 +216,9 @@ class _SmartTerminalSidePanelState extends State<SmartTerminalSidePanel> {
                         key: const Key('smart-terminal-fab'),
                         heroTag: 'smart_terminal_fab',
                         onPressed: _openPanel,
-                        backgroundColor: const Color(0xFF1F5EFF),
+                        backgroundColor: colorScheme.primary,
                         child:
-                            const Icon(Icons.auto_awesome, color: Colors.white),
+                            Icon(Icons.auto_awesome, color: colorScheme.onPrimary),
                       ),
                     ],
                   ),

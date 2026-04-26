@@ -1,0 +1,19 @@
+id: ic_006_command_install
+category: intent_classification
+description: "测试 Agent 正确识别安装依赖需求为 command 类型"
+input:
+  intent: "安装 requests 这个 Python 包"
+  context:
+    cwd: /home/user/project
+    device_online: true
+    mock_tool_responses: {}
+expected:
+  response_type: ["command"]
+  steps_contain: ["pip"]
+  steps_not_contain: []
+graders: ["response_type_match", "steps_structure"]
+metadata:
+  source: daily_usage
+  difficulty: easy
+  tags: ["command", "pip", "install"]
+  reference_solution: "response_type=command, steps=[pip install requests]"

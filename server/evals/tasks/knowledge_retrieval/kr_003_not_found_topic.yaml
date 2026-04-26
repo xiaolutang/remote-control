@@ -1,0 +1,19 @@
+id: kr_003_not_found_topic
+category: knowledge_retrieval
+description: "测试知识检索：不存在的知识应返回无结果提示"
+input:
+  intent: "如何用 Rust 开发操作系统内核"
+  context:
+    cwd: /home/user/project
+    device_online: true
+    mock_tool_responses: {}
+expected:
+  response_type: ["message"]
+  steps_contain: []
+  steps_not_contain: []
+graders: ["response_type_match", "knowledge_miss_handling"]
+metadata:
+  source: edge_case
+  difficulty: easy
+  tags: ["knowledge", "miss", "out_of_scope"]
+  reference_solution: "response_type=message, 告知用户该话题不在知识库范围内"

@@ -41,11 +41,7 @@ class _SmartTerminalSidePanelContentState
   late final FocusNode _intentFocusNode;
   late final ScrollController _scrollController;
 
-  // --- Planner 模式状态 ---
-  bool _resolvingIntent = false;
-  String? _pendingIntent;
-  final List<_SidePanelConversationTurn> _turns = [];
-  final List<_SidePanelStreamItem> _pendingItems = [];
+  // --- 面板状态 ---
   CommandSequenceDraft _draft =
       CommandSequenceDraft.fromLaunchPlan(const TerminalLaunchPlan(
     tool: TerminalLaunchTool.claudeCode,
@@ -56,7 +52,6 @@ class _SmartTerminalSidePanelContentState
     postCreateInput: '',
     source: TerminalLaunchPlanSource.recommended,
   ));
-  String? _fallbackReason;
   bool _executing = false;
 
   // --- Agent SSE 模式状态 ---
@@ -80,11 +75,13 @@ class _SmartTerminalSidePanelContentState
   String? _loadedTerminalStatus;
   int _projectionLoadSerial = 0;
   int _nextConversationEventIndex = 0;
+  bool _pendingReset = false; // F093: SSE 活跃时收到 conversation_reset 的待处理标记
   bool _terminalConversationClosed = false;
   String? _terminalClosedReason;
 
   // --- 内联编辑状态 ---
   int? _editingHistoryIndex; // 正在编辑的历史条目索引 (null=无, -1=当前活跃意图)
+  int? _editingAnswerIndex; // 正在编辑的问答回答索引 (null=编辑意图)
   late final TextEditingController _editingController;
 
   // --- SSE 重连已下沉到 AgentSessionService.streamConversationResilient ---
@@ -238,12 +235,8 @@ class _SmartTerminalSidePanelContentState
     _conversationStreamSubscription?.cancel();
     _conversationStreamSubscription = null;
 
-    _resolvingIntent = false;
-    _pendingIntent = null;
-    _turns.clear();
-    _pendingItems.clear();
+    _pendingReset = false; // F093: scope 切换时清除 pendingReset 标记
     _draft = _defaultDraft();
-    _fallbackReason = null;
     _executing = false;
 
     _resetAgentRenderState();
@@ -263,11 +256,7 @@ class _SmartTerminalSidePanelContentState
     _eventSubscription = null;
     _conversationStreamSubscription?.cancel();
     _conversationStreamSubscription = null;
-    _turns.clear();
-    _pendingItems.clear();
-    _pendingIntent = null;
-    _resolvingIntent = false;
-    _fallbackReason = null;
+    _pendingReset = false; // F093: terminal 关闭时清除 pendingReset 标记
     _executing = false;
     _draft = _defaultDraft();
     _resetAgentRenderState();
@@ -380,6 +369,12 @@ class _SmartTerminalSidePanelContentState
     // 服务端截断/重置通知：其他端编辑/重发时，全量清空本地渲染状态
     // 后续到达的事件会通过 _deriveAgentRenderState 重建完整状态
     if (event.type == 'conversation_reset') {
+      // SSE 活跃时：记录 pendingReset 标记，SSE 结束后在 onDone 中统一清空。
+      // 如果在这里清空，SSE 正在构建的新状态会被全部清除，导致页面消失。
+      if (_eventSubscription != null) {
+        _pendingReset = true;
+        return;
+      }
       _serverConversationEvents.clear();
       _agentHistory.clear();
       _nextConversationEventIndex = 0;
@@ -405,6 +400,16 @@ class _SmartTerminalSidePanelContentState
     }
     if (event.eventIndex + 1 > _nextConversationEventIndex) {
       _nextConversationEventIndex = event.eventIndex + 1;
+    }
+
+    // SSE 会话活跃时：conversation stream 仅追加事件到 _serverConversationEvents，
+    // 不重建 UI 状态。UI 状态由 SSE handler (_handleAgentEvent) 实时维护。
+    // SSE 结束后 onDone 会触发最终同步。
+    final sseActive = _eventSubscription != null;
+    if (sseActive) {
+      _terminalConversationClosed = false;
+      _terminalClosedReason = null;
+      return;
     }
 
     // 热路径优化：trace 事件直接增量追加，避免全量重算
@@ -438,6 +443,24 @@ class _SmartTerminalSidePanelContentState
     _agentAnswers
       ..clear()
       ..addAll(renderState.answers);
+    // conversation stream 重建时恢复 _activeSessionId：
+    // 当状态为 asking/exploring 时，agent 会话可能仍在服务端存活，
+    // 从最近的事件中提取 sessionId 以便用户能继续回答。
+    if (_activeSessionId == null &&
+        (_agentState == AgentPanelState.asking ||
+            _agentState == AgentPanelState.exploring)) {
+      AgentConversationEventItem? eventWithSession;
+      for (var i = _serverConversationEvents.length - 1; i >= 0; i--) {
+        final e = _serverConversationEvents[i];
+        if (e.sessionId != null && e.sessionId!.isNotEmpty) {
+          eventWithSession = e;
+          break;
+        }
+      }
+      if (eventWithSession != null) {
+        _activeSessionId = eventWithSession.sessionId;
+      }
+    }
     if (_agentResult != null) {
       _draft = _buildDraftFromAgentResult(_agentResult!);
     }
@@ -610,7 +633,7 @@ class _SmartTerminalSidePanelContentState
   }
 
   // ============================================================
-  // Intent 提交入口：优先尝试 Agent SSE，降级走 planner
+  // Intent 提交入口：Agent SSE 模式
   // ============================================================
 
   Future<void> _handleResolveIntent({
@@ -619,10 +642,9 @@ class _SmartTerminalSidePanelContentState
   }) async {
     if (_terminalConversationClosed) return;
     final intent = (overrideIntent ?? _intentController.text).trim();
-    if (intent.isEmpty || _resolvingIntent) return;
+    if (intent.isEmpty) return;
 
     _intentController.clear();
-    _fallbackReason = null;
 
     // 如果当前有未归档的 Agent 轮次，先归档（无论状态）
     if (_agentIntent != null && _agentIntent!.isNotEmpty) {
@@ -708,8 +730,10 @@ class _SmartTerminalSidePanelContentState
         truncateAfterIndex: truncateAfterIndex,
       );
 
-      _conversationStreamSubscription?.cancel();
-      _conversationStreamSubscription = null;
+      // 不取消 conversation stream：保持 _serverConversationEvents 实时更新，
+      // 避免 SSE 结束后的 conversation stream 重启间隙导致事件丢失。
+      // SSE 活跃期间，conversation stream 仅追加事件到 _serverConversationEvents，
+      // 不重建 UI 状态（由 _applyConversationEventItem 的 _eventSubscriptionActive 检查控制）。
       _eventSubscription?.cancel();
       _eventSubscription = eventStream.listen(
         (event) {
@@ -732,7 +756,21 @@ class _SmartTerminalSidePanelContentState
         onDone: () {
           // SSE 流关闭时清理状态，防止卡在 exploring
           if (!mounted) return;
-          if (_agentState == AgentPanelState.exploring) {
+          // F093: SSE 结束时检查 pendingReset，如果有待处理的 conversation_reset 则完整重置状态
+          final didReset = _pendingReset;
+          if (didReset) {
+            setState(() {
+              _serverConversationEvents.clear();
+              _agentHistory.clear();
+              _nextConversationEventIndex = 0;
+              _pendingReset = false;
+              _resetAgentRenderState(resetDraft: true);
+            });
+          }
+          // SSE 结束：清空 _eventSubscription 使 conversation stream 恢复完整重建能力。
+          _eventSubscription = null;
+          // F093: pendingReset 导致的关闭是预期行为，不报 STREAM_CLOSED 错误
+          if (_agentState == AgentPanelState.exploring && !didReset) {
             setState(() {
               _agentState = AgentPanelState.error;
               _agentError = const AgentErrorEvent(
@@ -741,9 +779,14 @@ class _SmartTerminalSidePanelContentState
               );
             });
           }
-          // Agent SSE 流结束后重启 conversation stream 订阅，
-          // 以接收其他端（手机/桌面）发起的后续消息。
-          _restartConversationStreamForCurrentScope();
+          // F093: pendingReset 清空了 _nextConversationEventIndex = 0，需要重启 conversation stream
+          // 以确保从服务端获取完整的最新投影（resilient stream 内部 currentIndex 不会自动回退）
+          if (didReset) {
+            _restartConversationStreamForCurrentScope();
+          } else if (_conversationStreamSubscription == null) {
+            // conversation stream 之前因错误断开，尝试重启以保持连接
+            _restartConversationStreamForCurrentScope();
+          }
         },
       );
     } catch (e) {
@@ -812,7 +855,11 @@ class _SmartTerminalSidePanelContentState
             _draft = _buildDraftFromAgentResult(result);
           }
         });
-        _restartConversationStreamForCurrentScope();
+        // conversation stream 常驻，无需重启。
+        // 仅在它意外断开时尝试恢复。
+        if (_conversationStreamSubscription == null) {
+          _restartConversationStreamForCurrentScope();
+        }
         unawaited(_refreshUsageSummary(controller: controller));
         _scheduleScrollToLatest();
 
@@ -822,14 +869,11 @@ class _SmartTerminalSidePanelContentState
           _agentState = AgentPanelState.error;
           _activeSessionId = null;
         });
-        _restartConversationStreamForCurrentScope();
+        // conversation stream 常驻，无需重启。
+        if (_conversationStreamSubscription == null) {
+          _restartConversationStreamForCurrentScope();
+        }
         _scheduleScrollToLatest();
-
-      case AgentFallbackEvent fallback:
-        _presentAgentError(
-          code: fallback.code,
-          message: fallback.reason,
-        );
     }
   }
 
@@ -899,6 +943,7 @@ class _SmartTerminalSidePanelContentState
   /// 用户回答 Agent 问题
   Future<void> _handleAgentRespond(String answer) async {
     if (_terminalConversationClosed) return;
+    if (_pendingReset) return; // F093: reset 待处理时拒绝 stale session respond
     if (_activeSessionId == null) return;
 
     RuntimeSelectionController? controller;
@@ -951,16 +996,27 @@ class _SmartTerminalSidePanelContentState
     if (_terminalConversationClosed) {
       return;
     }
+    if (_pendingReset) return; // F093: reset 待处理时拒绝 stale 操作
     if (_agentState == AgentPanelState.asking) {
       final text = _intentController.text.trim();
       if (text.isEmpty) return;
+      // 如果 sessionId 丢失，恢复输入文字并提示错误，避免静默丢弃
+      if (_activeSessionId == null) {
+        setState(() {
+          _agentState = AgentPanelState.error;
+          _agentError = AgentErrorEvent(
+            code: 'SESSION_LOST',
+            message: '会话已断开，请重新发送您的问题',
+          );
+        });
+        return;
+      }
       _intentController.clear();
       setState(() {});
       _handleAgentRespond(text);
       return;
     }
     if (_executing ||
-        _resolvingIntent ||
         _agentState == AgentPanelState.exploring) {
       return;
     }
@@ -1035,134 +1091,20 @@ class _SmartTerminalSidePanelContentState
     });
   }
 
-  // ============================================================
-  // Planner 模式（原始逻辑，降级或 fallback 时使用）
-  // ============================================================
-
-  // ignore: unused_element
-  Future<void> _resolveViaPlanner(String intent) async {
-    if (_terminalConversationClosed) {
-      return;
-    }
-    setState(() {
-      _resolvingIntent = true;
-      _pendingIntent = intent;
-      _pendingItems.clear();
-    });
-    _scheduleScrollToLatest();
-
-    RuntimeSelectionController? controller;
-    try {
-      controller = context.read<RuntimeSelectionController>();
-    } on ProviderNotFoundException {
-      setState(() {
-        _resolvingIntent = false;
-        _pendingItems.add(_SidePanelStreamItem.assistantMessage(
-          AssistantMessage(type: 'error', text: '无法访问终端控制器，请重试。'),
-        ));
-      });
-      return;
-    }
-
-    final progress = <_SidePanelStreamItem>[];
-    PlannerResolutionResult? resolved;
-    try {
-      resolved = await controller.resolveLaunchIntent(
-        intent,
-        onProgress: (AssistantPlanProgressEvent event) {
-          if (!mounted) return;
-          _applyProgress(event, progress);
-        },
-      );
-    } catch (e) {
-      if (!mounted) return;
-      progress.add(_SidePanelStreamItem.assistantMessage(
-        AssistantMessage(type: 'error', text: '解析意图失败：$e'),
-      ));
-    }
-
-    if (!mounted) return;
-    CommandSequenceDraft nextDraft;
-    if (resolved != null) {
-      nextDraft = resolved.sequence ??
-          CommandSequenceDraft.fromLaunchPlan(
-            resolved.plan,
-            provider: resolved.provider,
-          );
-      if (resolved.fallbackUsed) {
-        _fallbackReason = resolved.fallbackReason ?? '自动兜底';
-      }
-    } else {
-      nextDraft = _draft;
-    }
-    setState(() {
-      _resolvingIntent = false;
-      _turns.add(_SidePanelConversationTurn(
-        userText: intent,
-        items: List.of(progress),
-        fallbackReason: _fallbackReason,
-      ));
-      _pendingIntent = null;
-      _pendingItems.clear();
-      _draft = nextDraft;
-    });
-    _scheduleScrollToLatest();
-  }
-
-  void _applyProgress(
-    AssistantPlanProgressEvent event,
-    List<_SidePanelStreamItem> progress,
-  ) {
-    if (event.assistantMessage != null) {
-      final item =
-          _SidePanelStreamItem.assistantMessage(event.assistantMessage!);
-      progress.add(item);
-      setState(() => _pendingItems.add(item));
-    }
-    if (event.derivedTraceItem != null) {
-      final item = _SidePanelStreamItem.traceItem(event.derivedTraceItem!);
-      progress.add(item);
-      setState(() => _pendingItems.add(item));
-    }
-    _scheduleScrollToLatest();
-  }
-
-  /// 原始执行（planner 模式）
-  Future<void> _handleExecute() async {
-    if (_terminalConversationClosed || _executing || !_isConnected) return;
-    setState(() => _executing = true);
-
-    final plan = _draft.toLaunchPlan();
-    final input = plan.postCreateInput;
-    var injectFailed = false;
-    if (input.isNotEmpty) {
-      try {
-        final service = context.read<WebSocketService>();
-        service.send(input);
-      } catch (e) {
-        injectFailed = true;
-        if (!mounted) return;
-        _turns.add(_SidePanelConversationTurn(
-          userText: '',
-          items: [
-            _SidePanelStreamItem.assistantMessage(
-              AssistantMessage(type: 'error', text: '命令注入失败：$e'),
-            )
-          ],
-        ));
-      }
-    }
-
-    if (!mounted) return;
-    setState(() => _executing = false);
-    if (!injectFailed) {
-      widget.onClose();
-    }
-  }
 
   /// 重试 Agent 会话
   void _retryAgentSession() {
-    if (_agentIntent != null) {
+    // F093: 先保存 intent，因为 _resetAgentRenderState 会清空 _agentIntent
+    final savedIntent = _agentIntent;
+    // F093: 如果有 pendingReset，需要完整清空旧投影，不能基于旧事件列表计算截断索引
+    if (_pendingReset) {
+      _serverConversationEvents.clear();
+      _agentHistory.clear();
+      _nextConversationEventIndex = 0;
+      _resetAgentRenderState(resetDraft: true);
+      _pendingReset = false;
+    }
+    if (savedIntent != null) {
       RuntimeSelectionController? controller;
       try {
         controller = context.read<RuntimeSelectionController>();
@@ -1176,7 +1118,7 @@ class _SmartTerminalSidePanelContentState
         _agentError = null;
       });
       _startAgentSession(
-        intent: _agentIntent!,
+        intent: savedIntent,
         controller: controller,
         truncateAfterIndex: truncateAfterIndex,
       );
@@ -1229,7 +1171,7 @@ class _SmartTerminalSidePanelContentState
 
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFFFBFCFE),
+        color: colorScheme.surface,
         borderRadius: const BorderRadius.horizontal(
           left: Radius.circular(24),
         ),
@@ -1309,13 +1251,13 @@ class _SmartTerminalSidePanelContentState
               margin: const EdgeInsets.only(right: 8),
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: const Color(0xFFFFF3E0),
+                color: colorScheme.errorContainer,
                 borderRadius: BorderRadius.circular(999),
               ),
               child: Text(
                 '已关闭',
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: const Color(0xFFE65100),
+                      color: colorScheme.onErrorContainer,
                       fontWeight: FontWeight.w600,
                       fontSize: 10,
                     ),
@@ -1327,18 +1269,18 @@ class _SmartTerminalSidePanelContentState
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               minimumSize: const Size(0, 36),
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              foregroundColor: const Color(0xFF1F5EFF),
+              foregroundColor: colorScheme.primary,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(10),
               ),
-              backgroundColor: const Color(0xFFEAF0FF),
+              backgroundColor: colorScheme.primaryContainer,
             ),
             onPressed: _handleUsageButtonTap,
             child: Text(
               'Token 汇总',
               style: Theme.of(context).textTheme.labelLarge?.copyWith(
                     fontWeight: FontWeight.w600,
-                    color: const Color(0xFF1F5EFF),
+                    color: colorScheme.primary,
                   ),
             ),
           ),
@@ -1366,8 +1308,8 @@ class _SmartTerminalSidePanelContentState
       return _buildAgentBody(colorScheme, connected);
     }
 
-    // Planner 模式 / 降级模式：显示 turns + pending
-    return _buildPlannerBody(colorScheme, connected);
+    // 初始状态（Agent 未启动）：显示欢迎提示
+    return _buildIdleHint(colorScheme);
   }
 
   Widget _buildClosedView(ColorScheme colorScheme) {
@@ -1422,7 +1364,7 @@ class _SmartTerminalSidePanelContentState
                 ),
                 const SizedBox(height: 8),
                 if (entry.answers.isNotEmpty)
-                  _buildAnswersSection(entry.answers, colorScheme),
+                  _buildAnswersSection(entry.answers, colorScheme, historyIndex: i),
                 if (entry.result != null)
                   _buildHistoryResultBubble(entry.result!, colorScheme)
                 else if (entry.error != null)
@@ -1437,13 +1379,11 @@ class _SmartTerminalSidePanelContentState
         if (_agentIntent != null) ...[
           _buildUserBubble(
             _agentIntent!,
-            canEdit: _agentState == AgentPanelState.result ||
-                _agentState == AgentPanelState.error ||
-                _agentState == AgentPanelState.idle,
+            canEdit: _agentState != AgentPanelState.exploring && !_pendingReset,
           ),
           const SizedBox(height: 8),
-          if (_agentAnswers.isNotEmpty && _agentState != AgentPanelState.asking)
-            _buildAnswersSection(_agentAnswers, colorScheme),
+          if (_agentAnswers.isNotEmpty)
+            _buildAnswersSection(_agentAnswers, colorScheme, isLive: true),
         ],
 
         switch (_agentState) {
@@ -1460,21 +1400,29 @@ class _SmartTerminalSidePanelContentState
   /// 问答交互气泡：展示 Agent 提问 + 用户回答
   Widget _buildAnswersSection(
     List<_AgentAnswerEntry> answers,
-    ColorScheme colorScheme,
-  ) {
+    ColorScheme colorScheme, {
+    int? historyIndex,
+    bool isLive = false,
+  }) {
     if (answers.isEmpty) return const SizedBox.shrink();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        for (final qa in answers) ...[
+        for (var j = 0; j < answers.length; j++) ...[
           _buildAssistantBubble(
             Text(
-              qa.question,
+              answers[j].question,
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ),
           const SizedBox(height: 4),
-          _buildUserBubble(qa.answer),
+          _buildUserBubble(
+            answers[j].answer,
+            canEdit: true,
+            historyIndex: historyIndex,
+            answerIndex: j,
+            isLiveAnswer: isLive,
+          ),
           const SizedBox(height: 6),
         ],
       ],
@@ -1486,38 +1434,12 @@ class _SmartTerminalSidePanelContentState
       AgentResultEvent result, ColorScheme colorScheme) {
     final rt = result.responseType;
 
-    // message 类型：显示已回复标签
+    // message 类型：直接显示文本气泡
     if (rt == 'message') {
       return _buildAssistantBubble(
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.chat_bubble_outline,
-                    size: 14, color: colorScheme.primary),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    result.summary,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '已回复',
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: colorScheme.primary,
-                    fontWeight: FontWeight.w600,
-                  ),
-            ),
-          ],
+        Text(
+          result.summary,
+          style: Theme.of(context).textTheme.bodyMedium,
         ),
       );
     }
@@ -1684,7 +1606,17 @@ class _SmartTerminalSidePanelContentState
   Future<void> _doCancelAgentNetwork() async {
     _eventSubscription?.cancel();
     _eventSubscription = null;
+    // F093: 先保存 sessionId，因为 _resetAgentRenderState 会清空 _activeSessionId
     final sessionId = _activeSessionId;
+    // F093: 取消时如果有 pendingReset，需要同步清空本地投影状态
+    // 因为 cancel 后重启 conversation stream 时不会重新获取已被截断的旧事件
+    if (_pendingReset) {
+      _serverConversationEvents.clear();
+      _agentHistory.clear();
+      _nextConversationEventIndex = 0;
+      _resetAgentRenderState(resetDraft: true);
+      _pendingReset = false;
+    }
     if (sessionId == null) return;
     RuntimeSelectionController? controller;
     try {
@@ -1713,7 +1645,7 @@ class _SmartTerminalSidePanelContentState
   Widget _buildAgentTraceExpansionTile(ColorScheme colorScheme) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.82),
+        color: colorScheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: colorScheme.outlineVariant.withValues(alpha: 0.14),
@@ -1840,9 +1772,9 @@ class _SmartTerminalSidePanelContentState
               side: BorderSide(
                 color: colorScheme.outlineVariant.withValues(alpha: 0.4),
               ),
-              backgroundColor: Colors.white,
+              backgroundColor: colorScheme.surface,
             ),
-            onPressed: () => _handleAgentRespond(option),
+            onPressed: _pendingReset ? null : () => _handleAgentRespond(option),
             child: Text(
               option,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -1862,7 +1794,7 @@ class _SmartTerminalSidePanelContentState
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.82),
+        color: colorScheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: colorScheme.outlineVariant.withValues(alpha: 0.14),
@@ -1883,9 +1815,9 @@ class _SmartTerminalSidePanelContentState
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
                 ),
-                backgroundColor: const Color(0xFF1F5EFF),
+                backgroundColor: colorScheme.primary,
               ),
-              onPressed: _multiSelectChosen.isNotEmpty
+              onPressed: _multiSelectChosen.isNotEmpty && !_pendingReset
                   ? () => _handleAgentRespond(
                         _multiSelectChosen.join(', '),
                       )
@@ -1901,7 +1833,7 @@ class _SmartTerminalSidePanelContentState
   Widget _buildCheckboxOption(String option, ColorScheme colorScheme) {
     final chosen = _multiSelectChosen.contains(option);
     return InkWell(
-      onTap: () {
+      onTap: _pendingReset ? null : () {
         setState(() {
           if (chosen) {
             _multiSelectChosen.remove(option);
@@ -1919,7 +1851,7 @@ class _SmartTerminalSidePanelContentState
               height: 20,
               child: Checkbox(
                 value: chosen,
-                onChanged: (v) {
+                onChanged: _pendingReset ? null : (v) {
                   setState(() {
                     if (v == true) {
                       _multiSelectChosen.add(option);
@@ -1959,76 +1891,13 @@ class _SmartTerminalSidePanelContentState
     return _buildCommandResultView(result, colorScheme, connected);
   }
 
-  /// message 类型：summary 可折叠卡片，无步骤，无执行按钮，收起时显示"已回复"标签
+  /// message 类型：直接显示文本气泡
   Widget _buildMessageResultView(
       AgentResultEvent result, ColorScheme colorScheme) {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.82),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: colorScheme.outlineVariant.withValues(alpha: 0.14),
-        ),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: ExpansionTile(
-          key: const Key('side-panel-message-expansion-tile'),
-          tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-          childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-          initiallyExpanded: false,
-          collapsedShape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
-          shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
-          backgroundColor: Colors.transparent,
-          collapsedBackgroundColor: Colors.transparent,
-          iconColor: colorScheme.primary,
-          collapsedIconColor: colorScheme.primary,
-          title: Row(
-            children: [
-              Icon(Icons.chat_bubble_outline,
-                  size: 16, color: colorScheme.primary),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  result.summary,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color:
-                      colorScheme.primaryContainer.withValues(alpha: 0.3),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '已回复',
-                  key: const Key('side-panel-message-replied-tag'),
-                  style:
-                      Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: colorScheme.primary,
-                            fontWeight: FontWeight.w600,
-                          ),
-                ),
-              ),
-            ],
-          ),
-          children: [
-            Text(
-              result.summary,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w400,
-                  ),
-            ),
-          ],
-        ),
+    return _buildAssistantBubble(
+      Text(
+        result.summary,
+        style: Theme.of(context).textTheme.bodyMedium,
       ),
     );
   }
@@ -2040,7 +1909,7 @@ class _SmartTerminalSidePanelContentState
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.82),
+        color: colorScheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: colorScheme.outlineVariant.withValues(alpha: 0.14),
@@ -2069,7 +1938,7 @@ class _SmartTerminalSidePanelContentState
             width: double.infinity,
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: const Color(0xFFF5F7FA),
+              color: colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
                 color: colorScheme.outlineVariant.withValues(alpha: 0.2),
@@ -2103,16 +1972,16 @@ class _SmartTerminalSidePanelContentState
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
-                backgroundColor: const Color(0xFF1F5EFF),
+                backgroundColor: colorScheme.primary,
               ),
               onPressed: connected && !_executing ? _injectAiPrompt : null,
               child: _executing
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 16,
                       height: 16,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: Colors.white,
+                        color: colorScheme.onPrimary,
                       ),
                     )
                   : const Text('注入终端'),
@@ -2130,7 +1999,7 @@ class _SmartTerminalSidePanelContentState
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.82),
+        color: colorScheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: colorScheme.outlineVariant.withValues(alpha: 0.14),
@@ -2160,7 +2029,7 @@ class _SmartTerminalSidePanelContentState
               margin: const EdgeInsets.only(bottom: 4),
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: const Color(0xFFF5F7FA),
+                color: colorScheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(
@@ -2205,17 +2074,17 @@ class _SmartTerminalSidePanelContentState
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  backgroundColor: const Color(0xFF1F5EFF),
+                  backgroundColor: colorScheme.primary,
                 ),
                 onPressed:
                     connected && !_executing ? _executeAgentResult : null,
                 child: _executing
-                    ? const SizedBox(
+                    ? SizedBox(
                         width: 16,
                         height: 16,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color: Colors.white,
+                          color: colorScheme.onPrimary,
                         ),
                       )
                     : const Text('执行'),
@@ -2233,7 +2102,7 @@ class _SmartTerminalSidePanelContentState
       key: const Key('side-panel-usage-toast'),
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colorScheme.surface,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
           color: colorScheme.outlineVariant.withValues(alpha: 0.2),
@@ -2282,13 +2151,13 @@ class _SmartTerminalSidePanelContentState
               key: const Key('side-panel-usage-error'),
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               decoration: BoxDecoration(
-                color: const Color(0xFFFFF5F2),
+                color: colorScheme.errorContainer,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(
                 _usageSummaryError!,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: const Color(0xFFB54708),
+                      color: colorScheme.onErrorContainer,
                     ),
               ),
             ),
@@ -2318,7 +2187,7 @@ class _SmartTerminalSidePanelContentState
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFFF6F8FC),
+        color: colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(14),
       ),
       child: Column(
@@ -2493,48 +2362,16 @@ class _SmartTerminalSidePanelContentState
     );
   }
 
-  /// Planner 模式消息体（原始逻辑）
-  Widget _buildPlannerBody(ColorScheme colorScheme, bool connected) {
-    final hasPendingTurn = _pendingIntent != null;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (_turns.isEmpty && _pendingIntent == null)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 4),
-            child: Text(
-              '直接说目标，我会生成命令，确认后再执行。',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onSurfaceVariant.withValues(alpha: 0.82),
-                  ),
+  /// 初始状态提示（Agent 未启动时的欢迎文本）
+  Widget _buildIdleHint(ColorScheme colorScheme) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 4),
+      child: Text(
+        '直接说目标，我会生成命令，确认后再执行。',
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: colorScheme.onSurfaceVariant.withValues(alpha: 0.82),
             ),
-          ),
-        for (final turn in _turns) ...[
-          _buildUserBubble(turn.userText),
-          const SizedBox(height: 8),
-          for (final item in turn.items) ...[
-            _buildItemBubble(item, colorScheme),
-            const SizedBox(height: 8),
-          ],
-          if (turn == _turns.last) ...[
-            _buildPreviewCard(colorScheme, connected),
-            const SizedBox(height: 8),
-          ],
-        ],
-        if (hasPendingTurn) ...[
-          _buildUserBubble(_pendingIntent!),
-          const SizedBox(height: 8),
-          if (_pendingItems.isEmpty)
-            _buildLoadingBubble('正在读取上下文...', colorScheme)
-          else
-            for (final item in _pendingItems) ...[
-              _buildItemBubble(item, colorScheme),
-              const SizedBox(height: 8),
-            ],
-          if (_resolvingIntent && _pendingItems.isNotEmpty)
-            _buildLoadingBubble('正在继续补全...', colorScheme),
-        ],
-      ],
+      ),
     );
   }
 
@@ -2543,15 +2380,15 @@ class _SmartTerminalSidePanelContentState
     final isExploring = _agentState == AgentPanelState.exploring;
     final isAwaitingAnswer = _agentState == AgentPanelState.asking;
     final isClosed = _terminalConversationClosed;
-    final canSend = !isClosed &&
+    final canSend = !isClosed && !_pendingReset &&
         (isAwaitingAnswer
-            ? !_executing && !_resolvingIntent
-            : !_executing && !_resolvingIntent && !isExploring);
+            ? !_executing
+            : !_executing && !isExploring);
 
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colorScheme.surface,
         border: Border(
           top: BorderSide(
             color: colorScheme.outlineVariant.withValues(alpha: 0.14),
@@ -2569,7 +2406,7 @@ class _SmartTerminalSidePanelContentState
                   key: const Key('side-panel-intent-input'),
                   controller: _intentController,
                   focusNode: _intentFocusNode,
-                  enabled: !isClosed,
+                  enabled: !isClosed && !_pendingReset,
                   textInputAction: TextInputAction.send,
                   textAlignVertical: TextAlignVertical.center,
                   decoration: InputDecoration(
@@ -2623,16 +2460,16 @@ class _SmartTerminalSidePanelContentState
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
                 ),
-                backgroundColor: const Color(0xFF1F5EFF),
+                backgroundColor: colorScheme.primary,
               ),
               onPressed: canSend ? _handleInputSubmit : null,
-              child: _resolvingIntent || isExploring
-                  ? const SizedBox(
+              child: isExploring
+                  ? SizedBox(
                       width: 16,
                       height: 16,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: Colors.white,
+                        color: colorScheme.onPrimary,
                       ),
                     )
                   : const Icon(Icons.arrow_upward, size: 18),
@@ -2647,14 +2484,20 @@ class _SmartTerminalSidePanelContentState
     String text, {
     int? historyIndex, // null=当前活跃意图, >=0=历史条目索引
     bool canEdit = false,
+    int? answerIndex, // null=意图, >=0=问答回答索引
+    bool isLiveAnswer = false, // 是否是当前活跃轮次的问答
   }) {
+    final colorScheme = Theme.of(context).colorScheme;
     // 判断是否处于内联编辑模式
     final isEditing = canEdit &&
-        ((historyIndex == null && _editingHistoryIndex == -1) ||
-            (historyIndex != null && _editingHistoryIndex == historyIndex));
+        _editingHistoryIndex != null &&
+        (isLiveAnswer
+            ? _editingHistoryIndex == -1
+            : _editingHistoryIndex == (historyIndex ?? -1)) &&
+        _editingAnswerIndex == answerIndex;
 
     if (isEditing) {
-      return _buildInlineEditBubble(text, historyIndex: historyIndex);
+      return _buildInlineEditBubble(text, historyIndex: historyIndex, colorScheme: colorScheme);
     }
 
     return Align(
@@ -2662,11 +2505,11 @@ class _SmartTerminalSidePanelContentState
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 280),
         child: GestureDetector(
-          onTap: canEdit ? () => _startInlineEdit(historyIndex) : null,
+          onTap: canEdit ? () => _startInlineEdit(historyIndex, answerIndex: answerIndex) : null,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
-              color: const Color(0xFFDCE8FF),
+              color: colorScheme.primaryContainer,
               borderRadius: const BorderRadius.only(
                 topLeft: Radius.circular(18),
                 topRight: Radius.circular(18),
@@ -2699,8 +2542,7 @@ class _SmartTerminalSidePanelContentState
   }
 
   /// 内联编辑气泡：直接在消息位置显示输入框 + 取消/发送按钮
-  Widget _buildInlineEditBubble(String originalText, {int? historyIndex}) {
-    final colorScheme = Theme.of(context).colorScheme;
+  Widget _buildInlineEditBubble(String originalText, {int? historyIndex, required ColorScheme colorScheme}) {
 
     return Align(
       alignment: Alignment.centerRight,
@@ -2709,7 +2551,7 @@ class _SmartTerminalSidePanelContentState
         child: Container(
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: const Color(0xFFDCE8FF),
+            color: colorScheme.primaryContainer,
             borderRadius: const BorderRadius.only(
               topLeft: Radius.circular(18),
               topRight: Radius.circular(18),
@@ -2724,6 +2566,7 @@ class _SmartTerminalSidePanelContentState
             children: [
               TextField(
                 controller: _editingController,
+                enabled: !_pendingReset, // F093: reset 待处理时禁用编辑
                 autofocus: true,
                 maxLines: null,
                 style: Theme.of(context).textTheme.bodyMedium,
@@ -2733,11 +2576,11 @@ class _SmartTerminalSidePanelContentState
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: Colors.grey.shade300),
+                    borderSide: BorderSide(color: colorScheme.outline),
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: Colors.grey.shade300),
+                    borderSide: BorderSide(color: colorScheme.outline),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
@@ -2745,7 +2588,7 @@ class _SmartTerminalSidePanelContentState
                         BorderSide(color: colorScheme.primary, width: 1.5),
                   ),
                   filled: true,
-                  fillColor: Colors.white,
+                  fillColor: colorScheme.surfaceContainerLow,
                 ),
               ),
               const SizedBox(height: 8),
@@ -2771,7 +2614,7 @@ class _SmartTerminalSidePanelContentState
                   SizedBox(
                     height: 30,
                     child: FilledButton(
-                      onPressed: () =>
+                      onPressed: _pendingReset ? null : () =>
                           _submitInlineEdit(historyIndex: historyIndex),
                       style: FilledButton.styleFrom(
                         padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -2789,13 +2632,26 @@ class _SmartTerminalSidePanelContentState
     );
   }
 
-  void _startInlineEdit(int? historyIndex) {
+  void _startInlineEdit(int? historyIndex, {int? answerIndex}) {
+    if (_pendingReset) return; // F093: reset 待处理时禁止编辑
     // 获取对应的原始文本
-    final originalText = historyIndex != null
-        ? _agentHistory[historyIndex].intent
-        : _agentIntent ?? '';
+    String originalText;
+    if (answerIndex != null) {
+      // 编辑问答回答
+      if (historyIndex != null) {
+        originalText = _agentHistory[historyIndex].answers[answerIndex].answer;
+      } else {
+        originalText = _agentAnswers[answerIndex].answer;
+      }
+    } else {
+      // 编辑意图
+      originalText = historyIndex != null
+          ? _agentHistory[historyIndex].intent
+          : _agentIntent ?? '';
+    }
     setState(() {
       _editingHistoryIndex = historyIndex ?? -1;
+      _editingAnswerIndex = answerIndex;
       _editingController.text = originalText;
     });
   }
@@ -2803,47 +2659,85 @@ class _SmartTerminalSidePanelContentState
   void _cancelInlineEdit() {
     setState(() {
       _editingHistoryIndex = null;
+      _editingAnswerIndex = null;
       _editingController.clear();
     });
   }
 
+  /// 同步 [_nextConversationEventIndex] 到截断后的最新状态。
+  void _syncNextEventIndex() {
+    _nextConversationEventIndex = _serverConversationEvents.isNotEmpty
+        ? _serverConversationEvents.last.eventIndex + 1
+        : 0;
+  }
+
+  /// 计算 _serverConversationEvents 最后一条事件的 eventIndex，用于服务端截断。
+  /// 返回 -1 表示全部清空。
+  int _computeTruncateAfter() => _serverConversationEvents.isNotEmpty
+      ? _serverConversationEvents.last.eventIndex
+      : -1;
+
   /// 截断 [_serverConversationEvents] 中指定意图索引之后的所有事件。
   ///
-  /// [historyIndex] 对应第 N 个 `user_intent` 事件，null 表示清空全部。
+  /// [historyIndex] 对应第 N 个 `user_intent` 事件，null 表示截断最后一个轮次。
   void _truncateConversationEvents(int? historyIndex) {
-    if (historyIndex == null) {
+    final cutPoint = _findUserIntentEventListIndex(
+      historyIndex: historyIndex,
+    );
+    if (cutPoint == null) {
+      // 找不到对应 user_intent：防御性清空，保持与服务端一致
       _serverConversationEvents.clear();
       _nextConversationEventIndex = 0;
       return;
     }
-    final cutPoint = _findUserIntentEventListIndex(historyIndex: historyIndex);
-    if (cutPoint != null) {
-      _serverConversationEvents.removeRange(
-        cutPoint,
-        _serverConversationEvents.length,
-      );
-      if (_serverConversationEvents.isNotEmpty) {
-        _nextConversationEventIndex =
-            _serverConversationEvents.last.eventIndex + 1;
-      }
-    } else {
-      // 找不到对应 user_intent：防御性清空，保持与服务端一致
-      _serverConversationEvents.clear();
-      _nextConversationEventIndex = 0;
-    }
+    _serverConversationEvents.removeRange(
+      cutPoint,
+      _serverConversationEvents.length,
+    );
+    _syncNextEventIndex();
   }
 
   Future<void> _submitInlineEdit({int? historyIndex}) async {
+    if (_pendingReset) return; // F093: reset 待处理时禁止提交编辑
     final newText = _editingController.text.trim();
     if (newText.isEmpty) return;
 
-    // 如果有正在进行的 Agent 会话，先取消
-    await _cancelAgentSessionSilent();
-
+    final editingAnswer = _editingAnswerIndex;
     setState(() {
       _editingHistoryIndex = null;
+      _editingAnswerIndex = null;
       _editingController.clear();
+    });
 
+    if (editingAnswer != null) {
+      // 编辑问答回答：截断该回答之后的内容，用新回答继续 Agent 会话
+      await _submitAnswerEdit(
+        historyIndex: historyIndex,
+        answerIndex: editingAnswer,
+        newAnswer: newText,
+      );
+    } else {
+      // 编辑意图：原有逻辑
+      await _submitIntentEdit(historyIndex: historyIndex, newText: newText);
+    }
+  }
+
+  /// 编辑意图：截断 + 重新 run
+  Future<void> _submitIntentEdit({int? historyIndex, required String newText}) async {
+    await _cancelAgentSessionSilent();
+
+    // 归档当前活跃轮次（如果还没归档），避免丢失
+    final shouldArchiveCurrent = historyIndex == null &&
+        _agentIntent != null &&
+        _agentIntent!.isNotEmpty;
+    if (shouldArchiveCurrent) {
+      _archiveAgentTurn(
+        result: _agentResult,
+        error: _agentError,
+      );
+    }
+
+    setState(() {
       // 截断编辑点之后的所有历史（包括当前活跃意图）
       if (historyIndex != null) {
         _agentHistory.removeRange(historyIndex, _agentHistory.length);
@@ -2856,26 +2750,102 @@ class _SmartTerminalSidePanelContentState
       _resetAgentRenderState();
     });
 
-    // 计算服务端截断索引：保留的最后一条事件的 eventIndex
-    // 传 -1 表示全部截断（服务端 DELETE WHERE event_index > -1 删除全部）
-    final int truncateAfter;
-    if (_serverConversationEvents.isNotEmpty) {
-      truncateAfter = _serverConversationEvents.last.eventIndex;
-    } else {
-      truncateAfter = -1; // 全部清空
-    }
-
-    // 用新意图直接触发重新解析，不经过 UI 控件
     await _handleResolveIntent(
       overrideIntent: newText,
-      truncateAfterIndex: truncateAfter,
+      truncateAfterIndex: _computeTruncateAfter(),
     );
+  }
+
+  /// 编辑问答回答：截断该回答之后的内容 + 用新回答 continue Agent
+  Future<void> _submitAnswerEdit({
+    int? historyIndex,
+    required int answerIndex,
+    required String newAnswer,
+  }) async {
+    await _cancelAgentSessionSilent();
+
+    // 确定要操作的 history entry
+    final isLive = historyIndex == null;
+    final entry = isLive ? null : _agentHistory[historyIndex!];
+
+    // 保留到 answerIndex 之前的问答，删掉之后的问答 + result + 后续 traces
+    // 对于服务端事件，需要找到该 answer 对应的 question 事件之后截断
+    setState(() {
+      if (isLive) {
+        // 活跃意图的问答
+        if (answerIndex < _agentAnswers.length) {
+          _agentAnswers.removeRange(answerIndex, _agentAnswers.length);
+        }
+        _agentResult = null;
+        _agentError = null;
+        _traces.clear();
+        _agentState = AgentPanelState.exploring;
+      } else {
+        // 历史条目的问答
+        if (answerIndex < entry!.answers.length) {
+          entry.answers.removeRange(answerIndex, entry.answers.length);
+        }
+        // 清除 result，因为要重新跑
+        // 但不删除 history entry 本身
+        // 用截断后的 entry 重新构建活跃状态
+        _agentIntent = entry!.intent;
+        _traces.clear();
+        _agentAnswers.clear();
+        _agentAnswers.addAll(
+            entry.answers.sublist(0, answerIndex.clamp(0, entry.answers.length)));
+        _agentResult = null;
+        _agentError = null;
+        _agentState = AgentPanelState.exploring;
+
+        // 从历史中移除该条目（它会变成活跃意图）
+        _agentHistory.removeRange(historyIndex!, _agentHistory.length);
+      }
+
+      // 截断服务端事件到该 answer 之前
+      _truncateConversationEventsForAnswer(historyIndex, answerIndex);
+    });
+
+    // 重新 run 该意图
+    await _handleResolveIntent(
+      overrideIntent: isLive ? _agentIntent! : entry!.intent,
+      truncateAfterIndex: _computeTruncateAfter(),
+    );
+  }
+
+  /// 截断服务端事件到指定问答之前（保留到 answerIndex 前一个 question 的事件）
+  void _truncateConversationEventsForAnswer(int? historyIndex, int answerIndex) {
+    if (_serverConversationEvents.isEmpty) return;
+
+    // 找到对应的 user_intent 起始位置
+    final intentListIndex = _findUserIntentEventListIndex(historyIndex: historyIndex);
+    if (intentListIndex == null) {
+      _serverConversationEvents.clear();
+      _syncNextEventIndex();
+      return;
+    }
+
+    // 从 intent 之后开始数 answer 事件（type='answer'）
+    int answerCount = 0;
+    int cutPoint = _serverConversationEvents.length;
+    for (int i = intentListIndex + 1; i < _serverConversationEvents.length; i++) {
+      if (_serverConversationEvents[i].type == 'answer') {
+        if (answerCount == answerIndex) {
+          cutPoint = i;
+          break;
+        }
+        answerCount++;
+      }
+    }
+
+    _serverConversationEvents.removeRange(cutPoint, _serverConversationEvents.length);
+    _syncNextEventIndex();
   }
 
   /// 静默取消当前 Agent 会话（不归档、不设状态）
   Future<void> _cancelAgentSessionSilent() => _doCancelAgentNetwork();
 
   Widget _buildAssistantBubble(Widget child) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Align(
       alignment: Alignment.centerLeft,
       child: ConstrainedBox(
@@ -2883,7 +2853,7 @@ class _SmartTerminalSidePanelContentState
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.9),
+            color: colorScheme.surfaceContainerLow,
             borderRadius: const BorderRadius.only(
               topLeft: Radius.circular(18),
               topRight: Radius.circular(18),
@@ -2891,55 +2861,13 @@ class _SmartTerminalSidePanelContentState
               bottomRight: Radius.circular(18),
             ),
             border: Border.all(
-              color: Colors.black.withValues(alpha: 0.035),
+              color: colorScheme.outlineVariant.withValues(alpha: 0.15),
             ),
           ),
           child: child,
         ),
       ),
     );
-  }
-
-  Widget _buildItemBubble(_SidePanelStreamItem item, ColorScheme colorScheme) {
-    switch (item.kind) {
-      case _SidePanelStreamItemKind.assistantMessage:
-        return _buildAssistantBubble(
-          Text(item.assistantMessage!.text,
-              style: Theme.of(context).textTheme.bodySmall),
-        );
-      case _SidePanelStreamItemKind.traceItem:
-        final trace = item.traceItem!;
-        return _buildAssistantBubble(
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  _SidePanelStagePill(stage: trace.stage),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      trace.title,
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodySmall
-                          ?.copyWith(fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                trace.summary,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                      height: 1.4,
-                    ),
-              ),
-            ],
-          ),
-        );
-    }
   }
 
   Widget _buildLoadingBubble(String text, ColorScheme colorScheme) {
@@ -2961,117 +2889,9 @@ class _SmartTerminalSidePanelContentState
       ),
     );
   }
-
-  Widget _buildPreviewCard(ColorScheme colorScheme, bool connected) {
-    final summary = _draft.summary.trim().isEmpty ? '准备执行命令' : _draft.summary;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.82),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: colorScheme.outlineVariant.withValues(alpha: 0.14),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            summary,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '目录 · ${_draft.cwd}    步骤 · ${_draft.steps.length}',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
-          ),
-          if (!connected && _draft.steps.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Text(
-              '终端未连接，请先确认连接状态。',
-              style: TextStyle(color: colorScheme.error, fontSize: 12),
-            ),
-          ],
-          if (_draft.steps.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                key: const Key('side-panel-execute'),
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(40),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  backgroundColor: const Color(0xFF1F5EFF),
-                ),
-                onPressed: connected && !_executing ? _handleExecute : null,
-                child: _executing
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Text('执行'),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
 }
 
 // --- 内部模型 ---
-
-enum _SidePanelStreamItemKind {
-  assistantMessage,
-  traceItem,
-}
-
-class _SidePanelStreamItem {
-  const _SidePanelStreamItem._({
-    required this.kind,
-    this.assistantMessage,
-    this.traceItem,
-  });
-
-  const _SidePanelStreamItem.assistantMessage(AssistantMessage message)
-      : this._(
-          kind: _SidePanelStreamItemKind.assistantMessage,
-          assistantMessage: message,
-        );
-
-  const _SidePanelStreamItem.traceItem(AssistantTraceItem trace)
-      : this._(
-          kind: _SidePanelStreamItemKind.traceItem,
-          traceItem: trace,
-        );
-
-  final _SidePanelStreamItemKind kind;
-  final AssistantMessage? assistantMessage;
-  final AssistantTraceItem? traceItem;
-}
-
-class _SidePanelConversationTurn {
-  const _SidePanelConversationTurn({
-    required this.userText,
-    required this.items,
-    this.fallbackReason,
-  });
-
-  final String userText;
-  final List<_SidePanelStreamItem> items;
-  final String? fallbackReason;
-}
 
 /// Agent 对话历史条目
 class _AgentHistoryEntry {
@@ -3131,14 +2951,10 @@ class _SidePanelStagePill extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final (label, bg, fg) = switch (stage) {
-      'tool' || 'tools' => ('工具', const Color(0xFFEAF2FF), colorScheme.primary),
-      'context' => ('上下文', const Color(0xFFF4EFE6), const Color(0xFF8B5E2B)),
-      'plan' || 'planner' => (
-          '思考',
-          const Color(0xFFF2EEFF),
-          const Color(0xFF6852C8)
-        ),
-      _ => ('处理', const Color(0xFFEFF3F8), colorScheme.onSurfaceVariant),
+      'tool' || 'tools' => ('工具', colorScheme.primaryContainer, colorScheme.primary),
+      'context' => ('上下文', colorScheme.tertiaryContainer, colorScheme.tertiary),
+      'plan' || 'planner' => ('思考', colorScheme.secondaryContainer, colorScheme.secondary),
+      _ => ('处理', colorScheme.surfaceContainerHighest, colorScheme.onSurfaceVariant),
     };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),

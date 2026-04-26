@@ -1,0 +1,19 @@
+id: ic_002_message_question
+category: intent_classification
+description: "测试 Agent 正确识别编程知识问答为 message 类型，不需要工具调用"
+input:
+  intent: "Python 的列表推导式是什么意思？能举个例子吗"
+  context:
+    cwd: /home/user/project
+    device_online: true
+    mock_tool_responses: {}
+expected:
+  response_type: ["message"]
+  steps_contain: []
+  steps_not_contain: ["python", "pip", "python3"]
+graders: ["response_type_match", "steps_structure"]
+metadata:
+  source: daily_usage
+  difficulty: easy
+  tags: ["question", "message", "python"]
+  reference_solution: "response_type=message, summary=解释列表推导式概念并举例"

@@ -1,8 +1,8 @@
 # 测试覆盖清单
 
 > 项目：remote-control
-> 更新时间：2026-04-24
-> 状态：版本 2 规划已对齐；`agent-knowledge-skill-mcp`（R043）为当前活跃需求周期
+> 更新时间：2026-04-26
+> 状态：R044 已归档；`smart-panel-convergence`（R045）为当前活跃需求周期
 
 ## 测试统计
 
@@ -37,7 +37,8 @@
 | **聊天式智能终端助手 (chat-terminal-assistant)** | design, contract, unit, integration, manual, smoke | 前置基线已收口，剩余验收并入当前阶段 | 🔶 |
 | **ReAct 智能体 (react-terminal-agent)** | design, unit, integration, widget, manual, smoke | 执行中 | 🔶 |
 | **Terminal-bound Agent 对话同步 (react-terminal-agent patch)** | contract, unit, integration, widget, e2e, smoke | 已规划 | ⬜ |
-| **Agent 知识增强 (agent-knowledge)** | unit, integration, smoke | 已规划 | ⬜ |
+| **Agent 知识增强 (agent-knowledge)** | unit, integration, smoke | 已完成 | ✅ |
+| **Agent 评估体系 (agent-eval-system)** | unit, integration | 已规划 | ⬜ |
 
 ## 模块覆盖详情
 
@@ -241,18 +242,18 @@
 |--------|----------|-----------|--------------------|--------|
 | 产品与评估基线 | S079, S080 | design | 聊天流 + 命令卡片；结构化 trace；评估指标与人工验收口径 | S079 ✅ / S080 ⬜ |
 | 服务端 planner / memory / 回写契约 | B075, B076, B077 | integration,contract,unit | `assistant/plan`、`executions/report`、memory 只在真实回写后更新 | ✅ |
-| 桌面空终端与侧滑面板骨架 | F094, F087 | widget,integration,manual | 空终端创建；侧滑面板入口；桌面/移动端分流稳定 | ✅ |
-| 旧聊天流 UI / fallback / 注入链路 | F088_old, F089_old, F090, F093 | widget,integration | 已被 `react-terminal-agent` 收口替代，不再继续执行。注：F088/F089 已在 R043 增量中复用为新任务 | cancelled |
+| 桌面空终端与侧滑面板骨架 | F094_old, F087 | widget,integration,manual | 空终端创建；侧滑面板入口；桌面/移动端分流稳定 | ✅ |
+| 旧聊天流 UI / fallback / 注入链路 | F088_old, F089_old, F090, F093_old | widget,integration | 已被 `react-terminal-agent` 收口替代，不再继续执行。注：F088/F089 已在 R043 增量中复用为新任务 | cancelled |
 | benchmark 与真机验收 | F091, F092 | unit,integration,manual,smoke | benchmark 数据集；trace 回放；全链路人工验收 | ⬜ |
 
 ### ReAct 智能体（react-terminal-agent phase，当前执行阶段）
 
 | Module | Task IDs | Test Type | Required Scenarios | Status |
 |--------|----------|-----------|--------------------|--------|
-| 架构与只读探索基线 | S081 | design | 权威边界、只读探索安全边界、三层降级策略 | ✅ |
+| 架构与只读探索基线 | S081 | design | 权威边界、只读探索安全边界、两层架构（ReAct Agent → 错误提示） | ✅ |
 | 只读探索协议与 Agent 核心 | B078, B079 | unit,integration | execute_command 白名单；Pydantic AI Agent；攻击向量拦截 | ✅ |
-| Agent 会话与 SSE 事件流 | B080, F095 | unit,integration | run/respond/cancel/resume；事件解析；断连恢复；降级到 planner | ✅ |
-| 侧滑面板 Agent 交互与命令注入 | F096, F097, F098 | widget,integration | exploring/asking/result/error；命令注入；执行结果回写与别名保存 | ✅ |
+| Agent 会话与 SSE 事件流 | B080, F095_old | unit,integration | run/respond/cancel/resume；事件解析；断连恢复；错误提示 | ✅ |
+| 侧滑面板 Agent 交互与命令注入 | F096_old, F097_old, F098_old | widget,integration | exploring/asking/result/error；命令注入；执行结果回写与别名保存；Planner 降级路径已废弃 | ✅ |
 | Agent 集成测试 | S082 | integration,manual | Happy path；安全边界；mobile 回归；per-device 隔离 | ✅ |
 | Token usage SSE 与前端兼容 | B083, F099 | unit,widget | SSE result usage；前端解析与兼容展示 | ✅ |
 | usage 汇总 API 与 Toast 浮层 | B084, F100 | unit,integration,widget | usage 落库；双 scope 汇总；Toast 浮层与自动刷新 | B084 ✅ / F100 ✅ |
@@ -548,6 +549,67 @@
 - [ ] reconnect 才进入 recovering
 - [ ] Codex 高频刷新与切换场景内容不再明显丢失
 
+### Agent 评估体系（agent-eval-system phase，R044）
+
+| Module | Task IDs | Test Type | Required Scenarios | Status |
+|--------|----------|-----------|--------------------|--------|
+| Eval 数据模型 + SQLite | B096, S089 | unit | 模型序列化；SQLite CRUD；配置缺失拦截 | B096 ✅ 56/56; S089 ✅ 验收通过 |
+| Eval Harness 核心 | B097, S089 | unit, integration | YAML 加载；mock transport；transcript 收集；pass@k/pass^k | B097 ✅ 56/56 |
+| Code-based Graders | B098, S090 | unit | 5 种 grader pass/fail；command_safety 复用验证 | B098 ✅ 49/49 |
+| 初始 Task 数据集 | B099 | unit | 30 个 YAML 格式校验；加载集成 | B099 ✅ 30/30 |
+| LLM-as-Judge | B100, S090 | unit, integration | prompt 输出格式；JSON 解析容错；未配置降级 | B100 ✅ 53/53 |
+| 质量指标提取 | B101, S091 | unit | 5 类指标计算准确性；批量提取；历史回溯 | B101 ✅ 49/49; S091 ✅ 验收通过 |
+| 质量指标 API | B102, S091 | unit, integration | 过滤/聚合；认证拦截；evals.db 不可达时返回 500 | B102 ✅ 23/23 |
+| 反馈→Eval Task | B103, S092 | unit, integration | 反馈→candidate 流程；未配置降级；审核 API | B103 ✅ 32/32 |
+| 回归测试 + CLI | B104, S092 | unit, integration | 回归检测；趋势查询；CLI 子命令；配置缺失提示 | B104 ✅ 30/30; S092 ✅ 验收通过 |
+
+#### Agent 评估体系关键测试场景
+
+##### B097 Harness
+- [x] YAML task 正确加载为 EvalTaskDef
+- [x] mock transport 按预定义响应返回
+- [x] 单 trial 完整 transcript 收集（LLM 请求/响应 + 工具调用/返回 + AgentResult）
+- [x] pass@1 = 60% 时 pass@5 应接近 100%（数学验证）
+- [x] EVAL_AGENT_MODEL/BASE_URL/API_KEY 缺失时 raise 明确错误，不复用 ASSISTANT_LLM_*
+- [x] mock transport 不触达真实设备（无真实 WebSocket 连接）
+- [x] LLM 超时/5xx/畸形响应：harness 捕获异常并标记 trial 为 error，不 crash
+- [x] 单 trial 失败不阻塞后续 trial 执行
+
+##### B098 Code Graders
+- [x] response_type_match: acceptable_types=["command","ai_prompt"] → command 通过
+- [x] response_type_match: acceptable_types=["message"] → command 失败
+- [x] command_safety: 白名单命令通过，`rm -rf` 失败，`sudo` 失败
+- [x] contains_command: steps 包含 "claude" 通过，不包含 "rm" 通过
+- [x] steps_structure: 空 steps 失败，非 shell 命令失败
+
+##### B100 LLM Judge
+- [x] Judge prompt 输出合法 JSON（relevance/completeness/safety/helpfulness）
+- [x] JSON 解析失败时 grader 返回 error 而非 crash
+- [x] EVAL_JUDGE_MODEL 未配置时返回 skipped
+- [x] EVAL_JUDGE_BASE_URL/API_KEY 默认复用 EVAL_AGENT_BASE_URL/API_KEY
+- [x] LLM Judge 超时/5xx：grader 捕获异常并返回 error，不阻塞其他 grader
+- [x] LLM 返回非法 JSON 或截断响应：grader 降级返回 error 而非 crash
+
+##### B101 质量指标
+- [x] 构造已知 session，验证 5 类指标计算正确
+- [x] batch 提取不影响在线 Agent 性能
+- [x] 历史数据可回溯提取
+- [x] quality_monitor 只读 agent_conversation_events 元数据，不读对话文本
+- [x] 指标只写 evals.db，不写 app.db
+
+##### B102 质量指标 API
+- [x] 查询已持久化指标，不依赖模型环境变量
+- [x] 未认证请求返回 401
+- [x] evals.db 不可达时返回 500 + 明确错误
+
+##### B103 反馈闭环
+- [x] 反馈→candidate 只传脱敏摘要，不传原始反馈文本
+- [x] candidate 的 source_feedback_id 仅存引用 ID
+- [x] approved candidate 可被 harness 加载执行
+- [x] EVAL_FEEDBACK_MODEL 未配置时跳过自动转换
+- [x] 异步分析超时/LLM 5xx：分析失败不阻塞反馈保存，记录 warning
+- [x] LLM 畸形响应：解析失败时跳过 candidate 生成，不 crash
+
 ### Agent 知识增强（agent-knowledge phase）
 
 | Module | Task IDs | Test Type | Required Scenarios | Status |
@@ -643,3 +705,14 @@
 - [ ] 仅桌面端显示菜单入口
 - [ ] Agent 离线时显示错误提示
 - [ ] skill/knowledge 列表为空时显示空状态
+
+### 智能面板收敛（smart-panel-convergence phase, R045）
+
+> server-only: no | contract change: no | frontend impact: panel-convergence only
+
+| Module | Task IDs | Test Type | Required Scenarios | Status |
+|--------|----------|-----------|--------------------|--------|
+| conversation_reset pendingReset | F093 | widget | pendingReset 标记；SSE done 时重置；连续 reset；cancel 不泄漏；retry 干净重启；asking 状态阻塞 | ✅ 10/10 |
+| _activeSessionId 服务端投影恢复 | F094 | widget | 投影优先；fallback 本地遍历；不覆写已有；双 null 不崩溃；逆序取最近 | ✅ 5/5 |
+| 问答回答编辑测试覆盖 | F095 | widget | 活跃轮次编辑；历史轮次编辑；多轮中间编辑；空 events 边界；answerIndex clamp | ✅ 7/7 |
+| Planner 降级路径清理 | F096 | widget | 移除 ~350 行死代码；AgentFallbackEvent 清理；两层架构同步 | ✅ 72/72 (67 agent + 5 side panel) |

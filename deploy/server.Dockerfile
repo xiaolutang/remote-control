@@ -31,6 +31,7 @@ COPY --from=builder /app/.venv .venv
 
 # 复制应用代码
 COPY server/app ./app
+COPY server/evals ./evals
 
 # 设置文件所有权（非 root 时）
 RUN if [ "$RUN_USER" != "root" ]; then chown -R appuser:appuser /app; fi

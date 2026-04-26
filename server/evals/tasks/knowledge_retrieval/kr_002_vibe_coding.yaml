@@ -1,0 +1,19 @@
+id: kr_002_vibe_coding
+category: knowledge_retrieval
+description: "测试知识检索：命中 Vibe Coding 方法论"
+input:
+  intent: "什么是 Vibe Coding？能介绍一下方法论吗"
+  context:
+    cwd: /home/user/project
+    device_online: true
+    mock_tool_responses: {}
+expected:
+  response_type: ["message"]
+  steps_contain: []
+  steps_not_contain: ["curl", "wget"]
+graders: ["response_type_match", "knowledge_relevance"]
+metadata:
+  source: knowledge_base
+  difficulty: medium
+  tags: ["knowledge", "vibe_coding", "methodology"]
+  reference_solution: "response_type=message, 返回 Vibe Coding 方法论相关知识"

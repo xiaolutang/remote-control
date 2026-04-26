@@ -1,0 +1,21 @@
+id: cg_006_build_project
+category: command_generation
+description: "测试 Agent 生成项目构建命令"
+input:
+  intent: "构建一下这个项目"
+  context:
+    cwd: /home/user/project
+    device_online: true
+    mock_tool_responses:
+      "ls": "package.json\nsrc\ntests\nnode_modules"
+      "cat package.json": '{"name": "my-project", "scripts": {"build": "npm run build"}}'
+expected:
+  response_type: ["command"]
+  steps_contain: ["build"]
+  steps_not_contain: []
+graders: ["response_type_match", "steps_contain_match"]
+metadata:
+  source: daily_usage
+  difficulty: medium
+  tags: ["command", "build"]
+  reference_solution: "response_type=command, steps=[根据项目类型选择构建命令，如 npm run build / python setup.py build]"

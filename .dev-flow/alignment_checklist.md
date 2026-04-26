@@ -114,7 +114,7 @@
 | **命令规划隔离** | **planner coordinator 与 fallback** | **CONTRACT-043, CONTRACT-044** | **not_applicable** | **pending** | **pending** | **F084: `claude -p` 不可用、超时或违规时稳定回退 `local_rules`** |
 | **命令规划隔离** | **端到端回归与真实设备 smoke** | **CONTRACT-043, CONTRACT-044** | **not_applicable** | **pending** | **pending** | **F085: 真机/桌面端验证 `pwd -> find -> cd -> claude` 等链路** |
 | **ReAct 智能体** | **Agent SSE 会话管理** | **CONTRACT-047** | **completed** | **not_applicable** | **completed** | **B080: `/assistant/agent/run|respond|cancel|resume`、SSE 事件流与断连恢复已落地** |
-| **ReAct 智能体** | **Agent SSE 事件模型** | **CONTRACT-047** | **not_applicable** | **completed** | **completed** | **F095: SSE event 解析、四种事件类型、会话恢复与降级逻辑已接上服务端** |
+| **ReAct 智能体** | **Agent SSE 事件模型** | **CONTRACT-047** | **not_applicable** | **completed** | **completed** | **F095_old: SSE event 解析、四种事件类型、会话恢复与降级逻辑已接上服务端** |
 | **ReAct 智能体** | **Agent token usage 追踪** | **CONTRACT-047** | **completed** | **not_applicable** | **completed** | **B083: AgentRunOutcome、SSE result usage 字段与恢复回放已验证通过** |
 | **ReAct 智能体** | **Token 统计展示** | **CONTRACT-047** | **not_applicable** | **completed** | **completed** | **F099: usage 字段解析与兼容已完成；消息级展示已在 F100 收敛为底部汇总入口** |
 | **ReAct 智能体** | **Agent usage 持久化与汇总 API** | **CONTRACT-048** | **completed** | **not_applicable** | **completed** | **B084: agent_usage_records 表、双 scope 汇总 API、usage 先落库再发 SSE 已落地并通过定向测试** |
@@ -139,3 +139,14 @@
 | **R043 增量: response_type** | **测试覆盖 + 产物更新** | **CONTRACT-047, CONTRACT-050** | **done** | **done** | **done** | **S088: Server + Client 三类型测试 + alignment/test_coverage 更新** |
 | **R043 增量: skill 配置** | **Agent HTTP Skill/Knowledge 管理 API** | **CONTRACT-024, CONTRACT-050** | **done** | **not_applicable** | **done** | **B095: GET/POST /skills + /knowledge 端点 + toggle** |
 | **R043 增量: skill 配置** | **Desktop 客户端 Skill 配置面板** | **CONTRACT-024, CONTRACT-050** | **not_applicable** | **done** | **done** | **F089: 桌面端菜单入口 + SkillConfigScreen + 开关 + 重启提示** |
+| **Agent 评估体系** | **Eval 数据模型 + SQLite schema** | **CONTRACT-051** | **done** | **not_applicable** | **done** | **B096: 6 张表 + Pydantic 模型 + 配置检查，56 测试通过** |
+| **Agent 评估体系** | **Eval Harness + Code Graders** | **CONTRACT-051** | **done** | **not_applicable** | **done** | **B097-B098: harness + 5 种 code grader，105 测试通过** |
+| **Agent 评估体系** | **初始 Task 数据集 + LLM-as-Judge** | **CONTRACT-051** | **done** | **not_applicable** | **done** | **B099-B100: 30 个 eval task + Judge grader，83 测试通过** |
+| **Agent 评估体系** | **在线质量指标提取与 API** | **CONTRACT-052** | **done** | **not_applicable** | **done** | **B101-B102: 质量指标持久化 + REST API，72 测试通过** |
+| **Agent 评估体系** | **反馈闭环 + 回归测试** | **CONTRACT-053** | **done** | **not_applicable** | **done** | **B103-B104: 反馈→eval task + 回归运行器，62 测试通过** |
+| **智能面板收敛 R045** | **conversation_reset pendingReset** | **—** | **not_applicable** | **completed** | **completed** | **F093: SSE 活跃时 pendingReset 机制，client-only, no contract change** |
+| **智能面板收敛 R045** | **_activeSessionId 服务端投影** | **—** | **not_applicable** | **passed** | **passed** | **F094: 从 projection.activeSessionId 恢复，client-only, no contract change** |
+| **智能面板收敛 R045** | **问答回答编辑测试** | **—** | **not_applicable** | **passed** | **passed** | **F095: _submitAnswerEdit 测试覆盖 + sublist clamp 保护，client-only, no contract change** |
+| **智能面板收敛 R045** | **Planner 降级路径清理** | **—** | **not_applicable** | **completed** | **completed** | **F096: 废弃 planner 降级，移除 _resolveViaPlanner/_buildPlannerBody/_buildPreviewCard 等 ~250 行死代码，architecture.md 三层→两层** |
+| **智能面板收敛 R045** | **配套产物更新** | **—** | **not_applicable** | **not_applicable** | **pending** | **S093: test_coverage + alignment 更新** |
+| **Agent 评估体系** | **评估体系测试覆盖** | **CONTRACT-051..053** | **done** | **not_applicable** | **done** | **S089-S092: 框架/Grader/质量/反馈测试，355 总测试通过** |
