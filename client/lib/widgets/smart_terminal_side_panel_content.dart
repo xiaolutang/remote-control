@@ -80,6 +80,7 @@ class _SmartTerminalSidePanelContentState
   String? _loadedTerminalStatus;
   int _projectionLoadSerial = 0;
   int _nextConversationEventIndex = 0;
+  bool _pendingReset = false; // F093: SSE 活跃时收到 conversation_reset 的待处理标记
   bool _terminalConversationClosed = false;
   String? _terminalClosedReason;
 
@@ -241,6 +242,7 @@ class _SmartTerminalSidePanelContentState
 
     _resolvingIntent = false;
     _pendingIntent = null;
+    _pendingReset = false; // F093: scope 切换时清除 pendingReset 标记
     _turns.clear();
     _pendingItems.clear();
     _draft = _defaultDraft();
@@ -264,6 +266,7 @@ class _SmartTerminalSidePanelContentState
     _eventSubscription = null;
     _conversationStreamSubscription?.cancel();
     _conversationStreamSubscription = null;
+    _pendingReset = false; // F093: terminal 关闭时清除 pendingReset 标记
     _turns.clear();
     _pendingItems.clear();
     _pendingIntent = null;
@@ -381,9 +384,10 @@ class _SmartTerminalSidePanelContentState
     // 服务端截断/重置通知：其他端编辑/重发时，全量清空本地渲染状态
     // 后续到达的事件会通过 _deriveAgentRenderState 重建完整状态
     if (event.type == 'conversation_reset') {
-      // SSE 活跃时：跳过。截断由本端发起（retry/edit），新 SSE 会话会管理 UI。
+      // SSE 活跃时：记录 pendingReset 标记，SSE 结束后在 onDone 中统一清空。
       // 如果在这里清空，SSE 正在构建的新状态会被全部清除，导致页面消失。
       if (_eventSubscription != null) {
+        _pendingReset = true;
         return;
       }
       _serverConversationEvents.clear();
@@ -768,9 +772,21 @@ class _SmartTerminalSidePanelContentState
         onDone: () {
           // SSE 流关闭时清理状态，防止卡在 exploring
           if (!mounted) return;
+          // F093: SSE 结束时检查 pendingReset，如果有待处理的 conversation_reset 则完整重置状态
+          final didReset = _pendingReset;
+          if (didReset) {
+            setState(() {
+              _serverConversationEvents.clear();
+              _agentHistory.clear();
+              _nextConversationEventIndex = 0;
+              _pendingReset = false;
+              _resetAgentRenderState(resetDraft: true);
+            });
+          }
           // SSE 结束：清空 _eventSubscription 使 conversation stream 恢复完整重建能力。
           _eventSubscription = null;
-          if (_agentState == AgentPanelState.exploring) {
+          // F093: pendingReset 导致的关闭是预期行为，不报 STREAM_CLOSED 错误
+          if (_agentState == AgentPanelState.exploring && !didReset) {
             setState(() {
               _agentState = AgentPanelState.error;
               _agentError = const AgentErrorEvent(
@@ -779,10 +795,12 @@ class _SmartTerminalSidePanelContentState
               );
             });
           }
-          // conversation stream 一直存活，会通过 _applyConversationEventItem
-          // 自然补齐 SSE 期间的事件并重建状态。无需手动同步。
-          // 但如果它之前因错误断开，尝试重启以保持连接。
-          if (_conversationStreamSubscription == null) {
+          // F093: pendingReset 清空了 _nextConversationEventIndex = 0，需要重启 conversation stream
+          // 以确保从服务端获取完整的最新投影（resilient stream 内部 currentIndex 不会自动回退）
+          if (didReset) {
+            _restartConversationStreamForCurrentScope();
+          } else if (_conversationStreamSubscription == null) {
+            // conversation stream 之前因错误断开，尝试重启以保持连接
             _restartConversationStreamForCurrentScope();
           }
         },
@@ -947,6 +965,7 @@ class _SmartTerminalSidePanelContentState
   /// 用户回答 Agent 问题
   Future<void> _handleAgentRespond(String answer) async {
     if (_terminalConversationClosed) return;
+    if (_pendingReset) return; // F093: reset 待处理时拒绝 stale session respond
     if (_activeSessionId == null) return;
 
     RuntimeSelectionController? controller;
@@ -999,6 +1018,7 @@ class _SmartTerminalSidePanelContentState
     if (_terminalConversationClosed) {
       return;
     }
+    if (_pendingReset) return; // F093: reset 待处理时拒绝 stale 操作
     if (_agentState == AgentPanelState.asking) {
       final text = _intentController.text.trim();
       if (text.isEmpty) return;
@@ -1221,7 +1241,17 @@ class _SmartTerminalSidePanelContentState
 
   /// 重试 Agent 会话
   void _retryAgentSession() {
-    if (_agentIntent != null) {
+    // F093: 先保存 intent，因为 _resetAgentRenderState 会清空 _agentIntent
+    final savedIntent = _agentIntent;
+    // F093: 如果有 pendingReset，需要完整清空旧投影，不能基于旧事件列表计算截断索引
+    if (_pendingReset) {
+      _serverConversationEvents.clear();
+      _agentHistory.clear();
+      _nextConversationEventIndex = 0;
+      _resetAgentRenderState(resetDraft: true);
+      _pendingReset = false;
+    }
+    if (savedIntent != null) {
       RuntimeSelectionController? controller;
       try {
         controller = context.read<RuntimeSelectionController>();
@@ -1235,7 +1265,7 @@ class _SmartTerminalSidePanelContentState
         _agentError = null;
       });
       _startAgentSession(
-        intent: _agentIntent!,
+        intent: savedIntent,
         controller: controller,
         truncateAfterIndex: truncateAfterIndex,
       );
@@ -1496,7 +1526,7 @@ class _SmartTerminalSidePanelContentState
         if (_agentIntent != null) ...[
           _buildUserBubble(
             _agentIntent!,
-            canEdit: _agentState != AgentPanelState.exploring,
+            canEdit: _agentState != AgentPanelState.exploring && !_pendingReset,
           ),
           const SizedBox(height: 8),
           if (_agentAnswers.isNotEmpty)
@@ -1723,7 +1753,17 @@ class _SmartTerminalSidePanelContentState
   Future<void> _doCancelAgentNetwork() async {
     _eventSubscription?.cancel();
     _eventSubscription = null;
+    // F093: 先保存 sessionId，因为 _resetAgentRenderState 会清空 _activeSessionId
     final sessionId = _activeSessionId;
+    // F093: 取消时如果有 pendingReset，需要同步清空本地投影状态
+    // 因为 cancel 后重启 conversation stream 时不会重新获取已被截断的旧事件
+    if (_pendingReset) {
+      _serverConversationEvents.clear();
+      _agentHistory.clear();
+      _nextConversationEventIndex = 0;
+      _resetAgentRenderState(resetDraft: true);
+      _pendingReset = false;
+    }
     if (sessionId == null) return;
     RuntimeSelectionController? controller;
     try {
@@ -1881,7 +1921,7 @@ class _SmartTerminalSidePanelContentState
               ),
               backgroundColor: colorScheme.surface,
             ),
-            onPressed: () => _handleAgentRespond(option),
+            onPressed: _pendingReset ? null : () => _handleAgentRespond(option),
             child: Text(
               option,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -1924,7 +1964,7 @@ class _SmartTerminalSidePanelContentState
                 ),
                 backgroundColor: colorScheme.primary,
               ),
-              onPressed: _multiSelectChosen.isNotEmpty
+              onPressed: _multiSelectChosen.isNotEmpty && !_pendingReset
                   ? () => _handleAgentRespond(
                         _multiSelectChosen.join(', '),
                       )
@@ -1940,7 +1980,7 @@ class _SmartTerminalSidePanelContentState
   Widget _buildCheckboxOption(String option, ColorScheme colorScheme) {
     final chosen = _multiSelectChosen.contains(option);
     return InkWell(
-      onTap: () {
+      onTap: _pendingReset ? null : () {
         setState(() {
           if (chosen) {
             _multiSelectChosen.remove(option);
@@ -1958,7 +1998,7 @@ class _SmartTerminalSidePanelContentState
               height: 20,
               child: Checkbox(
                 value: chosen,
-                onChanged: (v) {
+                onChanged: _pendingReset ? null : (v) {
                   setState(() {
                     if (v == true) {
                       _multiSelectChosen.add(option);
@@ -2519,7 +2559,7 @@ class _SmartTerminalSidePanelContentState
     final isExploring = _agentState == AgentPanelState.exploring;
     final isAwaitingAnswer = _agentState == AgentPanelState.asking;
     final isClosed = _terminalConversationClosed;
-    final canSend = !isClosed &&
+    final canSend = !isClosed && !_pendingReset &&
         (isAwaitingAnswer
             ? !_executing && !_resolvingIntent
             : !_executing && !_resolvingIntent && !isExploring);
@@ -2545,7 +2585,7 @@ class _SmartTerminalSidePanelContentState
                   key: const Key('side-panel-intent-input'),
                   controller: _intentController,
                   focusNode: _intentFocusNode,
-                  enabled: !isClosed,
+                  enabled: !isClosed && !_pendingReset,
                   textInputAction: TextInputAction.send,
                   textAlignVertical: TextAlignVertical.center,
                   decoration: InputDecoration(
@@ -2705,6 +2745,7 @@ class _SmartTerminalSidePanelContentState
             children: [
               TextField(
                 controller: _editingController,
+                enabled: !_pendingReset, // F093: reset 待处理时禁用编辑
                 autofocus: true,
                 maxLines: null,
                 style: Theme.of(context).textTheme.bodyMedium,
@@ -2752,7 +2793,7 @@ class _SmartTerminalSidePanelContentState
                   SizedBox(
                     height: 30,
                     child: FilledButton(
-                      onPressed: () =>
+                      onPressed: _pendingReset ? null : () =>
                           _submitInlineEdit(historyIndex: historyIndex),
                       style: FilledButton.styleFrom(
                         padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -2771,6 +2812,7 @@ class _SmartTerminalSidePanelContentState
   }
 
   void _startInlineEdit(int? historyIndex, {int? answerIndex}) {
+    if (_pendingReset) return; // F093: reset 待处理时禁止编辑
     // 获取对应的原始文本
     String originalText;
     if (answerIndex != null) {
@@ -2835,6 +2877,7 @@ class _SmartTerminalSidePanelContentState
   }
 
   Future<void> _submitInlineEdit({int? historyIndex}) async {
+    if (_pendingReset) return; // F093: reset 待处理时禁止提交编辑
     final newText = _editingController.text.trim();
     if (newText.isEmpty) return;
 

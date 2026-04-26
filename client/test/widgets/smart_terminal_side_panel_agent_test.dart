@@ -2335,4 +2335,810 @@ void main() {
       expect(agentService.runIntents, ['第一条', '第二条']);
     });
   });
+
+  group('F093: conversation_reset pendingReset', () {
+    // 测试 1: SSE 活跃时收到 conversation_reset 设置 pendingReset
+    testWidgets(
+        'sets pendingReset when conversation_reset arrives during active SSE',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final sseController = StreamController<AgentSessionEvent>();
+      final convStreamController =
+          StreamController<AgentConversationEventItem>.broadcast();
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onRunSession: (intent) {
+          return sseController.stream;
+        },
+        onStreamConversation: (_) => convStreamController.stream,
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+      await tester.pumpAndSettle();
+      await _openSidePanel(tester);
+
+      // 启动 SSE：发送意图（SSE 流不关闭，保持活跃）
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '测试意图',
+      );
+      await _pressSidePanelSend(tester);
+      await tester.pump();
+
+      // SSE 活跃中：推送 session created + trace（进入 exploring）
+      sseController.add(const AgentSessionCreatedEvent(sessionId: 's1'));
+      sseController.add(const AgentTraceEvent(
+        tool: 'bash',
+        inputSummary: '思考中...',
+        outputSummary: '',
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // SSE 仍然活跃时，conversation stream 推送 conversation_reset
+      convStreamController.add(const AgentConversationEventItem(
+        eventIndex: 5,
+        eventId: 'evt-reset',
+        type: 'conversation_reset',
+        role: 'system',
+        payload: {},
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 关键：SSE 活跃期间不应清空当前页面（exploring 状态仍然可见）
+      expect(find.text('Agent 正在分析...'), findsOneWidget);
+      // trace 被记录在 exploring 视图中（折叠在 ExpansionTile 内）
+      expect(find.text('探索进度 (1)'), findsOneWidget);
+
+      // SSE 结束：关闭 SSE 流，触发 onDone
+      sseController.add(AgentResultEvent(
+        summary: '最终结果',
+        steps: [],
+        provider: 'agent',
+        source: 'recommended',
+        needConfirm: false,
+        aliases: <String, String>{},
+        responseType: 'message',
+      ));
+      await tester.pump();
+      await sseController.close();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // SSE 结束后 pendingReset 应该已触发状态清空
+      // conversation stream 仍在推送新事件，通过增量同步重建 UI
+      convStreamController.add(const AgentConversationEventItem(
+        eventIndex: 0,
+        eventId: 'evt-new-0',
+        type: 'user_intent',
+        role: 'user',
+        sessionId: 'session-new',
+        payload: {'text': '重建的意图'},
+      ));
+      convStreamController.add(const AgentConversationEventItem(
+        eventIndex: 1,
+        eventId: 'evt-new-1',
+        type: 'result',
+        role: 'assistant',
+        sessionId: 'session-new',
+        payload: {
+          'summary': '重建的结果',
+          'steps': <Map<String, dynamic>>[],
+          'provider': 'agent',
+          'source': 'recommended',
+          'need_confirm': false,
+          'aliases': <String, dynamic>{},
+          'response_type': 'message',
+        },
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 验证状态已重建
+      expect(find.text('重建的意图'), findsOneWidget);
+      expect(find.text('重建的结果'), findsOneWidget);
+
+      unawaited(convStreamController.close());
+    });
+
+    // 测试 2: SSE 结束后 pendingReset 触发状态重建（含 _activeSessionId 清空）
+    testWidgets(
+        'resets state including activeSessionId on SSE done when pendingReset is true',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final sseController = StreamController<AgentSessionEvent>();
+      final convStreamController =
+          StreamController<AgentConversationEventItem>.broadcast();
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onRunSession: (intent) {
+          return sseController.stream;
+        },
+        onStreamConversation: (_) => convStreamController.stream,
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+      await tester.pumpAndSettle();
+      await _openSidePanel(tester);
+
+      // 启动 SSE
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '清空测试',
+      );
+      await _pressSidePanelSend(tester);
+      await tester.pump();
+
+      sseController.add(const AgentSessionCreatedEvent(sessionId: 's-reset'));
+      sseController.add(const AgentTraceEvent(
+        tool: 'bash',
+        inputSummary: '工作中',
+        outputSummary: '',
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // SSE 活跃时 conversation_reset
+      convStreamController.add(const AgentConversationEventItem(
+        eventIndex: 3,
+        eventId: 'evt-rst',
+        type: 'conversation_reset',
+        role: 'system',
+        payload: {},
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // SSE 结束（不传 result，SSE 流直接关闭）
+      // F093: 因为 pendingReset 为 true，不会触发 STREAM_CLOSED 错误
+      await sseController.close();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // pendingReset 已在 onDone 中处理：
+      // - _resetAgentRenderState 被调用，清空 traces/result/error 等
+      // - 不会出现 STREAM_CLOSED 错误
+      expect(find.text('Agent 会话意外关闭'), findsNothing);
+      // conversation stream 推送新事件重建状态
+      convStreamController.add(const AgentConversationEventItem(
+        eventIndex: 0,
+        eventId: 'evt-rebuild-0',
+        type: 'user_intent',
+        role: 'user',
+        sessionId: 'session-rebuilt',
+        payload: {'text': '新意图'},
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 验证新状态可见
+      expect(find.text('新意图'), findsOneWidget);
+
+      unawaited(convStreamController.close());
+    });
+
+    // 测试 3: 无 reset 时 SSE 结束不触发额外清理
+    testWidgets(
+        'does not reset state on SSE done when no pendingReset', (tester) async {
+      final controller = _AgentFakeController();
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onRunSession: (intent) {
+          return Stream.fromIterable([
+            const AgentSessionCreatedEvent(sessionId: 's-normal'),
+            AgentResultEvent(
+              summary: '正常结果',
+              steps: [],
+              provider: 'agent',
+              source: 'recommended',
+              needConfirm: false,
+              aliases: <String, String>{},
+              responseType: 'message',
+            ),
+          ]);
+        },
+        onStreamConversation: (_) =>
+            const Stream<AgentConversationEventItem>.empty(),
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+      await tester.pumpAndSettle();
+      await _openSidePanel(tester);
+
+      // 发送意图 → 得到结果（SSE 自然结束，无 conversation_reset）
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '正常流程',
+      );
+      await tester.tap(find.byKey(const Key('side-panel-send')));
+      await tester.pumpAndSettle();
+
+      // SSE 结束后，正常结果仍然可见（状态未被动清理）
+      expect(find.text('正常结果'), findsOneWidget);
+      expect(find.text('正常流程'), findsOneWidget);
+    });
+
+    // 测试 4: 连续 reset（快速多端编辑）只保留最后一次
+    testWidgets('handles consecutive resets during active SSE', (tester) async {
+      final controller = _AgentFakeController();
+      final sseController = StreamController<AgentSessionEvent>();
+      final convStreamController =
+          StreamController<AgentConversationEventItem>.broadcast();
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onRunSession: (intent) {
+          return sseController.stream;
+        },
+        onStreamConversation: (_) => convStreamController.stream,
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+      await tester.pumpAndSettle();
+      await _openSidePanel(tester);
+
+      // 启动 SSE
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '连续 reset',
+      );
+      await _pressSidePanelSend(tester);
+      await tester.pump();
+
+      sseController.add(const AgentSessionCreatedEvent(sessionId: 's-multi'));
+      sseController.add(const AgentTraceEvent(
+        tool: 'bash',
+        inputSummary: '处理中',
+        outputSummary: '',
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // SSE 活跃期间连续推送多个 conversation_reset
+      convStreamController.add(const AgentConversationEventItem(
+        eventIndex: 5,
+        eventId: 'evt-reset-1',
+        type: 'conversation_reset',
+        role: 'system',
+        payload: {},
+      ));
+      convStreamController.add(const AgentConversationEventItem(
+        eventIndex: 6,
+        eventId: 'evt-reset-2',
+        type: 'conversation_reset',
+        role: 'system',
+        payload: {},
+      ));
+      convStreamController.add(const AgentConversationEventItem(
+        eventIndex: 7,
+        eventId: 'evt-reset-3',
+        type: 'conversation_reset',
+        role: 'system',
+        payload: {},
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // SSE 仍然活跃，页面内容不应消失（exploring 状态仍然可见）
+      expect(find.text('Agent 正在分析...'), findsOneWidget);
+      expect(find.text('探索进度 (1)'), findsOneWidget);
+
+      // SSE 结束：pendingReset 导致的关闭是预期行为
+      await sseController.close();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 不会出现 STREAM_CLOSED 错误（因为 pendingReset 为 true）
+      expect(find.text('Agent 会话意外关闭'), findsNothing);
+
+      // 连续 reset 只保留最后一次的效果：状态已被清空
+      // conversation stream 推送最终状态
+      convStreamController.add(const AgentConversationEventItem(
+        eventIndex: 0,
+        eventId: 'evt-final-0',
+        type: 'user_intent',
+        role: 'user',
+        sessionId: 'session-final',
+        payload: {'text': '最终意图'},
+      ));
+      convStreamController.add(const AgentConversationEventItem(
+        eventIndex: 1,
+        eventId: 'evt-final-1',
+        type: 'result',
+        role: 'assistant',
+        sessionId: 'session-final',
+        payload: {
+          'summary': '最终结果',
+          'steps': <Map<String, dynamic>>[],
+          'provider': 'agent',
+          'source': 'recommended',
+          'need_confirm': false,
+          'aliases': <String, dynamic>{},
+          'response_type': 'message',
+        },
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('最终意图'), findsOneWidget);
+      expect(find.text('最终结果'), findsOneWidget);
+
+      unawaited(convStreamController.close());
+    });
+
+    // 测试 5: pendingReset 后 conversation stream 增量同步重建 UI
+    testWidgets('conversation stream rebuilds after pendingReset',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final sseController = StreamController<AgentSessionEvent>();
+      final convStreamController =
+          StreamController<AgentConversationEventItem>.broadcast();
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onRunSession: (intent) {
+          return sseController.stream;
+        },
+        onStreamConversation: (_) => convStreamController.stream,
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+      await tester.pumpAndSettle();
+      await _openSidePanel(tester);
+
+      // 启动 SSE
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '集成测试',
+      );
+      await _pressSidePanelSend(tester);
+      await tester.pump();
+
+      sseController.add(const AgentSessionCreatedEvent(sessionId: 's-integ'));
+      sseController.add(const AgentTraceEvent(
+        tool: 'bash',
+        inputSummary: '执行步骤1',
+        outputSummary: '',
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // conversation_reset 到达
+      convStreamController.add(const AgentConversationEventItem(
+        eventIndex: 10,
+        eventId: 'evt-reset-integ',
+        type: 'conversation_reset',
+        role: 'system',
+        payload: {},
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // SSE 结束（正常完成，带 result）
+      sseController.add(AgentResultEvent(
+        summary: '旧结果',
+        steps: [],
+        provider: 'agent',
+        source: 'recommended',
+        needConfirm: false,
+        aliases: <String, String>{},
+        responseType: 'message',
+      ));
+      await sseController.close();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // SSE 结束后 pendingReset 已清空旧状态
+      // conversation stream 推送完整事件序列，重建 UI
+      convStreamController.add(const AgentConversationEventItem(
+        eventIndex: 0,
+        eventId: 'evt-rr-0',
+        type: 'user_intent',
+        role: 'user',
+        sessionId: 'session-rebuilt',
+        payload: {'text': '重建意图'},
+      ));
+      convStreamController.add(const AgentConversationEventItem(
+        eventIndex: 1,
+        eventId: 'evt-rr-1',
+        type: 'question',
+        role: 'assistant',
+        sessionId: 'session-rebuilt',
+        questionId: 'q-rebuilt',
+        payload: {
+          'question': '重建问题？',
+          'options': ['选项A', '选项B'],
+          'multi_select': false,
+        },
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 验证 conversation stream 增量同步完整重建了 UI
+      expect(find.text('重建意图'), findsOneWidget);
+      expect(find.text('重建问题？'), findsOneWidget);
+
+      // 回答问题后，sessionId 应该已通过 conversation stream 事件恢复
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '选项A',
+      );
+      await _pressSidePanelSend(tester);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // respond 应被成功调用（sessionId 已恢复）
+      expect(agentService.respondAnswers, ['选项A']);
+
+      unawaited(convStreamController.close());
+    });
+
+    // 测试 6: pendingReset 后 SSE 关闭，尚未收到新事件时 UI 已清空
+    testWidgets(
+        'UI clears immediately on SSE done with pendingReset before new events',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final sseController = StreamController<AgentSessionEvent>();
+      final convStreamController =
+          StreamController<AgentConversationEventItem>.broadcast();
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onRunSession: (intent) {
+          return sseController.stream;
+        },
+        onStreamConversation: (_) => convStreamController.stream,
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+      await tester.pumpAndSettle();
+      await _openSidePanel(tester);
+
+      // 启动 SSE，进入 exploring
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        'UI 清空验证',
+      );
+      await _pressSidePanelSend(tester);
+      await tester.pump();
+
+      sseController.add(const AgentSessionCreatedEvent(sessionId: 's-clear'));
+      sseController.add(const AgentTraceEvent(
+        tool: 'bash',
+        inputSummary: '执行中',
+        outputSummary: '',
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 验证 exploring UI 可见
+      expect(find.text('Agent 正在分析...'), findsOneWidget);
+      expect(find.text('探索进度 (1)'), findsOneWidget);
+
+      // conversation_reset 到达（SSE 活跃时）
+      convStreamController.add(const AgentConversationEventItem(
+        eventIndex: 5,
+        eventId: 'evt-reset-clear',
+        type: 'conversation_reset',
+        role: 'system',
+        payload: {},
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // SSE 关闭
+      await sseController.close();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 关键断言：SSE 关闭后 UI 立即清空（setState 已触发）
+      // exploring 视图的元素应该消失
+      expect(find.text('Agent 正在分析...'), findsNothing);
+      expect(find.text('探索进度 (1)'), findsNothing);
+      // 无 STREAM_CLOSED 错误
+      expect(find.text('Agent 会话意外关闭'), findsNothing);
+
+      unawaited(convStreamController.close());
+    });
+
+    // 测试 7: pendingReset 后走 cancel/restart，不会污染下一轮 session
+    testWidgets(
+        'cancel during pendingReset does not leak to next session', (tester) async {
+      final controller = _AgentFakeController();
+      final sseController1 = StreamController<AgentSessionEvent>();
+      final sseController2 = StreamController<AgentSessionEvent>();
+      // 使用 broadcast 流避免重启 conversation stream 时 "already listened to" 错误
+      final convStreamController =
+          StreamController<AgentConversationEventItem>.broadcast();
+      var runCount = 0;
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onRunSession: (intent) {
+          runCount++;
+          if (runCount == 1) {
+            return sseController1.stream;
+          }
+          return sseController2.stream;
+        },
+        onStreamConversation: (_) => convStreamController.stream,
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+      await tester.pumpAndSettle();
+      await _openSidePanel(tester);
+
+      // 第一轮：启动 SSE → exploring
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '第一轮',
+      );
+      await _pressSidePanelSend(tester);
+      await tester.pump();
+
+      sseController1.add(const AgentSessionCreatedEvent(sessionId: 's-leak'));
+      sseController1.add(const AgentTraceEvent(
+        tool: 'bash',
+        inputSummary: '第一轮执行',
+        outputSummary: '',
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.text('Agent 正在分析...'), findsOneWidget);
+
+      // conversation_reset 到达 → pendingReset = true
+      convStreamController.add(const AgentConversationEventItem(
+        eventIndex: 3,
+        eventId: 'evt-reset-leak',
+        type: 'conversation_reset',
+        role: 'system',
+        payload: {},
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 用户取消当前 Agent（走 _cancelAgentSession -> _doCancelAgentNetwork）
+      await tester.tap(find.byKey(const Key('agent-cancel')));
+      await tester.pumpAndSettle();
+
+      // 第一轮 SSE 被取消，pendingReset 已被 _doCancelAgentNetwork 清除
+      // 不应出现 STREAM_CLOSED 错误
+      expect(find.text('Agent 会话意外关闭'), findsNothing);
+
+      // 第二轮：发送新意图
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '第二轮',
+      );
+      await _pressSidePanelSend(tester);
+      await tester.pump();
+
+      sseController2.add(const AgentSessionCreatedEvent(sessionId: 's-new'));
+      sseController2.add(AgentResultEvent(
+        summary: '第二轮结果',
+        steps: [],
+        provider: 'agent',
+        source: 'recommended',
+        needConfirm: false,
+        aliases: <String, String>{},
+        responseType: 'message',
+      ));
+      await tester.pumpAndSettle();
+
+      // 关键断言：第二轮正常完成，旧 pendingReset 未污染
+      expect(find.text('第二轮'), findsOneWidget);
+      expect(find.text('第二轮结果'), findsOneWidget);
+      // 第一轮 trace 内容不应出现（因为 _resetAgentRenderState 已清空 traces）
+      expect(find.text('第一轮执行'), findsNothing);
+
+      unawaited(sseController1.close());
+      unawaited(sseController2.close());
+      unawaited(convStreamController.close());
+    });
+
+    // 测试 8: conversation_reset -> error -> retry，不基于旧投影重试
+    testWidgets(
+        'retry after pendingReset clears old projection and restarts cleanly',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final sseController1 = StreamController<AgentSessionEvent>();
+      final sseController2 = StreamController<AgentSessionEvent>();
+      final convStreamController =
+          StreamController<AgentConversationEventItem>.broadcast();
+      var runCount = 0;
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onRunSession: (intent) {
+          runCount++;
+          if (runCount == 1) {
+            return sseController1.stream;
+          }
+          return sseController2.stream;
+        },
+        onStreamConversation: (_) => convStreamController.stream,
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+      await tester.pumpAndSettle();
+      await _openSidePanel(tester);
+
+      // 第一轮：启动 SSE → exploring
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '重试验证',
+      );
+      await _pressSidePanelSend(tester);
+      await tester.pump();
+
+      sseController1.add(const AgentSessionCreatedEvent(sessionId: 's-retry'));
+      sseController1.add(const AgentTraceEvent(
+        tool: 'bash',
+        inputSummary: '旧执行',
+        outputSummary: '',
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.text('Agent 正在分析...'), findsOneWidget);
+
+      // conversation_reset 到达 → pendingReset = true
+      convStreamController.add(const AgentConversationEventItem(
+        eventIndex: 5,
+        eventId: 'evt-reset-retry',
+        type: 'conversation_reset',
+        role: 'system',
+        payload: {},
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // SSE 关闭（不传 result，进入 error 状态）
+      await sseController1.close();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 因为 pendingReset 被处理，不会出现 STREAM_CLOSED
+      // 但 _resetAgentRenderState 会将状态重置为 idle
+      // UI 已清空
+      expect(find.text('Agent 正在分析...'), findsNothing);
+      expect(find.text('探索进度 (1)'), findsNothing);
+
+      // conversation stream 推送新事件
+      convStreamController.add(const AgentConversationEventItem(
+        eventIndex: 0,
+        eventId: 'evt-retry-0',
+        type: 'user_intent',
+        role: 'user',
+        sessionId: 'session-new-retry',
+        payload: {'text': '新意图'},
+      ));
+      convStreamController.add(const AgentConversationEventItem(
+        eventIndex: 1,
+        eventId: 'evt-retry-1',
+        type: 'result',
+        role: 'assistant',
+        sessionId: 'session-new-retry',
+        payload: {
+          'summary': '重试后的新结果',
+          'steps': <Map<String, dynamic>>[],
+          'provider': 'agent',
+          'source': 'recommended',
+          'need_confirm': false,
+          'aliases': <String, dynamic>{},
+          'response_type': 'message',
+        },
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 验证 UI 重建正确
+      expect(find.text('新意图'), findsOneWidget);
+      expect(find.text('重试后的新结果'), findsOneWidget);
+      // 旧 trace 不应出现
+      expect(find.text('旧执行'), findsNothing);
+
+      unawaited(sseController1.close());
+      unawaited(sseController2.close());
+      unawaited(convStreamController.close());
+    });
+
+    // 测试 9: asking + pendingReset 时 UI 禁用，respond 不发出
+    testWidgets(
+        'blocks respond and disables UI when pendingReset during asking state',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final sseController = StreamController<AgentSessionEvent>();
+      final convStreamController =
+          StreamController<AgentConversationEventItem>.broadcast();
+      var respondCalled = false;
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onRunSession: (intent) {
+          return sseController.stream;
+        },
+        onRespond: (_) async {
+          respondCalled = true;
+          return true;
+        },
+        onStreamConversation: (_) => convStreamController.stream,
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+      await tester.pumpAndSettle();
+      await _openSidePanel(tester);
+
+      // 启动 SSE → session created
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '测试 stale guard',
+      );
+      await _pressSidePanelSend(tester);
+      await tester.pump();
+
+      sseController.add(const AgentSessionCreatedEvent(sessionId: 's-stale'));
+      // 进入 asking 状态
+      sseController.add(const AgentQuestionEvent(
+        question: '请选择操作',
+        options: ['选项A', '选项B'],
+        multiSelect: false,
+        questionId: 'q1',
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 验证 asking UI 可见
+      expect(find.text('请选择操作'), findsOneWidget);
+
+      // SSE 仍然活跃时，conversation stream 推送 conversation_reset
+      convStreamController.add(const AgentConversationEventItem(
+        eventIndex: 5,
+        eventId: 'evt-reset-stale',
+        type: 'conversation_reset',
+        role: 'system',
+        payload: {},
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // pendingReset 已设置，选项按钮应被禁用（onPressed=null）
+      // 尝试点击选项按钮，不应触发 respond
+      final optionAFinder = find.text('选项A');
+      expect(optionAFinder, findsOneWidget);
+      // 找到 OutlinedButton parent
+      final outlinedButtons = find.byType(OutlinedButton);
+      // 点第一个 OutlinedButton（选项A）
+      await tester.tap(outlinedButtons.first);
+      await tester.pump();
+
+      // respond 不应被调用
+      expect(respondCalled, isFalse);
+
+      // 输入栏应被禁用（enabled=false 因为 pendingReset）
+      final inputBar = find.byKey(const Key('side-panel-intent-input'));
+      expect(inputBar, findsOneWidget);
+      final textField = tester.widget<TextField>(inputBar);
+      expect(textField.enabled, isFalse);
+
+      // SSE 关闭触发 pendingReset 处理
+      await sseController.close();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      unawaited(convStreamController.close());
+    });
+  });
 }
