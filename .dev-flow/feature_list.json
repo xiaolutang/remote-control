@@ -2,7 +2,7 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-27T11:30:00+0800",
+  "updated_at": "2026-04-27T12:00:00+0800",
   "active_requirement_cycle": {
     "id": "R046",
     "name": "agent-prompt-strategy-upgrade",
@@ -159,7 +159,7 @@
       "depends_on": [
         "B105"
       ],
-      "status": "in_progress",
+      "status": "completed",
       "priority": 2,
       "acceptance_criteria": [
         "模型每轮返回的 text content 推送 assistant_message SSE 事件（含 content 字段）",
@@ -193,7 +193,8 @@
         "测试 resume_stream 正确回放 assistant_message 缓存事件",
         "pytest server/tests/test_agent_session_manager.py -v",
         "pytest server/tests/test_integration.py -v"
-      ]
+      ],
+      "summary": "assistant_message SSE 事件 + CoT 过滤兜底 + ResultDelivered 路径 + planner 代码移除。70 测试全通过（23 新增）"
     },
     {
       "id": "F107",
@@ -371,8 +372,8 @@
     "total_tasks": 8,
     "by_status": {
       "pending": 5,
-      "in_progress": 1,
-      "completed": 2,
+      "in_progress": 0,
+      "completed": 3,
       "blocked": 0,
       "cancelled": 0
     },

@@ -6,7 +6,7 @@ B080: Agent 会话管理 & SSE 流式 API。
 
 架构约束：
 - 不变量 #43: 产物收口为 CommandSequence（AgentResult）
-- 不变量 #50: 不展示模型原始 chain-of-thought
+- 不变量 #50: 不展示模型原始 chain-of-thought。assistant_message 为用户可见回复，服务端兜底过滤
 - 不变量 #51: 每次规划必须有可回放 trace
 - 不变量 #52: 用户级限流 + provider timeout
 - 权威边界: Server Terminal Agent 管理 SSE 流推送
@@ -31,6 +31,41 @@ logger = logging.getLogger(__name__)
 # trace 事件中命令输出预览的最大字符数
 _MAX_STDOUT_PREVIEW = 1000
 _MAX_STDERR_PREVIEW = 200
+
+# ---------------------------------------------------------------------------
+# B106: assistant_message 内容过滤兜底（不变量 #50）
+# ---------------------------------------------------------------------------
+
+# 检测并过滤可能的 CoT 标记
+COT_PATTERNS = [
+    "一步步思考", "推理过程", "思考步骤", "让我想想",
+    "step by step", "thinking process", "chain of thought",
+    "首先我需要", "接下来我要", "我的分析是",
+    "let me think", "let's analyze", "reasoning:",
+    "<think", "<thought", "<reasoning",
+]
+
+
+def filter_assistant_message(content: str) -> str:
+    """过滤 assistant_message 中可能的 CoT 内容（不变量 #50 兜底）。
+
+    检测并截断可能的 chain-of-thought 标记。返回过滤后的内容。
+    如果截断后内容为空则返回空字符串。
+    """
+    content_lower = content.lower()
+    for pattern in COT_PATTERNS:
+        pattern_lower = pattern.lower()
+        idx = content_lower.find(pattern_lower)
+        if idx >= 0:
+            filtered = content[:idx].strip()
+            if filtered:
+                logger.info(
+                    "assistant_message CoT pattern detected and truncated: pattern=%r",
+                    pattern,
+                )
+                return filtered
+            return ""  # CoT 标记在开头，整条消息都不展示
+    return content
 
 
 # ---------------------------------------------------------------------------
@@ -632,6 +667,18 @@ class AgentSessionManager:
                 )
                 return result
 
+            # B106: on_model_text 回调——模型中间文本输出推送 assistant_message SSE
+            async def _on_model_text(text: str):
+                """模型每轮文本输出回调：过滤后推送 assistant_message SSE 事件。"""
+                filtered = filter_assistant_message(text)
+                if not filtered:
+                    return
+                await self._emit_session_event(
+                    session,
+                    "assistant_message",
+                    {"content": filtered},
+                )
+
             # 调用 run_agent
             outcome = await run_agent(
                 intent=session.intent,
@@ -644,6 +691,7 @@ class AgentSessionManager:
                 tool_call_fn=_traced_tool_call if tool_call_fn else None,
                 dynamic_tools=dynamic_tools,
                 include_lookup_knowledge=include_lookup_knowledge,
+                on_model_text=_on_model_text,
             )
 
             # 保存 Agent 发现的别名
@@ -655,7 +703,7 @@ class AgentSessionManager:
                 except Exception as e:
                     logger.warning("Failed to save aliases: %s", e)
 
-            # usage 必须先落库，再向 SSE 推送 result 事件
+            # usage 必须先落库，再向 SSE 推送 result/error 事件
             usage_payload = {
                 "input_tokens": outcome.input_tokens,
                 "output_tokens": outcome.output_tokens,
@@ -681,26 +729,41 @@ class AgentSessionManager:
                     session.device_id,
                 )
 
-            # 推送 ResultEvent
-            session.state = AgentSessionState.COMPLETED
-            session.result = outcome.result
-            session.last_active_at = datetime.now(timezone.utc)
+            # B106: response_type="error" 走 error SSE 通道（模型未调用 deliver_result 的兜底）
+            if outcome.result.response_type == "error":
+                session.state = AgentSessionState.ERROR
+                session.pending_question_id = None
+                session.last_active_at = datetime.now(timezone.utc)
+                await self._emit_session_event(
+                    session,
+                    "error",
+                    {
+                        "code": ErrorCode.AGENT_ERROR,
+                        "message": outcome.result.summary,
+                        "usage": usage_payload,
+                    },
+                )
+            else:
+                # 推送 ResultEvent
+                session.state = AgentSessionState.COMPLETED
+                session.result = outcome.result
+                session.last_active_at = datetime.now(timezone.utc)
 
-            await self._emit_session_event(
-                session,
-                "result",
-                {
-                    "summary": outcome.result.summary,
-                    "steps": [step.model_dump() for step in outcome.result.steps],
-                    "response_type": outcome.result.response_type,
-                    "ai_prompt": outcome.result.ai_prompt,
-                    "provider": outcome.result.provider,
-                    "source": outcome.result.source,
-                    "need_confirm": outcome.result.need_confirm,
-                    "aliases": outcome.result.aliases,
-                    "usage": usage_payload,
-                },
-            )
+                await self._emit_session_event(
+                    session,
+                    "result",
+                    {
+                        "summary": outcome.result.summary,
+                        "steps": [step.model_dump() for step in outcome.result.steps],
+                        "response_type": outcome.result.response_type,
+                        "ai_prompt": outcome.result.ai_prompt,
+                        "provider": outcome.result.provider,
+                        "source": outcome.result.source,
+                        "need_confirm": outcome.result.need_confirm,
+                        "aliases": outcome.result.aliases,
+                        "usage": usage_payload,
+                    },
+                )
 
         except AgentSessionExpired:
             session.state = AgentSessionState.EXPIRED

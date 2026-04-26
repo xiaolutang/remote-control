@@ -193,6 +193,7 @@ class AgentDeps:
     dynamic_tools: list[dict] = field(default_factory=list)  # B093: 可用动态工具目录（仅用于 prompt 注入兼容）
     project_aliases: dict[str, str] = field(default_factory=dict)  # 已知项目别名
     usage: Optional[RunUsage] = None  # B105: usage 累积对象，由 run_agent() 传入
+    on_model_text: Optional[Callable[[str], Awaitable[None]]] = None  # B106: 模型中间文本输出回调
 
 
 # ---------------------------------------------------------------------------
@@ -754,6 +755,7 @@ async def run_agent(
     tool_call_fn: Callable[[str, dict], Awaitable[dict]] | None = None,
     dynamic_tools: list[dict] | None = None,
     include_lookup_knowledge: bool = True,
+    on_model_text: Callable[[str], Awaitable[None]] | None = None,
 ) -> AgentRunOutcome:
     """运行 Agent 处理用户意图。
 
@@ -772,6 +774,7 @@ async def run_agent(
         tool_call_fn: 动态工具调用回调 (tool_name, arguments) -> dict，可选
         dynamic_tools: 已验证的动态工具目录，可选
         include_lookup_knowledge: 是否注册 lookup_knowledge（基于 Agent 版本）
+        on_model_text: 模型中间文本输出回调 (text) -> None，可选
 
     Returns:
         AgentRunOutcome 包含 AgentResult + token usage 统计
@@ -789,6 +792,7 @@ async def run_agent(
         dynamic_tools=dynamic_tools or [],
         project_aliases=project_aliases or {},
         usage=usage_tracker,
+        on_model_text=on_model_text,
     )
 
     # Session-scoped Agent factory：为每个会话创建独立 Agent
@@ -805,6 +809,44 @@ async def run_agent(
     max_attempts = 3
     retry_hint = None
     no_delivery_attempt = 0
+
+    # B106: 构建 event_stream_handler 用于捕获模型中间文本输出
+    # 通过 PartStartEvent/PartDeltaEvent 捕获 TextPart，累积完整文本后回调 on_model_text
+    _current_text_parts: dict[int, str] = {}  # part_index -> accumulated text (only for TextPart)
+
+    async def _event_stream_handler(ctx, events):
+        """处理模型流式事件，捕获文本输出并回调 on_model_text。
+
+        关键设计：只有 PartStartEvent.part 是 TextPart 时才追踪。
+        同 index 新的 PartStartEvent（非 TextPart，如 ToolCallPart）会替换旧追踪，
+        防止被替换的临时文本泄漏到 assistant_message（不变量 #50）。
+        """
+        nonlocal _current_text_parts
+        if on_model_text is None:
+            return
+        async for event in events:
+            from pydantic_ai.messages import PartStartEvent, PartDeltaEvent, PartEndEvent, TextPart, TextPartDelta
+            if isinstance(event, PartStartEvent):
+                if isinstance(event.part, TextPart):
+                    text = event.part.content
+                    _current_text_parts[event.index] = text or ""
+                else:
+                    # 同 index 非文本 Part 替换了旧的 TextPart，清除旧追踪
+                    _current_text_parts.pop(event.index, None)
+            elif isinstance(event, PartDeltaEvent) and isinstance(event.delta, TextPartDelta):
+                if event.index in _current_text_parts:
+                    _current_text_parts[event.index] += event.delta.content_delta
+            elif isinstance(event, PartEndEvent):
+                # 只有仍然在追踪中的文本 part（未被同 index 非 TextPart 替换）才发送
+                accumulated = _current_text_parts.pop(event.index, None)
+                if accumulated and accumulated.strip():
+                    try:
+                        await on_model_text(accumulated.strip())
+                    except Exception:
+                        logger.debug("on_model_text callback error", exc_info=True)
+
+    _stream_handler = _event_stream_handler if on_model_text else None
+
     for attempt in range(1, max_attempts + 1):
         try:
             run_result = await agent.run(
@@ -812,6 +854,7 @@ async def run_agent(
                 deps=deps,
                 message_history=message_history,
                 usage=usage_tracker,
+                event_stream_handler=_stream_handler,
             )
             # 模型正常结束但没调用 deliver_result（协议违约）
             # 给一次重试机会，让模型重新调用 deliver_result
