@@ -2,7 +2,7 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-26T11:04:18.401169+0800",
+  "updated_at": "2026-04-26T11:50:00+0800",
   "status": "in_progress",
   "active_requirement_cycle": {
     "id": "R045",
@@ -62,9 +62,9 @@
   },
   "summary": {
     "total": 86,
-    "pending": 4,
+    "pending": 3,
     "in_progress": 0,
-    "completed": 82,
+    "completed": 83,
     "blocked": 0,
     "cancelled": 0
   },
@@ -1059,7 +1059,7 @@
       "description": "当前 _activeSessionId 通过反向遍历 _serverConversationEvents 猜测恢复，可能获取过期 sessionId。改为优先使用 AgentConversationProjection.activeSessionId 字段（服务端投影已包含此信息），仅在投影未提供时回退到本地遍历。同时确保 conversation stream 增量重建时不覆盖已有的 _activeSessionId。",
       "verification": "F1",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": 1,
       "acceptance_criteria": [
         "_loadConversationProjection 中已正确从 projection.activeSessionId 恢复 _activeSessionId（确认现有逻辑正确）",
@@ -1079,7 +1079,15 @@
       "files": [
         "client/lib/widgets/smart_terminal_side_panel_content.dart",
         "client/test/widgets/smart_terminal_side_panel_agent_test.dart"
-      ]
+      ],
+      "started_at": "2026-04-26T11:10:22.401842+0800",
+      "completed_at": "2026-04-26T11:50:00+0800",
+      "evidence_file": ".dev-flow/evidence/F094.md",
+      "summary": "5 个测试验证 _activeSessionId 投影恢复：投影优先、历史回退、不覆盖已有值、无 sessionId 静默拒绝、反向遍历取最近",
+      "execution_state": {
+        "current_step": "completed",
+        "retry_count": 0
+      }
     },
     {
       "id": "F095",

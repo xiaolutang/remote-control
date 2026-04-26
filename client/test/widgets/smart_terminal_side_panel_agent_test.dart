@@ -166,6 +166,7 @@ class _FakeAgentSessionService extends AgentSessionService {
   final Stream<AgentConversationEventItem> Function(int afterIndex)?
       onStreamConversation;
   final List<String> respondAnswers = [];
+  final List<String> respondSessionIds = [];
   final List<String> runIntents = [];
   final List<String?> conversationIds = [];
   final List<String?> fetchedTerminalIds = [];
@@ -251,6 +252,7 @@ class _FakeAgentSessionService extends AgentSessionService {
     String? clientEventId,
   }) async {
     respondAnswers.add(answer);
+    respondSessionIds.add(sessionId);
     if (onRespond != null) {
       return onRespond!(answer);
     }
@@ -3137,6 +3139,384 @@ void main() {
       await sseController.close();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
+
+      unawaited(convStreamController.close());
+    });
+  });
+
+  group('F094: _activeSessionId server projection recovery', () {
+    // 测试 1: 投影有 activeSessionId 时优先使用（而非事件遍历）
+    // projection.activeSessionId='session-from-projection'，
+    // 事件 sessionId='session-old'，respond 应使用 projection 的值
+    testWidgets(
+        'uses projection.activeSessionId over local traversal', (tester) async {
+      final controller = _AgentFakeController();
+      final convStreamController =
+          StreamController<AgentConversationEventItem>.broadcast();
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onFetchConversation: (deviceId, terminalId) async {
+          return AgentConversationProjection(
+            deviceId: deviceId,
+            terminalId: terminalId ?? 'term-1',
+            status: 'active',
+            nextEventIndex: 1,
+            activeSessionId: 'session-from-projection',
+            conversationId: 'conv-1',
+            events: [
+              const AgentConversationEventItem(
+                eventIndex: 0,
+                eventId: 'e0',
+                type: 'user_intent',
+                role: 'user',
+                sessionId: 'session-old-from-event',
+                payload: {'text': '旧意图'},
+              ),
+            ],
+          );
+        },
+        onStreamConversation: (_) => convStreamController.stream,
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+      // projection events 产生 exploring 状态 → CircularProgressIndicator，
+      // 不能用 pumpAndSettle
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+
+      // 打开面板（不用 _openSidePanel，避免 pumpAndSettle 超时）
+      final fab = tester.widget<FloatingActionButton>(
+        find.byKey(const Key('smart-terminal-fab')),
+      );
+      fab.onPressed?.call();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // 通过 conversation stream 推送 asking 事件
+      convStreamController.add(const AgentConversationEventItem(
+        eventIndex: 1,
+        eventId: 'e1',
+        type: 'question',
+        role: 'assistant',
+        sessionId: 'session-from-projection',
+        payload: {
+          'question': '请选择',
+          'options': ['A', 'B'],
+          'multi_select': false,
+          'question_id': 'q1',
+        },
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 进入 asking 状态 → 点击选项 A 触发 respond
+      expect(find.text('A'), findsOneWidget);
+      await tester.tap(find.text('A'));
+      await tester.pump();
+
+      // 验证 respond 使用了 projection 的 sessionId 而非事件的
+      expect(agentService.respondSessionIds, ['session-from-projection']);
+
+      unawaited(convStreamController.close());
+    });
+
+    // 测试 2: 投影无 activeSessionId 但事件有 sessionId 时回退正确
+    // 测试 2: projection.activeSessionId=null 时，从事件反向遍历回退
+    // 投影 events 包含 sessionId='session-from-event'，
+    // conversation stream 推送 question 后，回退逻辑应从事件获取 sessionId
+    testWidgets(
+        'falls back to event traversal when projection has no activeSessionId',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final convStreamController =
+          StreamController<AgentConversationEventItem>.broadcast();
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onFetchConversation: (deviceId, terminalId) async {
+          return AgentConversationProjection(
+            deviceId: deviceId,
+            terminalId: terminalId ?? 'term-1',
+            status: 'active',
+            nextEventIndex: 1,
+            activeSessionId: null, // 投影无 activeSessionId
+            conversationId: 'conv-2',
+            events: [
+              // 投影事件包含 sessionId，作为回退源
+              const AgentConversationEventItem(
+                eventIndex: 0,
+                eventId: 'e0',
+                type: 'user_intent',
+                role: 'user',
+                sessionId: 'session-from-event',
+                payload: {'text': '回退意图'},
+              ),
+            ],
+          );
+        },
+        onStreamConversation: (_) => convStreamController.stream,
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+
+      // 打开面板（exploring 状态有 CircularProgressIndicator，不用 pumpAndSettle）
+      final fab = tester.widget<FloatingActionButton>(
+        find.byKey(const Key('smart-terminal-fab')),
+      );
+      fab.onPressed?.call();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // 通过 conversation stream 推送 question → 触发 _applyConversationEventItem
+      // 此时 _activeSessionId == null，state == exploring，
+      // 回退逻辑应从 _serverConversationEvents 找到 'session-from-event'
+      // 注意：question 的 sessionId 设为 null，确保回退只从投影历史获取
+      convStreamController.add(const AgentConversationEventItem(
+        eventIndex: 1,
+        eventId: 'e1',
+        type: 'question',
+        role: 'assistant',
+        sessionId: null, // 故意不提供，强制走历史回退
+        payload: {
+          'question': '回退问题',
+          'options': ['X'],
+          'multi_select': false,
+          'question_id': 'q2',
+        },
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // asking 状态 → 点击 X 触发 respond
+      expect(find.text('X'), findsOneWidget);
+      await tester.tap(find.text('X'));
+      await tester.pump();
+
+      // 验证 respond 使用了回退遍历获取的 sessionId
+      expect(agentService.respondSessionIds, ['session-from-event']);
+
+      unawaited(convStreamController.close());
+    });
+
+    // 测试 3: _activeSessionId 已有时，conversation stream 事件不覆盖
+    // projection.activeSessionId='session-original'，
+    // stream 事件 sessionId='session-different'，respond 应仍用 projection 的值
+    testWidgets(
+        'does not override existing activeSessionId from conversation stream',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final convStreamController =
+          StreamController<AgentConversationEventItem>.broadcast();
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onFetchConversation: (deviceId, terminalId) async {
+          return AgentConversationProjection(
+            deviceId: deviceId,
+            terminalId: terminalId ?? 'term-1',
+            status: 'active',
+            nextEventIndex: 1,
+            activeSessionId: 'session-original',
+            conversationId: 'conv-3',
+            events: [
+              const AgentConversationEventItem(
+                eventIndex: 0,
+                eventId: 'e0',
+                type: 'user_intent',
+                role: 'user',
+                sessionId: 'session-original',
+                payload: {'text': '原始意图'},
+              ),
+            ],
+          );
+        },
+        onStreamConversation: (_) => convStreamController.stream,
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+
+      // 打开面板
+      final fab = tester.widget<FloatingActionButton>(
+        find.byKey(const Key('smart-terminal-fab')),
+      );
+      fab.onPressed?.call();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // 推送带不同 sessionId 的 question 事件
+      convStreamController.add(const AgentConversationEventItem(
+        eventIndex: 1,
+        eventId: 'e1',
+        type: 'question',
+        role: 'assistant',
+        sessionId: 'session-different',
+        payload: {
+          'question': '新问题',
+          'options': ['Y'],
+          'multi_select': false,
+          'question_id': 'q3',
+        },
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 点击选项 Y 触发 respond
+      expect(find.text('Y'), findsOneWidget);
+      await tester.tap(find.text('Y'));
+      await tester.pump();
+
+      // 验证 respond 使用了 projection 的 sessionId，而非 stream 事件的
+      expect(agentService.respondSessionIds, ['session-original']);
+
+      unawaited(convStreamController.close());
+    });
+
+    // 测试 4: 投影和事件都没有 sessionId 时，respond 被静默拒绝
+    testWidgets(
+        'no crash when both projection and events have no sessionId',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final convStreamController =
+          StreamController<AgentConversationEventItem>.broadcast();
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onFetchConversation: (deviceId, terminalId) async {
+          return AgentConversationProjection(
+            deviceId: deviceId,
+            terminalId: terminalId ?? 'term-1',
+            status: 'active',
+            nextEventIndex: 0,
+            activeSessionId: null,
+            conversationId: 'conv-4',
+            events: const [], // 无事件，无 sessionId
+          );
+        },
+        onStreamConversation: (_) => convStreamController.stream,
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+
+      // 打开面板
+      final fab = tester.widget<FloatingActionButton>(
+        find.byKey(const Key('smart-terminal-fab')),
+      );
+      fab.onPressed?.call();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // 推送 question（sessionId 为 null）
+      convStreamController.add(const AgentConversationEventItem(
+        eventIndex: 0,
+        eventId: 'e0',
+        type: 'question',
+        role: 'assistant',
+        sessionId: null,
+        payload: {
+          'question': '无SID问题',
+          'options': ['Z'],
+          'multi_select': false,
+          'question_id': 'q4',
+        },
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // asking UI 出现，点击 Z
+      expect(find.text('Z'), findsOneWidget);
+      await tester.tap(find.text('Z'));
+      await tester.pump();
+
+      // _activeSessionId == null → respond 不发出（_handleAgentRespond 的 null guard）
+      expect(agentService.respondSessionIds, isEmpty);
+
+      unawaited(convStreamController.close());
+    });
+
+    // 测试 5: 反向遍历取最近的历史 sessionId（多事件场景）
+    // 投影有 2 个事件：老事件 sessionId='old-session'，新事件 sessionId='recent-session'
+    // 回退逻辑应取最近的（反向遍历第一个匹配）
+    testWidgets(
+        'reverse traversal picks the most recent sessionId from history',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final convStreamController =
+          StreamController<AgentConversationEventItem>.broadcast();
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onFetchConversation: (deviceId, terminalId) async {
+          return AgentConversationProjection(
+            deviceId: deviceId,
+            terminalId: terminalId ?? 'term-1',
+            status: 'active',
+            nextEventIndex: 2,
+            activeSessionId: null,
+            conversationId: 'conv-5',
+            events: [
+              const AgentConversationEventItem(
+                eventIndex: 0,
+                eventId: 'e0',
+                type: 'user_intent',
+                role: 'user',
+                sessionId: 'old-session',
+                payload: {'text': '旧意图'},
+              ),
+              const AgentConversationEventItem(
+                eventIndex: 1,
+                eventId: 'e1',
+                type: 'trace',
+                role: 'assistant',
+                sessionId: 'recent-session',
+                payload: {'tool': 'test', 'content': 'trace'},
+              ),
+            ],
+          );
+        },
+        onStreamConversation: (_) => convStreamController.stream,
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+
+      final fab = tester.widget<FloatingActionButton>(
+        find.byKey(const Key('smart-terminal-fab')),
+      );
+      fab.onPressed?.call();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // 推送 question（sessionId=null，强制走历史回退）
+      convStreamController.add(const AgentConversationEventItem(
+        eventIndex: 2,
+        eventId: 'e2',
+        type: 'question',
+        role: 'assistant',
+        sessionId: null,
+        payload: {
+          'question': '选择最近',
+          'options': ['R'],
+          'multi_select': false,
+          'question_id': 'q5',
+        },
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('R'), findsOneWidget);
+      await tester.tap(find.text('R'));
+      await tester.pump();
+
+      // 反向遍历应取最近的事件 sessionId='recent-session'，而非旧的
+      expect(agentService.respondSessionIds, ['recent-session']);
 
       unawaited(convStreamController.close());
     });
