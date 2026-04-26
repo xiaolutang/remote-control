@@ -1,5 +1,5 @@
 """
-Eval Harness 测试 - B097
+Eval Harness 测试 - B097 + B108
 
 覆盖:
 - YAML 加载
@@ -9,6 +9,7 @@ Eval Harness 测试 - B097
 - 配置缺失拦截
 - LLM 超时/5xx/畸形响应容错
 - 网络中断恢复
+- B108: deliver_result 工具捕获、incomplete 标记、SYSTEM_PROMPT 对齐
 """
 import json
 import os
@@ -31,6 +32,8 @@ from evals.harness import (
     load_yaml_tasks,
     pass_at_k,
     pass_hat_k,
+    _build_tools_schema,
+    _build_system_prompt,
 )
 from evals.models import (
     CandidateStatus,
@@ -40,6 +43,7 @@ from evals.models import (
     EvalTaskInput,
     EvalTaskMetadata,
 )
+from app.terminal_agent import SYSTEM_PROMPT
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────
@@ -426,7 +430,7 @@ class TestSingleTrialExecution:
             ),
         )
 
-        # Mock LLM 响应: 先调用工具，再返回最终结果
+        # Mock LLM 响应: 先调用工具，再通过 deliver_result 交付结果
         llm_responses = [
             # 第一次：调用 execute_command
             {
@@ -446,19 +450,26 @@ class TestSingleTrialExecution:
                 }],
                 "usage": {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
             },
-            # 第二次：返回最终 JSON 结果
+            # 第二次：调用 deliver_result 交付结果
             {
                 "choices": [{
                     "message": {
-                        "content": json.dumps({
-                            "response_type": "command",
-                            "summary": "文件列表",
-                            "steps": [{"id": "s1", "label": "列出文件", "command": "ls -la"}],
-                            "need_confirm": True,
-                        }),
-                        "tool_calls": None,
+                        "content": "",
+                        "tool_calls": [{
+                            "id": "call-2",
+                            "type": "function",
+                            "function": {
+                                "name": "deliver_result",
+                                "arguments": json.dumps({
+                                    "response_type": "command",
+                                    "summary": "文件列表",
+                                    "steps": [{"id": "s1", "label": "列出文件", "command": "ls -la"}],
+                                    "need_confirm": True,
+                                }),
+                            },
+                        }],
                     },
-                    "finish_reason": "stop",
+                    "finish_reason": "tool_calls",
                 }],
                 "usage": {"prompt_tokens": 150, "completion_tokens": 30, "total_tokens": 180},
             },
@@ -477,7 +488,7 @@ class TestSingleTrialExecution:
 
     @pytest.mark.asyncio
     async def test_trial_without_tool_call(self, db, valid_config):
-        """没有工具调用的 trial（直接返回 message）"""
+        """直接通过 deliver_result 返回 message"""
         harness = EvalHarness(db, config=valid_config, num_trials=1)
 
         task = EvalTaskDef(
@@ -492,14 +503,22 @@ class TestSingleTrialExecution:
         llm_response = {
             "choices": [{
                 "message": {
-                    "content": json.dumps({
-                        "response_type": "message",
-                        "summary": "Git 是分布式版本控制系统",
-                        "steps": [],
-                        "need_confirm": False,
-                    }),
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "call-1",
+                        "type": "function",
+                        "function": {
+                            "name": "deliver_result",
+                            "arguments": json.dumps({
+                                "response_type": "message",
+                                "summary": "Git 是分布式版本控制系统",
+                                "steps": [],
+                                "need_confirm": False,
+                            }),
+                        },
+                    }],
                 },
-                "finish_reason": "stop",
+                "finish_reason": "tool_calls",
             }],
             "usage": {"prompt_tokens": 80, "completion_tokens": 40, "total_tokens": 120},
         }
@@ -525,14 +544,22 @@ class TestSingleTrialExecution:
         llm_response = {
             "choices": [{
                 "message": {
-                    "content": json.dumps({
-                        "response_type": "message",
-                        "summary": "test",
-                        "steps": [],
-                        "need_confirm": False,
-                    }),
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "call-1",
+                        "type": "function",
+                        "function": {
+                            "name": "deliver_result",
+                            "arguments": json.dumps({
+                                "response_type": "message",
+                                "summary": "test",
+                                "steps": [],
+                                "need_confirm": False,
+                            }),
+                        },
+                    }],
                 },
-                "finish_reason": "stop",
+                "finish_reason": "tool_calls",
             }],
             "usage": {"prompt_tokens": 50, "completion_tokens": 20, "total_tokens": 70},
         }
@@ -568,16 +595,28 @@ class TestMultiTrialMetrics:
 
         # 3 个通过 + 2 个失败的交替响应
         pass_response = {
-            "choices": [{"message": {"content": json.dumps({
-                "response_type": "message", "summary": "ok", "steps": [],
-            })}}],
+            "choices": [{"message": {"content": "", "tool_calls": [{
+                "id": "call-pass", "type": "function", "function": {
+                    "name": "deliver_result",
+                    "arguments": json.dumps({
+                        "response_type": "message", "summary": "ok", "steps": [], "need_confirm": False,
+                        "need_confirm": False,
+                    }),
+                },
+            }]}}],
             "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
         }
         fail_response = {
-            "choices": [{"message": {"content": json.dumps({
-                "response_type": "command", "summary": "wrong type",
-                "steps": [{"id": "s1", "label": "x", "command": "x"}],
-            })}}],
+            "choices": [{"message": {"content": "", "tool_calls": [{
+                "id": "call-fail", "type": "function", "function": {
+                    "name": "deliver_result",
+                    "arguments": json.dumps({
+                        "response_type": "command", "summary": "wrong type",
+                        "steps": [{"id": "s1", "label": "x", "command": "x"}],
+                        "need_confirm": True,
+                    }),
+                },
+            }]}}],
             "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
         }
 
@@ -609,9 +648,15 @@ class TestMultiTrialMetrics:
         )
 
         pass_response = {
-            "choices": [{"message": {"content": json.dumps({
-                "response_type": "message", "summary": "ok", "steps": [],
-            })}}],
+            "choices": [{"message": {"content": "", "tool_calls": [{
+                "id": "call-pass", "type": "function", "function": {
+                    "name": "deliver_result",
+                    "arguments": json.dumps({
+                        "response_type": "message", "summary": "ok", "steps": [], "need_confirm": False,
+                        "need_confirm": False,
+                    }),
+                },
+            }]}}],
             "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
         }
 
@@ -637,9 +682,14 @@ class TestMultiTrialMetrics:
         )
 
         pass_response = {
-            "choices": [{"message": {"content": json.dumps({
-                "response_type": "message", "summary": "ok", "steps": [],
-            })}}],
+            "choices": [{"message": {"content": "", "tool_calls": [{
+                "id": "call-pass", "type": "function", "function": {
+                    "name": "deliver_result",
+                    "arguments": json.dumps({
+                        "response_type": "message", "summary": "ok", "steps": [], "need_confirm": False,
+                    }),
+                },
+            }]}}],
             "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
         }
 
@@ -730,9 +780,14 @@ class TestLLMErrorTolerance:
         )
 
         pass_response = {
-            "choices": [{"message": {"content": json.dumps({
-                "response_type": "message", "summary": "ok", "steps": [],
-            })}}],
+            "choices": [{"message": {"content": "", "tool_calls": [{
+                "id": "call-pass", "type": "function", "function": {
+                    "name": "deliver_result",
+                    "arguments": json.dumps({
+                        "response_type": "message", "summary": "ok", "steps": [], "need_confirm": False,
+                    }),
+                },
+            }]}}],
             "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
         }
 
@@ -870,9 +925,14 @@ class TestRunPersistence:
         )
 
         llm_response = {
-            "choices": [{"message": {"content": json.dumps({
-                "response_type": "message", "summary": "ok", "steps": [],
-            })}}],
+            "choices": [{"message": {"content": "", "tool_calls": [{
+                "id": "call-1", "type": "function", "function": {
+                    "name": "deliver_result",
+                    "arguments": json.dumps({
+                        "response_type": "message", "summary": "ok", "steps": [], "need_confirm": False,
+                    }),
+                },
+            }]}}],
             "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
         }
 
@@ -902,9 +962,14 @@ class TestRunPersistence:
         )
 
         llm_response = {
-            "choices": [{"message": {"content": json.dumps({
-                "response_type": "message", "summary": "ok", "steps": [],
-            })}}],
+            "choices": [{"message": {"content": "", "tool_calls": [{
+                "id": "call-1", "type": "function", "function": {
+                    "name": "deliver_result",
+                    "arguments": json.dumps({
+                        "response_type": "message", "summary": "ok", "steps": [], "need_confirm": False,
+                    }),
+                },
+            }]}}],
             "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
         }
 
@@ -1076,3 +1141,746 @@ class TestEvaluationLogic:
             "summary": "any content",
         })
         assert result is True
+
+
+# ── B108: deliver_result 对齐测试 ────────────────────────────────────────
+
+
+class TestDeliverResultTool:
+    """B108: deliver_result 工具在 harness 中的支持"""
+
+    def test_tools_schema_contains_deliver_result(self):
+        """AC1: harness.py 的工具列表包含 deliver_result"""
+        tools = _build_tools_schema()
+        tool_names = [t["function"]["name"] for t in tools]
+        assert "deliver_result" in tool_names
+        assert "execute_command" in tool_names
+
+    def test_deliver_result_schema_has_required_fields(self):
+        """deliver_result 工具定义包含必要的参数字段"""
+        tools = _build_tools_schema()
+        deliver_result_tool = next(
+            t for t in tools if t["function"]["name"] == "deliver_result"
+        )
+        params = deliver_result_tool["function"]["parameters"]
+        required = params.get("required", [])
+        assert "response_type" in required
+        assert "summary" in required
+        # response_type 枚举
+        rt_prop = params["properties"]["response_type"]
+        assert "enum" in rt_prop
+        assert set(rt_prop["enum"]) == {"message", "command", "ai_prompt"}
+
+    def test_system_prompt_aligns_with_production(self):
+        """AC6: eval system prompt 与生产 SYSTEM_PROMPT 使用同一份"""
+        eval_prompt = _build_system_prompt()
+        assert eval_prompt == SYSTEM_PROMPT
+        # 确保包含 deliver_result 相关内容
+        assert "deliver_result" in eval_prompt
+
+    @pytest.mark.asyncio
+    async def test_deliver_result_captured_as_result(self, db, valid_config):
+        """AC2: LLM 调用 deliver_result 时参数被捕获为 trial 结果"""
+        harness = EvalHarness(db, config=valid_config, num_trials=1)
+
+        task = EvalTaskDef(
+            id="dr-001",
+            category="intent_classification",
+            input=EvalTaskInput(
+                intent="帮我解释一下 main.py 里的 run 函数",
+                context={"cwd": "/home/user/project", "device_online": True},
+            ),
+            expected=EvalTaskExpected(response_type=["ai_prompt"]),
+        )
+
+        # LLM 直接调用 deliver_result（无探索）
+        llm_response = {
+            "choices": [{
+                "message": {
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "call-dr-1",
+                        "type": "function",
+                        "function": {
+                            "name": "deliver_result",
+                            "arguments": json.dumps({
+                                "response_type": "ai_prompt",
+                                "summary": "解释 run 函数",
+                                "steps": [],
+                                "ai_prompt": "请解释 /home/user/project/main.py 中 run 函数的逻辑",
+                                "need_confirm": True,
+                            }),
+                        },
+                    }],
+                },
+                "finish_reason": "tool_calls",
+            }],
+            "usage": {"prompt_tokens": 100, "completion_tokens": 30, "total_tokens": 130},
+        }
+
+        with patch("evals.harness.call_llm", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = llm_response
+            result = await harness.run([task])
+
+        trial = result["task_results"]["dr-001"]["trials"][0]
+        assert trial["success"] is True
+        assert trial.get("incomplete") is False
+
+        # 验证数据库中的 agent_result_json
+        trials = await db.list_trials_by_task("dr-001")
+        assert len(trials) == 1
+        agent_result = trials[0].agent_result_json
+        assert agent_result["response_type"] == "ai_prompt"
+        assert "run 函数" in agent_result["summary"]
+
+    @pytest.mark.asyncio
+    async def test_deliver_result_ends_trial(self, db, valid_config):
+        """AC3: deliver_result 被调用 = trial 结束"""
+        harness = EvalHarness(db, config=valid_config, num_trials=1, max_rounds=5)
+
+        task = EvalTaskDef(
+            id="dr-002",
+            category="intent_classification",
+            input=EvalTaskInput(intent="什么是 git"),
+            expected=EvalTaskExpected(response_type=["message"]),
+        )
+
+        # LLM 在第 1 轮就调用 deliver_result
+        llm_response = {
+            "choices": [{
+                "message": {
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "call-dr-2",
+                        "type": "function",
+                        "function": {
+                            "name": "deliver_result",
+                            "arguments": json.dumps({
+                                "response_type": "message",
+                                "summary": "Git 是分布式版本控制系统",
+                                "steps": [],
+                                "need_confirm": False,
+                            }),
+                        },
+                    }],
+                },
+                "finish_reason": "tool_calls",
+            }],
+            "usage": {"prompt_tokens": 50, "completion_tokens": 20, "total_tokens": 70},
+        }
+
+        with patch("evals.harness.call_llm", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = llm_response
+            result = await harness.run([task])
+
+        # 确认只调用了一次 LLM（deliver_result 后不再继续）
+        assert mock_llm.call_count == 1
+        trial = result["task_results"]["dr-002"]["trials"][0]
+        assert trial["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_max_turns_without_deliver_result_marks_incomplete(self, db, valid_config):
+        """AC4: LLM 未调用 deliver_result 时 trial 标记为 incomplete"""
+        harness = EvalHarness(db, config=valid_config, num_trials=1, max_rounds=2)
+
+        task = EvalTaskDef(
+            id="dr-003",
+            category="intent_classification",
+            input=EvalTaskInput(intent="test"),
+            expected=EvalTaskExpected(response_type=["message"]),
+        )
+
+        # LLM 返回纯文本，不调用任何工具
+        llm_response = {
+            "choices": [{
+                "message": {
+                    "content": "这是一个纯文本回复，没有调用工具",
+                    "tool_calls": None,
+                },
+                "finish_reason": "stop",
+            }],
+            "usage": {"prompt_tokens": 30, "completion_tokens": 15, "total_tokens": 45},
+        }
+
+        with patch("evals.harness.call_llm", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = llm_response
+            result = await harness.run([task])
+
+        trial = result["task_results"]["dr-003"]["trials"][0]
+        assert trial.get("incomplete") is True
+        # incomplete trial 应标记为失败
+        assert trial["success"] is False
+
+        # 验证数据库中 agent_result_json 标记了 error
+        trials = await db.list_trials_by_task("dr-003")
+        assert len(trials) == 1
+        assert trials[0].agent_result_json["response_type"] == "error"
+        assert "未调用 deliver_result" in trials[0].agent_result_json["summary"]
+
+    @pytest.mark.asyncio
+    async def test_execute_command_then_deliver_result(self, db, valid_config):
+        """探索 + deliver_result 完整流程"""
+        harness = EvalHarness(db, config=valid_config, num_trials=1)
+
+        task = EvalTaskDef(
+            id="dr-004",
+            category="command_generation",
+            input=EvalTaskInput(
+                intent="列出文件",
+                context={
+                    "cwd": "/home",
+                    "mock_tool_responses": {"ls -la": "file1.txt\nfile2.txt\n"},
+                },
+            ),
+            expected=EvalTaskExpected(
+                response_type=["command"],
+                steps_contain=["ls -la"],
+            ),
+        )
+
+        llm_responses = [
+            # 第 1 轮：探索
+            {
+                "choices": [{
+                    "message": {
+                        "content": "",
+                        "tool_calls": [{
+                            "id": "call-1",
+                            "type": "function",
+                            "function": {
+                                "name": "execute_command",
+                                "arguments": json.dumps({"command": "ls -la"}),
+                            },
+                        }],
+                    },
+                    "finish_reason": "tool_calls",
+                }],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
+            },
+            # 第 2 轮：交付结果
+            {
+                "choices": [{
+                    "message": {
+                        "content": "",
+                        "tool_calls": [{
+                            "id": "call-2",
+                            "type": "function",
+                            "function": {
+                                "name": "deliver_result",
+                                "arguments": json.dumps({
+                                    "response_type": "command",
+                                    "summary": "文件列表",
+                                    "steps": [{"id": "s1", "label": "列出文件", "command": "ls -la"}],
+                                    "need_confirm": True,
+                                }),
+                            },
+                        }],
+                    },
+                    "finish_reason": "tool_calls",
+                }],
+                "usage": {"prompt_tokens": 150, "completion_tokens": 30, "total_tokens": 180},
+            },
+        ]
+
+        with patch("evals.harness.call_llm", new_callable=AsyncMock) as mock_llm:
+            mock_llm.side_effect = llm_responses
+            result = await harness.run([task])
+
+        trial = result["task_results"]["dr-004"]["trials"][0]
+        assert trial["success"] is True
+        assert trial.get("incomplete") is False
+        assert trial["token_usage"]["total_tokens"] == 300
+
+    @pytest.mark.asyncio
+    async def test_ic_008_ai_prompt_via_deliver_result(self, db, valid_config):
+        """AC9: ic_008 ai_prompt 期望能通过 response_type_match"""
+        harness = EvalHarness(db, config=valid_config, num_trials=1)
+
+        task = EvalTaskDef(
+            id="ic_008_aiprompt_explain_code",
+            category="intent_classification",
+            input=EvalTaskInput(
+                intent="帮我解释一下 src/main.py 里的 run 函数在做什么",
+                context={"cwd": "/home/user/project", "device_online": True},
+            ),
+            expected=EvalTaskExpected(response_type=["ai_prompt"]),
+        )
+
+        llm_response = {
+            "choices": [{
+                "message": {
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "call-ic008",
+                        "type": "function",
+                        "function": {
+                            "name": "deliver_result",
+                            "arguments": json.dumps({
+                                "response_type": "ai_prompt",
+                                "summary": "解释 run 函数",
+                                "steps": [],
+                                "ai_prompt": "请解释 /home/user/project/src/main.py 中 run 函数的实现逻辑",
+                                "need_confirm": True,
+                            }),
+                        },
+                    }],
+                },
+                "finish_reason": "tool_calls",
+            }],
+            "usage": {"prompt_tokens": 80, "completion_tokens": 40, "total_tokens": 120},
+        }
+
+        with patch("evals.harness.call_llm", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = llm_response
+            result = await harness.run([task])
+
+        trial = result["task_results"]["ic_008_aiprompt_explain_code"]["trials"][0]
+        assert trial["success"] is True
+
+
+class TestDeliverResultValidation:
+    """B108 Round 2: deliver_result 参数校验测试"""
+
+    @pytest.mark.asyncio
+    async def test_command_empty_steps_rejected(self, db, valid_config):
+        """command 类型 steps 为空 → 校验失败 → error 结果"""
+        harness = EvalHarness(db, config=valid_config, num_trials=1)
+
+        task = EvalTaskDef(
+            id="val-001",
+            category="command_generation",
+            input=EvalTaskInput(intent="帮我运行项目", context={"cwd": "/home"}),
+            expected=EvalTaskExpected(response_type=["command"]),
+        )
+
+        llm_response = {
+            "choices": [{
+                "message": {
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "call-val1",
+                        "type": "function",
+                        "function": {
+                            "name": "deliver_result",
+                            "arguments": json.dumps({
+                                "response_type": "command",
+                                "summary": "运行项目",
+                                "steps": [],
+                            }),
+                        },
+                    }],
+                },
+                "finish_reason": "tool_calls",
+            }],
+            "usage": {"prompt_tokens": 50, "completion_tokens": 20, "total_tokens": 70},
+        }
+
+        with patch("evals.harness.call_llm", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = llm_response
+            result = await harness.run([task])
+
+        trial = result["task_results"]["val-001"]["trials"][0]
+        assert trial["success"] is False
+        trials = await db.list_trials_by_task("val-001")
+        assert trials[0].agent_result_json["response_type"] == "error"
+        assert "校验失败" in trials[0].agent_result_json["summary"]
+
+    @pytest.mark.asyncio
+    async def test_ai_prompt_empty_prompt_rejected(self, db, valid_config):
+        """ai_prompt 类型 ai_prompt 为空 → 校验失败"""
+        harness = EvalHarness(db, config=valid_config, num_trials=1)
+
+        task = EvalTaskDef(
+            id="val-002",
+            category="intent_classification",
+            input=EvalTaskInput(intent="解释代码", context={"cwd": "/home"}),
+            expected=EvalTaskExpected(response_type=["ai_prompt"]),
+        )
+
+        llm_response = {
+            "choices": [{
+                "message": {
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "call-val2",
+                        "type": "function",
+                        "function": {
+                            "name": "deliver_result",
+                            "arguments": json.dumps({
+                                "response_type": "ai_prompt",
+                                "summary": "解释代码",
+                                "steps": [],
+                                "ai_prompt": "",
+                                "need_confirm": True,
+                            }),
+                        },
+                    }],
+                },
+                "finish_reason": "tool_calls",
+            }],
+            "usage": {"prompt_tokens": 50, "completion_tokens": 20, "total_tokens": 70},
+        }
+
+        with patch("evals.harness.call_llm", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = llm_response
+            result = await harness.run([task])
+
+        trial = result["task_results"]["val-002"]["trials"][0]
+        assert trial["success"] is False
+        trials = await db.list_trials_by_task("val-002")
+        assert trials[0].agent_result_json["response_type"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_message_with_steps_rejected(self, db, valid_config):
+        """message 类型带 steps → 校验失败"""
+        harness = EvalHarness(db, config=valid_config, num_trials=1)
+
+        task = EvalTaskDef(
+            id="val-003",
+            category="intent_classification",
+            input=EvalTaskInput(intent="你好", context={"cwd": "/home"}),
+            expected=EvalTaskExpected(response_type=["message"]),
+        )
+
+        llm_response = {
+            "choices": [{
+                "message": {
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "call-val3",
+                        "type": "function",
+                        "function": {
+                            "name": "deliver_result",
+                            "arguments": json.dumps({
+                                "response_type": "message",
+                                "summary": "你好",
+                                "steps": [{"id": "s1", "label": "test", "command": "echo hi"}],
+                            }),
+                        },
+                    }],
+                },
+                "finish_reason": "tool_calls",
+            }],
+            "usage": {"prompt_tokens": 50, "completion_tokens": 20, "total_tokens": 70},
+        }
+
+        with patch("evals.harness.call_llm", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = llm_response
+            result = await harness.run([task])
+
+        trial = result["task_results"]["val-003"]["trials"][0]
+        assert trial["success"] is False
+        trials = await db.list_trials_by_task("val-003")
+        assert trials[0].agent_result_json["response_type"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_ask_user_mock_handled(self, db, valid_config):
+        """ask_user 工具调用返回 mock 回复，不中断流程"""
+        harness = EvalHarness(db, config=valid_config, num_trials=1)
+
+        task = EvalTaskDef(
+            id="val-004",
+            category="intent_classification",
+            input=EvalTaskInput(intent="帮我重构代码", context={"cwd": "/home"}),
+            expected=EvalTaskExpected(response_type=["ai_prompt"]),
+        )
+
+        llm_responses = [
+            {
+                "choices": [{
+                    "message": {
+                        "content": "",
+                        "tool_calls": [{
+                            "id": "call-ask1",
+                            "type": "function",
+                            "function": {
+                                "name": "ask_user",
+                                "arguments": json.dumps({"question": "Claude Code 在运行吗？"}),
+                            },
+                        }],
+                    },
+                    "finish_reason": "tool_calls",
+                }],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
+            },
+            {
+                "choices": [{
+                    "message": {
+                        "content": "",
+                        "tool_calls": [{
+                            "id": "call-dr1",
+                            "type": "function",
+                            "function": {
+                                "name": "deliver_result",
+                                "arguments": json.dumps({
+                                    "response_type": "ai_prompt",
+                                    "summary": "重构代码",
+                                    "steps": [],
+                                    "ai_prompt": "请重构 /home 下的代码",
+                                    "need_confirm": True,
+                                }),
+                            },
+                        }],
+                    },
+                    "finish_reason": "tool_calls",
+                }],
+                "usage": {"prompt_tokens": 120, "completion_tokens": 30, "total_tokens": 150},
+            },
+        ]
+
+        with patch("evals.harness.call_llm", new_callable=AsyncMock) as mock_llm:
+            mock_llm.side_effect = llm_responses
+            result = await harness.run([task])
+
+        trial = result["task_results"]["val-004"]["trials"][0]
+        assert trial["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_lookup_knowledge_mock_handled(self, db, valid_config):
+        """lookup_knowledge 工具调用返回降级回复，不中断流程"""
+        harness = EvalHarness(db, config=valid_config, num_trials=1)
+
+        task = EvalTaskDef(
+            id="val-005",
+            category="intent_classification",
+            input=EvalTaskInput(intent="Claude Code 怎么用", context={"cwd": "/home"}),
+            expected=EvalTaskExpected(response_type=["message"]),
+        )
+
+        llm_responses = [
+            {
+                "choices": [{
+                    "message": {
+                        "content": "",
+                        "tool_calls": [{
+                            "id": "call-lk1",
+                            "type": "function",
+                            "function": {
+                                "name": "lookup_knowledge",
+                                "arguments": json.dumps({"query": "Claude Code 使用技巧"}),
+                            },
+                        }],
+                    },
+                    "finish_reason": "tool_calls",
+                }],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
+            },
+            {
+                "choices": [{
+                    "message": {
+                        "content": "",
+                        "tool_calls": [{
+                            "id": "call-dr1",
+                            "type": "function",
+                            "function": {
+                                "name": "deliver_result",
+                                "arguments": json.dumps({
+                                    "response_type": "message",
+                                    "summary": "Claude Code 使用说明",
+                                    "steps": [],
+                                    "need_confirm": False,
+                                }),
+                            },
+                        }],
+                    },
+                    "finish_reason": "tool_calls",
+                }],
+                "usage": {"prompt_tokens": 120, "completion_tokens": 30, "total_tokens": 150},
+            },
+        ]
+
+        with patch("evals.harness.call_llm", new_callable=AsyncMock) as mock_llm:
+            mock_llm.side_effect = llm_responses
+            result = await harness.run([task])
+
+        trial = result["task_results"]["val-005"]["trials"][0]
+        assert trial["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_message_with_need_confirm_rejected(self, db, valid_config):
+        """message + need_confirm=True → 校验失败"""
+        harness = EvalHarness(db, config=valid_config, num_trials=1)
+
+        task = EvalTaskDef(
+            id="val-006",
+            category="intent_classification",
+            input=EvalTaskInput(intent="你好", context={"cwd": "/home"}),
+            expected=EvalTaskExpected(response_type=["message"]),
+        )
+
+        llm_response = {
+            "choices": [{
+                "message": {
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "call-val6",
+                        "type": "function",
+                        "function": {
+                            "name": "deliver_result",
+                            "arguments": json.dumps({
+                                "response_type": "message",
+                                "summary": "你好",
+                                "steps": [],
+                                "need_confirm": True,
+                            }),
+                        },
+                    }],
+                },
+                "finish_reason": "tool_calls",
+            }],
+            "usage": {"prompt_tokens": 50, "completion_tokens": 20, "total_tokens": 70},
+        }
+
+        with patch("evals.harness.call_llm", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = llm_response
+            result = await harness.run([task])
+
+        trial = result["task_results"]["val-006"]["trials"][0]
+        assert trial["success"] is False
+        trials = await db.list_trials_by_task("val-006")
+        assert trials[0].agent_result_json["response_type"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_message_with_ai_prompt_rejected(self, db, valid_config):
+        """message + 非空 ai_prompt → 校验失败"""
+        harness = EvalHarness(db, config=valid_config, num_trials=1)
+
+        task = EvalTaskDef(
+            id="val-007",
+            category="intent_classification",
+            input=EvalTaskInput(intent="你好", context={"cwd": "/home"}),
+            expected=EvalTaskExpected(response_type=["message"]),
+        )
+
+        llm_response = {
+            "choices": [{
+                "message": {
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "call-val7",
+                        "type": "function",
+                        "function": {
+                            "name": "deliver_result",
+                            "arguments": json.dumps({
+                                "response_type": "message",
+                                "summary": "你好",
+                                "steps": [],
+                                "ai_prompt": "unexpected prompt",
+                                "need_confirm": False,
+                            }),
+                        },
+                    }],
+                },
+                "finish_reason": "tool_calls",
+            }],
+            "usage": {"prompt_tokens": 50, "completion_tokens": 20, "total_tokens": 70},
+        }
+
+        with patch("evals.harness.call_llm", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = llm_response
+            result = await harness.run([task])
+
+        trial = result["task_results"]["val-007"]["trials"][0]
+        assert trial["success"] is False
+        trials = await db.list_trials_by_task("val-007")
+        assert trials[0].agent_result_json["response_type"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_command_with_ai_prompt_rejected(self, db, valid_config):
+        """command + 非空 ai_prompt → 校验失败"""
+        harness = EvalHarness(db, config=valid_config, num_trials=1)
+
+        task = EvalTaskDef(
+            id="val-008",
+            category="command_generation",
+            input=EvalTaskInput(intent="运行项目", context={"cwd": "/home"}),
+            expected=EvalTaskExpected(response_type=["command"]),
+        )
+
+        llm_response = {
+            "choices": [{
+                "message": {
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "call-val8",
+                        "type": "function",
+                        "function": {
+                            "name": "deliver_result",
+                            "arguments": json.dumps({
+                                "response_type": "command",
+                                "summary": "运行项目",
+                                "steps": [{"id": "s1", "label": "run", "command": "npm start"}],
+                                "ai_prompt": "should not be here",
+                            }),
+                        },
+                    }],
+                },
+                "finish_reason": "tool_calls",
+            }],
+            "usage": {"prompt_tokens": 50, "completion_tokens": 20, "total_tokens": 70},
+        }
+
+        with patch("evals.harness.call_llm", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = llm_response
+            result = await harness.run([task])
+
+        trial = result["task_results"]["val-008"]["trials"][0]
+        assert trial["success"] is False
+        trials = await db.list_trials_by_task("val-008")
+        assert trials[0].agent_result_json["response_type"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_deliver_result_stops_subsequent_tools(self, db, valid_config):
+        """deliver_result 同一 turn 中有后续工具调用时不执行"""
+        harness = EvalHarness(db, config=valid_config, num_trials=1)
+
+        task = EvalTaskDef(
+            id="val-009",
+            category="intent_classification",
+            input=EvalTaskInput(intent="解释代码", context={"cwd": "/home"}),
+            expected=EvalTaskExpected(response_type=["message"]),
+        )
+
+        # LLM 在同一 turn 中调用了 deliver_result + execute_command
+        llm_response = {
+            "choices": [{
+                "message": {
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call-dr",
+                            "type": "function",
+                            "function": {
+                                "name": "deliver_result",
+                                "arguments": json.dumps({
+                                    "response_type": "message",
+                                    "summary": "解释",
+                                    "steps": [],
+                                    "need_confirm": False,
+                                }),
+                            },
+                        },
+                        {
+                            "id": "call-exec",
+                            "type": "function",
+                            "function": {
+                                "name": "execute_command",
+                                "arguments": json.dumps({"command": "ls -la"}),
+                            },
+                        },
+                    ],
+                },
+                "finish_reason": "tool_calls",
+            }],
+            "usage": {"prompt_tokens": 100, "completion_tokens": 30, "total_tokens": 130},
+        }
+
+        with patch("evals.harness.call_llm", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = llm_response
+            result = await harness.run([task])
+
+        trial = result["task_results"]["val-009"]["trials"][0]
+        assert trial["success"] is True
+        # 只有 deliver_result 被记录，execute_command 不应出现
+        trials = await db.list_trials_by_task("val-009")
+        assert trials[0].agent_result_json["response_type"] == "message"

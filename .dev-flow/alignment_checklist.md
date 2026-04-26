@@ -154,7 +154,7 @@
 | **R046 Agent 架构** | **自由对话+deliver_result 工具** | **CONTRACT-047, CONTRACT-048** | **completed** | **not_applicable** | **completed** | **B105: output_type=str + deliver_result 工具 + ResultDelivered 异常 + usage 累积回调。162 测试全通过** |
 | **R046 Agent 循环** | **assistant_message SSE 事件** | **CONTRACT-047, CONTRACT-048, CONTRACT-049** | **completed** | **not_applicable** | **completed** | **B106: assistant_message SSE + CoT 过滤兜底 + ResultDelivered 路径 + planner 代码移除。70 测试全通过（23 新增）** |
 | **R046 客户端** | **assistant_message + ai_prompt 验证** | **CONTRACT-047, CONTRACT-049, CONTRACT-050** | **not_applicable** | **completed** | **completed** | **F107: 四通道 SSE/projection/resume/widget assistant_message + ai_prompt 注入 + _TurnEventType 交错渲染 + answer-edit 保护。102 测试全通过** |
-| **R046 Eval** | **deliver_result 对齐 + grader 兼容** | **CONTRACT-051** | **pending** | **not_applicable** | **pending** | **B108: harness 添加 deliver_result + 负向测试 + tool_call_order 排除** |
+| **R046 Eval** | **deliver_result 对齐 + grader 兼容** | **CONTRACT-051** | **completed** | **not_applicable** | **completed** | **B108: deliver_result 工具 + ask_user/lookup_knowledge mock + 参数校验 + tool_call_order 排除 + steps_structure response_type 感知。191 测试全通过** |
 | **R046 评估** | **基线评估+迭代优化 → 50%** | **CONTRACT-051** | **pending** | **not_applicable** | **pending** | **S109: 基线记录 + 2-3 轮迭代 + ai_prompt 用例修复** |
 | **R046 测试** | **Server+Client 测试更新** | **CONTRACT-047..051** | **pending** | **not_applicable** | **pending** | **S110: deliver_result + assistant_message + 重试 usage + 过滤兜底测试** |
 | **R046 文档** | **事后精细校准** | **CONTRACT-047..051** | **not_applicable** | **not_applicable** | **pending** | **S111: CONTRACT-047/048/049/050/051 最终校准（实现后代码与文档一致性验证，不含 S104 已验证的基线内容）** |

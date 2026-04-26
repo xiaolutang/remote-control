@@ -247,7 +247,7 @@
       "depends_on": [
         "B105"
       ],
-      "status": "pending",
+      "status": "completed",
       "priority": 4,
       "acceptance_criteria": [
         "harness.py 的工具列表包含 deliver_result",
@@ -257,7 +257,7 @@
         "tool_call_order grader 排除 deliver_result（只检查探索工具的调用顺序）",
         "eval system prompt 与生产 SYSTEM_PROMPT 使用同一份",
         "response_type_match grader 无需修改",
-        "steps_structure grader 无需修改",
+        "steps_structure grader 更新为 response_type 感知（message/ai_prompt 允许 steps=[]）",
         "ic_008/ic_009/ic_010（ai_prompt 期望）能通过 response_type_match"
       ],
       "risk_tags": [],
@@ -270,7 +270,9 @@
         "单用例验证 tool_call_order：确认 deliver_result 不影响工具序列评分",
         "负向测试：LLM 未调用 deliver_result 时确认 trial 状态为 incomplete 而非 fail",
         "python -m evals.verify_tasks — 任务 YAML 验证通过"
-      ]
+      ],
+      "summary": "deliver_result 工具注册 + 参数校验 + ask_user/lookup_knowledge mock + tool_call_order 排除 + steps_structure response_type 感知。191 测试全通过",
+      "evidence_file": "evidence/B108.md"
     },
     {
       "id": "S109",
@@ -373,9 +375,9 @@
   "summary": {
     "total_tasks": 8,
     "by_status": {
-      "pending": 4,
+      "pending": 3,
       "in_progress": 0,
-      "completed": 4,
+      "completed": 5,
       "blocked": 0,
       "cancelled": 0
     },
