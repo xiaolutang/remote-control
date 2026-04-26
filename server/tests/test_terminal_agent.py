@@ -118,7 +118,7 @@ class TestAgentCreation:
     def test_system_prompt_contains_security_constraints(self):
         """System prompt 应包含安全约束说明。"""
         assert "只读" in SYSTEM_PROMPT
-        assert "不能执行写" in SYSTEM_PROMPT
+        assert "安全边界" in SYSTEM_PROMPT
 
     def test_build_model_returns_openai_model(self):
         model = _build_model()

@@ -286,7 +286,7 @@
         "B106",
         "F107"
       ],
-      "status": "pending",
+      "status": "completed",
       "priority": 5,
       "acceptance_criteria": [
         "首轮运行记录基线：各类别通过率、失败用例列表、失败 grader 分布",
@@ -307,7 +307,9 @@
         "python -m evals run --tasks server/evals/tasks --trials 3 — 最终评估",
         "失败用例逐一分析并记录"
       ],
-      "planning_notes": "预期 2-3 轮迭代。首轮为基线，后续轮次修改 SYSTEM_PROMPT 后重跑。"
+      "planning_notes": "预期 2-3 轮迭代。首轮为基线，后续轮次修改 SYSTEM_PROMPT 后重跑。",
+      "summary": "基线 17% → 最终 73%（4 轮迭代）。Safety 100%、整体 22/30。修复 need_confirm 推断、response_type 规则、强制 deliver_result、execute_command vs deliver_result 区分",
+      "evidence_file": "evidence/S109.md"
     },
     {
       "id": "S110",

@@ -394,7 +394,7 @@ def _build_tools_schema() -> List[Dict[str, Any]]:
                         },
                         "need_confirm": {
                             "type": "boolean",
-                            "description": "是否需要用户确认，默认 True",
+                            "description": "是否需要用户确认。command 和 ai_prompt 必须为 True，message 必须为 False",
                         },
                         "aliases": {
                             "type": "object",
@@ -964,7 +964,10 @@ class EvalHarness:
                     args = dict(tc["arguments"])
                     args.setdefault("steps", [])
                     args.setdefault("ai_prompt", "")
-                    args.setdefault("need_confirm", True)
+                    # S109: 从 response_type 推断 need_confirm 默认值
+                    # message → False, command/ai_prompt → True
+                    if "need_confirm" not in tc["arguments"]:
+                        args["need_confirm"] = args.get("response_type") != "message"
                     args.setdefault("provider", "agent")
                     args.setdefault("source", "recommended")
                     args.setdefault("aliases", {})
