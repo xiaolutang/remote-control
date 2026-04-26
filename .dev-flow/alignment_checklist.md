@@ -150,3 +150,11 @@
 | **智能面板收敛 R045** | **Planner 降级路径清理** | **—** | **not_applicable** | **completed** | **completed** | **F096: 废弃 planner 降级，移除 _resolveViaPlanner/_buildPlannerBody/_buildPreviewCard 等 ~250 行死代码，architecture.md 三层→两层** |
 | **智能面板收敛 R045** | **配套产物更新** | **—** | **not_applicable** | **not_applicable** | **pending** | **S093: test_coverage + alignment 更新** |
 | **Agent 评估体系** | **评估体系测试覆盖** | **CONTRACT-051..053** | **done** | **not_applicable** | **done** | **S089-S092: 框架/Grader/质量/反馈测试，355 总测试通过** |
+| **R046 文档基线** | **文档基线验证** | **CONTRACT-047..051** | **not_applicable** | **not_applicable** | **completed** | **S104: architecture.md/api_contracts.md/test_coverage.md/alignment_checklist.md 基线已验证一致（8 条 acceptance criteria 全部 pass + 7 轮 review 修复）** |
+| **R046 Agent 架构** | **自由对话+deliver_result 工具** | **CONTRACT-047, CONTRACT-048** | **pending** | **not_applicable** | **pending** | **B105: output_type=str + deliver_result 工具 + ResultDelivered 异常 + usage 累积回调** |
+| **R046 Agent 循环** | **assistant_message SSE 事件** | **CONTRACT-047, CONTRACT-048, CONTRACT-049** | **pending** | **not_applicable** | **pending** | **B106: assistant_message 事件 + 服务端 CoT 过滤兜底 + ResultDelivered 路径** |
+| **R046 客户端** | **assistant_message + ai_prompt 验证** | **CONTRACT-047, CONTRACT-049, CONTRACT-050** | **not_applicable** | **pending** | **pending** | **F107: 四通道 SSE/projection/resume/widget assistant_message + ai_prompt 注入端到端验证 + 移动端 conversation stream 同步** |
+| **R046 Eval** | **deliver_result 对齐 + grader 兼容** | **CONTRACT-051** | **pending** | **not_applicable** | **pending** | **B108: harness 添加 deliver_result + 负向测试 + tool_call_order 排除** |
+| **R046 评估** | **基线评估+迭代优化 → 50%** | **CONTRACT-051** | **pending** | **not_applicable** | **pending** | **S109: 基线记录 + 2-3 轮迭代 + ai_prompt 用例修复** |
+| **R046 测试** | **Server+Client 测试更新** | **CONTRACT-047..051** | **pending** | **not_applicable** | **pending** | **S110: deliver_result + assistant_message + 重试 usage + 过滤兜底测试** |
+| **R046 文档** | **事后精细校准** | **CONTRACT-047..051** | **not_applicable** | **not_applicable** | **pending** | **S111: CONTRACT-047/048/049/050/051 最终校准（实现后代码与文档一致性验证，不含 S104 已验证的基线内容）** |

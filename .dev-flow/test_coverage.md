@@ -2,7 +2,7 @@
 
 > 项目：remote-control
 > 更新时间：2026-04-26
-> 状态：R044 已归档；`smart-panel-convergence`（R045）为当前活跃需求周期
+> 状态：R044 已归档；R045 已归档；`agent-prompt-strategy-upgrade`（R046）为当前活跃需求周期
 
 ## 测试统计
 
@@ -716,3 +716,59 @@
 | _activeSessionId 服务端投影恢复 | F094 | widget | 投影优先；fallback 本地遍历；不覆写已有；双 null 不崩溃；逆序取最近 | ✅ 5/5 |
 | 问答回答编辑测试覆盖 | F095 | widget | 活跃轮次编辑；历史轮次编辑；多轮中间编辑；空 events 边界；answerIndex clamp | ✅ 7/7 |
 | Planner 降级路径清理 | F096 | widget | 移除 ~350 行死代码；AgentFallbackEvent 清理；两层架构同步 | ✅ 72/72 (67 agent + 5 side panel) |
+
+### Agent Prompt Strategy Upgrade（agent-prompt-strategy-upgrade phase, R046）
+
+> server + client + eval + docs | contract change: CONTRACT-047/048/049/050/051 | frontend impact: assistant_message + ai_prompt
+
+| Module | Task IDs | Test Type | Required Scenarios | Status |
+|--------|----------|-----------|--------------------|--------|
+| 文档基线验证 | S104 | verification | architecture.md + api_contracts.md + test_coverage.md + alignment_checklist.md 基线一致 | ✅ |
+| Agent 架构变更 | B105 | unit, integration | deliver_result 工具 + ResultDelivered 异常 + usage 累积回调 + 重试 usage 不重置 + 超时兜底 | ⬜ |
+| Agent 循环 + SSE | B106 | unit, integration | assistant_message 事件推送 + 服务端 CoT 过滤兜底 + ResultDelivered 后 usage 持久化顺序 + resume 回放 | ⬜ |
+| Client assistant_message | F107 | unit, widget, integration | 四通道 SSE/projection/resume/widget + assistant_message 气泡 vs message result 卡片区分 + ai_prompt 注入 + 移动端 stream 同步 | ⬜ |
+| Eval harness 对齐 | B108 | unit, integration | deliver_result 工具注册 + 完成判定 + 负向测试（未调用 deliver_result = incomplete）+ tool_call_order 排除 | ⬜ |
+| 基线评估 + 优化 | S109 | eval | 基线记录 + 2-3 轮 SYSTEM_PROMPT 迭代 + ai_prompt 用例修复 + 通过率 ≥ 50% | ⬜ |
+| Server+Client 测试 | S110 | unit, integration, widget | deliver_result + assistant_message + 重试 usage + 过滤兜底 + conversation 持久化 + resume 回放 + 移动端 stream 同步 | ⬜ |
+| 文档事后校准 | S111 | docs | CONTRACT-047/048/049/050/051 最终校准 + R046 test_coverage section | ⬜ |
+
+#### R046 关键测试场景
+
+##### B105 deliver_result 工具 + usage 累积
+- [ ] deliver_result 工具正常触发 ResultDelivered 异常并携带 AgentResult
+- [ ] run_agent() 捕获 ResultDelivered 返回完整 AgentRunOutcome（result + usage）
+- [ ] 多轮工具调用后 usage 累积反映总消耗
+- [ ] 超时未调用 deliver_result：返回 error AgentRunOutcome + 已累积 usage
+- [ ] 取消/超时不会把正常交付误记为错误
+- [ ] ai_prompt 类型 deliver_result 参数校验
+- [ ] 重试场景下 usage 累积不重置（retry 后仍保留之前累积的 token 用量）
+
+##### B106 assistant_message + 服务端过滤
+- [ ] assistant_message SSE 事件推送和格式
+- [ ] assistant_message 内容过滤兜底（含 CoT 标记的文本被截断或过滤）
+- [ ] ResultDelivered 后 save_agent_usage 先于 result 推送
+- [ ] finally 块稳定结束 event_queue
+- [ ] 取消/超时不丢失已推送事件和 usage
+- [ ] conversation events 持久化包含 assistant_message
+- [ ] resume_stream 正确回放 assistant_message 缓存事件
+
+##### F107 客户端四通道 + ai_prompt
+- [ ] assistant_message live SSE 解析
+- [ ] assistant_message conversation projection 重建
+- [ ] assistant_message resume_stream 回放
+- [ ] assistant_message 侧滑面板气泡渲染
+- [ ] ai_prompt 注入端到端测试
+- [ ] assistant_message + ai_prompt 移动端 conversation stream 同步可见
+- [ ] flutter analyze 无 error
+
+##### B108 Eval harness + 负向测试
+- [ ] deliver_result 被正确捕获为 trial 结果
+- [ ] deliver_result 不影响 tool_call_order 评分
+- [ ] LLM 未调用 deliver_result 时 trial 状态为 incomplete 而非 fail
+
+##### S110 集成测试
+- [ ] SYSTEM_PROMPT 断言更新（预处理助手定位）
+- [ ] deliver_result 工具 + usage 累积 + 重试不重置
+- [ ] assistant_message 事件（live + resume）+ 内容过滤兜底
+- [ ] ResultDelivered 后 usage 持久化顺序
+- [ ] client assistant_message 四通道（SSE/projection/resume/widget）+ 移动端 conversation stream 同步
