@@ -86,7 +86,6 @@ class _SmartTerminalSidePanelContentState
   // --- 内联编辑状态 ---
   int? _editingHistoryIndex; // 正在编辑的历史条目索引 (null=无, -1=当前活跃意图)
   int? _editingAnswerIndex; // 正在编辑的问答回答索引 (null=编辑意图)
-  String? _editingQuestionId; // 编辑问答回答时对应的 questionId
   late final TextEditingController _editingController;
 
   // --- SSE 重连已下沉到 AgentSessionService.streamConversationResilient ---
@@ -382,6 +381,11 @@ class _SmartTerminalSidePanelContentState
     // 服务端截断/重置通知：其他端编辑/重发时，全量清空本地渲染状态
     // 后续到达的事件会通过 _deriveAgentRenderState 重建完整状态
     if (event.type == 'conversation_reset') {
+      // SSE 活跃时：跳过。截断由本端发起（retry/edit），新 SSE 会话会管理 UI。
+      // 如果在这里清空，SSE 正在构建的新状态会被全部清除，导致页面消失。
+      if (_eventSubscription != null) {
+        return;
+      }
       _serverConversationEvents.clear();
       _agentHistory.clear();
       _nextConversationEventIndex = 0;
@@ -407,6 +411,16 @@ class _SmartTerminalSidePanelContentState
     }
     if (event.eventIndex + 1 > _nextConversationEventIndex) {
       _nextConversationEventIndex = event.eventIndex + 1;
+    }
+
+    // SSE 会话活跃时：conversation stream 仅追加事件到 _serverConversationEvents，
+    // 不重建 UI 状态。UI 状态由 SSE handler (_handleAgentEvent) 实时维护。
+    // SSE 结束后 onDone 会触发最终同步。
+    final sseActive = _eventSubscription != null;
+    if (sseActive) {
+      _terminalConversationClosed = false;
+      _terminalClosedReason = null;
+      return;
     }
 
     // 热路径优化：trace 事件直接增量追加，避免全量重算
@@ -440,6 +454,24 @@ class _SmartTerminalSidePanelContentState
     _agentAnswers
       ..clear()
       ..addAll(renderState.answers);
+    // conversation stream 重建时恢复 _activeSessionId：
+    // 当状态为 asking/exploring 时，agent 会话可能仍在服务端存活，
+    // 从最近的事件中提取 sessionId 以便用户能继续回答。
+    if (_activeSessionId == null &&
+        (_agentState == AgentPanelState.asking ||
+            _agentState == AgentPanelState.exploring)) {
+      AgentConversationEventItem? eventWithSession;
+      for (var i = _serverConversationEvents.length - 1; i >= 0; i--) {
+        final e = _serverConversationEvents[i];
+        if (e.sessionId != null && e.sessionId!.isNotEmpty) {
+          eventWithSession = e;
+          break;
+        }
+      }
+      if (eventWithSession != null) {
+        _activeSessionId = eventWithSession.sessionId;
+      }
+    }
     if (_agentResult != null) {
       _draft = _buildDraftFromAgentResult(_agentResult!);
     }
@@ -710,8 +742,10 @@ class _SmartTerminalSidePanelContentState
         truncateAfterIndex: truncateAfterIndex,
       );
 
-      _conversationStreamSubscription?.cancel();
-      _conversationStreamSubscription = null;
+      // 不取消 conversation stream：保持 _serverConversationEvents 实时更新，
+      // 避免 SSE 结束后的 conversation stream 重启间隙导致事件丢失。
+      // SSE 活跃期间，conversation stream 仅追加事件到 _serverConversationEvents，
+      // 不重建 UI 状态（由 _applyConversationEventItem 的 _eventSubscriptionActive 检查控制）。
       _eventSubscription?.cancel();
       _eventSubscription = eventStream.listen(
         (event) {
@@ -734,6 +768,8 @@ class _SmartTerminalSidePanelContentState
         onDone: () {
           // SSE 流关闭时清理状态，防止卡在 exploring
           if (!mounted) return;
+          // SSE 结束：清空 _eventSubscription 使 conversation stream 恢复完整重建能力。
+          _eventSubscription = null;
           if (_agentState == AgentPanelState.exploring) {
             setState(() {
               _agentState = AgentPanelState.error;
@@ -743,9 +779,12 @@ class _SmartTerminalSidePanelContentState
               );
             });
           }
-          // Agent SSE 流结束后重启 conversation stream 订阅，
-          // 以接收其他端（手机/桌面）发起的后续消息。
-          _restartConversationStreamForCurrentScope();
+          // conversation stream 一直存活，会通过 _applyConversationEventItem
+          // 自然补齐 SSE 期间的事件并重建状态。无需手动同步。
+          // 但如果它之前因错误断开，尝试重启以保持连接。
+          if (_conversationStreamSubscription == null) {
+            _restartConversationStreamForCurrentScope();
+          }
         },
       );
     } catch (e) {
@@ -814,7 +853,11 @@ class _SmartTerminalSidePanelContentState
             _draft = _buildDraftFromAgentResult(result);
           }
         });
-        _restartConversationStreamForCurrentScope();
+        // conversation stream 常驻，无需重启。
+        // 仅在它意外断开时尝试恢复。
+        if (_conversationStreamSubscription == null) {
+          _restartConversationStreamForCurrentScope();
+        }
         unawaited(_refreshUsageSummary(controller: controller));
         _scheduleScrollToLatest();
 
@@ -824,7 +867,10 @@ class _SmartTerminalSidePanelContentState
           _agentState = AgentPanelState.error;
           _activeSessionId = null;
         });
-        _restartConversationStreamForCurrentScope();
+        // conversation stream 常驻，无需重启。
+        if (_conversationStreamSubscription == null) {
+          _restartConversationStreamForCurrentScope();
+        }
         _scheduleScrollToLatest();
 
       case AgentFallbackEvent fallback:
@@ -956,6 +1002,17 @@ class _SmartTerminalSidePanelContentState
     if (_agentState == AgentPanelState.asking) {
       final text = _intentController.text.trim();
       if (text.isEmpty) return;
+      // 如果 sessionId 丢失，恢复输入文字并提示错误，避免静默丢弃
+      if (_activeSessionId == null) {
+        setState(() {
+          _agentState = AgentPanelState.error;
+          _agentError = AgentErrorEvent(
+            code: 'SESSION_LOST',
+            message: '会话已断开，请重新发送您的问题',
+          );
+        });
+        return;
+      }
       _intentController.clear();
       setState(() {});
       _handleAgentRespond(text);
@@ -1439,12 +1496,10 @@ class _SmartTerminalSidePanelContentState
         if (_agentIntent != null) ...[
           _buildUserBubble(
             _agentIntent!,
-            canEdit: _agentState == AgentPanelState.result ||
-                _agentState == AgentPanelState.error ||
-                _agentState == AgentPanelState.idle,
+            canEdit: _agentState != AgentPanelState.exploring,
           ),
           const SizedBox(height: 8),
-          if (_agentAnswers.isNotEmpty && _agentState != AgentPanelState.asking)
+          if (_agentAnswers.isNotEmpty)
             _buildAnswersSection(_agentAnswers, colorScheme, isLive: true),
         ],
 
@@ -2581,7 +2636,7 @@ class _SmartTerminalSidePanelContentState
         _editingAnswerIndex == answerIndex;
 
     if (isEditing) {
-      return _buildInlineEditBubble(text, historyIndex: historyIndex);
+      return _buildInlineEditBubble(text, historyIndex: historyIndex, colorScheme: colorScheme);
     }
 
     return Align(
@@ -2626,8 +2681,7 @@ class _SmartTerminalSidePanelContentState
   }
 
   /// 内联编辑气泡：直接在消息位置显示输入框 + 取消/发送按钮
-  Widget _buildInlineEditBubble(String originalText, {int? historyIndex}) {
-    final colorScheme = Theme.of(context).colorScheme;
+  Widget _buildInlineEditBubble(String originalText, {int? historyIndex, required ColorScheme colorScheme}) {
 
     return Align(
       alignment: Alignment.centerRight,
@@ -2743,35 +2797,41 @@ class _SmartTerminalSidePanelContentState
     setState(() {
       _editingHistoryIndex = null;
       _editingAnswerIndex = null;
-      _editingQuestionId = null;
       _editingController.clear();
     });
   }
 
+  /// 同步 [_nextConversationEventIndex] 到截断后的最新状态。
+  void _syncNextEventIndex() {
+    _nextConversationEventIndex = _serverConversationEvents.isNotEmpty
+        ? _serverConversationEvents.last.eventIndex + 1
+        : 0;
+  }
+
+  /// 计算 _serverConversationEvents 最后一条事件的 eventIndex，用于服务端截断。
+  /// 返回 -1 表示全部清空。
+  int _computeTruncateAfter() => _serverConversationEvents.isNotEmpty
+      ? _serverConversationEvents.last.eventIndex
+      : -1;
+
   /// 截断 [_serverConversationEvents] 中指定意图索引之后的所有事件。
   ///
-  /// [historyIndex] 对应第 N 个 `user_intent` 事件，null 表示清空全部。
+  /// [historyIndex] 对应第 N 个 `user_intent` 事件，null 表示截断最后一个轮次。
   void _truncateConversationEvents(int? historyIndex) {
-    if (historyIndex == null) {
+    final cutPoint = _findUserIntentEventListIndex(
+      historyIndex: historyIndex,
+    );
+    if (cutPoint == null) {
+      // 找不到对应 user_intent：防御性清空，保持与服务端一致
       _serverConversationEvents.clear();
       _nextConversationEventIndex = 0;
       return;
     }
-    final cutPoint = _findUserIntentEventListIndex(historyIndex: historyIndex);
-    if (cutPoint != null) {
-      _serverConversationEvents.removeRange(
-        cutPoint,
-        _serverConversationEvents.length,
-      );
-      if (_serverConversationEvents.isNotEmpty) {
-        _nextConversationEventIndex =
-            _serverConversationEvents.last.eventIndex + 1;
-      }
-    } else {
-      // 找不到对应 user_intent：防御性清空，保持与服务端一致
-      _serverConversationEvents.clear();
-      _nextConversationEventIndex = 0;
-    }
+    _serverConversationEvents.removeRange(
+      cutPoint,
+      _serverConversationEvents.length,
+    );
+    _syncNextEventIndex();
   }
 
   Future<void> _submitInlineEdit({int? historyIndex}) async {
@@ -2782,7 +2842,6 @@ class _SmartTerminalSidePanelContentState
     setState(() {
       _editingHistoryIndex = null;
       _editingAnswerIndex = null;
-      _editingQuestionId = null;
       _editingController.clear();
     });
 
@@ -2803,6 +2862,17 @@ class _SmartTerminalSidePanelContentState
   Future<void> _submitIntentEdit({int? historyIndex, required String newText}) async {
     await _cancelAgentSessionSilent();
 
+    // 归档当前活跃轮次（如果还没归档），避免丢失
+    final shouldArchiveCurrent = historyIndex == null &&
+        _agentIntent != null &&
+        _agentIntent!.isNotEmpty;
+    if (shouldArchiveCurrent) {
+      _archiveAgentTurn(
+        result: _agentResult,
+        error: _agentError,
+      );
+    }
+
     setState(() {
       // 截断编辑点之后的所有历史（包括当前活跃意图）
       if (historyIndex != null) {
@@ -2816,17 +2886,9 @@ class _SmartTerminalSidePanelContentState
       _resetAgentRenderState();
     });
 
-    // 计算服务端截断索引
-    final int truncateAfter;
-    if (_serverConversationEvents.isNotEmpty) {
-      truncateAfter = _serverConversationEvents.last.eventIndex;
-    } else {
-      truncateAfter = -1;
-    }
-
     await _handleResolveIntent(
       overrideIntent: newText,
-      truncateAfterIndex: truncateAfter,
+      truncateAfterIndex: _computeTruncateAfter(),
     );
   }
 
@@ -2878,18 +2940,10 @@ class _SmartTerminalSidePanelContentState
       _truncateConversationEventsForAnswer(historyIndex, answerIndex);
     });
 
-    // 计算服务端截断索引
-    final int truncateAfter;
-    if (_serverConversationEvents.isNotEmpty) {
-      truncateAfter = _serverConversationEvents.last.eventIndex;
-    } else {
-      truncateAfter = -1;
-    }
-
     // 重新 run 该意图
     await _handleResolveIntent(
       overrideIntent: isLive ? _agentIntent! : entry!.intent,
-      truncateAfterIndex: truncateAfter,
+      truncateAfterIndex: _computeTruncateAfter(),
     );
   }
 
@@ -2901,7 +2955,7 @@ class _SmartTerminalSidePanelContentState
     final intentListIndex = _findUserIntentEventListIndex(historyIndex: historyIndex);
     if (intentListIndex == null) {
       _serverConversationEvents.clear();
-      _nextConversationEventIndex = 0;
+      _syncNextEventIndex();
       return;
     }
 
@@ -2919,11 +2973,7 @@ class _SmartTerminalSidePanelContentState
     }
 
     _serverConversationEvents.removeRange(cutPoint, _serverConversationEvents.length);
-    if (_serverConversationEvents.isNotEmpty) {
-      _nextConversationEventIndex = _serverConversationEvents.last.eventIndex + 1;
-    } else {
-      _nextConversationEventIndex = 0;
-    }
+    _syncNextEventIndex();
   }
 
   /// 静默取消当前 Agent 会话（不归档、不设状态）

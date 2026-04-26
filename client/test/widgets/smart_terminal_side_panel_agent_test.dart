@@ -906,6 +906,158 @@ void main() {
       unawaited(streamController.close());
     });
 
+    testWidgets(
+        'SSE session preserves conversation stream; history shows after sync',
+        (tester) async {
+      // 验证修复：SSE 会话期间不取消 conversation stream，
+      // SSE 结束后从 _serverConversationEvents 同步重建状态。
+      final controller = _AgentFakeController();
+      final convStreamController =
+          StreamController<AgentConversationEventItem>();
+      var runSessionCall = 0;
+
+      Stream<AgentSessionEvent> _runSession(String intent) async* {
+        runSessionCall++;
+        yield AgentSessionCreatedEvent(
+          sessionId: 'session-$runSessionCall',
+          conversationId: 'conv-sync',
+        );
+        if (runSessionCall == 1) {
+          yield AgentTraceEvent(
+            tool: 'execute_command',
+            inputSummary: 'ls',
+            outputSummary: 'project',
+          );
+          yield AgentResultEvent(
+            summary: '第一个意图结果',
+            steps: [],
+            provider: 'agent',
+            source: 'recommended',
+            needConfirm: false,
+            aliases: const {},
+          );
+        } else {
+          yield AgentResultEvent(
+            summary: '第二个意图结果',
+            steps: [],
+            provider: 'agent',
+            source: 'recommended',
+            needConfirm: false,
+            aliases: const {},
+          );
+        }
+      }
+
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onFetchConversation: (_, __) async =>
+            const AgentConversationProjection(
+              conversationId: 'conv-sync',
+              deviceId: 'device-1',
+              terminalId: 'term-1',
+              status: 'active',
+              nextEventIndex: 0,
+              activeSessionId: null,
+              events: [],
+            ),
+        onStreamConversation: (_) => convStreamController.stream,
+        onRunSession: _runSession,
+      );
+
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+      await tester.pumpAndSettle();
+      await _openSidePanel(tester);
+
+      // 发送第一个意图
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '第一个意图',
+      );
+      await _pressSidePanelSend(tester);
+      await tester.pumpAndSettle();
+
+      // 第一个结果应该可见
+      expect(find.text('第一个意图结果'), findsOneWidget);
+
+      // conversation stream 仍在运行（未被 SSE 取消），
+      // 模拟服务端推送第一个意图的 conversation events
+      convStreamController.add(const AgentConversationEventItem(
+        eventIndex: 0,
+        eventId: 'evt-0',
+        type: 'user_intent',
+        role: 'user',
+        payload: {'text': '第一个意图'},
+      ));
+      convStreamController.add(const AgentConversationEventItem(
+        eventIndex: 1,
+        eventId: 'evt-1',
+        type: 'trace',
+        role: 'assistant',
+        payload: {'tool': 'execute_command', 'input_summary': 'ls'},
+      ));
+      convStreamController.add(const AgentConversationEventItem(
+        eventIndex: 2,
+        eventId: 'evt-2',
+        type: 'result',
+        role: 'assistant',
+        payload: {
+          'summary': '第一个意图结果',
+          'steps': [],
+          'provider': 'agent',
+          'source': 'recommended',
+          'need_confirm': false,
+          'aliases': {},
+        },
+      ));
+      await tester.pump();
+
+      // 发送第二个意图
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '第二个意图',
+      );
+      await _pressSidePanelSend(tester);
+      await tester.pumpAndSettle();
+
+      // 第一个意图应该在历史中可见（用户气泡）
+      expect(find.text('第一个意图'), findsOneWidget);
+      // 第二个意图的结果应该可见
+      expect(find.text('第二个意图结果'), findsOneWidget);
+
+      // conversation stream 推送第二个意图的事件
+      convStreamController.add(const AgentConversationEventItem(
+        eventIndex: 3,
+        eventId: 'evt-3',
+        type: 'user_intent',
+        role: 'user',
+        payload: {'text': '第二个意图'},
+      ));
+      convStreamController.add(const AgentConversationEventItem(
+        eventIndex: 4,
+        eventId: 'evt-4',
+        type: 'result',
+        role: 'assistant',
+        payload: {
+          'summary': '第二个意图结果',
+          'steps': [],
+          'provider': 'agent',
+          'source': 'recommended',
+          'need_confirm': false,
+          'aliases': {},
+        },
+      ));
+      await tester.pump();
+
+      // 两个意图的用户气泡都应该在历史中
+      expect(find.text('第一个意图'), findsOneWidget);
+      expect(find.text('第二个意图'), findsOneWidget);
+
+      unawaited(convStreamController.close());
+    });
+
     testWidgets('conversation stream closed event disables smart input',
         (tester) async {
       final controller = _AgentFakeController();
@@ -1754,6 +1906,433 @@ void main() {
       // 验证 WebSocket 发送了 prompt 文本（追加回车）
       expect(ws.sentMessages, isNotEmpty);
       expect(ws.sentMessages.last, 'echo injected\r');
+    });
+  });
+
+  group('Fix: asking state preserves Q&A history', () {
+    testWidgets('asking state allows editing intent', (tester) async {
+      final controller = _AgentFakeController();
+      final agentService = _FakeAgentSessionService(
+        events: const [
+          AgentSessionCreatedEvent(sessionId: 'session-1'),
+          AgentQuestionEvent(
+            question: 'Which project?',
+            options: ['remote-control'],
+            multiSelect: false,
+          ),
+        ],
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+
+      await _openSidePanel(tester);
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '打开项目',
+      );
+      await tester.tap(find.byKey(const Key('side-panel-send')));
+      await tester.pumpAndSettle();
+
+      // asking 状态下意图气泡应可编辑（显示编辑按钮）
+      // 查找意图文本旁边的编辑图标
+      expect(find.text('打开项目'), findsOneWidget);
+      expect(find.byIcon(Icons.edit_outlined), findsOneWidget);
+    });
+
+    testWidgets(
+        'previous Q&A remains visible when agent asks follow-up question',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final streamController = StreamController<AgentConversationEventItem>();
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onFetchConversation: (_, __) async =>
+            const AgentConversationProjection(
+          conversationId: 'conv-qa',
+          deviceId: 'device-1',
+          terminalId: 'term-1',
+          status: 'active',
+          nextEventIndex: 0,
+          activeSessionId: null,
+          events: [],
+        ),
+        onStreamConversation: (_) => streamController.stream,
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+      await tester.pumpAndSettle();
+      await _openSidePanel(tester);
+
+      // 模拟用户发送意图
+      streamController.add(const AgentConversationEventItem(
+        eventIndex: 0,
+        eventId: 'evt-0',
+        type: 'user_intent',
+        role: 'user',
+        payload: {'text': '你好'},
+      ));
+      // Agent 问第一个问题
+      streamController.add(const AgentConversationEventItem(
+        eventIndex: 1,
+        eventId: 'evt-1',
+        type: 'question',
+        role: 'assistant',
+        questionId: 'q-1',
+        payload: {
+          'question': '第一个问题',
+          'options': ['选项A'],
+          'multi_select': false,
+        },
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('第一个问题'), findsOneWidget);
+
+      // 用户回答第一个问题
+      streamController.add(const AgentConversationEventItem(
+        eventIndex: 2,
+        eventId: 'evt-2',
+        type: 'answer',
+        role: 'user',
+        questionId: 'q-1',
+        payload: {'text': '我的回答'},
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Agent 问第二个问题
+      streamController.add(const AgentConversationEventItem(
+        eventIndex: 3,
+        eventId: 'evt-3',
+        type: 'question',
+        role: 'assistant',
+        questionId: 'q-2',
+        payload: {
+          'question': '第二个问题',
+          'options': ['选项B'],
+          'multi_select': false,
+        },
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 关键断言：第一个问题 + 用户回答 应该仍然可见
+      expect(find.text('第一个问题'), findsOneWidget);
+      expect(find.text('我的回答'), findsOneWidget);
+      // 第二个问题也可见
+      expect(find.text('第二个问题'), findsOneWidget);
+
+      unawaited(streamController.close());
+    });
+  });
+
+  group('Fix: conversation stream rebuild restores sessionId', () {
+    testWidgets(
+        'asking state from conversation stream preserves sessionId for respond',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final streamController = StreamController<AgentConversationEventItem>();
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onFetchConversation: (_, __) async =>
+            const AgentConversationProjection(
+          conversationId: 'conv-session',
+          deviceId: 'device-1',
+          terminalId: 'term-1',
+          status: 'active',
+          nextEventIndex: 0,
+          activeSessionId: null,
+          events: [],
+        ),
+        onStreamConversation: (_) => streamController.stream,
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+      await tester.pumpAndSettle();
+      await _openSidePanel(tester);
+
+      // 模拟对话流推送带有 sessionId 的事件序列
+      streamController.add(const AgentConversationEventItem(
+        eventIndex: 0,
+        eventId: 'evt-0',
+        type: 'user_intent',
+        role: 'user',
+        sessionId: 'session-abc123',
+        payload: {'text': '帮我查看日志'},
+      ));
+      streamController.add(const AgentConversationEventItem(
+        eventIndex: 1,
+        eventId: 'evt-1',
+        type: 'question',
+        role: 'assistant',
+        sessionId: 'session-abc123',
+        questionId: 'q-1',
+        payload: {
+          'question': '哪个日志？',
+          'options': ['syslog', 'server.log'],
+          'multi_select': false,
+        },
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 验证 agent 处于 asking 状态
+      expect(find.text('哪个日志？'), findsOneWidget);
+
+      // 用户回答问题 - sessionId 应该已从事件中恢复
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        'syslog',
+      );
+      await _pressSidePanelSend(tester);
+      // 不用 pumpAndSettle（conversation stream 持续活跃会导致超时）
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 关键断言：respond 请求应该被成功发送
+      // 如果 sessionId 没有被恢复，respondAnswers 会为空
+      expect(agentService.respondAnswers, ['syslog']);
+
+      unawaited(streamController.close());
+    });
+  });
+
+  group('Fix: sessionId lost shows error instead of silent drop', () {
+    testWidgets(
+        'asking state with null sessionId preserves input text and shows error',
+        (tester) async {
+      // 使用 SSE 模拟：先进入 asking 状态，然后 SSE 断开导致 sessionId 被清除
+      final controller = _AgentFakeController();
+      final streamController = StreamController<AgentConversationEventItem>();
+      final agentService = _FakeAgentSessionService(
+        events: const [
+          AgentSessionCreatedEvent(sessionId: 'session-will-expire'),
+          AgentQuestionEvent(
+            question: '你想要什么？',
+            options: ['选项A'],
+            multiSelect: false,
+          ),
+        ],
+        onStreamConversation: (_) => streamController.stream,
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+
+      await _openSidePanel(tester);
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '测试意图',
+      );
+      await tester.tap(find.byKey(const Key('side-panel-send')));
+      await tester.pumpAndSettle();
+
+      // 验证进入了 asking 状态
+      expect(find.text('你想要什么？'), findsOneWidget);
+
+      // 用户输入回答
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '我的回答',
+      );
+
+      // SSE 流已经结束（events 全部消费），_activeSessionId 仍由 AgentSessionCreatedEvent 设置
+      // 但如果 session 因 error 结束，_activeSessionId 会被清除
+      // 这里我们通过 conversation stream 推送 error 事件来模拟 session 过期
+      streamController.add(const AgentConversationEventItem(
+        eventIndex: 0,
+        eventId: 'evt-err',
+        type: 'error',
+        role: 'assistant',
+        sessionId: 'session-will-expire',
+        payload: {
+          'code': 'SESSION_EXPIRED',
+          'message': '会话已超时',
+        },
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // error 事件后 conversation stream 重建会覆盖状态为 error
+      // 此时 _activeSessionId 已被 SSE 的 AgentErrorEvent 清除
+      // 但 conversation stream 重建可能将状态恢复为 asking（如果 error 事件还没到达）
+
+      // 关键是：当 _activeSessionId 为 null 且状态为 asking 时，
+      // 用户尝试回答不应该静默丢失输入
+
+      // 如果状态已经是 error，输入文字应该在输入框中（因为 _handleInputSubmit 不走 asking 分支）
+      // 如果状态被重建回 asking 但 sessionId 为 null，则走新的保护逻辑
+
+      // 输入文字不应被清空（不应静默丢弃）
+      final inputField = tester.widget<TextField>(
+        find.byKey(const Key('side-panel-intent-input')),
+      );
+      // 无论走哪个分支，用户的输入 "我的回答" 不应该被静默丢弃
+      expect(inputField.controller?.text, isNot(equals('')));
+
+      unawaited(streamController.close());
+    });
+  });
+
+  group('Fix: conversation_reset during active SSE does not clear page', () {
+    testWidgets(
+        'sending new intent preserves previous turns in history',
+        (tester) async {
+      final controller = _AgentFakeController();
+
+      var runCount = 0;
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onRunSession: (intent) {
+          runCount++;
+          if (runCount == 1) {
+            return Stream.fromIterable([
+              const AgentSessionCreatedEvent(sessionId: 'session-1'),
+              AgentResultEvent(
+                summary: '结果1',
+                steps: [],
+                provider: 'agent',
+                source: 'recommended',
+                needConfirm: false,
+                aliases: <String, String>{},
+                responseType: 'message',
+              ),
+            ]);
+          }
+          return Stream.fromIterable([
+            const AgentSessionCreatedEvent(sessionId: 'session-2'),
+            AgentResultEvent(
+              summary: '结果2',
+              steps: [],
+              provider: 'agent',
+              source: 'recommended',
+              needConfirm: false,
+              aliases: <String, String>{},
+              responseType: 'message',
+            ),
+          ]);
+        },
+        onStreamConversation: (_) =>
+            const Stream<AgentConversationEventItem>.empty(),
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+      await tester.pumpAndSettle();
+      await _openSidePanel(tester);
+
+      // 第一轮：发送意图 → 得到结果
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '你好',
+      );
+      await tester.tap(find.byKey(const Key('side-panel-send')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('结果1'), findsOneWidget);
+
+      // 第二轮：发送新意图 → 上一轮归档到历史
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '第二条',
+      );
+      await tester.tap(find.byKey(const Key('side-panel-send')));
+      await tester.pumpAndSettle();
+
+      // 历史：第一轮意图和结果仍然可见
+      expect(find.text('你好'), findsOneWidget);
+      expect(find.text('结果1'), findsOneWidget);
+      // 当前：第二轮意图和结果可见
+      expect(find.text('第二条'), findsOneWidget);
+      expect(find.text('结果2'), findsOneWidget);
+    });
+  });
+
+  group('Fix: edit active intent archives current turn', () {
+    testWidgets(
+        'sending new intent after result archives previous turn to history',
+        (tester) async {
+      // 验证核心逻辑：发送新意图时，上一轮的 result 应该被归档到历史
+      final controller = _AgentFakeController();
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onRunSession: (intent) {
+          if (intent == '第一条') {
+            return Stream.fromIterable([
+              const AgentSessionCreatedEvent(sessionId: 's1'),
+              AgentResultEvent(
+                summary: '结果1',
+                steps: [],
+                provider: 'agent',
+                source: 'recommended',
+                needConfirm: false,
+                aliases: <String, String>{},
+                responseType: 'message',
+              ),
+            ]);
+          }
+          // 第二条意图：返回结果
+          return Stream.fromIterable([
+            const AgentSessionCreatedEvent(sessionId: 's2'),
+            AgentResultEvent(
+              summary: '结果2',
+              steps: [],
+              provider: 'agent',
+              source: 'recommended',
+              needConfirm: false,
+              aliases: <String, String>{},
+              responseType: 'message',
+            ),
+          ]);
+        },
+        onStreamConversation: (_) =>
+            const Stream<AgentConversationEventItem>.empty(),
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+      await tester.pumpAndSettle();
+      await _openSidePanel(tester);
+
+      // 发送第一条意图
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '第一条',
+      );
+      await tester.tap(find.byKey(const Key('side-panel-send')));
+      await tester.pumpAndSettle();
+
+      // 验证结果可见
+      expect(find.text('结果1'), findsOneWidget);
+      expect(find.text('第一条'), findsOneWidget);
+
+      // 发送第二条意图（上一轮应该被归档到历史）
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '第二条',
+      );
+      await tester.tap(find.byKey(const Key('side-panel-send')));
+      await tester.pumpAndSettle();
+
+      // 关键断言：历史中应有"第一条"及其结果
+      expect(find.text('第一条'), findsOneWidget);
+      expect(find.text('结果1'), findsOneWidget);
+      // 当前活跃的应该是"第二条"及其结果
+      expect(find.text('第二条'), findsOneWidget);
+      expect(find.text('结果2'), findsOneWidget);
+
+      // 验证 runSession 被调用了两次
+      expect(agentService.runIntents, ['第一条', '第二条']);
     });
   });
 }

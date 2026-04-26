@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import math
 import os
 import time
@@ -409,7 +410,6 @@ def _extract_final_result(text_response: str) -> Dict[str, Any]:
         pass
 
     # 尝试提取 JSON 块（支持嵌套大括号）
-    import re
     # 优先提取 ```json ... ``` 代码块
     code_block = re.search(r'```json\s*\n?(.*?)\n?\s*```', text_response, re.DOTALL)
     if code_block:
