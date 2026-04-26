@@ -726,7 +726,7 @@
 | 文档基线验证 | S104 | verification | architecture.md + api_contracts.md + test_coverage.md + alignment_checklist.md 基线一致 | ✅ |
 | Agent 架构变更 | B105 | unit, integration | deliver_result 工具 + ResultDelivered 异常 + usage 累积回调 + 重试 usage 不重置 + 超时兜底 | ✅ 162/162 |
 | Agent 循环 + SSE | B106 | unit, integration | assistant_message 事件推送 + 服务端 CoT 过滤兜底 + ResultDelivered 后 usage 持久化顺序 + resume 回放 | ✅ 70/70 (23 新增) |
-| Client assistant_message | F107 | unit, widget, integration | 四通道 SSE/projection/resume/widget + assistant_message 气泡 vs message result 卡片区分 + ai_prompt 注入 + 移动端 stream 同步 | ⬜ |
+| Client assistant_message | F107 | unit, widget, integration | 四通道 SSE/projection/resume/widget + assistant_message 气泡 vs message result 卡片区分 + ai_prompt 注入 + 移动端 stream 同步 | ✅ 102/102 |
 | Eval harness 对齐 | B108 | unit, integration | deliver_result 工具注册 + 完成判定 + 负向测试（未调用 deliver_result = incomplete）+ tool_call_order 排除 | ⬜ |
 | 基线评估 + 优化 | S109 | eval | 基线记录 + 2-3 轮 SYSTEM_PROMPT 迭代 + ai_prompt 用例修复 + 通过率 ≥ 50% | ⬜ |
 | Server+Client 测试 | S110 | unit, integration, widget | deliver_result + assistant_message + 重试 usage + 过滤兜底 + conversation 持久化 + resume 回放 + 移动端 stream 同步 | ⬜ |

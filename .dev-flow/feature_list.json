@@ -206,7 +206,7 @@
       "depends_on": [
         "B106"
       ],
-      "status": "pending",
+      "status": "completed",
       "priority": 3,
       "acceptance_criteria": [
         "AgentAssistantMessageEvent 添加到 agent_session_event.dart",
@@ -233,7 +233,9 @@
         "flutter test — ai_prompt 注入端到端测试",
         "flutter test — assistant_message + ai_prompt 移动端 conversation stream 同步可见",
         "flutter analyze client/ — 无 error"
-      ]
+      ],
+      "summary": "四通道 assistant_message + ai_prompt 验证 + _TurnEventType 交错渲染 + answer-edit 保护。102 测试全通过（66 agent widget + 36 service）",
+      "evidence_file": "evidence/F107.md"
     },
     {
       "id": "B108",
@@ -371,9 +373,9 @@
   "summary": {
     "total_tasks": 8,
     "by_status": {
-      "pending": 5,
+      "pending": 4,
       "in_progress": 0,
-      "completed": 3,
+      "completed": 4,
       "blocked": 0,
       "cancelled": 0
     },

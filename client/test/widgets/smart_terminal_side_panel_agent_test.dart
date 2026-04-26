@@ -471,6 +471,43 @@ void main() {
       expect(find.byKey(const Key('side-panel-intent-input')), findsOneWidget);
     });
 
+    testWidgets(
+        'exploring state shows assistant_message bubble from live SSE',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final agentService = _FakeAgentSessionService(
+        events: [
+          const AgentSessionCreatedEvent(sessionId: 'session-am-live'),
+          const AgentAssistantMessageEvent(content: '正在分析你的项目结构...'),
+          AgentResultEvent(
+            summary: '项目结构已分析',
+            steps: const [],
+            provider: 'agent',
+            source: 'recommended',
+            needConfirm: false,
+            aliases: const {},
+          ),
+        ],
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+
+      await _openSidePanel(tester);
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '分析项目',
+      );
+      await tester.tap(find.byKey(const Key('side-panel-send')));
+      await tester.pumpAndSettle();
+
+      // assistant_message 应渲染为气泡（在活跃区域）
+      expect(find.text('正在分析你的项目结构...'), findsOneWidget);
+      // result 应渲染（面板进入 result 状态）
+      expect(find.text('项目结构已分析'), findsOneWidget);
+    });
+
     testWidgets('asking state shows option buttons', (tester) async {
       final controller = _AgentFakeController();
       final agentService = _FakeAgentSessionService(
@@ -636,6 +673,64 @@ void main() {
 
       expect(agentService.runIntents, ['继续打开这个项目']);
       expect(agentService.conversationIds, ['conv-server-1']);
+    });
+
+    testWidgets(
+        'panel hydrates assistant_message from server projection as history bubble',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onFetchConversation: (_, __) async => AgentConversationProjection(
+          conversationId: 'conv-am-1',
+          deviceId: 'device-1',
+          terminalId: 'term-1',
+          status: 'active',
+          nextEventIndex: 4,
+          activeSessionId: null,
+          events: const [
+            AgentConversationEventItem(
+              eventIndex: 0,
+              eventId: 'evt-am-0',
+              type: 'user_intent',
+              role: 'user',
+              payload: {'text': '查看目录'},
+            ),
+            AgentConversationEventItem(
+              eventIndex: 1,
+              eventId: 'evt-am-1',
+              type: 'assistant_message',
+              role: 'assistant',
+              payload: {'content': '我来帮你检查一下...'},
+            ),
+            AgentConversationEventItem(
+              eventIndex: 2,
+              eventId: 'evt-am-2',
+              type: 'result',
+              role: 'assistant',
+              payload: {
+                'summary': '目录已列出',
+                'steps': <Map<String, dynamic>>[],
+                'provider': 'agent',
+                'source': 'recommended',
+                'need_confirm': false,
+                'aliases': <String, dynamic>{},
+              },
+            ),
+          ],
+        ),
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+      await tester.pumpAndSettle();
+      await _openSidePanel(tester);
+
+      expect(find.text('查看目录'), findsOneWidget);
+      // assistant_message 在历史中渲染为气泡
+      expect(find.text('我来帮你检查一下...'), findsOneWidget);
+      expect(find.text('目录已列出'), findsOneWidget);
     });
 
     testWidgets('panel restores active question via conversation projection',
@@ -907,6 +1002,78 @@ void main() {
       // 活跃 ai_prompt 结果有注入按钮（跨端同步后可注入）
       expect(
           find.byKey(const Key('side-panel-inject-prompt')), findsOneWidget);
+      unawaited(streamController.close());
+    });
+
+    testWidgets(
+        'conversation stream syncs assistant_message as exploring bubble',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final streamController = StreamController<AgentConversationEventItem>();
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onFetchConversation: (_, __) async =>
+            const AgentConversationProjection(
+          conversationId: 'conv-sync-assistant-msg',
+          deviceId: 'device-1',
+          terminalId: 'term-1',
+          status: 'active',
+          nextEventIndex: 0,
+          activeSessionId: null,
+          events: [],
+        ),
+        onStreamConversation: (_) => streamController.stream,
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+      await tester.pumpAndSettle();
+      await _openSidePanel(tester);
+
+      // 远端产生 user_intent + assistant_message（中间消息） + result
+      streamController.add(const AgentConversationEventItem(
+        eventIndex: 0,
+        eventId: 'evt-am-0',
+        type: 'user_intent',
+        role: 'user',
+        payload: {'text': '查看当前目录'},
+      ));
+      streamController.add(const AgentConversationEventItem(
+        eventIndex: 1,
+        eventId: 'evt-am-1',
+        type: 'assistant_message',
+        role: 'assistant',
+        payload: {'content': '我来帮你检查一下当前目录结构...'},
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // assistant_message 应渲染为对话气泡（exploring 状态）
+      expect(find.text('我来帮你检查一下当前目录结构...'), findsOneWidget);
+      expect(find.text('Agent 正在分析...'), findsOneWidget);
+
+      // 继续推送 result，assistant_message 仍保留
+      streamController.add(const AgentConversationEventItem(
+        eventIndex: 2,
+        eventId: 'evt-am-2',
+        type: 'result',
+        role: 'assistant',
+        payload: {
+          'summary': '找到3个文件',
+          'steps': <Map<String, dynamic>>[],
+          'provider': 'agent',
+          'source': 'recommended',
+          'need_confirm': false,
+          'aliases': <String, dynamic>{},
+        },
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('找到3个文件'), findsOneWidget);
+      // assistant_message 作为历史气泡仍然可见
+      expect(find.text('我来帮你检查一下当前目录结构...'), findsOneWidget);
       unawaited(streamController.close());
     });
 
@@ -4170,6 +4337,138 @@ void main() {
 
       unawaited(sseController1.close());
       unawaited(sseController2.close());
+      unawaited(convStreamController.close());
+    });
+
+    testWidgets(
+        'answer edit preserves assistant_message before truncation point',
+        (tester) async {
+      // 通过 conversation stream 注入：intent → assistant_message → question → answer → result
+      // 然后编辑 answer，验证截断点之前的 assistant_message 被保留
+      final convStreamController =
+          StreamController<AgentConversationEventItem>.broadcast();
+      var runCount = 0;
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onFetchConversation: (_, __) async =>
+            const AgentConversationProjection(
+          conversationId: 'conv-f107-edit',
+          deviceId: 'device-1',
+          terminalId: 'term-1',
+          status: 'active',
+          nextEventIndex: 0,
+          activeSessionId: null,
+          events: [],
+        ),
+        onStreamConversation: (_) => convStreamController.stream,
+        onRunSession: (intent) {
+          runCount++;
+          return Stream.fromIterable([
+            AgentSessionCreatedEvent(sessionId: 's-f107-$runCount'),
+            AgentResultEvent(
+              summary: '重跑结果$runCount',
+              steps: [],
+              provider: 'agent',
+              source: 'recommended',
+              needConfirm: false,
+              aliases: <String, String>{},
+              responseType: 'message',
+            ),
+          ]);
+        },
+      );
+
+      final controller = _AgentFakeController();
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+      await tester.pumpAndSettle();
+      await _openSidePanel(tester);
+
+      // 通过 conversation stream 注入事件
+      // e0: user_intent
+      convStreamController.add(AgentConversationEventItem(
+        eventIndex: 0,
+        eventId: 'e-intent',
+        type: 'user_intent',
+        role: 'user',
+        sessionId: 's-edit',
+        payload: {'text': '测试保留助手消息'},
+      ));
+      // e1: assistant_message (在 question 之前)
+      convStreamController.add(AgentConversationEventItem(
+        eventIndex: 1,
+        eventId: 'e-msg1',
+        type: 'assistant_message',
+        role: 'assistant',
+        sessionId: 's-edit',
+        payload: {'content': '让我先分析一下'},
+      ));
+      // e2: question
+      convStreamController.add(AgentConversationEventItem(
+        eventIndex: 2,
+        eventId: 'e-q0',
+        type: 'question',
+        role: 'assistant',
+        sessionId: 's-edit',
+        questionId: 'q-0',
+        payload: {
+          'question': '选择框架',
+          'options': ['React', 'Vue'],
+          'multi_select': false,
+        },
+      ));
+      // e3: answer
+      convStreamController.add(AgentConversationEventItem(
+        eventIndex: 3,
+        eventId: 'e-a0',
+        type: 'answer',
+        role: 'user',
+        sessionId: 's-edit',
+        questionId: 'q-0',
+        payload: {'text': 'React'},
+      ));
+      // e4: result
+      convStreamController.add(AgentConversationEventItem(
+        eventIndex: 4,
+        eventId: 'e-result',
+        type: 'result',
+        role: 'assistant',
+        sessionId: 's-edit',
+        payload: {
+          'summary': '问答结果',
+          'steps': <Map<String, dynamic>>[],
+          'provider': 'agent',
+          'source': 'recommended',
+          'need_confirm': false,
+          'aliases': <String, dynamic>{},
+          'response_type': 'message',
+        },
+      ));
+
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // 确认 assistant_message 和 answer 都可见
+      expect(find.text('让我先分析一下'), findsOneWidget);
+      expect(find.text('React'), findsAtLeast(1));
+
+      // 点击回答气泡进入 inline edit
+      await tester.tap(find.text('React').first);
+      await tester.pumpAndSettle();
+
+      // 应该出现 inline edit TextField
+      expect(_inlineEditTextField, findsOneWidget);
+
+      // 提交编辑
+      await _submitInlineEdit(tester, 'Vue');
+
+      // 验证：新 session 已启动
+      expect(runCount, 1);
+      // 重跑后结果可见
+      expect(find.text('重跑结果1'), findsOneWidget);
+
       unawaited(convStreamController.close());
     });
   });

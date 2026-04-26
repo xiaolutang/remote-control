@@ -57,6 +57,8 @@ class _SmartTerminalSidePanelContentState
   // --- Agent SSE 模式状态 ---
   AgentPanelState _agentState = AgentPanelState.idle;
   final List<AgentTraceEvent> _traces = [];
+  final List<_TurnEventType> _turnEventOrder = [];
+  final List<AgentAssistantMessageEvent> _assistantMessages = [];
   AgentQuestionEvent? _currentQuestion;
   AgentResultEvent? _agentResult;
   AgentErrorEvent? _agentError;
@@ -217,6 +219,8 @@ class _SmartTerminalSidePanelContentState
   void _resetAgentRenderState({bool resetDraft = false}) {
     _agentState = AgentPanelState.idle;
     _traces.clear();
+    _turnEventOrder.clear();
+    _assistantMessages.clear();
     _currentQuestion = null;
     _agentResult = null;
     _agentError = null;
@@ -347,6 +351,8 @@ class _SmartTerminalSidePanelContentState
     _agentState = renderState.state;
     _agentHistory.addAll(renderState.history);
     _traces.addAll(renderState.traces);
+    _turnEventOrder.addAll(renderState.turnEventOrder);
+    _assistantMessages.addAll(renderState.assistantMessages);
     _currentQuestion = renderState.currentQuestion;
     _agentResult = renderState.result;
     _agentError = renderState.error;
@@ -412,7 +418,7 @@ class _SmartTerminalSidePanelContentState
       return;
     }
 
-    // 热路径优化：trace 事件直接增量追加，避免全量重算
+    // 热路径优化：trace/assistant_message 事件直接增量追加，避免全量重算
     if (event.type == 'trace') {
       _traces.add(AgentTraceEvent.fromJson(
         Map<String, dynamic>.from(event.payload),
@@ -420,6 +426,19 @@ class _SmartTerminalSidePanelContentState
       _terminalConversationClosed = false;
       _terminalClosedReason = null;
       if (_agentState != AgentPanelState.asking) {
+        _agentState = AgentPanelState.exploring;
+      }
+      return;
+    }
+    if (event.type == 'assistant_message') {
+      _assistantMessages.add(AgentAssistantMessageEvent.fromJson(
+        Map<String, dynamic>.from(event.payload),
+      ));
+      _turnEventOrder.add(_TurnEventType.assistantMessage);
+      _terminalConversationClosed = false;
+      _terminalClosedReason = null;
+      // 仅从 idle 转到 exploring；asking 状态保持不变（等待用户回答）
+      if (_agentState == AgentPanelState.idle) {
         _agentState = AgentPanelState.exploring;
       }
       return;
@@ -436,6 +455,12 @@ class _SmartTerminalSidePanelContentState
     _traces
       ..clear()
       ..addAll(renderState.traces);
+    _turnEventOrder
+      ..clear()
+      ..addAll(renderState.turnEventOrder);
+    _assistantMessages
+      ..clear()
+      ..addAll(renderState.assistantMessages);
     _currentQuestion = renderState.currentQuestion;
     _agentResult = renderState.result;
     _agentError = renderState.error;
@@ -529,6 +554,8 @@ class _SmartTerminalSidePanelContentState
   ) {
     final history = <_AgentHistoryEntry>[];
     final traces = <AgentTraceEvent>[];
+    final turnEventOrder = <_TurnEventType>[];
+    final assistantMessages = <AgentAssistantMessageEvent>[];
     final answers = <_AgentAnswerEntry>[];
     String? activeIntent;
     String? lastQuestionText;
@@ -548,12 +575,16 @@ class _SmartTerminalSidePanelContentState
       history.add(_AgentHistoryEntry(
         intent: intent,
         traces: List.of(traces),
+        turnEventOrder: List.of(turnEventOrder),
+        assistantMessages: List.of(assistantMessages),
         answers: List.of(answers),
         result: archivedResult,
         error: archivedError,
       ));
       activeIntent = null;
       traces.clear();
+      turnEventOrder.clear();
+      assistantMessages.clear();
       answers.clear();
       currentQuestion = null;
       lastQuestionText = null;
@@ -581,6 +612,15 @@ class _SmartTerminalSidePanelContentState
           error = null;
           state = AgentPanelState.exploring;
 
+        case 'assistant_message':
+          assistantMessages.add(AgentAssistantMessageEvent.fromJson(
+            Map<String, dynamic>.from(event.payload),
+          ));
+          turnEventOrder.add(_TurnEventType.assistantMessage);
+          result = null;
+          error = null;
+          state = AgentPanelState.exploring;
+
         case 'question':
           currentQuestion = AgentQuestionEvent.fromJson({
             ...Map<String, dynamic>.from(event.payload),
@@ -598,6 +638,7 @@ class _SmartTerminalSidePanelContentState
               question: lastQuestionText ?? '',
               answer: answer,
             ));
+            turnEventOrder.add(_TurnEventType.answer);
           }
           currentQuestion = null;
           result = null;
@@ -625,6 +666,8 @@ class _SmartTerminalSidePanelContentState
       history: history,
       intent: activeIntent,
       traces: List.of(traces),
+      turnEventOrder: List.of(turnEventOrder),
+      assistantMessages: List.of(assistantMessages),
       answers: List.of(answers),
       currentQuestion: currentQuestion,
       result: result,
@@ -708,6 +751,8 @@ class _SmartTerminalSidePanelContentState
     setState(() {
       _agentState = AgentPanelState.exploring;
       _traces.clear();
+      _turnEventOrder.clear();
+      _assistantMessages.clear();
       _currentQuestion = null;
       _agentResult = null;
       _agentError = null;
@@ -837,6 +882,17 @@ class _SmartTerminalSidePanelContentState
         });
         _scheduleScrollToLatest();
 
+      case AgentAssistantMessageEvent assistantMsg:
+        setState(() {
+          _assistantMessages.add(assistantMsg);
+          _turnEventOrder.add(_TurnEventType.assistantMessage);
+          // 仅从 idle 转到 exploring；asking 状态保持不变（等待用户回答）
+          if (_agentState == AgentPanelState.idle) {
+            _agentState = AgentPanelState.exploring;
+          }
+        });
+        _scheduleScrollToLatest();
+
       case AgentQuestionEvent question:
         setState(() {
           _currentQuestion = question;
@@ -887,6 +943,8 @@ class _SmartTerminalSidePanelContentState
     _agentHistory.add(_AgentHistoryEntry(
       intent: intent,
       traces: List.of(_traces),
+      turnEventOrder: List.of(_turnEventOrder),
+      assistantMessages: List.of(_assistantMessages),
       answers: List.of(_agentAnswers),
       result: result,
       error: error,
@@ -965,6 +1023,7 @@ class _SmartTerminalSidePanelContentState
           question: question.question,
           answer: answer,
         ));
+        _turnEventOrder.add(_TurnEventType.answer);
       }
       _agentState = AgentPanelState.exploring;
       _currentQuestion = null;
@@ -1086,6 +1145,8 @@ class _SmartTerminalSidePanelContentState
       _agentState = AgentPanelState.idle;
       _agentResult = null;
       _traces.clear();
+      _turnEventOrder.clear();
+      _assistantMessages.clear();
       _agentAnswers.clear();
       _currentQuestion = null;
     });
@@ -1363,8 +1424,13 @@ class _SmartTerminalSidePanelContentState
                   canEdit: true,
                 ),
                 const SizedBox(height: 8),
-                if (entry.answers.isNotEmpty)
-                  _buildAnswersSection(entry.answers, colorScheme, historyIndex: i),
+                ..._buildOrderedTurnEvents(
+                  order: entry.turnEventOrder,
+                  answers: entry.answers,
+                  assistantMessages: entry.assistantMessages,
+                  colorScheme: colorScheme,
+                  historyIndex: i,
+                ),
                 if (entry.result != null)
                   _buildHistoryResultBubble(entry.result!, colorScheme)
                 else if (entry.error != null)
@@ -1382,8 +1448,13 @@ class _SmartTerminalSidePanelContentState
             canEdit: _agentState != AgentPanelState.exploring && !_pendingReset,
           ),
           const SizedBox(height: 8),
-          if (_agentAnswers.isNotEmpty)
-            _buildAnswersSection(_agentAnswers, colorScheme, isLive: true),
+          ..._buildOrderedTurnEvents(
+            order: _turnEventOrder,
+            answers: _agentAnswers,
+            assistantMessages: _assistantMessages,
+            colorScheme: colorScheme,
+            isLive: true,
+          ),
         ],
 
         switch (_agentState) {
@@ -1397,36 +1468,54 @@ class _SmartTerminalSidePanelContentState
     );
   }
 
-  /// 问答交互气泡：展示 Agent 提问 + 用户回答
-  Widget _buildAnswersSection(
-    List<_AgentAnswerEntry> answers,
-    ColorScheme colorScheme, {
+  /// 按 turnEventOrder 交错渲染 answers 和 assistantMessages，保持原始事件顺序
+  List<Widget> _buildOrderedTurnEvents({
+    required List<_TurnEventType> order,
+    required List<_AgentAnswerEntry> answers,
+    required List<AgentAssistantMessageEvent> assistantMessages,
+    required ColorScheme colorScheme,
     int? historyIndex,
     bool isLive = false,
   }) {
-    if (answers.isEmpty) return const SizedBox.shrink();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (var j = 0; j < answers.length; j++) ...[
-          _buildAssistantBubble(
-            Text(
-              answers[j].question,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ),
-          const SizedBox(height: 4),
-          _buildUserBubble(
-            answers[j].answer,
-            canEdit: true,
-            historyIndex: historyIndex,
-            answerIndex: j,
-            isLiveAnswer: isLive,
-          ),
-          const SizedBox(height: 6),
-        ],
-      ],
-    );
+    if (order.isEmpty) return const [];
+    final widgets = <Widget>[];
+    var answerIdx = 0;
+    var msgIdx = 0;
+    for (final type in order) {
+      switch (type) {
+        case _TurnEventType.answer:
+          if (answerIdx < answers.length) {
+            widgets.add(_buildAssistantBubble(
+              Text(
+                answers[answerIdx].question,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ));
+            widgets.add(const SizedBox(height: 4));
+            widgets.add(_buildUserBubble(
+              answers[answerIdx].answer,
+              canEdit: true,
+              historyIndex: historyIndex,
+              answerIndex: answerIdx,
+              isLiveAnswer: isLive,
+            ));
+            widgets.add(const SizedBox(height: 6));
+            answerIdx++;
+          }
+        case _TurnEventType.assistantMessage:
+          if (msgIdx < assistantMessages.length) {
+            widgets.add(_buildAssistantBubble(
+              Text(
+                assistantMessages[msgIdx].content,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ));
+            widgets.add(const SizedBox(height: 6));
+            msgIdx++;
+          }
+      }
+    }
+    return widgets;
   }
 
   /// 历史结果气泡（不可执行，仅展示摘要，按 responseType 分支渲染）
@@ -1588,6 +1677,8 @@ class _SmartTerminalSidePanelContentState
         _agentHistory.add(_AgentHistoryEntry(
           intent: _agentIntent!,
           traces: List.of(_traces),
+          turnEventOrder: List.of(_turnEventOrder),
+          assistantMessages: List.of(_assistantMessages),
           answers: List.of(_agentAnswers),
           error: const AgentErrorEvent(
             code: 'CANCELLED',
@@ -2770,44 +2861,75 @@ class _SmartTerminalSidePanelContentState
 
     // 保留到 answerIndex 之前的问答，删掉之后的问答 + result + 后续 traces
     // 对于服务端事件，需要找到该 answer 对应的 question 事件之后截断
+    // 在截断前保存 intent，用于空事件场景回退
+    final savedIntent = isLive ? _agentIntent : entry!.intent;
     setState(() {
-      if (isLive) {
-        // 活跃意图的问答
-        if (answerIndex < _agentAnswers.length) {
-          _agentAnswers.removeRange(answerIndex, _agentAnswers.length);
-        }
-        _agentResult = null;
-        _agentError = null;
-        _traces.clear();
-        _agentState = AgentPanelState.exploring;
-      } else {
-        // 历史条目的问答
-        if (answerIndex < entry!.answers.length) {
-          entry.answers.removeRange(answerIndex, entry.answers.length);
-        }
-        // 清除 result，因为要重新跑
-        // 但不删除 history entry 本身
-        // 用截断后的 entry 重新构建活跃状态
-        _agentIntent = entry!.intent;
-        _traces.clear();
-        _agentAnswers.clear();
-        _agentAnswers.addAll(
-            entry.answers.sublist(0, answerIndex.clamp(0, entry.answers.length)));
-        _agentResult = null;
-        _agentError = null;
-        _agentState = AgentPanelState.exploring;
-
-        // 从历史中移除该条目（它会变成活跃意图）
-        _agentHistory.removeRange(historyIndex!, _agentHistory.length);
-      }
-
-      // 截断服务端事件到该 answer 之前
+      // 先截断服务端事件
       _truncateConversationEventsForAnswer(historyIndex, answerIndex);
+
+      if (_serverConversationEvents.isNotEmpty) {
+        // 从截断后的服务端事件重建本地状态，保持 assistantMessages 与服务端一致
+        final renderState = _deriveAgentRenderState(_serverConversationEvents);
+        _agentHistory
+          ..clear()
+          ..addAll(renderState.history);
+        _agentState = AgentPanelState.exploring;
+        _agentIntent = renderState.intent ?? savedIntent;
+        _traces
+          ..clear()
+          ..addAll(renderState.traces);
+        _turnEventOrder
+          ..clear()
+          ..addAll(renderState.turnEventOrder);
+        _assistantMessages
+          ..clear()
+          ..addAll(renderState.assistantMessages);
+        _agentAnswers
+          ..clear()
+          ..addAll(renderState.answers);
+      } else {
+        // 纯 SSE 场景：服务端事件为空，手动截断本地状态
+        // 根据 _turnEventOrder 找到截断点，保留截断点之前的 answers 和 assistantMessages
+        var answersSeen = 0;
+        var truncateAt = _turnEventOrder.length;
+        for (var i = 0; i < _turnEventOrder.length; i++) {
+          if (_turnEventOrder[i] == _TurnEventType.answer) {
+            if (answersSeen == answerIndex) {
+              truncateAt = i;
+              break;
+            }
+            answersSeen++;
+          }
+        }
+        _turnEventOrder.removeRange(truncateAt, _turnEventOrder.length);
+        // 从截断后的 order 重建各列表的保留计数
+        var answerKeep = 0;
+        var msgKeep = 0;
+        for (final type in _turnEventOrder) {
+          if (type == _TurnEventType.answer) {
+            answerKeep++;
+          } else if (type == _TurnEventType.assistantMessage) {
+            msgKeep++;
+          }
+        }
+        if (answerKeep < _agentAnswers.length) {
+          _agentAnswers.removeRange(answerKeep, _agentAnswers.length);
+        }
+        if (msgKeep < _assistantMessages.length) {
+          _assistantMessages.removeRange(msgKeep, _assistantMessages.length);
+        }
+        _agentState = AgentPanelState.exploring;
+        _agentIntent = savedIntent;
+        _traces.clear();
+      }
+      _currentQuestion = null;
+      _agentResult = null;
+      _agentError = null;
     });
 
     // 重新 run 该意图
     await _handleResolveIntent(
-      overrideIntent: isLive ? _agentIntent! : entry!.intent,
+      overrideIntent: savedIntent!,
       truncateAfterIndex: _computeTruncateAfter(),
     );
   }
@@ -2898,6 +3020,8 @@ class _AgentHistoryEntry {
   const _AgentHistoryEntry({
     required this.intent,
     required this.traces,
+    required this.turnEventOrder,
+    this.assistantMessages = const [],
     this.answers = const [],
     this.result,
     this.error,
@@ -2905,6 +3029,8 @@ class _AgentHistoryEntry {
 
   final String intent;
   final List<AgentTraceEvent> traces;
+  final List<_TurnEventType> turnEventOrder;
+  final List<AgentAssistantMessageEvent> assistantMessages;
   final List<_AgentAnswerEntry> answers;
   final AgentResultEvent? result;
   final AgentErrorEvent? error;
@@ -2920,11 +3046,16 @@ class _AgentAnswerEntry {
   final String answer;
 }
 
+/// 轮次内事件类型标记，用于保持 answers/assistantMessages 的交错渲染顺序
+enum _TurnEventType { answer, assistantMessage }
+
 class _AgentRenderState {
   const _AgentRenderState({
     required this.state,
     required this.history,
     required this.traces,
+    required this.turnEventOrder,
+    required this.assistantMessages,
     required this.answers,
     this.intent,
     this.currentQuestion,
@@ -2936,6 +3067,8 @@ class _AgentRenderState {
   final List<_AgentHistoryEntry> history;
   final String? intent;
   final List<AgentTraceEvent> traces;
+  final List<_TurnEventType> turnEventOrder;
+  final List<AgentAssistantMessageEvent> assistantMessages;
   final List<_AgentAnswerEntry> answers;
   final AgentQuestionEvent? currentQuestion;
   final AgentResultEvent? result;
