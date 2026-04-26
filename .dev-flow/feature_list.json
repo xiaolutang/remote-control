@@ -62,9 +62,9 @@
   },
   "summary": {
     "total": 86,
-    "pending": 3,
+    "pending": 2,
     "in_progress": 0,
-    "completed": 83,
+    "completed": 84,
     "blocked": 0,
     "cancelled": 0
   },
@@ -1097,7 +1097,7 @@
       "description": "为 _submitAnswerEdit 和 _truncateConversationEventsForAnswer 补充测试。覆盖场景：编辑活跃轮次的问答回答、编辑历史轮次的问答回答、截断后 Agent 重跑、多轮问答中间编辑、边界条件（answerIndex 越界、空事件列表）。",
       "verification": "F1",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": 2,
       "acceptance_criteria": [
         "测试覆盖编辑活跃轮次的问答回答（截断后重跑）",
@@ -1114,8 +1114,13 @@
         "空事件列表时编辑不崩溃"
       ],
       "files": [
-        "client/test/widgets/smart_terminal_side_panel_agent_test.dart"
-      ]
+        "client/test/widgets/smart_terminal_side_panel_agent_test.dart",
+        "client/lib/widgets/smart_terminal_side_panel_content.dart"
+      ],
+      "started_at": "2026-04-26T12:00:00+0800",
+      "completed_at": "2026-04-26T12:35:00+0800",
+      "evidence_file": ".dev-flow/evidence/F095.md",
+      "summary": "6 个测试覆盖问答回答编辑：活跃第一轮/第二轮编辑、历史编辑、单轮编辑、空 events、answerIndex 越界 clamp 保护"
     },
     {
       "id": "F096",

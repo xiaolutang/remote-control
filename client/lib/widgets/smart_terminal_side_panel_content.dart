@@ -2970,7 +2970,8 @@ class _SmartTerminalSidePanelContentState
         _agentIntent = entry!.intent;
         _traces.clear();
         _agentAnswers.clear();
-        _agentAnswers.addAll(entry.answers.sublist(0, answerIndex));
+        _agentAnswers.addAll(
+            entry.answers.sublist(0, answerIndex.clamp(0, entry.answers.length)));
         _agentResult = null;
         _agentError = null;
         _agentState = AgentPanelState.exploring;

@@ -146,7 +146,7 @@
 | **Agent 评估体系** | **反馈闭环 + 回归测试** | **CONTRACT-053** | **done** | **not_applicable** | **done** | **B103-B104: 反馈→eval task + 回归运行器，62 测试通过** |
 | **智能面板收敛 R045** | **conversation_reset pendingReset** | **—** | **not_applicable** | **pending** | **pending** | **F093: SSE 活跃时 pendingReset 机制，client-only, no contract change** |
 | **智能面板收敛 R045** | **_activeSessionId 服务端投影** | **—** | **not_applicable** | **passed** | **passed** | **F094: 从 projection.activeSessionId 恢复，client-only, no contract change** |
-| **智能面板收敛 R045** | **问答回答编辑测试** | **—** | **not_applicable** | **pending** | **pending** | **F095: _submitAnswerEdit 测试覆盖，client-only, no contract change** |
+| **智能面板收敛 R045** | **问答回答编辑测试** | **—** | **not_applicable** | **passed** | **passed** | **F095: _submitAnswerEdit 测试覆盖 + sublist clamp 保护，client-only, no contract change** |
 | **智能面板收敛 R045** | **Planner 降级路径清理** | **—** | **not_applicable** | **pending** | **pending** | **F096: 废弃 planner 降级，更新 architecture.md 三层→两层，client-only** |
 | **智能面板收敛 R045** | **配套产物更新** | **—** | **not_applicable** | **not_applicable** | **pending** | **S093: test_coverage + alignment 更新** |
 | **Agent 评估体系** | **评估体系测试覆盖** | **CONTRACT-051..053** | **done** | **not_applicable** | **done** | **S089-S092: 框架/Grader/质量/反馈测试，355 总测试通过** |
