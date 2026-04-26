@@ -2,7 +2,7 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-26T18:20:00+0800",
+  "updated_at": "2026-04-27T11:30:00+0800",
   "active_requirement_cycle": {
     "id": "R046",
     "name": "agent-prompt-strategy-upgrade",
@@ -100,7 +100,9 @@
       "test_tasks": [
         "人工核对 architecture.md #43/#50 与 feature_list.json 任务描述一致",
         "人工核对 api_contracts.md CONTRACT-047/049 与 B105/B106 验收条件一致"
-      ]
+      ],
+      "commit": "084256f",
+      "summary": "8 条 acceptance criteria 全部验证通过，文档基线与 R046 计划一致"
     },
     {
       "id": "B105",
@@ -112,7 +114,7 @@
       "depends_on": [
         "S104"
       ],
-      "status": "pending",
+      "status": "completed",
       "priority": 1,
       "acceptance_criteria": [
         "Agent output_type 从 AgentResult 改为 str",
@@ -144,7 +146,8 @@
         "测试 ai_prompt 类型 deliver_result 参数校验",
         "测试重试场景下 usage 累积不重置（retry 后仍保留之前累积的 token 用量）",
         "pytest server/tests/test_terminal_agent.py -v 全量通过"
-      ]
+      ],
+      "summary": "output_type=str + deliver_result 工具 + ResultDelivered 异常 + usage 累积 + SYSTEM_PROMPT 重写。162 测试全通过"
     },
     {
       "id": "B106",
@@ -156,7 +159,7 @@
       "depends_on": [
         "B105"
       ],
-      "status": "pending",
+      "status": "in_progress",
       "priority": 2,
       "acceptance_criteria": [
         "模型每轮返回的 text content 推送 assistant_message SSE 事件（含 content 字段）",
@@ -367,9 +370,9 @@
   "summary": {
     "total_tasks": 8,
     "by_status": {
-      "pending": 7,
-      "in_progress": 0,
-      "completed": 1,
+      "pending": 5,
+      "in_progress": 1,
+      "completed": 2,
       "blocked": 0,
       "cancelled": 0
     },
