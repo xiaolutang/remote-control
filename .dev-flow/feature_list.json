@@ -1166,7 +1166,7 @@
         "F095",
         "F096"
       ],
-      "status": "pending",
+      "status": "completed",
       "priority": 3,
       "acceptance_criteria": [
         "test_coverage.md 新增 F093-F096 测试结果行",
@@ -1174,7 +1174,11 @@
         "清理旧阶段中与 R045 任务 ID 冲突的歧义引用",
         "planner 降级文案从三层同步为两层",
         "标注 server-only: no, contract change: no, frontend impact: panel-convergence only"
-      ]
+      ],
+      "summary": "校对 R045 配套产物：旧 F093-F096 歧义标注 _old，新增 R045 测试覆盖段，F093 alignment 更新为 completed",
+      "evidence_file": "evidence/S093.md",
+      "started_at": "2026-04-26T13:10:00+0800",
+      "completed_at": "2026-04-26T13:30:00+0800"
     }
   ]
 }

@@ -242,8 +242,8 @@
 |--------|----------|-----------|--------------------|--------|
 | 产品与评估基线 | S079, S080 | design | 聊天流 + 命令卡片；结构化 trace；评估指标与人工验收口径 | S079 ✅ / S080 ⬜ |
 | 服务端 planner / memory / 回写契约 | B075, B076, B077 | integration,contract,unit | `assistant/plan`、`executions/report`、memory 只在真实回写后更新 | ✅ |
-| 桌面空终端与侧滑面板骨架 | F094, F087 | widget,integration,manual | 空终端创建；侧滑面板入口；桌面/移动端分流稳定 | ✅ |
-| 旧聊天流 UI / fallback / 注入链路 | F088_old, F089_old, F090, F093 | widget,integration | 已被 `react-terminal-agent` 收口替代，不再继续执行。注：F088/F089 已在 R043 增量中复用为新任务 | cancelled |
+| 桌面空终端与侧滑面板骨架 | F094_old, F087 | widget,integration,manual | 空终端创建；侧滑面板入口；桌面/移动端分流稳定 | ✅ |
+| 旧聊天流 UI / fallback / 注入链路 | F088_old, F089_old, F090, F093_old | widget,integration | 已被 `react-terminal-agent` 收口替代，不再继续执行。注：F088/F089 已在 R043 增量中复用为新任务 | cancelled |
 | benchmark 与真机验收 | F091, F092 | unit,integration,manual,smoke | benchmark 数据集；trace 回放；全链路人工验收 | ⬜ |
 
 ### ReAct 智能体（react-terminal-agent phase，当前执行阶段）
@@ -252,8 +252,8 @@
 |--------|----------|-----------|--------------------|--------|
 | 架构与只读探索基线 | S081 | design | 权威边界、只读探索安全边界、两层架构（ReAct Agent → 错误提示） | ✅ |
 | 只读探索协议与 Agent 核心 | B078, B079 | unit,integration | execute_command 白名单；Pydantic AI Agent；攻击向量拦截 | ✅ |
-| Agent 会话与 SSE 事件流 | B080, F095 | unit,integration | run/respond/cancel/resume；事件解析；断连恢复；错误提示 | ✅ |
-| 侧滑面板 Agent 交互与命令注入 | F096, F097, F098 | widget,integration | exploring/asking/result/error；命令注入；执行结果回写与别名保存；Planner 降级路径已废弃（F096） | ✅ |
+| Agent 会话与 SSE 事件流 | B080, F095_old | unit,integration | run/respond/cancel/resume；事件解析；断连恢复；错误提示 | ✅ |
+| 侧滑面板 Agent 交互与命令注入 | F096_old, F097_old, F098_old | widget,integration | exploring/asking/result/error；命令注入；执行结果回写与别名保存；Planner 降级路径已废弃 | ✅ |
 | Agent 集成测试 | S082 | integration,manual | Happy path；安全边界；mobile 回归；per-device 隔离 | ✅ |
 | Token usage SSE 与前端兼容 | B083, F099 | unit,widget | SSE result usage；前端解析与兼容展示 | ✅ |
 | usage 汇总 API 与 Toast 浮层 | B084, F100 | unit,integration,widget | usage 落库；双 scope 汇总；Toast 浮层与自动刷新 | B084 ✅ / F100 ✅ |
@@ -705,3 +705,14 @@
 - [ ] 仅桌面端显示菜单入口
 - [ ] Agent 离线时显示错误提示
 - [ ] skill/knowledge 列表为空时显示空状态
+
+### 智能面板收敛（smart-panel-convergence phase, R045）
+
+> server-only: no | contract change: no | frontend impact: panel-convergence only
+
+| Module | Task IDs | Test Type | Required Scenarios | Status |
+|--------|----------|-----------|--------------------|--------|
+| conversation_reset pendingReset | F093 | widget | pendingReset 标记；SSE done 时重置；连续 reset；cancel 不泄漏；retry 干净重启；asking 状态阻塞 | ✅ 10/10 |
+| _activeSessionId 服务端投影恢复 | F094 | widget | 投影优先；fallback 本地遍历；不覆写已有；双 null 不崩溃；逆序取最近 | ✅ 5/5 |
+| 问答回答编辑测试覆盖 | F095 | widget | 活跃轮次编辑；历史轮次编辑；多轮中间编辑；空 events 边界；answerIndex clamp | ✅ 7/7 |
+| Planner 降级路径清理 | F096 | widget | 移除 ~350 行死代码；AgentFallbackEvent 清理；两层架构同步 | ✅ 72/72 (67 agent + 5 side panel) |

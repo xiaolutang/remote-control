@@ -51,8 +51,8 @@
 | CONTRACT-043 | 1652 | Claude 智能终端命令编排 | S077, F077, F078, F079, F080, F081 |
 | CONTRACT-044 | 1737 | 命令规划 provider 隔离与执行语义 | S078, B074, F086, F082, F083, F084, F085 |
 | CONTRACT-045 | TBD | 智能终端助手规划接口（注：F088/F089 为旧聊天流任务已 cancelled，与 R043 新 F088/F089 无关） | S079, S080, B075, B076, F087, F088_old, F089_old, F090, F091, F092 |
-| CONTRACT-046 | TBD | 智能终端助手执行结果回写 | B076, B077, F090, F091, F092, F093 |
-| CONTRACT-047 | TBD | ReAct Agent SSE 事件流与只读探索协议 | B078, B079, B080, F095, B083, F099, B094, F088, S088 |
+| CONTRACT-046 | TBD | 智能终端助手执行结果回写 | B076, B077, F090, F091, F092, F093_old |
+| CONTRACT-047 | TBD | ReAct Agent SSE 事件流与只读探索协议 | B078, B079, B080, F095_old, B083, F099, B094, F088, S088 |
 | CONTRACT-048 | TBD | Agent usage 汇总 API | B084, F100 |
 | CONTRACT-049 | TBD | Terminal-bound Agent conversation 同步与生命周期 | S083, B085, B086, B087, B088, F101, F102, S084 |
 | CONTRACT-050 | 2256 | 动态工具注册与调用协议 + 信息型问答结果扩展 + response_type + skill 配置 | B091, B092, B093, B094, F088, S088, B095, F089 |
@@ -406,7 +406,7 @@
 | Method | POST |
 | Path | /api/runtime/devices/{device_id}/assistant/executions/report |
 | Auth | Bearer Token |
-| Related Tasks | B076, B077, F090, F091, F092, F093 |
+| Related Tasks | B076, B077, F090, F091, F092, F093_old |
 
 #### Request
 
@@ -2039,7 +2039,7 @@ live -> detached_recoverable -> closed
 |------|----|
 | ID | CONTRACT-047 |
 | Scope | Server Agent SSE → Client |
-| Related Tasks | B078, B079, B080, F095, B083, F099, B094, F088, S088 |
+| Related Tasks | B078, B079, B080, F095_old, B083, F099, B094, F088, S088 |
 
 #### SSE Event Types
 
