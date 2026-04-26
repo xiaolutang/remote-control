@@ -1650,15 +1650,6 @@ void main() {
       expect(event.code, 'TIMEOUT');
       expect(event.message, 'Agent timeout');
     });
-
-    test('AgentFallbackEvent constructs correctly', () {
-      const event = AgentFallbackEvent(
-        reason: 'Agent 不可用',
-        code: 'AGENT_OFFLINE',
-      );
-      expect(event.reason, 'Agent 不可用');
-      expect(event.code, 'AGENT_OFFLINE');
-    });
   });
 
   group('F088: response_type branching', () {

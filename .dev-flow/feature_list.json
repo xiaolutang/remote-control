@@ -1130,20 +1130,28 @@
       "description": "决策：废弃 planner 降级路径。当前 _resolveViaPlanner 标记为 unused_element，planner UI 代码不可达。architecture.md 第 177 行的三层降级（ReAct Agent → 无状态 planner → local_rules）与实际代码矛盾。需要：1) 移除 _resolveViaPlanner 及所有相关死代码 2) 更新 architecture.md 关键决策表和降级描述段落 3) 同步收敛 alignment_checklist / test_coverage 中 planner-provider-isolation 相关条目。ReAct Agent 已足够健壮，错误态直接展示比降级更可靠。",
       "verification": "F1",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": 2,
       "acceptance_criteria": [
         "移除 _resolveViaPlanner 及所有相关 planner UI 死代码（预计减少 200-300 行）",
         "更新 architecture.md 关键决策表和相关降级描述段落，从三层降级改为两层（ReAct Agent → 错误提示）",
         "实现前用引用搜索确认 _resolveViaPlanner 相关的完整清理范围（含 _resolvingIntent / _pendingIntent / _pendingItems / _buildPlannerBody 等）",
         "alignment_checklist / test_coverage 中 planner-provider-isolation 条目标注为 deprecated 或已完成",
-        "现有测试不回归"
+        "移除 AgentFallbackEvent 死代码（model class + side panel switch case + 测试）",
+        "project_spec.md 同步更新为两层架构描述",
+        "现有测试不回归（67 agent tests + 5 side panel tests = 72 passed）"
       ],
-      "planning_notes": "架构决策变更：三层降级 → 两层降级。需在 commit message 中标注。architectural decision change 需同步更新所有相关文档引用。",
+      "planning_notes": "架构决策变更：三层降级 → 两层降级。需在 commit message 中标注。architectural decision change 需同步更新所有相关文档引用。额外清理了 AgentFallbackEvent 死代码和 project_spec.md 残留引用。",
       "files": [
         "client/lib/widgets/smart_terminal_side_panel_content.dart",
-        ".dev-flow/architecture.md"
-      ]
+        "client/lib/models/agent_session_event.dart",
+        ".dev-flow/architecture.md",
+        ".dev-flow/project_spec.md"
+      ],
+      "summary": "移除 ~350 行 planner 降级死代码 + AgentFallbackEvent 死代码，同步 architecture.md/project_spec.md 为两层架构",
+      "evidence_file": "evidence/F096.md",
+      "started_at": "2026-04-26T12:00:00+0800",
+      "completed_at": "2026-04-26T13:00:00+0800"
     },
     {
       "id": "S093",

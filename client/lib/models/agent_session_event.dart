@@ -194,16 +194,3 @@ class AgentErrorEvent extends AgentSessionEvent {
   }
 }
 
-/// Agent 不可用时降级事件（客户端本地生成，非服务端 SSE）
-class AgentFallbackEvent extends AgentSessionEvent {
-  const AgentFallbackEvent({
-    required this.reason,
-    required this.code,
-  });
-
-  /// 降级原因（如 "设备不在线"）
-  final String reason;
-
-  /// 服务端返回的错误码（如 "AGENT_OFFLINE"）
-  final String code;
-}

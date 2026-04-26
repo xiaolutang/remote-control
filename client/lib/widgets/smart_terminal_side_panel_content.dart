@@ -41,11 +41,7 @@ class _SmartTerminalSidePanelContentState
   late final FocusNode _intentFocusNode;
   late final ScrollController _scrollController;
 
-  // --- Planner 模式状态 ---
-  bool _resolvingIntent = false;
-  String? _pendingIntent;
-  final List<_SidePanelConversationTurn> _turns = [];
-  final List<_SidePanelStreamItem> _pendingItems = [];
+  // --- 面板状态 ---
   CommandSequenceDraft _draft =
       CommandSequenceDraft.fromLaunchPlan(const TerminalLaunchPlan(
     tool: TerminalLaunchTool.claudeCode,
@@ -56,7 +52,6 @@ class _SmartTerminalSidePanelContentState
     postCreateInput: '',
     source: TerminalLaunchPlanSource.recommended,
   ));
-  String? _fallbackReason;
   bool _executing = false;
 
   // --- Agent SSE 模式状态 ---
@@ -240,13 +235,8 @@ class _SmartTerminalSidePanelContentState
     _conversationStreamSubscription?.cancel();
     _conversationStreamSubscription = null;
 
-    _resolvingIntent = false;
-    _pendingIntent = null;
     _pendingReset = false; // F093: scope 切换时清除 pendingReset 标记
-    _turns.clear();
-    _pendingItems.clear();
     _draft = _defaultDraft();
-    _fallbackReason = null;
     _executing = false;
 
     _resetAgentRenderState();
@@ -267,11 +257,6 @@ class _SmartTerminalSidePanelContentState
     _conversationStreamSubscription?.cancel();
     _conversationStreamSubscription = null;
     _pendingReset = false; // F093: terminal 关闭时清除 pendingReset 标记
-    _turns.clear();
-    _pendingItems.clear();
-    _pendingIntent = null;
-    _resolvingIntent = false;
-    _fallbackReason = null;
     _executing = false;
     _draft = _defaultDraft();
     _resetAgentRenderState();
@@ -648,7 +633,7 @@ class _SmartTerminalSidePanelContentState
   }
 
   // ============================================================
-  // Intent 提交入口：优先尝试 Agent SSE，降级走 planner
+  // Intent 提交入口：Agent SSE 模式
   // ============================================================
 
   Future<void> _handleResolveIntent({
@@ -657,10 +642,9 @@ class _SmartTerminalSidePanelContentState
   }) async {
     if (_terminalConversationClosed) return;
     final intent = (overrideIntent ?? _intentController.text).trim();
-    if (intent.isEmpty || _resolvingIntent) return;
+    if (intent.isEmpty) return;
 
     _intentController.clear();
-    _fallbackReason = null;
 
     // 如果当前有未归档的 Agent 轮次，先归档（无论状态）
     if (_agentIntent != null && _agentIntent!.isNotEmpty) {
@@ -890,12 +874,6 @@ class _SmartTerminalSidePanelContentState
           _restartConversationStreamForCurrentScope();
         }
         _scheduleScrollToLatest();
-
-      case AgentFallbackEvent fallback:
-        _presentAgentError(
-          code: fallback.code,
-          message: fallback.reason,
-        );
     }
   }
 
@@ -1039,7 +1017,6 @@ class _SmartTerminalSidePanelContentState
       return;
     }
     if (_executing ||
-        _resolvingIntent ||
         _agentState == AgentPanelState.exploring) {
       return;
     }
@@ -1114,130 +1091,6 @@ class _SmartTerminalSidePanelContentState
     });
   }
 
-  // ============================================================
-  // Planner 模式（原始逻辑，降级或 fallback 时使用）
-  // ============================================================
-
-  // ignore: unused_element
-  Future<void> _resolveViaPlanner(String intent) async {
-    if (_terminalConversationClosed) {
-      return;
-    }
-    setState(() {
-      _resolvingIntent = true;
-      _pendingIntent = intent;
-      _pendingItems.clear();
-    });
-    _scheduleScrollToLatest();
-
-    RuntimeSelectionController? controller;
-    try {
-      controller = context.read<RuntimeSelectionController>();
-    } on ProviderNotFoundException {
-      setState(() {
-        _resolvingIntent = false;
-        _pendingItems.add(_SidePanelStreamItem.assistantMessage(
-          AssistantMessage(type: 'error', text: '无法访问终端控制器，请重试。'),
-        ));
-      });
-      return;
-    }
-
-    final progress = <_SidePanelStreamItem>[];
-    PlannerResolutionResult? resolved;
-    try {
-      resolved = await controller.resolveLaunchIntent(
-        intent,
-        onProgress: (AssistantPlanProgressEvent event) {
-          if (!mounted) return;
-          _applyProgress(event, progress);
-        },
-      );
-    } catch (e) {
-      if (!mounted) return;
-      progress.add(_SidePanelStreamItem.assistantMessage(
-        AssistantMessage(type: 'error', text: '解析意图失败：$e'),
-      ));
-    }
-
-    if (!mounted) return;
-    CommandSequenceDraft nextDraft;
-    if (resolved != null) {
-      nextDraft = resolved.sequence ??
-          CommandSequenceDraft.fromLaunchPlan(
-            resolved.plan,
-            provider: resolved.provider,
-          );
-      if (resolved.fallbackUsed) {
-        _fallbackReason = resolved.fallbackReason ?? '自动兜底';
-      }
-    } else {
-      nextDraft = _draft;
-    }
-    setState(() {
-      _resolvingIntent = false;
-      _turns.add(_SidePanelConversationTurn(
-        userText: intent,
-        items: List.of(progress),
-        fallbackReason: _fallbackReason,
-      ));
-      _pendingIntent = null;
-      _pendingItems.clear();
-      _draft = nextDraft;
-    });
-    _scheduleScrollToLatest();
-  }
-
-  void _applyProgress(
-    AssistantPlanProgressEvent event,
-    List<_SidePanelStreamItem> progress,
-  ) {
-    if (event.assistantMessage != null) {
-      final item =
-          _SidePanelStreamItem.assistantMessage(event.assistantMessage!);
-      progress.add(item);
-      setState(() => _pendingItems.add(item));
-    }
-    if (event.derivedTraceItem != null) {
-      final item = _SidePanelStreamItem.traceItem(event.derivedTraceItem!);
-      progress.add(item);
-      setState(() => _pendingItems.add(item));
-    }
-    _scheduleScrollToLatest();
-  }
-
-  /// 原始执行（planner 模式）
-  Future<void> _handleExecute() async {
-    if (_terminalConversationClosed || _executing || !_isConnected) return;
-    setState(() => _executing = true);
-
-    final plan = _draft.toLaunchPlan();
-    final input = plan.postCreateInput;
-    var injectFailed = false;
-    if (input.isNotEmpty) {
-      try {
-        final service = context.read<WebSocketService>();
-        service.send(input);
-      } catch (e) {
-        injectFailed = true;
-        if (!mounted) return;
-        _turns.add(_SidePanelConversationTurn(
-          userText: '',
-          items: [
-            _SidePanelStreamItem.assistantMessage(
-              AssistantMessage(type: 'error', text: '命令注入失败：$e'),
-            )
-          ],
-        ));
-      }
-    }
-
-    if (!mounted) return;
-    setState(() => _executing = false);
-    if (!injectFailed) {
-      widget.onClose();
-    }
-  }
 
   /// 重试 Agent 会话
   void _retryAgentSession() {
@@ -1455,8 +1308,8 @@ class _SmartTerminalSidePanelContentState
       return _buildAgentBody(colorScheme, connected);
     }
 
-    // Planner 模式 / 降级模式：显示 turns + pending
-    return _buildPlannerBody(colorScheme, connected);
+    // 初始状态（Agent 未启动）：显示欢迎提示
+    return _buildIdleHint(colorScheme);
   }
 
   Widget _buildClosedView(ColorScheme colorScheme) {
@@ -2509,48 +2362,16 @@ class _SmartTerminalSidePanelContentState
     );
   }
 
-  /// Planner 模式消息体（原始逻辑）
-  Widget _buildPlannerBody(ColorScheme colorScheme, bool connected) {
-    final hasPendingTurn = _pendingIntent != null;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (_turns.isEmpty && _pendingIntent == null)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 4),
-            child: Text(
-              '直接说目标，我会生成命令，确认后再执行。',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onSurfaceVariant.withValues(alpha: 0.82),
-                  ),
+  /// 初始状态提示（Agent 未启动时的欢迎文本）
+  Widget _buildIdleHint(ColorScheme colorScheme) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 4),
+      child: Text(
+        '直接说目标，我会生成命令，确认后再执行。',
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: colorScheme.onSurfaceVariant.withValues(alpha: 0.82),
             ),
-          ),
-        for (final turn in _turns) ...[
-          _buildUserBubble(turn.userText),
-          const SizedBox(height: 8),
-          for (final item in turn.items) ...[
-            _buildItemBubble(item, colorScheme),
-            const SizedBox(height: 8),
-          ],
-          if (turn == _turns.last) ...[
-            _buildPreviewCard(colorScheme, connected),
-            const SizedBox(height: 8),
-          ],
-        ],
-        if (hasPendingTurn) ...[
-          _buildUserBubble(_pendingIntent!),
-          const SizedBox(height: 8),
-          if (_pendingItems.isEmpty)
-            _buildLoadingBubble('正在读取上下文...', colorScheme)
-          else
-            for (final item in _pendingItems) ...[
-              _buildItemBubble(item, colorScheme),
-              const SizedBox(height: 8),
-            ],
-          if (_resolvingIntent && _pendingItems.isNotEmpty)
-            _buildLoadingBubble('正在继续补全...', colorScheme),
-        ],
-      ],
+      ),
     );
   }
 
@@ -2561,8 +2382,8 @@ class _SmartTerminalSidePanelContentState
     final isClosed = _terminalConversationClosed;
     final canSend = !isClosed && !_pendingReset &&
         (isAwaitingAnswer
-            ? !_executing && !_resolvingIntent
-            : !_executing && !_resolvingIntent && !isExploring);
+            ? !_executing
+            : !_executing && !isExploring);
 
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 14),
@@ -2642,7 +2463,7 @@ class _SmartTerminalSidePanelContentState
                 backgroundColor: colorScheme.primary,
               ),
               onPressed: canSend ? _handleInputSubmit : null,
-              child: _resolvingIntent || isExploring
+              child: isExploring
                   ? SizedBox(
                       width: 16,
                       height: 16,
@@ -3049,48 +2870,6 @@ class _SmartTerminalSidePanelContentState
     );
   }
 
-  Widget _buildItemBubble(_SidePanelStreamItem item, ColorScheme colorScheme) {
-    switch (item.kind) {
-      case _SidePanelStreamItemKind.assistantMessage:
-        return _buildAssistantBubble(
-          Text(item.assistantMessage!.text,
-              style: Theme.of(context).textTheme.bodySmall),
-        );
-      case _SidePanelStreamItemKind.traceItem:
-        final trace = item.traceItem!;
-        return _buildAssistantBubble(
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  _SidePanelStagePill(stage: trace.stage),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      trace.title,
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodySmall
-                          ?.copyWith(fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                trace.summary,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                      height: 1.4,
-                    ),
-              ),
-            ],
-          ),
-        );
-    }
-  }
-
   Widget _buildLoadingBubble(String text, ColorScheme colorScheme) {
     return _buildAssistantBubble(
       Row(
@@ -3110,117 +2889,9 @@ class _SmartTerminalSidePanelContentState
       ),
     );
   }
-
-  Widget _buildPreviewCard(ColorScheme colorScheme, bool connected) {
-    final summary = _draft.summary.trim().isEmpty ? '准备执行命令' : _draft.summary;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: colorScheme.outlineVariant.withValues(alpha: 0.14),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            summary,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '目录 · ${_draft.cwd}    步骤 · ${_draft.steps.length}',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
-          ),
-          if (!connected && _draft.steps.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Text(
-              '终端未连接，请先确认连接状态。',
-              style: TextStyle(color: colorScheme.error, fontSize: 12),
-            ),
-          ],
-          if (_draft.steps.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                key: const Key('side-panel-execute'),
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(40),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  backgroundColor: colorScheme.primary,
-                ),
-                onPressed: connected && !_executing ? _handleExecute : null,
-                child: _executing
-                    ? SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: colorScheme.onPrimary,
-                        ),
-                      )
-                    : const Text('执行'),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
 }
 
 // --- 内部模型 ---
-
-enum _SidePanelStreamItemKind {
-  assistantMessage,
-  traceItem,
-}
-
-class _SidePanelStreamItem {
-  const _SidePanelStreamItem._({
-    required this.kind,
-    this.assistantMessage,
-    this.traceItem,
-  });
-
-  const _SidePanelStreamItem.assistantMessage(AssistantMessage message)
-      : this._(
-          kind: _SidePanelStreamItemKind.assistantMessage,
-          assistantMessage: message,
-        );
-
-  const _SidePanelStreamItem.traceItem(AssistantTraceItem trace)
-      : this._(
-          kind: _SidePanelStreamItemKind.traceItem,
-          traceItem: trace,
-        );
-
-  final _SidePanelStreamItemKind kind;
-  final AssistantMessage? assistantMessage;
-  final AssistantTraceItem? traceItem;
-}
-
-class _SidePanelConversationTurn {
-  const _SidePanelConversationTurn({
-    required this.userText,
-    required this.items,
-    this.fallbackReason,
-  });
-
-  final String userText;
-  final List<_SidePanelStreamItem> items;
-  final String? fallbackReason;
-}
 
 /// Agent 对话历史条目
 class _AgentHistoryEntry {

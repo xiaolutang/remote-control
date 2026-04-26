@@ -250,10 +250,10 @@
 
 | Module | Task IDs | Test Type | Required Scenarios | Status |
 |--------|----------|-----------|--------------------|--------|
-| 架构与只读探索基线 | S081 | design | 权威边界、只读探索安全边界、三层降级策略 | ✅ |
+| 架构与只读探索基线 | S081 | design | 权威边界、只读探索安全边界、两层架构（ReAct Agent → 错误提示） | ✅ |
 | 只读探索协议与 Agent 核心 | B078, B079 | unit,integration | execute_command 白名单；Pydantic AI Agent；攻击向量拦截 | ✅ |
-| Agent 会话与 SSE 事件流 | B080, F095 | unit,integration | run/respond/cancel/resume；事件解析；断连恢复；降级到 planner | ✅ |
-| 侧滑面板 Agent 交互与命令注入 | F096, F097, F098 | widget,integration | exploring/asking/result/error；命令注入；执行结果回写与别名保存 | ✅ |
+| Agent 会话与 SSE 事件流 | B080, F095 | unit,integration | run/respond/cancel/resume；事件解析；断连恢复；错误提示 | ✅ |
+| 侧滑面板 Agent 交互与命令注入 | F096, F097, F098 | widget,integration | exploring/asking/result/error；命令注入；执行结果回写与别名保存；Planner 降级路径已废弃（F096） | ✅ |
 | Agent 集成测试 | S082 | integration,manual | Happy path；安全边界；mobile 回归；per-device 隔离 | ✅ |
 | Token usage SSE 与前端兼容 | B083, F099 | unit,widget | SSE result usage；前端解析与兼容展示 | ✅ |
 | usage 汇总 API 与 Toast 浮层 | B084, F100 | unit,integration,widget | usage 落库；双 scope 汇总；Toast 浮层与自动刷新 | B084 ✅ / F100 ✅ |
