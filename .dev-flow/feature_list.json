@@ -1030,7 +1030,8 @@
         "SSE 结束后 pendingReset 触发状态重建（含 _activeSessionId 清空）",
         "无 reset 时 SSE 结束不触发额外清理",
         "连续 reset（快速多端编辑）只保留最后一次",
-        "pendingReset 后 conversation stream 增量同步重建 UI 集成验证"
+        "pendingReset 后 conversation stream 增量同步重建 UI 集成验证",
+        "跨端 smoke（A端SSE中B端edit触发reset→A端onDone重建）留待 S084 全链路验收覆盖"
       ],
       "files": [
         "client/lib/widgets/smart_terminal_side_panel_content.dart",
@@ -1097,20 +1098,20 @@
       "id": "F096",
       "phase": "panel-convergence",
       "module": "client",
-      "name": "Planner 降级路径架构决策 — 清理死代码",
-      "description": "当前 _resolveViaPlanner 标记为 unused_element，planner UI 代码大量存在但不可达。architecture.md 第 177 行定义了三层降级（ReAct Agent → 无状态 planner → local_rules），但实际代码中 planner 降级路径已被移除。需要明确决策：1) 如果确认废弃 planner 降级，清理死代码并更新 architecture.md 2) 如果需要保留降级，恢复降级路径。推荐方案：废弃 planner 降级，因为 ReAct Agent 已足够健壮，错误态直接展示错误比降级到不可靠的 planner 更好。",
+      "name": "废弃 Planner 降级路径 — 清理死代码 + 架构同步",
+      "description": "决策：废弃 planner 降级路径。当前 _resolveViaPlanner 标记为 unused_element，planner UI 代码不可达。architecture.md 第 177 行的三层降级（ReAct Agent → 无状态 planner → local_rules）与实际代码矛盾。需要：1) 移除 _resolveViaPlanner 及所有相关死代码 2) 更新 architecture.md 关键决策表和降级描述段落 3) 同步收敛 alignment_checklist / test_coverage 中 planner-provider-isolation 相关条目。ReAct Agent 已足够健壮，错误态直接展示比降级更可靠。",
       "verification": "F1",
       "depends_on": [],
       "status": "pending",
       "priority": 2,
       "acceptance_criteria": [
-        "明确架构决策：废弃或保留 planner 降级路径",
-        "如果废弃：移除 _resolveViaPlanner 及相关 planner UI 代码（预计减少 200-300 行）",
-        "如果废弃：更新 architecture.md 关键决策表和相关降级描述段落，从三层降级改为两层（ReAct Agent → 错误提示）",
-        "实现前用引用搜索确认 _resolveViaPlanner 相关的完整清理范围",
+        "移除 _resolveViaPlanner 及所有相关 planner UI 死代码（预计减少 200-300 行）",
+        "更新 architecture.md 关键决策表和相关降级描述段落，从三层降级改为两层（ReAct Agent → 错误提示）",
+        "实现前用引用搜索确认 _resolveViaPlanner 相关的完整清理范围（含 _resolvingIntent / _pendingIntent / _pendingItems / _buildPlannerBody 等）",
+        "alignment_checklist / test_coverage 中 planner-provider-isolation 条目标注为 deprecated 或已完成",
         "现有测试不回归"
       ],
-      "planning_notes": "推荐废弃 planner 降级路径。当前 ReAct Agent 已具备错误处理和重试能力，降级到无状态 planner 反而引入额外复杂度。architectural decision change 需在 commit message 中标注。",
+      "planning_notes": "架构决策变更：三层降级 → 两层降级。需在 commit message 中标注。architectural decision change 需同步更新所有相关文档引用。",
       "files": [
         "client/lib/widgets/smart_terminal_side_panel_content.dart",
         ".dev-flow/architecture.md"
@@ -1120,15 +1121,17 @@
       "id": "S093",
       "phase": "panel-convergence",
       "module": "shared",
-      "name": "更新 test_coverage.md + alignment_checklist.md",
-      "description": "标注 R045 范围：client-only、无 contract change、无 backend impact、无 frontend 新页面。标注 architecture.md 变更：三层降级 → 两层降级。",
+      "name": "校对 test_coverage + alignment + 清理旧 ID 歧义",
+      "description": "校对并更新 R045 配套产物：1) 补齐 test_coverage.md 中 F093-F096 测试结果行 2) 校对 alignment_checklist.md 已有 R045 行的准确性 3) 清理旧阶段中与新 R045 任务 ID（F093-F096）冲突的歧义引用 4) 同步 planner 降级从三层到两层的文案变更。注意：alignment_checklist.md 已有 R045 行（planning 阶段写入），需校对而非新增。",
       "verification": "L1",
       "depends_on": ["F093", "F094", "F095", "F096"],
       "status": "pending",
       "priority": 3,
       "acceptance_criteria": [
-        "test_coverage.md 新增 F093-F096 测试行",
-        "alignment_checklist.md 新增 R045 收敛检查项",
+        "test_coverage.md 新增 F093-F096 测试结果行",
+        "alignment_checklist.md 已有 R045 行校对准确",
+        "清理旧阶段中与 R045 任务 ID 冲突的歧义引用",
+        "planner 降级文案从三层同步为两层",
         "标注 server-only: no, contract change: no, frontend impact: panel-convergence only"
       ]
     }
