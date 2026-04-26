@@ -2,16 +2,26 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-25T14:00:00+0800",
+  "updated_at": "2026-04-26T19:35:00+0800",
   "status": "in_progress",
   "active_requirement_cycle": {
-    "id": "R044",
-    "name": "agent-eval-system",
-    "status": "completed",
-    "branch": "feat/R044-agent-eval-system",
-    "started_at": "2026-04-25"
+    "id": "R045",
+    "name": "smart-panel-convergence",
+    "status": "in_progress",
+    "branch": "feat/R045-smart-panel-convergence",
+    "started_at": "2026-04-26"
   },
   "archived_cycles": [
+    {
+      "id": "R044",
+      "name": "agent-eval-system",
+      "status": "completed",
+      "branch": "feat/R044-agent-eval-system",
+      "started_at": "2026-04-25",
+      "archived_at": "2026-04-26T19:35:00+0800",
+      "archive_path": "_archive/R044_agent-eval-system/",
+      "summary": "Agent 评估体系：eval 框架 + 数据集 + grader + 质量监控 + 反馈闭环。13 个任务全部完成。"
+    },
     {
       "id": "R041",
       "name": "react-terminal-agent",
@@ -47,15 +57,16 @@
     "runtime": "skill_orchestrated",
     "review_provider": "codex_plugin",
     "audit_provider": "codex_plugin",
-    "risk_provider": "codex_plugin"
+    "risk_provider": "codex_plugin",
+    "stop_hook_enabled": false
   },
   "summary": {
-    "total": 81,
-    "pending": 6,
+    "total": 86,
+    "pending": 5,
     "in_progress": 0,
-    "completed": 63,
+    "completed": 81,
     "blocked": 0,
-    "cancelled": 6
+    "cancelled": 0
   },
   "project_info": {
     "description": "远程控制终端（Server + Agent + Client）。含反馈系统、日志集成、用户信息、Docker 标准化部署。",
@@ -993,6 +1004,133 @@
         "server/tests/test_eval_regression.py"
       ],
       "commit": "58b8e5c"
+    },
+    {
+      "id": "F093",
+      "phase": "panel-convergence",
+      "module": "client",
+      "name": "conversation_reset pendingReset 机制",
+      "description": "SSE 活跃时收到 conversation_reset 不再静默丢弃，而是记录 pendingReset 标记。SSE onDone 时检查该标记，如果为 true 则清空本地状态并让 conversation stream 自然重建。避免多端同步场景下丢失其他端发起的截断通知。",
+      "verification": "F1",
+      "depends_on": [],
+      "status": "pending",
+      "priority": 1,
+      "acceptance_criteria": [
+        "新增 _pendingReset 布尔状态字段",
+        "conversation_reset SSE 活跃时设置 _pendingReset = true 而非静默丢弃",
+        "SSE onDone 时检查 _pendingReset：为 true 时清空 _serverConversationEvents / _agentHistory / _activeSessionId 并重置 _nextConversationEventIndex",
+        "pendingReset 处理后标记 _pendingReset = false",
+        "测试覆盖：SSE 活跃 → conversation_reset → SSE 结束 → 状态正确重建",
+        "测试覆盖：SSE 活跃 → 无 conversation_reset → SSE 结束 → 状态不变",
+        "测试覆盖：pendingReset 清空后 conversation stream 增量同步正确重建 UI"
+      ],
+      "risk_tags": ["state_sync"],
+      "test_tasks": [
+        "SSE 活跃时收到 conversation_reset 设置 pendingReset",
+        "SSE 结束后 pendingReset 触发状态重建（含 _activeSessionId 清空）",
+        "无 reset 时 SSE 结束不触发额外清理",
+        "连续 reset（快速多端编辑）只保留最后一次",
+        "pendingReset 后 conversation stream 增量同步重建 UI 集成验证"
+      ],
+      "files": [
+        "client/lib/widgets/smart_terminal_side_panel_content.dart",
+        "client/test/widgets/smart_terminal_side_panel_agent_test.dart"
+      ]
+    },
+    {
+      "id": "F094",
+      "phase": "panel-convergence",
+      "module": "client",
+      "name": "_activeSessionId 从服务端投影恢复",
+      "description": "当前 _activeSessionId 通过反向遍历 _serverConversationEvents 猜测恢复，可能获取过期 sessionId。改为优先使用 AgentConversationProjection.activeSessionId 字段（服务端投影已包含此信息），仅在投影未提供时回退到本地遍历。同时确保 conversation stream 增量重建时不覆盖已有的 _activeSessionId。",
+      "verification": "F1",
+      "depends_on": [],
+      "status": "pending",
+      "priority": 1,
+      "acceptance_criteria": [
+        "_loadConversationProjection 中已正确从 projection.activeSessionId 恢复 _activeSessionId（确认现有逻辑正确）",
+        "conversation stream 增量重建时，如果 _activeSessionId 已有值，不覆盖（确保不降级）",
+        "反向遍历仅作为 projection.activeSessionId 为 null 时的回退策略",
+        "测试覆盖：投影有 activeSessionId 时优先使用",
+        "测试覆盖：投影无 activeSessionId 但事件有 sessionId 时回退正确"
+      ],
+      "risk_tags": ["state_sync"],
+      "test_tasks": [
+        "投影 activeSessionId 优先于本地遍历",
+        "_activeSessionId 已有时不被覆盖",
+        "投影和事件都无 sessionId 时不崩溃"
+      ],
+      "files": [
+        "client/lib/widgets/smart_terminal_side_panel_content.dart",
+        "client/test/widgets/smart_terminal_side_panel_agent_test.dart"
+      ]
+    },
+    {
+      "id": "F095",
+      "phase": "panel-convergence",
+      "module": "client",
+      "name": "问答回答编辑测试覆盖",
+      "description": "为 _submitAnswerEdit 和 _truncateConversationEventsForAnswer 补充测试。覆盖场景：编辑活跃轮次的问答回答、编辑历史轮次的问答回答、截断后 Agent 重跑、多轮问答中间编辑、边界条件（answerIndex 越界、空事件列表）。",
+      "verification": "F1",
+      "depends_on": [],
+      "status": "pending",
+      "priority": 2,
+      "acceptance_criteria": [
+        "测试覆盖编辑活跃轮次的问答回答（截断后重跑）",
+        "测试覆盖编辑历史轮次的问答回答（从历史移到活跃）",
+        "测试覆盖多轮问答中间编辑（保留前面轮次的问答）",
+        "测试覆盖 _truncateConversationEventsForAnswer 边界条件",
+        "所有新增测试通过，现有测试不回归"
+      ],
+      "test_tasks": [
+        "活跃轮次编辑第一轮回答",
+        "活跃轮次编辑第二轮回答（保留第一轮）",
+        "历史轮次编辑回答",
+        "answerIndex 越界时不崩溃",
+        "空事件列表时编辑不崩溃"
+      ],
+      "files": [
+        "client/test/widgets/smart_terminal_side_panel_agent_test.dart"
+      ]
+    },
+    {
+      "id": "F096",
+      "phase": "panel-convergence",
+      "module": "client",
+      "name": "Planner 降级路径架构决策 — 清理死代码",
+      "description": "当前 _resolveViaPlanner 标记为 unused_element，planner UI 代码大量存在但不可达。architecture.md 第 177 行定义了三层降级（ReAct Agent → 无状态 planner → local_rules），但实际代码中 planner 降级路径已被移除。需要明确决策：1) 如果确认废弃 planner 降级，清理死代码并更新 architecture.md 2) 如果需要保留降级，恢复降级路径。推荐方案：废弃 planner 降级，因为 ReAct Agent 已足够健壮，错误态直接展示错误比降级到不可靠的 planner 更好。",
+      "verification": "F1",
+      "depends_on": [],
+      "status": "pending",
+      "priority": 2,
+      "acceptance_criteria": [
+        "明确架构决策：废弃或保留 planner 降级路径",
+        "如果废弃：移除 _resolveViaPlanner 及相关 planner UI 代码（预计减少 200-300 行）",
+        "如果废弃：更新 architecture.md 关键决策表和相关降级描述段落，从三层降级改为两层（ReAct Agent → 错误提示）",
+        "实现前用引用搜索确认 _resolveViaPlanner 相关的完整清理范围",
+        "现有测试不回归"
+      ],
+      "planning_notes": "推荐废弃 planner 降级路径。当前 ReAct Agent 已具备错误处理和重试能力，降级到无状态 planner 反而引入额外复杂度。architectural decision change 需在 commit message 中标注。",
+      "files": [
+        "client/lib/widgets/smart_terminal_side_panel_content.dart",
+        ".dev-flow/architecture.md"
+      ]
+    },
+    {
+      "id": "S093",
+      "phase": "panel-convergence",
+      "module": "shared",
+      "name": "更新 test_coverage.md + alignment_checklist.md",
+      "description": "标注 R045 范围：client-only、无 contract change、无 backend impact、无 frontend 新页面。标注 architecture.md 变更：三层降级 → 两层降级。",
+      "verification": "L1",
+      "depends_on": ["F093", "F094", "F095", "F096"],
+      "status": "pending",
+      "priority": 3,
+      "acceptance_criteria": [
+        "test_coverage.md 新增 F093-F096 测试行",
+        "alignment_checklist.md 新增 R045 收敛检查项",
+        "标注 server-only: no, contract change: no, frontend impact: panel-convergence only"
+      ]
     }
   ]
 }
