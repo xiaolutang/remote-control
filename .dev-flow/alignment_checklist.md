@@ -156,5 +156,5 @@
 | **R046 客户端** | **assistant_message + ai_prompt 验证** | **CONTRACT-047, CONTRACT-049, CONTRACT-050** | **not_applicable** | **completed** | **completed** | **F107: 四通道 SSE/projection/resume/widget assistant_message + ai_prompt 注入 + _TurnEventType 交错渲染 + answer-edit 保护。102 测试全通过** |
 | **R046 Eval** | **deliver_result 对齐 + grader 兼容** | **CONTRACT-051** | **completed** | **not_applicable** | **completed** | **B108: deliver_result 工具 + ask_user/lookup_knowledge mock + 参数校验 + tool_call_order 排除 + steps_structure response_type 感知。191 测试全通过** |
 | **R046 评估** | **基线评估+迭代优化 → 50%** | **CONTRACT-051** | **pending** | **not_applicable** | **pending** | **S109: 基线记录 + 2-3 轮迭代 + ai_prompt 用例修复** |
-| **R046 测试** | **Server+Client 测试更新** | **CONTRACT-047..051** | **pending** | **not_applicable** | **pending** | **S110: deliver_result + assistant_message + 重试 usage + 过滤兜底测试** |
+| **R046 测试** | **Server+Client 测试更新** | **CONTRACT-047..051** | **completed** | **not_applicable** | **completed** | **S110: 全部 11 个 AC 已被 B105/B106/F107 覆盖。Server 232 passed + Client 66 passed** |
 | **R046 文档** | **事后精细校准** | **CONTRACT-047..051** | **not_applicable** | **not_applicable** | **pending** | **S111: CONTRACT-047/048/049/050/051 最终校准（实现后代码与文档一致性验证，不含 S104 已验证的基线内容）** |

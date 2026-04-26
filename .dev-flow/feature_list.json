@@ -321,7 +321,7 @@
         "B106",
         "F107"
       ],
-      "status": "pending",
+      "status": "completed",
       "priority": 6,
       "acceptance_criteria": [
         "test_terminal_agent.py 更新为新 SYSTEM_PROMPT 断言（预处理助手定位）",
@@ -341,7 +341,9 @@
         "server/tests/test_terminal_agent.py",
         "server/tests/test_agent_session_manager.py",
         "client/test/widgets/smart_terminal_side_panel_agent_test.dart"
-      ]
+      ],
+      "summary": "验证所有 11 个验收标准已被 B105/B106/F107 覆盖。Server 232 passed + Client 66 passed",
+      "evidence_file": "evidence/S110.md"
     },
     {
       "id": "S111",
@@ -375,9 +377,9 @@
   "summary": {
     "total_tasks": 8,
     "by_status": {
-      "pending": 3,
+      "pending": 2,
       "in_progress": 0,
-      "completed": 5,
+      "completed": 6,
       "blocked": 0,
       "cancelled": 0
     },

@@ -729,7 +729,7 @@
 | Client assistant_message | F107 | unit, widget, integration | 四通道 SSE/projection/resume/widget + assistant_message 气泡 vs message result 卡片区分 + ai_prompt 注入 + 移动端 stream 同步 | ✅ 102/102 |
 | Eval harness 对齐 | B108 | unit, integration | deliver_result 工具注册 + 完成判定 + 负向测试（未调用 deliver_result = incomplete）+ tool_call_order 排除 | ✅ 191/191 |
 | 基线评估 + 优化 | S109 | eval | 基线记录 + 2-3 轮 SYSTEM_PROMPT 迭代 + ai_prompt 用例修复 + 通过率 ≥ 50% | ⬜ |
-| Server+Client 测试 | S110 | unit, integration, widget | deliver_result + assistant_message + 重试 usage + 过滤兜底 + conversation 持久化 + resume 回放 + 移动端 stream 同步 | ⬜ |
+| Server+Client 测试 | S110 | unit, integration, widget | deliver_result + assistant_message + 重试 usage + 过滤兜底 + conversation 持久化 + resume 回放 + 移动端 stream 同步 | ✅ 232+66 |
 | 文档事后校准 | S111 | docs | CONTRACT-047/048/049/050/051 最终校准 + R046 test_coverage section | ⬜ |
 
 #### R046 关键测试场景
