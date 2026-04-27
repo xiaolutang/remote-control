@@ -825,40 +825,48 @@ async def run_agent(
     max_attempts = 3
     retry_hint = None
 
-    # B106: 构建 event_stream_handler 用于捕获模型中间文本输出
-    # 通过 PartStartEvent/PartDeltaEvent 捕获 TextPart，累积完整文本后回调 on_model_text
-    _current_text_parts: dict[int, str] = {}  # part_index -> accumulated text (only for TextPart)
+    # B105: 构建 event_stream_handler 用于逐 token 捕获模型文本输出
+    # 通过 PartDeltaEvent 立即回调 on_model_text(delta)，实现 token 级推送
+    _tracking_text_parts: set[int] = set()  # 正在追踪的 TextPart index 集合
 
     async def _event_stream_handler(ctx, events):
-        """处理模型流式事件，捕获文本输出并回调 on_model_text。
+        """处理模型流式事件，逐 token 捕获文本输出并回调 on_model_text。
 
-        关键设计：只有 PartStartEvent.part 是 TextPart 时才追踪。
-        同 index 新的 PartStartEvent（非 TextPart，如 ToolCallPart）会替换旧追踪，
-        防止被替换的临时文本泄漏到 assistant_message（不变量 #50）。
+        B105 改动：从 PartEndEvent 累积完整推送改为 PartDeltaEvent 逐 token 推送。
+
+        关键设计：
+        - PartStartEvent(TextPart): 标记 index 为文本追踪中，如有初始 content 立即推送
+        - PartDeltaEvent(TextPartDelta): 逐 delta 立即推送 on_model_text
+        - PartStartEvent(非 TextPart): 同 index 替换旧的 TextPart 时，清除追踪，
+          防止 ToolCallPart 替换 TextPart 后文本泄漏（不变量 #50）
         """
-        nonlocal _current_text_parts
+        nonlocal _tracking_text_parts
         if on_model_text is None:
             return
         async for event in events:
             from pydantic_ai.messages import PartStartEvent, PartDeltaEvent, PartEndEvent, TextPart, TextPartDelta
             if isinstance(event, PartStartEvent):
                 if isinstance(event.part, TextPart):
-                    text = event.part.content
-                    _current_text_parts[event.index] = text or ""
+                    _tracking_text_parts.add(event.index)
+                    # PartStartEvent 可能携带初始文本 content
+                    if event.part.content:
+                        try:
+                            await on_model_text(event.part.content)
+                        except Exception:
+                            logger.debug("on_model_text callback error", exc_info=True)
                 else:
-                    # 同 index 非文本 Part 替换了旧的 TextPart，清除旧追踪
-                    _current_text_parts.pop(event.index, None)
+                    # 同 index 非 TextPart（如 ToolCallPart）替换了旧的 TextPart
+                    # 清除追踪，防止已推送的临时文本泄漏
+                    _tracking_text_parts.discard(event.index)
             elif isinstance(event, PartDeltaEvent) and isinstance(event.delta, TextPartDelta):
-                if event.index in _current_text_parts:
-                    _current_text_parts[event.index] += event.delta.content_delta
-            elif isinstance(event, PartEndEvent):
-                # 只有仍然在追踪中的文本 part（未被同 index 非 TextPart 替换）才发送
-                accumulated = _current_text_parts.pop(event.index, None)
-                if accumulated and accumulated.strip():
+                # B105: 逐 delta 立即推送，实现 token 级 streaming_text
+                if event.index in _tracking_text_parts and event.delta.content_delta:
                     try:
-                        await on_model_text(accumulated.strip())
+                        await on_model_text(event.delta.content_delta)
                     except Exception:
                         logger.debug("on_model_text callback error", exc_info=True)
+            elif isinstance(event, PartEndEvent):
+                _tracking_text_parts.discard(event.index)
 
     _stream_handler = _event_stream_handler if on_model_text else None
 
@@ -878,7 +886,7 @@ async def run_agent(
                     "Agent completed without deliver_result (attempt %d), retrying with hint",
                     attempt,
                 )
-                _current_text_parts.clear()  # 清空前一次文本追踪，防止重复气泡
+                _tracking_text_parts.clear()  # 清空前一次文本追踪，防止重复气泡
                 retry_hint = "注意：你上次回复没有调用 deliver_result 工具交付结果。请确保在回复中调用 deliver_result 工具来交付最终结果。"
                 continue
 

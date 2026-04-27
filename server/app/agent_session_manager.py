@@ -69,6 +69,15 @@ _PHASE_DESCRIPTIONS: dict[str, str] = {
 _MAX_TOOL_STEP_PREVIEW = 1000
 _MAX_TOOL_STEP_ERROR_PREVIEW = 200
 
+# B105: CoT 检测模式（增量过滤用，不变量 #50 兜底）
+_COT_PATTERNS: list[str] = [
+    "一步步思考", "推理过程", "思考步骤", "让我想想",
+    "step by step", "thinking process", "chain of thought",
+    "首先我需要", "接下来我要", "我的分析是",
+    "let me think", "let's analyze", "reasoning:",
+    "<think", "<thought", "<reasoning",
+]
+
 
 # ---------------------------------------------------------------------------
 # 会话超时 & 频率限制常量
@@ -743,17 +752,47 @@ class AgentSessionManager:
             # Agent 启动 → THINKING
             await _emit_phase_change(PHASE_THINKING)
 
-            # B103/B105: on_model_text 回调——模型中间文本输出推送 streaming_text SSE
+            # B105: CoT 增量过滤状态
+            _cot_detected: bool = False
+            _streamed_text_buffer: str = ""  # 已推送的文本累积（用于 CoT 截断）
+
+            # B105: on_model_text 回调——逐 token 推送 streaming_text SSE
             async def _on_model_text(text: str):
-                """模型每轮文本输出回调：推送 streaming_text SSE 事件。"""
-                if not text or not text.strip():
+                """模型文本输出回调：逐 token 推送 streaming_text SSE 事件。
+
+                B105 改动：从 PartEndEvent 完整推送改为 PartDeltaEvent 逐 token 推送。
+                CoT 过滤策略：增量检测，发现 CoT 标记后截断并设置 _cot_detected 标志。
+                """
+                nonlocal _cot_detected, _streamed_text_buffer
+
+                if _cot_detected:
                     return
+                if not text:
+                    return
+
+                # 增量检查 CoT 标记
+                text_lower = text.lower()
+                for pattern in _COT_PATTERNS:
+                    pattern_lower = pattern.lower()
+                    if pattern_lower in text_lower:
+                        _cot_detected = True
+                        logger.info(
+                            "streaming_text CoT pattern detected: pattern=%r", pattern,
+                        )
+                        return
+
+                # 空白 delta：只有换行/空格时不推送，但累积到 buffer
+                stripped = text.strip()
+                if not stripped:
+                    return
+
                 # 文本输出 → RESPONDING
                 await _emit_phase_change(PHASE_RESPONDING)
+                _streamed_text_buffer += stripped
                 await self._emit_session_event(
                     session,
                     "streaming_text",
-                    _streaming_text_event(text.strip()),
+                    _streaming_text_event(stripped),
                 )
 
             # 调用 run_agent
