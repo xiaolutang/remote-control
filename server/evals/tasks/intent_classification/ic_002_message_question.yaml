@@ -16,4 +16,5 @@ metadata:
   source: daily_usage
   difficulty: easy
   tags: ["question", "message", "python"]
+  single_turn: true
   reference_solution: "response_type=message, summary=解释列表推导式概念并举例"

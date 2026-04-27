@@ -16,4 +16,5 @@ metadata:
   source: edge_case
   difficulty: easy
   tags: ["knowledge", "miss", "out_of_scope", "finance"]
+  single_turn: true
   reference_solution: "response_type=message, 告知用户该问题超出服务范围"

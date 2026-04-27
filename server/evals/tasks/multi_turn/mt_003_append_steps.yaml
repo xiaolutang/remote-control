@@ -8,9 +8,13 @@ input:
     device_online: true
     conversation_history:
       - role: user
-        content: "安装依赖"
+        content: "看看有什么依赖需要更新"
       - role: assistant
-        content: "好的，执行 npm install 安装依赖"
+        content: "有 3 个依赖有新版本：react 18.2→18.3, next 14.1→14.2, typescript 5.3→5.4。"
+      - role: user
+        content: "更新所有依赖"
+      - role: assistant
+        content: "好的，执行 npm update 更新所有依赖到最新兼容版本。"
       - role: user
         content: "然后再跑一下测试"
     mock_tool_responses: {}

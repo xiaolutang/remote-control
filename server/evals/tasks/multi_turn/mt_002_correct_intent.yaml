@@ -8,6 +8,10 @@ input:
     device_online: true
     conversation_history:
       - role: user
+        content: "帮我看看项目结构"
+      - role: assistant
+        content: "项目使用 npm 管理，主目录下有 src/、test/、docs/ 三个子目录。"
+      - role: user
         content: "运行项目"
       - role: assistant
         content: "好的，执行 npm start 启动项目"

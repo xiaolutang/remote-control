@@ -16,4 +16,5 @@ metadata:
   source: daily_usage
   difficulty: medium
   tags: ["command", "test", "claude_code"]
+  single_turn: true
   reference_solution: "response_type=command, 生成 claude -p '为 database.py 写单元测试' 命令"

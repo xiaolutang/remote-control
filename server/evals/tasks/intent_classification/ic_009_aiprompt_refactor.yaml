@@ -16,4 +16,5 @@ metadata:
   source: daily_usage
   difficulty: medium
   tags: ["command", "refactor", "claude_code"]
+  single_turn: true
   reference_solution: "response_type=command, 生成 claude -p '重构 parse_config 函数' 命令"

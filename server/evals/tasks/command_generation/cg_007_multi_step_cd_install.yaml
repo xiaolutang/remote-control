@@ -16,4 +16,5 @@ metadata:
   source: daily_usage
   difficulty: medium
   tags: ["command", "multi_step", "cd", "install"]
+  single_turn: true
   reference_solution: "response_type=command, steps=[cd frontend && npm install]"

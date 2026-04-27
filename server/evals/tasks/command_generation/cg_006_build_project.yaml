@@ -18,4 +18,5 @@ metadata:
   source: daily_usage
   difficulty: medium
   tags: ["command", "build"]
+  single_turn: true
   reference_solution: "response_type=command, steps=[根据项目类型选择构建命令，如 npm run build / python setup.py build]"

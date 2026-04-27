@@ -1,0 +1,53 @@
+id: mt_006_title_truncation
+category: multi_turn
+description: "回归测试：标题截断 - 8 轮对话后 response 应包含完整内容而非仅标题"
+input:
+  intent: "帮我部署 web-app 到生产环境"
+  context:
+    cwd: /Users/demo/projects
+    device_online: true
+    mock_tool_responses:
+      "cd web-app": ""
+      "git status": "On branch main\nnothing to commit, working tree clean"
+      "npm run build": "Build completed successfully in 12s"
+    conversation_history:
+      - role: user
+        content: "列出所有项目"
+      - role: assistant
+        content: "找到以下项目：web-app, api-server, data-pipeline, monitoring"
+      - role: user
+        content: "web-app 用什么框架"
+      - role: assistant
+        content: "web-app 使用 Next.js 14 框架，TypeScript 编写，部署在 Vercel 上。"
+      - role: user
+        content: "看看它的依赖"
+      - role: assistant
+        content: "主要依赖有：react 18.3, next 14.2, tailwindcss 3.4, prisma 5.14。"
+      - role: user
+        content: "测试跑过了吗"
+      - role: assistant
+        content: "上次测试运行全部通过，覆盖率 82%。"
+      - role: user
+        content: "api-server 的性能怎么样"
+      - role: assistant
+        content: "api-server 平均响应时间 45ms，P99 为 200ms，符合 SLA 要求。"
+      - role: user
+        content: "data-pipeline 有问题吗"
+      - role: assistant
+        content: "data-pipeline 最近有一次 ETL 失败，已修复并重新运行成功。"
+      - role: user
+        content: "monitoring 的告警配置呢"
+      - role: assistant
+        content: "monitoring 配置了 CPU > 80%、内存 > 90%、错误率 > 1% 三项告警规则。"
+      - role: user
+        content: "帮我部署 web-app 到生产环境"
+expected:
+  response_type: ["command"]
+  steps_contain: ["web-app"]
+  steps_not_contain: []
+graders: ["response_type_match", "contains_command"]
+metadata:
+  source: regression_title_truncation
+  difficulty: hard
+  tags: ["multi_turn", "regression", "title_truncation", "long_context"]
+  reference_solution: "response_type=command, steps=[包含 web-app 部署相关命令]"

@@ -220,18 +220,20 @@ class TestMockTransport:
 
     @pytest.mark.asyncio
     async def test_default_response(self):
-        """未定义的命令返回默认响应"""
+        """S128: 未在白名单中的命令返回非零 exit_code"""
         transport = MockTransport({"ls": "file1\n"})
         result = await transport.execute_command("session-1", "pwd")
-        assert "mock" in result["stdout"].lower()
-        assert "pwd" in result["stdout"]
+        assert result["exit_code"] == 127
+        assert "pwd" in result["stderr"]
+        assert result["stdout"] == ""
 
     @pytest.mark.asyncio
     async def test_empty_mock_responses(self):
-        """空 mock_responses 返回默认"""
+        """S128: 空 mock_responses 时任何命令返回非零 exit_code"""
         transport = MockTransport({})
         result = await transport.execute_command("session-1", "any command")
-        assert "mock" in result["stdout"].lower()
+        assert result["exit_code"] == 127
+        assert "mock" in result["stderr"].lower()
 
     @pytest.mark.asyncio
     async def test_call_log(self):
@@ -1884,3 +1886,295 @@ class TestDeliverResultValidation:
         # 只有 deliver_result 被记录，execute_command 不应出现
         trials = await db.list_trials_by_task("val-009")
         assert trials[0].agent_result_json["response_type"] == "message"
+
+
+# ── S128: 回归增强测试 ───────────────────────────────────────────────────
+
+
+class TestMockTransportWhitelist:
+    """S128: MockTransport 白名单非零 exit_code 测试"""
+
+    @pytest.mark.asyncio
+    async def test_whitelisted_command_returns_zero(self):
+        """白名单中的命令返回 exit_code=0"""
+        transport = MockTransport({"ls -la": "file1\nfile2\n"})
+        result = await transport.execute_command("s1", "ls -la")
+        assert result["exit_code"] == 0
+        assert result["stdout"] == "file1\nfile2\n"
+
+    @pytest.mark.asyncio
+    async def test_non_whitelisted_command_returns_127(self):
+        """不在白名单的命令返回 exit_code=127"""
+        transport = MockTransport({"ls": "file1\n"})
+        result = await transport.execute_command("s1", "rm -rf /")
+        assert result["exit_code"] == 127
+        assert result["stderr"] != ""
+        assert result["stdout"] == ""
+
+    @pytest.mark.asyncio
+    async def test_fuzzy_match_still_zero(self):
+        """模糊匹配仍然返回 exit_code=0"""
+        transport = MockTransport({"git": "usage: git ..."})
+        result = await transport.execute_command("s1", "git status")
+        assert result["exit_code"] == 0
+
+    @pytest.mark.asyncio
+    async def test_empty_whitelist_all_fail(self):
+        """空白名单时所有命令都返回 127"""
+        transport = MockTransport({})
+        result = await transport.execute_command("s1", "ls")
+        assert result["exit_code"] == 127
+
+
+class TestAskUserMultipleReplies:
+    """S128: ask_user 多种回复模式测试"""
+
+    @pytest.mark.asyncio
+    async def test_ask_user_custom_reply_sequence(self, db, valid_config):
+        """ask_user 按配置序列依次返回不同回复"""
+        harness = EvalHarness(db, config=valid_config, num_trials=1)
+
+        task = EvalTaskDef(
+            id="s128-ask-001",
+            category="intent_classification",
+            input=EvalTaskInput(
+                intent="帮我做点什么",
+                context={
+                    "cwd": "/home",
+                    "mock_ask_user_replies": ["不行，我不想执行", "好吧，可以"],
+                },
+            ),
+            expected=EvalTaskExpected(response_type=["message"]),
+        )
+
+        llm_responses = [
+            # 第一次 ask_user
+            {
+                "choices": [{
+                    "message": {
+                        "content": "",
+                        "tool_calls": [{
+                            "id": "call-ask1",
+                            "type": "function",
+                            "function": {
+                                "name": "ask_user",
+                                "arguments": json.dumps({"question": "确认执行？"}),
+                            },
+                        }],
+                    },
+                    "finish_reason": "tool_calls",
+                }],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
+            },
+            # 第二次 ask_user
+            {
+                "choices": [{
+                    "message": {
+                        "content": "",
+                        "tool_calls": [{
+                            "id": "call-ask2",
+                            "type": "function",
+                            "function": {
+                                "name": "ask_user",
+                                "arguments": json.dumps({"question": "再确认一次？"}),
+                            },
+                        }],
+                    },
+                    "finish_reason": "tool_calls",
+                }],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
+            },
+            # 第三次 ask_user（超出配置序列，使用默认回复）
+            {
+                "choices": [{
+                    "message": {
+                        "content": "",
+                        "tool_calls": [{
+                            "id": "call-ask3",
+                            "type": "function",
+                            "function": {
+                                "name": "ask_user",
+                                "arguments": json.dumps({"question": "第三次确认？"}),
+                            },
+                        }],
+                    },
+                    "finish_reason": "tool_calls",
+                }],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
+            },
+            # deliver_result
+            {
+                "choices": [{
+                    "message": {
+                        "content": "",
+                        "tool_calls": [{
+                            "id": "call-dr1",
+                            "type": "function",
+                            "function": {
+                                "name": "deliver_result",
+                                "arguments": json.dumps({
+                                    "response_type": "message",
+                                    "summary": "好的",
+                                    "steps": [],
+                                    "need_confirm": False,
+                                }),
+                            },
+                        }],
+                    },
+                    "finish_reason": "tool_calls",
+                }],
+                "usage": {"prompt_tokens": 120, "completion_tokens": 30, "total_tokens": 150},
+            },
+        ]
+
+        with patch("evals.harness.call_llm", new_callable=AsyncMock) as mock_llm:
+            mock_llm.side_effect = llm_responses
+            result = await harness.run([task])
+
+        trial_result = result["task_results"]["s128-ask-001"]["trials"][0]
+        assert trial_result["success"] is True
+        # 从数据库获取 transcript 验证 ask_user 回复序列
+        trials = await db.list_trials_by_task("s128-ask-001")
+        transcript = trials[0].transcript_json
+        ask_events = [
+            e for e in transcript
+            if isinstance(e, dict) and e.get("tool_name") == "ask_user"
+        ]
+        assert len(ask_events) == 3
+        assert ask_events[0]["reply"] == "不行，我不想执行"
+        assert ask_events[1]["reply"] == "好吧，可以"
+        assert ask_events[2]["reply"] == "是的，继续"  # 默认回复
+
+    @pytest.mark.asyncio
+    async def test_ask_user_default_reply_without_config(self, db, valid_config):
+        """无 mock_ask_user_replies 配置时使用默认回复"""
+        harness = EvalHarness(db, config=valid_config, num_trials=1)
+
+        task = EvalTaskDef(
+            id="s128-ask-002",
+            category="intent_classification",
+            input=EvalTaskInput(intent="做点什么", context={"cwd": "/home"}),
+            expected=EvalTaskExpected(response_type=["message"]),
+        )
+
+        llm_responses = [
+            {
+                "choices": [{
+                    "message": {
+                        "content": "",
+                        "tool_calls": [{
+                            "id": "call-ask1",
+                            "type": "function",
+                            "function": {
+                                "name": "ask_user",
+                                "arguments": json.dumps({"question": "确认？"}),
+                            },
+                        }],
+                    },
+                    "finish_reason": "tool_calls",
+                }],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
+            },
+            {
+                "choices": [{
+                    "message": {
+                        "content": "",
+                        "tool_calls": [{
+                            "id": "call-dr1",
+                            "type": "function",
+                            "function": {
+                                "name": "deliver_result",
+                                "arguments": json.dumps({
+                                    "response_type": "message",
+                                    "summary": "好的",
+                                    "steps": [],
+                                    "need_confirm": False,
+                                }),
+                            },
+                        }],
+                    },
+                    "finish_reason": "tool_calls",
+                }],
+                "usage": {"prompt_tokens": 120, "completion_tokens": 30, "total_tokens": 150},
+            },
+        ]
+
+        with patch("evals.harness.call_llm", new_callable=AsyncMock) as mock_llm:
+            mock_llm.side_effect = llm_responses
+            result = await harness.run([task])
+
+        trial_result = result["task_results"]["s128-ask-002"]["trials"][0]
+        assert trial_result["success"] is True
+        # 从数据库获取 transcript 验证默认回复
+        trials = await db.list_trials_by_task("s128-ask-002")
+        transcript = trials[0].transcript_json
+        ask_events = [
+            e for e in transcript
+            if isinstance(e, dict) and e.get("tool_name") == "ask_user"
+        ]
+        assert len(ask_events) == 1
+        assert ask_events[0]["reply"] == "是的，继续"  # 默认回复
+
+
+class TestRegressionYamls:
+    """S128: 回归测试 YAML 加载验证"""
+
+    def test_mt_006_title_truncation_loads(self):
+        """mt_006 标题截断回归测试可加载"""
+        tasks = load_yaml_tasks(Path("evals/tasks/multi_turn"))
+        mt006 = next(t for t in tasks if t.id == "mt_006_title_truncation")
+        assert mt006.category.value == "multi_turn"
+        assert len(mt006.input.context.get("conversation_history", [])) >= 8
+        assert mt006.expected.response_type == ["command"]
+        assert "web-app" in mt006.expected.steps_contain
+
+    def test_mt_007_role_loss_loads(self):
+        """mt_007 角色丢失回归测试可加载"""
+        tasks = load_yaml_tasks(Path("evals/tasks/multi_turn"))
+        mt007 = next(t for t in tasks if t.id == "mt_007_role_loss")
+        assert mt007.category.value == "multi_turn"
+        assert len(mt007.input.context.get("conversation_history", [])) >= 5
+        assert "deploy" in mt007.expected.steps_contain
+
+    def test_mt_008_multi_turn_degradation_loads(self):
+        """mt_008 多轮退化回归测试可加载"""
+        tasks = load_yaml_tasks(Path("evals/tasks/multi_turn"))
+        mt008 = next(t for t in tasks if t.id == "mt_008_multi_turn_degradation")
+        assert mt008.category.value == "multi_turn"
+        assert len(mt008.input.context.get("conversation_history", [])) >= 5
+        assert "restart" in mt008.expected.steps_contain
+        assert "api-server" in mt008.expected.steps_contain
+
+    def test_cg_009_ai_prompt_coding_loads(self):
+        """cg_009 ai_prompt 编程辅助任务可加载"""
+        tasks = load_yaml_tasks(Path("evals/tasks/command_generation"))
+        cg009 = next(t for t in tasks if t.id == "cg_009_ai_prompt_coding")
+        assert cg009.expected.response_type == ["ai_prompt"]
+        assert cg009.expected.steps_contain == []
+        assert getattr(cg009.metadata, "single_turn", None) is True
+
+    def test_cg_010_ai_prompt_explanation_loads(self):
+        """cg_010 ai_prompt 概念解释任务可加载"""
+        tasks = load_yaml_tasks(Path("evals/tasks/command_generation"))
+        cg010 = next(t for t in tasks if t.id == "cg_010_ai_prompt_explanation")
+        assert cg010.expected.response_type == ["ai_prompt"]
+        assert cg010.expected.steps_contain == []
+        assert cg010.metadata.single_turn is True
+
+    def test_single_turn_tasks_have_flag(self):
+        """所有非 multi_turn 任务都有 single_turn: true"""
+        tasks = load_yaml_tasks(Path("evals/tasks"))
+        for t in tasks:
+            if t.category.value != "multi_turn":
+                assert getattr(t.metadata, "single_turn", None) is True, f"{t.id} missing single_turn"
+            else:
+                assert getattr(t.metadata, "single_turn", None) is None, f"{t.id} should not have single_turn"
+
+    def test_multi_turn_tasks_have_sufficient_history(self):
+        """所有 multi_turn 任务至少 3 轮 history"""
+        tasks = load_yaml_tasks(Path("evals/tasks"))
+        for t in tasks:
+            if t.category.value == "multi_turn":
+                history = t.input.context.get("conversation_history", [])
+                assert len(history) >= 3, f"{t.id} has only {len(history)} history entries"
+

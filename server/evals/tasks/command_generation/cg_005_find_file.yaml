@@ -16,4 +16,5 @@ metadata:
   source: daily_usage
   difficulty: easy
   tags: ["command", "find", "file_search"]
+  single_turn: true
   reference_solution: "response_type=command, steps=[find . -name '*.py']"

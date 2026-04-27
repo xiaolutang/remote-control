@@ -16,4 +16,5 @@ metadata:
   source: daily_usage
   difficulty: easy
   tags: ["greeting", "message"]
+  single_turn: true
   reference_solution: "response_type=message, summary=友好回复"

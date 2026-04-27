@@ -16,4 +16,5 @@ metadata:
   source: knowledge_base
   difficulty: medium
   tags: ["knowledge", "claude_code", "tips"]
+  single_turn: true
   reference_solution: "response_type=message, 返回 Claude Code 使用技巧相关知识"

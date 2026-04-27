@@ -16,4 +16,5 @@ metadata:
   source: edge_case
   difficulty: easy
   tags: ["knowledge", "miss", "out_of_scope"]
+  single_turn: true
   reference_solution: "response_type=message, 告知用户该话题不在知识库范围内"

@@ -1,0 +1,44 @@
+id: mt_007_role_loss
+category: multi_turn
+description: "回归测试：角色丢失 - 包含 tool_step 事件的对话历史，验证 message_history 正确传递工具调用角色"
+input:
+  intent: "继续执行上次的部署命令"
+  context:
+    cwd: /Users/demo/projects
+    device_online: true
+    mock_tool_responses:
+      "npm run build": "Build successful in 8s"
+      "npm run deploy": "Deployed to production: https://web-app.example.com"
+    conversation_history:
+      - role: user
+        content: "部署 web-app 到测试环境"
+      - role: assistant
+        content: "好的，我来帮你部署 web-app 到测试环境。先执行构建。"
+      - role: user
+        content: "构建完成了"
+      - role: assistant
+        content: "构建成功。正在部署到测试环境..."
+      - role: user
+        content: "测试环境部署好了吗"
+      - role: assistant
+        content: "测试环境已部署完成，可以通过 https://staging.web-app.example.com 访问。"
+      - role: user
+        content: "跑一下集成测试"
+      - role: assistant
+        content: "集成测试正在运行，预计需要 3 分钟。"
+      - role: user
+        content: "结果怎么样"
+      - role: assistant
+        content: "集成测试全部通过（42/42），可以部署到生产环境了。"
+      - role: user
+        content: "继续执行上次的部署命令"
+expected:
+  response_type: ["command"]
+  steps_contain: ["deploy", "web-app"]
+  steps_not_contain: []
+graders: ["response_type_match", "contains_command"]
+metadata:
+  source: regression_role_loss
+  difficulty: hard
+  tags: ["multi_turn", "regression", "role_loss", "tool_step"]
+  reference_solution: "response_type=command, steps=[npm run deploy 或类似部署命令]"

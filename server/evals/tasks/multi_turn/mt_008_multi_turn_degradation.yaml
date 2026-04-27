@@ -1,0 +1,45 @@
+id: mt_008_multi_turn_degradation
+category: multi_turn
+description: "回归测试：多轮退化 - 5+ 轮混合对话后仍能正确生成命令"
+input:
+  intent: "重启那个出问题的服务"
+  context:
+    cwd: /Users/demo/projects
+    device_online: true
+    mock_tool_responses:
+      "docker ps": "CONTAINER ID   IMAGE          STATUS\nabc123   api-server:latest   Up 5 hours\ndef456   web-app:latest      Up 2 hours\nghi789   redis:7            Up 48 hours"
+      "docker restart api-server": "api-server"
+      "systemctl restart api-server": ""
+    conversation_history:
+      - role: user
+        content: "查看一下当前运行的服务"
+      - role: assistant
+        content: "当前运行 3 个服务：api-server (5h), web-app (2h), redis (48h)。"
+      - role: user
+        content: "api-server 最近有什么异常吗"
+      - role: assistant
+        content: "api-server 最近 1 小时内有 12 次 500 错误，主要在 /api/auth 端点，疑似连接池耗尽。"
+      - role: user
+        content: "看看日志"
+      - role: assistant
+        content: "最近日志显示：ConnectionPool exhausted, retrying in 5s。出现了 15 次，建议重启服务释放连接。"
+      - role: user
+        content: "redis 没问题吧"
+      - role: assistant
+        content: "Redis 运行正常，内存使用 45%，连接数稳定在 20。"
+      - role: user
+        content: "web-app 的编译有 warning 吗"
+      - role: assistant
+        content: "web-app 编译有 2 个 warning，都是 TypeScript 类型相关，不影响运行。"
+      - role: user
+        content: "重启那个出问题的服务"
+expected:
+  response_type: ["command"]
+  steps_contain: ["restart", "api-server"]
+  steps_not_contain: ["redis", "web-app"]
+graders: ["response_type_match", "contains_command"]
+metadata:
+  source: regression_multi_turn_degradation
+  difficulty: hard
+  tags: ["multi_turn", "regression", "multi_turn_degradation", "mixed_context"]
+  reference_solution: "response_type=command, steps=[docker restart api-server 或 systemctl restart api-server]"

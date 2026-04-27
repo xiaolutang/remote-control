@@ -111,6 +111,7 @@ class MockTransport:
     根据 task 的 input.context.mock_tool_responses 返回预定义结果。
     mock_tool_responses 格式: {"command_pattern": "mock output"}
     精确匹配 command，找不到时返回默认响应。
+    S128: 不在白名单中的命令返回非零 exit_code，模拟真实失败。
     """
 
     def __init__(self, mock_responses: Dict[str, str]):
@@ -132,6 +133,7 @@ class MockTransport:
         """
         self.call_log.append({"command": command, "cwd": cwd})
 
+        matched = True
         output = self.mock_responses.get(command)
         if output is None:
             # 尝试模糊匹配：如果 mock key 是 command 的前缀
@@ -139,9 +141,17 @@ class MockTransport:
                 if command.startswith(pattern) or pattern in command:
                     output = response
                     break
+            else:
+                matched = False
 
-        if output is None:
-            output = f"mock: command '{command}' executed successfully"
+        if not matched:
+            # S128: 不在白名单中的命令返回非零 exit_code
+            return {
+                "stdout": "",
+                "stderr": f"mock: command '{command}' not found in whitelist",
+                "exit_code": 127,
+                "timed_out": False,
+            }
 
         return {
             "stdout": output,
@@ -970,6 +980,14 @@ class EvalHarness:
         deliver_result_captured: Optional[Dict[str, Any]] = None
         incomplete = False
 
+        # S128: ask_user 多种回复模式
+        # 支持 context.mock_ask_user_replies 列表，依次消费；
+        # 列表耗尽后使用默认回复。
+        _ask_user_replies = list(
+            task.input.context.get("mock_ask_user_replies", [])
+        )
+        _ask_user_reply_idx = 0
+
         for round_idx in range(self.max_rounds):
             messages = _build_messages(task, tool_call_history)
 
@@ -1076,8 +1094,12 @@ class EvalHarness:
                         "result": result,
                     })
                 elif tc["name"] == "ask_user":
-                    # Mock ask_user: 返回默认确认回复
-                    mock_reply = "是的，继续"
+                    # S128: Mock ask_user 支持多种回复模式
+                    if _ask_user_reply_idx < len(_ask_user_replies):
+                        mock_reply = _ask_user_replies[_ask_user_reply_idx]
+                        _ask_user_reply_idx += 1
+                    else:
+                        mock_reply = "是的，继续"
                     tool_call_history.append({
                         "tool_call": {
                             "role": "assistant",

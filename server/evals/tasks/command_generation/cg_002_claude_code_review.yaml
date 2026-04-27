@@ -16,4 +16,5 @@ metadata:
   source: daily_usage
   difficulty: medium
   tags: ["command", "claude_code", "code_review"]
+  single_turn: true
   reference_solution: "response_type=command, steps=[claude '/review']"

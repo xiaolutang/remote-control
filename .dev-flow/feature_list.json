@@ -2,7 +2,7 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-28T05:35:34",
+  "updated_at": "2026-04-28T05:48:12",
   "active_requirement_cycle": {
     "id": "R047",
     "name": "agent-conversation-interaction-optimization",
@@ -999,7 +999,7 @@
       "depends_on": [
         "S127"
       ],
-      "status": "pending",
+      "status": "completed",
       "priority": "medium",
       "acceptance_criteria": [
         "新增至少 3 个从真实使用问题提取的回归测试（标题截断、角色丢失、多轮退化）",
@@ -1016,7 +1016,13 @@
         "server/evals/tasks/",
         "server/evals/harness.py"
       ],
-      "planning_notes": "在 S126 grader 修复 + S127 Docker 框架就绪后，补充任务覆盖度"
+      "planning_notes": "在 S126 grader 修复 + S127 Docker 框架就绪后，补充任务覆盖度",
+      "started_at": "2026-04-28T05:48:12",
+      "completed_at": "2026-04-28T05:48:12",
+      "actual_minutes": 25,
+      "execution_notes": "3个回归case + 2个ai_prompt任务 + 29个单轮标注 + MockTransport降级 + ask_user多回复，399测试通过",
+      "evidence_file": ".dev-flow/evidence/S128.md",
+      "summary": "eval 回归 case 补充完成：5新任务 + 31增强 + Mock降级"
     },
     {
       "id": "S129",
@@ -1047,8 +1053,8 @@
   "summary": {
     "total_tasks": 31,
     "by_status": {
-      "completed": 27,
-      "pending": 4
+      "completed": 28,
+      "pending": 3
     },
     "by_module": {
       "agent": 2,

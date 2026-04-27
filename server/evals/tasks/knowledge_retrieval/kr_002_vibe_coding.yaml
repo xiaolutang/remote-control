@@ -16,4 +16,5 @@ metadata:
   source: knowledge_base
   difficulty: medium
   tags: ["knowledge", "vibe_coding", "methodology"]
+  single_turn: true
   reference_solution: "response_type=message, 返回 Vibe Coding 方法论相关知识"

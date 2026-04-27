@@ -16,4 +16,5 @@ metadata:
   source: daily_usage
   difficulty: easy
   tags: ["message", "codex", "tool_mapping"]
+  single_turn: true
   reference_solution: "response_type=message, 知识说明 Codex 为 info-only 工具，summary 不包含可执行命令"

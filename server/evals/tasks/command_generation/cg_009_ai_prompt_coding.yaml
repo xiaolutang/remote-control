@@ -1,0 +1,20 @@
+id: cg_009_ai_prompt_coding
+category: command_generation
+description: "AI Prompt 编程辅助 - 用户请求编程帮助，期望返回 ai_prompt 类型"
+input:
+  intent: "帮我写一个 Claude Code 的 prompt 来实现用户登录功能"
+  context:
+    cwd: /home/user/project
+    device_online: true
+    mock_tool_responses: {}
+expected:
+  response_type: ["ai_prompt"]
+  steps_contain: []
+  steps_not_contain: ["npm", "python", "git"]
+graders: ["response_type_match", "ai_prompt_quality"]
+metadata:
+  source: ai_prompt_feature
+  difficulty: medium
+  tags: ["ai_prompt", "coding", "prompt_generation"]
+  single_turn: true
+  reference_solution: "response_type=ai_prompt, ai_prompt 包含完整的登录功能实现 prompt"

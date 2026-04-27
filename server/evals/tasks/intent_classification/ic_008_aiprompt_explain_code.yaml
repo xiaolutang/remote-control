@@ -23,4 +23,5 @@ metadata:
   source: daily_usage
   difficulty: medium
   tags: ["message", "explain", "code_reading"]
+  single_turn: true
   reference_solution: "response_type=message, 直接解释代码内容"

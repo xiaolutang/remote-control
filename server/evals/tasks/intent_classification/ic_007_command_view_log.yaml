@@ -18,4 +18,5 @@ metadata:
   source: daily_usage
   difficulty: easy
   tags: ["command", "tail", "log"]
+  single_turn: true
   reference_solution: "response_type=command, steps=[tail -n 50 server.log]"
