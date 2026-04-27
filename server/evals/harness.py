@@ -488,8 +488,16 @@ def _build_messages(
         if role in ("user", "assistant") and content:
             messages.append({"role": role, "content": content})
 
-    # 用户意图
-    messages.append({"role": "user", "content": task.input.intent})
+    # 去重：若对话历史最后一条与 intent 相同，跳过重复追加
+    intent_text = task.input.intent.strip()
+    if (
+        conversation_history
+        and conversation_history[-1].get("content", "").strip() == intent_text
+        and conversation_history[-1].get("role") == "user"
+    ):
+        pass  # intent 已在 conversation_history 中，不再追加
+    else:
+        messages.append({"role": "user", "content": task.input.intent})
 
     # 添加历史工具调用记录
     for entry in tool_call_history:
