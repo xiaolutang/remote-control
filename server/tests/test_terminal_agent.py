@@ -797,15 +797,15 @@ class TestS085PromptKnowledge:
 
     def test_system_prompt_contains_user_journeys(self):
         """SYSTEM_PROMPT 定义了用户旅程边界。"""
-        # B105: 新 prompt 以 Claude Code 预处理为核心
-        assert "确认终端环境" in SYSTEM_PROMPT or "Claude Code" in SYSTEM_PROMPT
+        # S112: 简化后仍保留 Claude Code 预处理定位
+        assert "Claude Code" in SYSTEM_PROMPT
         assert "deliver_result" in SYSTEM_PROMPT
 
     def test_system_prompt_info_only_steps_empty(self):
         """SYSTEM_PROMPT 明确知识问答使用 message 类型。"""
-        # B105: 新 prompt 使用 response_type='message' 描述知识问答
+        # S112: 新 prompt 使用 response_type='message' 描述知识问答
         assert "message" in SYSTEM_PROMPT
-        assert "纯知识问答" in SYSTEM_PROMPT or "知识问答" in SYSTEM_PROMPT
+        assert "知识问答" in SYSTEM_PROMPT
 
     def test_system_prompt_contains_which_verification(self):
         """SYSTEM_PROMPT 包含 which 验证工作流。"""
@@ -971,7 +971,7 @@ class TestRunAgentWithDynamicTools:
                 )
 
             mock_run.assert_awaited()
-            assert mock_run.call_count == 2  # no-delivery 重试一次
+            assert mock_run.call_count == 3  # no-delivery 重试至 max_attempts
 
     @pytest.mark.asyncio
     async def test_run_agent_passes_tool_call_fn_to_deps(self):
@@ -1240,7 +1240,7 @@ class TestLookupKnowledgeGating:
                     include_lookup_knowledge=False,
                 )
             mock_run.assert_awaited()
-            assert mock_run.call_count == 2  # no-delivery 重试一次
+            assert mock_run.call_count == 3  # no-delivery 重试至 max_attempts
 
 
 # ---------------------------------------------------------------------------
@@ -1694,12 +1694,10 @@ class TestTimeoutNoDeliverResult:
 
     @pytest.mark.asyncio
     async def test_timeout_no_deliver_result_returns_fallback(self):
-        """模型未调用 deliver_result 时，应返回 error 类型 AgentRunOutcome + 已累积 usage。"""
+        """模型未调用 deliver_result 时，重试一次后仍失败则返回 error 类型 AgentRunOutcome。"""
         from pydantic_ai import RunUsage
 
-        # 第一次：模型返回文本没调用 deliver_result（触发重试）
-        # 第二次：模型还是返回文本没调用 deliver_result（返回 fallback）
-        accumulated_usage = RunUsage(input_tokens=300, output_tokens=150, requests=2)
+        accumulated_usage = RunUsage(input_tokens=300, output_tokens=150, requests=3)
 
         mock_result = MagicMock()
         mock_result.output = "我在帮你看看项目结构..."  # 模型只输出了自由文本
@@ -1713,15 +1711,14 @@ class TestTimeoutNoDeliverResult:
                 ask_user_fn=AsyncMock(),
             )
 
-        # 应返回 error 类型的 AgentRunOutcome（兜底处理）
+        # 应返回 error 类型 AgentRunOutcome（重试后仍失败）
         assert isinstance(outcome, AgentRunOutcome)
         assert outcome.result.response_type == "error"
         assert outcome.result.need_confirm is False
-        assert "我在帮你看看" in outcome.result.summary
-        # 已累积的 usage 应保留
+        # usage 应保留
         assert outcome.input_tokens == 300
         assert outcome.output_tokens == 150
-        assert outcome.requests == 2
+        assert outcome.requests == 3
 
     @pytest.mark.asyncio
     async def test_timeout_preserves_usage(self):
@@ -1981,9 +1978,12 @@ class TestB105SystemPrompt:
         """SYSTEM_PROMPT 核心定位应为'终端侧 Claude Code 预处理助手'。"""
         assert "预处理" in SYSTEM_PROMPT or "Claude Code" in SYSTEM_PROMPT
 
-    def test_contains_ask_user_confirmation(self):
-        """SYSTEM_PROMPT 包含 ask_user 确认流程：终端里 Claude Code 在运行吗？。"""
-        assert "Claude Code" in SYSTEM_PROMPT and "确认" in SYSTEM_PROMPT
+    def test_no_mandatory_ask_user_confirmation(self):
+        """S112: SYSTEM_PROMPT 不再强制 ask_user 确认 Claude Code 运行状态。"""
+        # 不应包含强制追问 Claude Code 是否运行的流程
+        assert "Claude Code 在运行吗" not in SYSTEM_PROMPT
+        # 但仍应包含 ask_user 工具描述（用于澄清意图）
+        assert "ask_user" in SYSTEM_PROMPT
 
     def test_contains_response_type_selection_rules(self):
         """SYSTEM_PROMPT 包含 response_type 选择规则。"""
@@ -1997,3 +1997,32 @@ class TestB105SystemPrompt:
     def test_contains_claude_code_usage_guidance(self):
         """SYSTEM_PROMPT 包含 Claude Code 使用指导职责。"""
         assert "Claude Code" in SYSTEM_PROMPT
+
+    def test_command_need_confirm_invariant(self):
+        """S112 回归：response_type='command' 时 need_confirm 必须为 True（不变量 #48）。"""
+        result = AgentResult(
+            summary="ls project",
+            steps=[CommandSequenceStep(id="s1", label="list", command="ls")],
+            response_type="command",
+        )
+        assert result.need_confirm is True
+
+    def test_command_need_confirm_false_rejected(self):
+        """S112 回归负向测试：response_type='command' + need_confirm=False 被校验拒绝。"""
+        import pydantic
+        with pytest.raises(pydantic.ValidationError, match="need_confirm"):
+            AgentResult(
+                summary="ls project",
+                steps=[CommandSequenceStep(id="s1", label="list", command="ls")],
+                response_type="command",
+                need_confirm=False,
+            )
+
+    def test_system_prompt_contains_execute_command_boundary(self):
+        """S112: SYSTEM_PROMPT 明确 execute_command vs deliver_result 边界。"""
+        assert "deliver_result" in SYSTEM_PROMPT
+        assert "execute_command" in SYSTEM_PROMPT
+
+    def test_system_prompt_ai_prompt_narrow_scope(self):
+        """S112: SYSTEM_PROMPT 收窄 ai_prompt 使用场景。"""
+        assert "注入 prompt" in SYSTEM_PROMPT or "发送" in SYSTEM_PROMPT

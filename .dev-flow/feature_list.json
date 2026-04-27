@@ -2,7 +2,7 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-27T12:00:00+0800",
+  "updated_at": "2026-04-27T17:30:00+0800",
   "active_requirement_cycle": {
     "id": "R046",
     "name": "agent-prompt-strategy-upgrade",
@@ -376,19 +376,66 @@
       ],
       "summary": "architecture/api_contracts 无偏差。test_coverage + alignment_checklist 同步 S109/S111 状态",
       "evidence_file": "evidence/S111.md"
+    },
+    {
+      "id": "S112",
+      "phase": 4,
+      "module": "server",
+      "name": "SYSTEM_PROMPT 简化 + Eval 数据集修正 → 通过率 80%+",
+      "description": "系统性修复 S109 剩余 8 个失败 case（22/30 → 24/30+）。根因：SYSTEM_PROMPT 条件分支过多，glm-5.1 无法稳定处理。修复方向：简化条件逻辑而非逐 case 打补丁。\n\n三类修复：\n1. SYSTEM_PROMPT 简化（cg_001/cg_002/cg_004/ic_004）：简化模型侧 ask_user 对话流程（仅去掉模型主动追问，不变更产品层 #48 确认不变量）、明确 execute_command vs deliver_result 边界、ai_prompt 使用场景收窄\n2. Eval 数据集修正（cg_003/ic_008）：cg_003 改为期望 message 类型（Codex 产品层不暴露，符合 architecture.md 决策）；ic_008 补充 mock_tool_responses 文件内容\n3. 模型能力边界（mt_002/kr_003）：尝试多轮对话指导和超时优化，不保证修复\n\n注意：去掉 ask_user 仅指模型不再主动追问「Claude Code 在运行吗」，产品层 command 确认执行不变量 #48 不受影响（所有 command 结果仍需用户确认才能执行）。",
+      "verification": "L2",
+      "depends_on": ["S109"],
+      "status": "pending",
+      "priority": 8,
+      "acceptance_criteria": [
+        "SYSTEM_PROMPT 简化模型侧 ask_user 对话流程（用 Claude Code 打开/做某事 → 直接生成 command，不再主动追问。注意：这不影响产品层 #48 确认不变量，所有 command 仍需用户确认执行）",
+        "SYSTEM_PROMPT 明确 execute_command vs deliver_result 边界（用户要求的操作用 deliver_result(command)，自己探索用 execute_command）",
+        "SYSTEM_PROMPT ai_prompt 使用场景收窄（仅用户明确要求给运行中 Claude Code 注入 prompt 时使用）",
+        "cg_003 eval 期望改为 response_type=message（Codex 产品层不暴露，符合 architecture.md 关键决策）",
+        "ic_008 mock_tool_responses 补充 execute_command('cat src/main.py') 的模拟文件内容",
+        "response_type='command' 时 need_confirm 仍为 true（回归断言，确保 #48 不变量不被破坏）",
+        "最终 eval 通过率 >= 80%（>= 24/30）",
+        "cg_001/cg_002/cg_004/ic_004 全部通过",
+        "ic_008 改为 message 类型、ic_009/ic_010 改为 command 类型（与新 SYSTEM_PROMPT 规则一致）",
+        "safety 类别保持 100%",
+        "test_terminal_agent.py 断言同步更新（ask_user/ai_prompt 相关断言）",
+        "pytest tests/test_terminal_agent.py 全量通过",
+        "不影响已有的 22 个通过 case",
+        "test_coverage.md / alignment_checklist.md 同步 S112 状态"
+      ],
+      "risk_tags": [],
+      "files": [
+        "server/app/terminal_agent.py",
+        "server/evals/tasks/command_generation/cg_003_codex_analyze.yaml",
+        "server/evals/tasks/intent_classification/ic_008_aiprompt_explain_code.yaml",
+        "server/evals/tasks/intent_classification/ic_009_aiprompt_refactor.yaml",
+        "server/evals/tasks/intent_classification/ic_010_aiprompt_write_test.yaml",
+        "server/tests/test_terminal_agent.py",
+        ".dev-flow/test_coverage.md",
+        ".dev-flow/alignment_checklist.md"
+      ],
+      "test_tasks": [
+        "python -m evals run --tasks cg_001,cg_002,cg_004,ic_004 --trials 3 — 验证 4 个 SYSTEM_PROMPT case 修复",
+        "python -m evals run --tasks cg_003 --trials 3 — 验证 Codex eval 期望改为 message",
+        "python -m evals run --tasks ic_008,ic_009,ic_010 --trials 3 — 验证 eval 重分类（message/command）",
+        "python -m evals run --trials 3 — 全量回归（确保已有 22 个通过不受影响）",
+        "pytest tests/test_terminal_agent.py -v — need_confirm=true 回归 + 断言同步 + 全量通过",
+        "负向测试：Claude Code 未运行时 ai_prompt 不被误用（eval task 或 mock 场景验证）"
+      ],
+      "planning_notes": "核心策略：简化 SYSTEM_PROMPT 条件逻辑，让弱模型（glm-5.1）也能稳定遵循。避免添加更多条件分支。"
     }
   ],
   "summary": {
-    "total_tasks": 8,
+    "total_tasks": 9,
     "by_status": {
-      "pending": 0,
+      "pending": 1,
       "in_progress": 0,
       "completed": 8,
       "blocked": 0,
       "cancelled": 0
     },
     "by_module": {
-      "server": 3,
+      "server": 4,
       "client": 1,
       "test": 2,
       "docs": 2

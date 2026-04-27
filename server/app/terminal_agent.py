@@ -141,6 +141,8 @@ class AgentResult(BaseModel):
         elif self.response_type == 'command':
             if not self.steps:
                 raise ValueError("response_type='command' 时 steps 不能为空（至少需要一个命令）")
+            if not self.need_confirm:
+                raise ValueError("response_type='command' 时 need_confirm 必须为 True（不变量 #48）")
             if self.ai_prompt:
                 raise ValueError("response_type='command' 时 ai_prompt 必须为空字符串")
         elif self.response_type == 'ai_prompt':
@@ -217,10 +219,9 @@ SYSTEM_PROMPT = """你是终端侧 Claude Code 预处理助手。你的核心职
 
 # 核心定位
 你是 Claude Code 的"前台"，帮助用户：
-1. 确认终端环境（Claude Code 是否在运行、当前项目是否正确）
-2. 探索远端设备的项目结构和技术栈
-3. 组装高质量的 prompt 或命令，交付给 Claude Code 执行
-4. 回答 AI 编程相关的知识问答
+1. 探索远端设备的项目结构和技术栈
+2. 组装高质量的 prompt 或命令，交付给 Claude Code 执行
+3. 回答 AI 编程相关的知识问答
 
 # 结果交付方式（强制）
 你必须在每次回复中调用 deliver_result 工具来交付最终结果。无论用户说了什么（问候、提问、请求命令），你都必须调用 deliver_result。
@@ -230,24 +231,19 @@ SYSTEM_PROMPT = """你是终端侧 Claude Code 预处理助手。你的核心职
 - 编程请求 → 根据情况选择 command 或 ai_prompt
 不要只回复文本而不调用 deliver_result，否则结果无法传递。
 
-# ask_user 确认流程（重要）
-当用户发起编程相关请求时，先确认终端状态：
-1. 用 ask_user 确认："终端里 Claude Code 在运行吗？"
-2. 如果在运行，确认是当前要操作的项目吗？
-3. 根据确认结果选择合适的 response_type
-
-# response_type 选择规则
-- **response_type='command'**：生成可直接执行的 shell 命令序列
-  - 用户明确要求启动工具（"用 Claude Code 打开项目" → claude）
-  - 直接终端操作（git、ls、find、cd、cat、grep、build、install、test）
-  - Claude Code 未运行时生成启动命令（cd 到项目 + claude）
-- **response_type='ai_prompt'**：仅用于复杂编程任务需要 AI 辅助时
-  - 用户要求 Claude Code 执行复杂任务（重构、写测试、代码审查），且 Claude Code 确认在运行
-  - 将用户意图组装成高质量 prompt 注入给 Claude Code
-  - 简单命令不要用 ai_prompt，直接用 command
-- **response_type='message'**：纯信息型回复
+# response_type 选择规则（三选一，互斥）
+- **response_type='command'**：用户要求执行终端操作（默认选择）
+  - 启动工具（Claude Code → claude，其他工具按名称）
+  - 终端命令（git、ls、find、cd、cat、grep、build、install、test、mkdir 等）
+  - 用户说"用 Claude Code 做 X"→ 生成 claude 命令（如 claude -p "做 X"）
+  - 所有涉及工具启动或命令执行的场景都用 command
+- **response_type='ai_prompt'**：仅当用户原话明确说"注入 prompt""发送 prompt""给 Claude Code 写 prompt"时使用
+  - 不包含"用 Claude Code 做 X"——那属于 command 类型
+  - 不包含"让 Claude Code 执行"——那也属于 command 类型
+  - 只有用户要求你编写一段 prompt 文本注入运行中的 Claude Code 时才用
+- **response_type='message'**：纯信息型回复（不需要任何终端操作）
   - 知识问答、概念解释、使用建议
-  - 超出范围的操作说明
+  - 超出范围的请求说明
   - need_confirm 必须为 False
 
 # ai_prompt 质量标准（response_type='ai_prompt' 时）
@@ -273,11 +269,11 @@ SYSTEM_PROMPT = """你是终端侧 Claude Code 预处理助手。你的核心职
 - 如果远端设备有动态扩展工具可用，可以直接调用对应工具名
 
 # 工具使用优先级
-1. **ask_user**：首先确认终端环境和用户意图
-2. **execute_command**：探索远端设备（目录、文件、项目结构）
-3. **lookup_knowledge**：获取 AI 编程技巧和项目知识
-4. **动态扩展工具**：按名称调用远端设备上注册的扩展工具（如 MCP 技能）
-5. **deliver_result**：准备好结果时调用，完成本次交互
+1. **execute_command**：探索远端设备（目录、文件、项目结构）
+2. **lookup_knowledge**：获取 AI 编程技巧和项目知识
+3. **动态扩展工具**：按名称调用远端设备上注册的扩展工具（如 MCP 技能）
+4. **deliver_result**：准备好结果时调用，完成本次交互
+5. **ask_user**：仅在需要澄清用户模糊意图时使用，不要主动追问 Claude Code 是否在运行
 
 # AI 编程工具映射
 - "Claude Code" / "Claude" / "用 Claude" / "claude code" → 命令 `claude`
@@ -305,6 +301,9 @@ SYSTEM_PROMPT = """你是终端侧 Claude Code 预处理助手。你的核心职
 - 但你可以通过 deliver_result(response_type='command') 建议任何命令让用户确认执行（包括写、安装、构建等）
 - 只有超出安全边界的请求（如 rm -rf /、sudo、访问敏感路径）才用 message 类型拒绝
 - 不要将你的思考过程展示给用户，只展示对用户有用的信息
+- 当用户要求执行某个操作（如 ls、git status）时，直接通过 deliver_result(response_type='command') 生成命令
+- 不要先用 execute_command 执行用户要求的操作再返回 message——那是你自己探索时才做的事
+- execute_command 仅用于你需要主动了解环境时（如检查项目结构、查看文件内容）
 """  # noqa: E501
 
 
@@ -820,7 +819,6 @@ async def run_agent(
     # 重试间 usage_tracker 不重置，保留之前累积的 token 用量
     max_attempts = 3
     retry_hint = None
-    no_delivery_attempt = 0
 
     # B106: 构建 event_stream_handler 用于捕获模型中间文本输出
     # 通过 PartStartEvent/PartDeltaEvent 捕获 TextPart，累积完整文本后回调 on_model_text
@@ -869,21 +867,21 @@ async def run_agent(
                 event_stream_handler=_stream_handler,
             )
             # 模型正常结束但没调用 deliver_result（协议违约）
-            # 给一次重试机会，让模型重新调用 deliver_result
-            no_delivery_attempt += 1
-            if no_delivery_attempt < 2:
+            # 给一次重试机会（清空文本追踪，避免重复 assistant_message 气泡）
+            if attempt < max_attempts:
                 logger.warning(
                     "Agent completed without deliver_result (attempt %d), retrying with hint",
-                    no_delivery_attempt,
+                    attempt,
                 )
+                _current_text_parts.clear()  # 清空前一次文本追踪，防止重复气泡
                 retry_hint = "注意：你上次回复没有调用 deliver_result 工具交付结果。请确保在回复中调用 deliver_result 工具来交付最终结果。"
                 continue
 
-            # 重试后仍然没调用 deliver_result，返回 error fallback
-            # 保留已累积的 usage，让上游可以正常推送 error + usage
+            # 重试后仍失败，返回 error fallback
+            logger.warning("Agent completed without deliver_result after retry, returning error fallback")
             usage = run_result.usage()
             fallback_result = AgentResult(
-                summary=run_result.output if run_result.output else "Agent 完成了处理但未交付结构化结果",
+                summary="Agent 未能交付结构化结果，请重试",
                 steps=[],
                 response_type="error",
                 need_confirm=False,

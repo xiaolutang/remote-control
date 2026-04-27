@@ -254,6 +254,9 @@ def _validate_deliver_result(args: Dict[str, Any]) -> List[str]:
             for idx, step in enumerate(steps):
                 if isinstance(step, dict) and not step.get("command", "").strip():
                     errors.append(f"step[{idx}] command 为空")
+        # command 必须需要确认（不变量 #48）
+        if not need_confirm:
+            errors.append("response_type='command' 要求 need_confirm=True（不变量 #48）")
         # command 不应有 ai_prompt
         if ai_prompt.strip():
             errors.append("response_type='command' 不应有 ai_prompt")

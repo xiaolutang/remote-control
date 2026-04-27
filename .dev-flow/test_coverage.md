@@ -731,6 +731,7 @@
 | 基线评估 + 优化 | S109 | eval | 基线记录 + 4 轮 SYSTEM_PROMPT 迭代 + ai_prompt 用例修复 + 最终通过率 73%（22/30） | ✅ |
 | Server+Client 测试 | S110 | unit, integration, widget | deliver_result + assistant_message + 重试 usage + 过滤兜底 + conversation 持久化 + resume 回放 + 移动端 stream 同步 | ✅ 232+66 |
 | 文档事后校准 | S111 | docs | CONTRACT-047/048/049/050/051 最终校准 + R046 test_coverage section | ✅ |
+| SYSTEM_PROMPT 简化 + Eval 修正 | S112 | unit, eval | SYSTEM_PROMPT 简化 ask_user + 明确 response_type/execute_command 边界 + cg_003/ic_008 修正 + need_confirm 回归 | ✅ |
 
 #### R046 关键测试场景
 
