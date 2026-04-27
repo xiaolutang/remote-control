@@ -1691,3 +1691,143 @@ class TestErrorResponseType:
 
         assert save_mock.await_count == 1
         assert ordering == ["saved", "error"]
+
+
+# ---------------------------------------------------------------------------
+# S111: SSE 完整事件序列集成测试
+# 验证 phase_change → tool_step → streaming_text → result 顺序
+# ---------------------------------------------------------------------------
+
+class TestSSEEventSequenceIntegration:
+    """S111: SSE 事件序列集成测试 — 验证完整事件流顺序。
+
+    验证验收标准中的事件序列：
+    phase_change(THINKING) → phase_change(EXPLORING) → tool_step(running) →
+    tool_step(done) → phase_change(ANALYZING) → phase_change(RESPONDING) →
+    streaming_text → phase_change(RESULT) → result
+    """
+
+    @pytest.mark.asyncio
+    async def test_full_sse_event_sequence_order(self, manager):
+        """S111: 验证完整 SSE 事件序列的顺序 — phase_change → tool_step → streaming_text → result。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="sse-seq-1",
+        )
+
+        # 模拟完整 Agent 运行生命周期事件序列
+        await s.event_queue.put(("phase_change", {"phase": "THINKING", "description": "正在分析你的意图..."}))
+        await s.event_queue.put(("phase_change", {"phase": "EXPLORING", "description": "正在探索环境..."}))
+        await s.event_queue.put(("tool_step", {"tool_name": "execute_command", "description": "ls -la", "status": "running", "result_summary": ""}))
+        await s.event_queue.put(("tool_step", {"tool_name": "execute_command", "description": "ls -la", "status": "done", "result_summary": "file1.txt file2.txt"}))
+        await s.event_queue.put(("phase_change", {"phase": "ANALYZING", "description": "正在分析结果..."}))
+        await s.event_queue.put(("phase_change", {"phase": "RESPONDING", "description": "正在生成回复..."}))
+        await s.event_queue.put(("streaming_text", {"text_delta": "找到"}))
+        await s.event_queue.put(("streaming_text", {"text_delta": " 2 个文件"}))
+        await s.event_queue.put(("phase_change", {"phase": "RESULT", "description": "完成"}))
+        await s.event_queue.put(("result", {"summary": "找到 2 个文件", "steps": [], "provider": "agent"}))
+        await s.event_queue.put(None)  # 结束
+
+        events = []
+        async for chunk in manager.sse_stream(s):
+            events.append(chunk)
+
+        # 验证事件数量
+        assert len(events) == 10
+
+        # 提取事件类型序列
+        event_types = []
+        for event_str in events:
+            first_line = event_str.split("\n")[0]
+            event_type = first_line.replace("event: ", "")
+            event_types.append(event_type)
+
+        # 验证完整事件序列顺序
+        assert event_types == [
+            "phase_change",    # THINKING
+            "phase_change",    # EXPLORING
+            "tool_step",       # running
+            "tool_step",       # done
+            "phase_change",    # ANALYZING
+            "phase_change",    # RESPONDING
+            "streaming_text",  # "找到"
+            "streaming_text",  # " 2 个文件"
+            "phase_change",    # RESULT
+            "result",          # 最终结果
+        ]
+
+        # 验证 phase_change 事件的 data 格式
+        for event_str in events:
+            if "event: phase_change" in event_str:
+                data_json = event_str.split("data: ")[1].strip()
+                data = json.loads(data_json)
+                assert "phase" in data
+                assert "description" in data
+
+        # 验证 tool_step 事件的 data 格式
+        for event_str in events:
+            if "event: tool_step" in event_str:
+                data_json = event_str.split("data: ")[1].strip()
+                data = json.loads(data_json)
+                assert data["tool_name"] == "execute_command"
+                assert data["status"] in ("running", "done")
+
+        # 验证 streaming_text 事件的 data 格式
+        for event_str in events:
+            if "event: streaming_text" in event_str:
+                data_json = event_str.split("data: ")[1].strip()
+                data = json.loads(data_json)
+                assert "text_delta" in data
+
+        # 验证 result 事件的 data 格式
+        result_event = events[-1]
+        assert "event: result" in result_event
+        data_json = result_event.split("data: ")[1].strip()
+        data = json.loads(data_json)
+        assert data["summary"] == "找到 2 个文件"
+
+    @pytest.mark.asyncio
+    async def test_sse_no_trace_or_assistant_message_events(self, manager):
+        """S111: 验证 SSE 流中不产生旧事件类型 trace / assistant_message。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="sse-no-old-1",
+        )
+
+        # 推送各种新事件类型
+        await s.event_queue.put(("phase_change", {"phase": "THINKING", "description": "Analyzing..."}))
+        await s.event_queue.put(("tool_step", {"tool_name": "execute_command", "description": "ls", "status": "done", "result_summary": "ok"}))
+        await s.event_queue.put(("streaming_text", {"text_delta": "text"}))
+        await s.event_queue.put(("result", {"summary": "done", "steps": []}))
+        await s.event_queue.put(None)
+
+        events = []
+        async for chunk in manager.sse_stream(s):
+            events.append(chunk)
+
+        # 不应包含任何旧事件类型
+        for event_str in events:
+            assert "event: trace" not in event_str, f"发现旧事件类型 trace: {event_str[:80]}"
+            assert "event: assistant_message" not in event_str, f"发现旧事件类型 assistant_message: {event_str[:80]}"
+
+    @pytest.mark.asyncio
+    async def test_sse_event_types_are_subset_of_sse_event_types_constant(self, manager):
+        """S111: 验证所有推送的事件类型都在 SSE_EVENT_TYPES 常量中定义。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="sse-const-1",
+        )
+
+        # 推送所有新事件类型
+        await s.event_queue.put(("phase_change", {"phase": "THINKING", "description": "..."}))
+        await s.event_queue.put(("streaming_text", {"text_delta": "hello"}))
+        await s.event_queue.put(("tool_step", {"tool_name": "execute_command", "description": "ls", "status": "running", "result_summary": ""}))
+        await s.event_queue.put(("question", {"question": "确认？", "options": ["是"], "multi_select": False}))
+        await s.event_queue.put(("result", {"summary": "done", "steps": []}))
+        await s.event_queue.put(None)
+
+        events = []
+        async for chunk in manager.sse_stream(s):
+            events.append(chunk)
+
+        for event_str in events:
+            first_line = event_str.split("\n")[0]
+            event_type = first_line.replace("event: ", "")
+            assert event_type in SSE_EVENT_TYPES, f"事件类型 {event_type} 不在 SSE_EVENT_TYPES 中"

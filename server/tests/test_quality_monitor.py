@@ -39,10 +39,17 @@ from evals.quality_monitor import (
 
 
 def _make_trace_event(tool: str, **extra_payload) -> dict:
-    """构造 trace 事件。"""
+    """构造 trace 事件（旧事件类型，向后兼容测试）。"""
     payload = {"tool": tool, "input_summary": "test", "output_summary": "ok"}
     payload.update(extra_payload)
     return {"event_type": "trace", "payload": payload}
+
+
+def _make_tool_step_event(tool_name: str, **extra_payload) -> dict:
+    """构造 tool_step 事件（B106 新事件类型）。"""
+    payload = {"tool_name": tool_name, "description": "test", "status": "done", "result_summary": "ok"}
+    payload.update(extra_payload)
+    return {"event_type": "tool_step", "payload": payload}
 
 
 def _make_question_event(question_id: str = "q_001") -> dict:
@@ -102,7 +109,7 @@ class TestExtractSessionData:
         assert data.user_id == "u1"
         assert data.device_id == "d1"
         assert data.total_events == 0
-        assert data.trace_events == 0
+        assert data.tool_step_events == 0
         assert data.has_result is False
         assert data.total_tokens == 0
 
@@ -115,7 +122,7 @@ class TestExtractSessionData:
         data = extract_session_data(events, session_id="s1", intent="install nginx")
 
         assert data.total_events == 2
-        assert data.trace_events == 1
+        assert data.tool_step_events == 1
         assert data.execute_command_count == 1
         assert data.has_result is True
         assert data.response_type == "command_sequence"
@@ -193,6 +200,76 @@ class TestExtractSessionData:
 
         assert data.total_events == 1
         assert data.execute_command_count == 0
+
+    def test_tool_step_event_recognized(self):
+        """S111: tool_step 事件（B106 新类型）能被正确识别，替代旧 trace。"""
+        events = [
+            _make_tool_step_event("execute_command"),
+            _make_tool_step_event("lookup_knowledge"),
+            _make_result_event(response_type="command", total_tokens=500),
+        ]
+        data = extract_session_data(events, session_id="s-toolstep-1", intent="list files")
+
+        assert data.tool_step_events == 2
+        assert data.execute_command_count == 1
+        assert data.lookup_knowledge_count == 1
+        assert data.has_result is True
+
+    def test_phase_change_event_counted(self):
+        """S111: phase_change 事件被正确计数。"""
+        events = [
+            {"event_type": "phase_change", "payload": {"phase": "THINKING", "description": "Analyzing..."}},
+            {"event_type": "phase_change", "payload": {"phase": "EXPLORING", "description": "Exploring..."}},
+            _make_tool_step_event("execute_command"),
+            _make_result_event(total_tokens=300),
+        ]
+        data = extract_session_data(events, session_id="s-phase-1")
+
+        assert data.phase_change_events == 2
+        assert data.tool_step_events == 1
+
+    def test_streaming_text_event_counted(self):
+        """S111: streaming_text 事件被正确计数。"""
+        events = [
+            {"event_type": "streaming_text", "payload": {"text_delta": "Hello"}},
+            {"event_type": "streaming_text", "payload": {"text_delta": " world"}},
+            _make_tool_step_event("execute_command"),
+            _make_result_event(total_tokens=400),
+        ]
+        data = extract_session_data(events, session_id="s-stream-1")
+
+        assert data.streaming_text_events == 2
+
+    def test_mixed_old_and_new_event_types(self):
+        """S111: 混合旧 trace 和新 tool_step 事件都能被正确识别（向后兼容）。"""
+        events = [
+            _make_trace_event("execute_command"),
+            _make_tool_step_event("execute_command"),
+            _make_tool_step_event("lookup_knowledge"),
+            _make_result_event(total_tokens=600),
+        ]
+        data = extract_session_data(events, session_id="s-mixed-1")
+
+        assert data.tool_step_events == 3  # 1 trace + 2 tool_step
+        assert data.execute_command_count == 2
+
+    def test_tool_step_safety_check_via_result_summary(self):
+        """S111: tool_step 的 safety check 从 result_summary 字段提取（替代旧 output_summary）。"""
+        events = [
+            _make_tool_step_event(
+                "execute_command",
+                result_summary="SAFETY_CHECK: rm -rf / -> BLOCKED",
+            ),
+            _make_tool_step_event(
+                "execute_command",
+                result_summary="SAFETY_CHECK: ls -la -> PASSED",
+            ),
+            _make_result_event(),
+        ]
+        data = extract_session_data(events, session_id="s-safety-1")
+
+        assert data.safety_checked_commands == 2
+        assert data.safety_passed_commands == 1
 
 
 # ── 测试 compute_response_type_accuracy ──────────────────────────────────────
@@ -382,7 +459,7 @@ class TestComputeTokenEfficiency:
         data = SessionEventData(
             session_id="s1",
             total_tokens=300,
-            trace_events=1,
+            tool_step_events=1,
         )
         result = compute_token_efficiency(data)
         assert result == 1.0  # capped at 1.0
@@ -392,7 +469,7 @@ class TestComputeTokenEfficiency:
         data = SessionEventData(
             session_id="s1",
             total_tokens=1000,
-            trace_events=5,
+            tool_step_events=5,
         )
         result = compute_token_efficiency(data)
         assert result == 1.0
@@ -402,7 +479,7 @@ class TestComputeTokenEfficiency:
         data = SessionEventData(
             session_id="s1",
             total_tokens=1000,
-            trace_events=1,
+            tool_step_events=1,
         )
         result = compute_token_efficiency(data)
         assert result == 0.5
@@ -412,7 +489,7 @@ class TestComputeTokenEfficiency:
         data = SessionEventData(
             session_id="s1",
             total_tokens=4000,
-            trace_events=10,
+            tool_step_events=10,
         )
         result = compute_token_efficiency(data)
         assert result == 0.75
@@ -719,7 +796,7 @@ class TestEndToEnd:
         # ask_user_frequency: 1 ask_user / 6 events ≈ 0.1667
         assert abs(by_name[METRIC_ASK_USER_FREQUENCY] - 0.1667) < 0.01
 
-        # token_efficiency: 3 trace + 1 question + 1 answer = 5 轮 (medium)
+        # token_efficiency: 3 tool_step + 1 question + 1 answer = 5 轮 (medium)
         # baseline = 1500, tokens = 1500 → 1500/1500 = 1.0
         assert by_name[METRIC_TOKEN_EFFICIENCY] == 1.0
 

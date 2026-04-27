@@ -13,6 +13,9 @@ CONTRACT-052 约束：
   （event_type / tool_name / response_type / token_usage）
 - 不读对话文本内容
 - 指标只写 evals.db，不写 app.db
+
+S111: 适配新事件模型 — 识别 tool_step（替代旧 trace）、phase_change、streaming_text。
+     向后兼容：仍识别旧 trace 事件类型（payload.tool → payload.tool_name）。
 """
 from __future__ import annotations
 
@@ -97,13 +100,15 @@ class SessionEventData:
 
     # 事件分类计数
     total_events: int = 0
-    trace_events: int = 0
+    tool_step_events: int = 0   # B106: 替代旧 trace（向后兼容旧 trace）
+    phase_change_events: int = 0
+    streaming_text_events: int = 0
     question_events: int = 0
     answer_events: int = 0
     result_events: int = 0
     error_events: int = 0
 
-    # trace 细分
+    # tool_step 细分
     execute_command_count: int = 0
     ask_user_count: int = 0
     lookup_knowledge_count: int = 0
@@ -113,7 +118,7 @@ class SessionEventData:
     response_type: str = ""
     has_result: bool = False
 
-    # 安全检查相关（从 trace output_summary 中提取）
+    # 安全检查相关（从 tool_step result_summary 中提取）
     safety_checked_commands: int = 0
     safety_passed_commands: int = 0
 
@@ -189,14 +194,16 @@ def extract_session_data(
         event_type = event.get("event_type", "")
         data.total_events += 1
 
-        if event_type == "trace":
-            data.trace_events += 1
-            tool = payload.get("tool", "")
+        if event_type in ("trace", "tool_step"):
+            # trace: 旧事件类型（向后兼容）
+            # tool_step: B106 新事件类型（payload 用 tool_name 替代 tool）
+            data.tool_step_events += 1
+            tool = payload.get("tool") or payload.get("tool_name", "")
 
             if tool == "execute_command":
                 data.execute_command_count += 1
                 # 检查是否有安全检查相关标记
-                output = payload.get("output_summary", "")
+                output = payload.get("output_summary") or payload.get("result_summary", "")
                 if "SAFETY_CHECK" in output or "safety_check" in output:
                     data.safety_checked_commands += 1
                     if "BLOCKED" not in output and "blocked" not in output:
@@ -210,6 +217,12 @@ def extract_session_data(
 
             elif tool.startswith("call_dynamic_tool:"):
                 data.dynamic_tool_calls += 1
+
+        elif event_type == "phase_change":
+            data.phase_change_events += 1
+
+        elif event_type == "streaming_text":
+            data.streaming_text_events += 1
 
         elif event_type == "question":
             data.question_events += 1
@@ -264,7 +277,7 @@ def compute_response_type_accuracy(data: SessionEventData) -> float:
 def compute_tool_usage_efficiency(data: SessionEventData) -> float:
     """计算 tool_usage_efficiency：工具调用次数 / 解决问题所需轮数。
 
-    轮数 = trace_events（工具调用是探索的主要度量）
+    轮数 = tool_step_events（工具调用是探索的主要度量）
     效率 = 1.0 / (1 + |tool_calls - optimal|)
 
     optimal 取 1（最理想一次解决）。
@@ -319,8 +332,8 @@ def compute_token_efficiency(data: SessionEventData) -> float:
     if data.total_tokens == 0:
         return 0.0
 
-    # 用 (trace + question + answer) 作为交互轮数
-    turns = data.trace_events + data.question_events + data.answer_events
+    # 用 (tool_step + question + answer) 作为交互轮数
+    turns = data.tool_step_events + data.question_events + data.answer_events
     complexity = _classify_complexity(turns)
     baseline = COMPLEXITY_BASELINE_TOKENS[complexity]
 
