@@ -5,7 +5,7 @@ B097: 从 YAML 加载 task，用 mock transport 执行 LLM Agent，收集 transc
       编排多 trial 执行，计算 pass@k / pass^k 指标，结果持久化到 evals.db。
 
 关键约束：
-- LLM 调用使用 EVAL_AGENT_* 配置，不复用业务 ASSISTANT_LLM_*
+- LLM 调用使用 EVAL_AGENT_* 配置（fallback 到 LLM_*）
 - 使用 httpx 直接调用 OpenAI 兼容 API，不使用 Pydantic AI Agent
 - Mock transport 根据 task 的 input.context.mock_tool_responses 返回预定义结果
 - Trial 失败不阻塞后续 trial
@@ -231,6 +231,7 @@ async def _call_llm_once(
         "model": config["model"],
         "messages": messages,
         "temperature": 0.0,
+        "max_tokens": 4096,
     }
     if tools:
         payload["tools"] = tools

@@ -2277,6 +2277,10 @@ async def run_terminal_agent_session(
         device_id,
         terminal_id,
     )
+    # B114: 对话历史滑动窗口——只取最近 20 条事件传给 Agent（不变量 #63）
+    MAX_HISTORY_EVENTS_FOR_AGENT = 20
+    if len(history_events) > MAX_HISTORY_EVENTS_FOR_AGENT:
+        history_events = history_events[-MAX_HISTORY_EVENTS_FOR_AGENT:]
     message_history = _build_agent_message_history_from_events(history_events)
 
     try:
