@@ -1768,9 +1768,15 @@ class _SmartTerminalSidePanelContentState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // F108: 新版 tool steps 列表
-        if (_toolSteps.isNotEmpty) _buildToolStepExpansionTile(colorScheme),
-        if (_toolSteps.isNotEmpty) const SizedBox(height: 8),
+        // F109: Phase 描述指示器（带图标）
+        _buildPhaseDescriptionIndicator(colorScheme),
+        const SizedBox(height: 10),
+        // F109: 新版 tool step 卡片列表（直接平铺，不用折叠）
+        if (_toolSteps.isNotEmpty)
+          for (final step in _toolSteps) ...[
+            _buildToolStepCard(step, colorScheme),
+            const SizedBox(height: 6),
+          ],
         // 兼容旧版 traces
         if (_traces.isNotEmpty && _toolSteps.isEmpty)
           _buildAgentTraceExpansionTile(colorScheme),
@@ -1807,7 +1813,54 @@ class _SmartTerminalSidePanelContentState
     );
   }
 
-  /// RESPONDING 阶段：流式文本输出区域
+  /// F109: Phase 描述指示器 — 带图标和动画的描述行
+  Widget _buildPhaseDescriptionIndicator(ColorScheme colorScheme) {
+    final description = _phaseDescription.isNotEmpty
+        ? _phaseDescription
+        : switch (_currentPhase) {
+            AgentPhase.thinking => '正在思考...',
+            AgentPhase.exploring => '正在探索环境...',
+            AgentPhase.analyzing => '正在分析...',
+            _ => '处理中...',
+          };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.14),
+        ),
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: colorScheme.primary,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              description,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w500,
+                  ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// RESPONDING 阶段：流式文本输出区域（打字机效果 + 闪烁光标）
   Widget _buildRespondingView(ColorScheme colorScheme) {
     final text = _streamingTextBuffer.toString();
     if (text.isEmpty) {
@@ -1816,149 +1869,87 @@ class _SmartTerminalSidePanelContentState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildAssistantBubble(
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                text,
-                style: Theme.of(context).textTheme.bodyMedium,
+        // F109: 助手头像 + 流式文本气泡
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 助手图标
+            Container(
+              width: 28,
+              height: 28,
+              margin: const EdgeInsets.only(right: 8),
+              decoration: BoxDecoration(
+                color: colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(14),
               ),
-              // 流式文本末尾闪烁光标
-              if (_currentPhase == AgentPhase.responding)
-                Row(
-                  mainAxisSize: MainAxisSize.min,
+              child: Icon(
+                Icons.smart_toy_outlined,
+                size: 16,
+                color: colorScheme.onPrimaryContainer,
+              ),
+            ),
+            // 文本气泡
+            Expanded(
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: colorScheme.surfaceContainerLow,
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(18),
+                    topRight: Radius.circular(18),
+                    bottomLeft: Radius.circular(18),
+                    bottomRight: Radius.circular(4),
+                  ),
+                  border: Border.all(
+                    color:
+                        colorScheme.outlineVariant.withValues(alpha: 0.15),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const SizedBox(width: 2),
-                    _buildBlinkingCursor(colorScheme),
+                    SelectableText(
+                      text,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            height: 1.5,
+                          ),
+                    ),
+                    // F109: 流式文本末尾闪烁光标
+                    if (_currentPhase == AgentPhase.responding)
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const SizedBox(width: 2),
+                          _buildBlinkingCursor(colorScheme),
+                        ],
+                      ),
                   ],
                 ),
-            ],
-          ),
+              ),
+            ),
+          ],
         ),
+        // F109: RESPONDING 阶段也展示已完成的工具步骤卡片
+        if (_toolSteps.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          for (final step in _toolSteps) ...[
+            _buildToolStepCard(step, colorScheme),
+            const SizedBox(height: 6),
+          ],
+        ],
       ],
     );
   }
 
-  /// 闪烁光标指示器
+  /// F109: 闪烁光标指示器（使用 AnimatedOpacity 实现持续闪烁）
   Widget _buildBlinkingCursor(ColorScheme colorScheme) {
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0.0, end: 1.0),
-      duration: const Duration(milliseconds: 800),
-      builder: (context, value, child) {
-        return Opacity(
-          opacity: (value * 0.8 + 0.2).clamp(0.0, 1.0),
-          child: Container(
-            width: 2,
-            height: 14,
-            decoration: BoxDecoration(
-              color: colorScheme.primary,
-              borderRadius: BorderRadius.circular(1),
-            ),
-          ),
-        );
-      },
-      onEnd: () {
-        // 通过 setState 触发重建实现闪烁
-        if (mounted && _currentPhase == AgentPhase.responding) {
-          setState(() {});
-        }
-      },
-    );
+    return _BlinkingCursor(colorScheme: colorScheme);
   }
 
-  /// F108: 新版 Tool Step 可折叠列表
-  Widget _buildToolStepExpansionTile(ColorScheme colorScheme) {
-    return Container(
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: colorScheme.outlineVariant.withValues(alpha: 0.14),
-        ),
-      ),
-      child: ExpansionTile(
-        key: const Key('agent-tool-step-expansion'),
-        initiallyExpanded: false,
-        tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-        childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-        dense: true,
-        title: Text(
-          '执行步骤 (${_toolSteps.length})',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w600,
-              ),
-        ),
-        children: [
-          for (final step in _toolSteps) ...[
-            _buildToolStepItem(step, colorScheme),
-            if (step != _toolSteps.last) const SizedBox(height: 6),
-          ],
-        ],
-      ),
-    );
-  }
-
-  /// F108: 单个 Tool Step 项
-  Widget _buildToolStepItem(ToolStepEvent step, ColorScheme colorScheme) {
-    final icon = switch (step.status) {
-      'running' => Icons.hourglass_top,
-      'done' => Icons.check_circle_outline,
-      'error' => Icons.error_outline,
-      _ => Icons.build_outlined,
-    };
-    final iconColor = switch (step.status) {
-      'running' => colorScheme.primary,
-      'done' => colorScheme.primary,
-      'error' => colorScheme.error,
-      _ => colorScheme.onSurfaceVariant,
-    };
-
-    return _buildAssistantBubble(
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              _SidePanelStagePill(stage: step.status == 'running' ? 'running' : 'tool'),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  step.toolName,
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodySmall
-                      ?.copyWith(fontWeight: FontWeight.w600),
-                ),
-              ),
-              Icon(icon, size: 14, color: iconColor),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            step.description,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                  height: 1.4,
-                ),
-          ),
-          if (step.resultSummary != null &&
-              step.resultSummary!.isNotEmpty) ...[
-            const SizedBox(height: 2),
-            Text(
-              step.resultSummary!,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
-                    height: 1.3,
-                  ),
-              maxLines: 5,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ],
-      ),
-    );
+  /// F109: 工具步骤卡片 — 紧凑卡片，带状态图标、description 和可展开的 result_summary
+  Widget _buildToolStepCard(ToolStepEvent step, ColorScheme colorScheme) {
+    return _ToolStepCard(step: step, colorScheme: colorScheme);
   }
 
   /// 取消当前 Agent 会话
@@ -3405,6 +3396,174 @@ class _SidePanelStagePill extends StatelessWidget {
               fontWeight: FontWeight.w600,
               fontSize: 10,
             ),
+      ),
+    );
+  }
+}
+
+/// F109: 闪烁光标组件 — 持续循环闪烁，不依赖父 setState
+class _BlinkingCursor extends StatefulWidget {
+  const _BlinkingCursor({required this.colorScheme});
+
+  final ColorScheme colorScheme;
+
+  @override
+  State<_BlinkingCursor> createState() => _BlinkingCursorState();
+}
+
+class _BlinkingCursorState extends State<_BlinkingCursor>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+      lowerBound: 0.15,
+      upperBound: 1.0,
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return Opacity(
+          opacity: _controller.value,
+          child: child,
+        );
+      },
+      child: Container(
+        width: 2,
+        height: 14,
+        decoration: BoxDecoration(
+          color: widget.colorScheme.primary,
+          borderRadius: BorderRadius.circular(1),
+        ),
+      ),
+    );
+  }
+}
+
+/// F109: 工具步骤卡片 — 带状态图标、description 和可展开 result_summary
+class _ToolStepCard extends StatefulWidget {
+  const _ToolStepCard({required this.step, required this.colorScheme});
+
+  final ToolStepEvent step;
+  final ColorScheme colorScheme;
+
+  @override
+  State<_ToolStepCard> createState() => _ToolStepCardState();
+}
+
+class _ToolStepCardState extends State<_ToolStepCard> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final step = widget.step;
+    final colorScheme = widget.colorScheme;
+
+    // 状态图标
+    final Widget statusIcon = switch (step.status) {
+      'running' => SizedBox(
+          width: 14,
+          height: 14,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            color: colorScheme.primary,
+          ),
+        ),
+      'done' => Icon(Icons.check_circle, size: 14, color: Colors.green),
+      'error' => Icon(Icons.error, size: 14, color: colorScheme.error),
+      _ => Icon(Icons.build_outlined, size: 14, color: colorScheme.onSurfaceVariant),
+    };
+
+    final hasResult = step.resultSummary != null && step.resultSummary!.isNotEmpty;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.12),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 第一行：状态图标 + 工具名 + 展开按钮
+          Row(
+            children: [
+              statusIcon,
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  step.toolName,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (hasResult)
+                GestureDetector(
+                  onTap: () => setState(() => _expanded = !_expanded),
+                  child: Icon(
+                    _expanded
+                        ? Icons.expand_less
+                        : Icons.expand_more,
+                    size: 16,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+            ],
+          ),
+          // 第二行：description
+          if (step.description.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              step.description,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                    height: 1.4,
+                  ),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+          // 第三行：可展开的 result_summary
+          if (hasResult && _expanded) ...[
+            const SizedBox(height: 6),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              decoration: BoxDecoration(
+                color: colorScheme.surfaceContainerHighest
+                    .withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                step.resultSummary!,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant.withValues(alpha: 0.8),
+                      height: 1.3,
+                    ),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
