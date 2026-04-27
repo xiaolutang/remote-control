@@ -26,6 +26,7 @@ from uuid import uuid4
 
 from app.store.database import save_agent_usage
 from app.services.terminal_agent import AgentResult, AgentUserFacingError
+from app.infra.event_bus import publish_conversation_stream_event
 
 logger = logging.getLogger(__name__)
 
@@ -161,16 +162,21 @@ def _tool_step_event(
     description: str = "",
     status: str = "running",
     result_summary: str = "",
+    *,
+    command: str = "",
 ) -> dict[str, Any]:
     """构造 tool_step 事件数据。"""
     if status not in TOOL_STEP_STATUSES:
         status = "running"
-    return {
+    payload: dict[str, Any] = {
         "tool_name": tool_name,
         "description": description,
         "status": status,
         "result_summary": result_summary,
     }
+    if command:
+        payload["command"] = command
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -486,9 +492,7 @@ class AgentSessionManager:
         # Notify conversation stream subscribers (e.g. mobile SSE)
         if event_record and session.terminal_id:
             try:
-                from app.api.runtime_api import _publish_conversation_stream_event
-
-                await _publish_conversation_stream_event(
+                await publish_conversation_stream_event(
                     session.user_id,
                     session.device_id,
                     session.terminal_id,
@@ -531,6 +535,7 @@ class AgentSessionManager:
                         tool_name="execute_command",
                         description=f"执行: {command[:60]}",
                         status="running",
+                        command=command,
                     ),
                 )
                 session.last_active_at = datetime.now(timezone.utc)
@@ -561,6 +566,7 @@ class AgentSessionManager:
                         description=f"执行: {command[:60]}",
                         status=error_status,
                         result_summary=output_preview or "(无输出)",
+                        command=command,
                     ),
                 )
 

@@ -2,7 +2,7 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-28T03:51:25",
+  "updated_at": "2026-04-28T04:02:06",
   "active_requirement_cycle": {
     "id": "R047",
     "name": "agent-conversation-interaction-optimization",
@@ -738,7 +738,7 @@
       "depends_on": [
         "B120"
       ],
-      "status": "pending",
+      "status": "completed",
       "priority": "medium",
       "acceptance_criteria": [
         "services/agent_session_manager.py 不再导入 api/ 层的任何函数",
@@ -751,7 +751,13 @@
         "server/app/services/agent_session_manager.py",
         "server/app/infra/command_validator.py"
       ],
-      "planning_notes": "将循环依赖解耦和两个次要 bug 合并处理，减少任务数"
+      "planning_notes": "将循环依赖解耦和两个次要 bug 合并处理，减少任务数",
+      "started_at": "2026-04-28T04:02:06",
+      "completed_at": "2026-04-28T04:02:06",
+      "actual_minutes": 20,
+      "execution_notes": "循环依赖解耦：event_bus pub/sub 模块；管道符拦截：_SHELL_META 加 |；command 字段：_tool_step_event 增加 command 参数",
+      "evidence_file": ".dev-flow/evidence/B122.md",
+      "summary": "循环依赖解耦 + 管道符拦截 + command 字段修复完成"
     },
     {
       "id": "F122",
@@ -999,8 +1005,8 @@
   "summary": {
     "total_tasks": 31,
     "by_status": {
-      "completed": 19,
-      "pending": 12
+      "completed": 20,
+      "pending": 11
     },
     "by_module": {
       "agent": 2,

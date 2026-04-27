@@ -47,6 +47,9 @@ from app.api._helpers import device_online as _device_online  # noqa: E402, F401
 from app.api.agent_conversation_helpers import (  # noqa: E402, F401
     _publish_conversation_stream_event,
 )
+from app.infra.event_bus import (  # noqa: E402, F401
+    publish_conversation_stream_event as _publish_conversation_stream_event_bus,
+)
 from app.api.agent_api import stream_terminal_agent_conversation  # noqa: E402, F401
 
 # -- shared deps (all mocked in tests via app.api._deps.xxx) --

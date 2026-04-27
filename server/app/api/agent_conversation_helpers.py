@@ -23,6 +23,7 @@ from app.api.schemas import (
     AgentConversationEventItem,
     AgentConversationProjection,
 )
+from app.infra import event_bus
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,7 @@ _conversation_stream_subscribers: dict[tuple[str, str, str], set[asyncio.Queue]]
 
 
 def _conversation_stream_key(user_id: str, device_id: str, terminal_id: str) -> tuple[str, str, str]:
-    return (user_id, device_id, terminal_id)
+    return event_bus.conversation_stream_key(user_id, device_id, terminal_id)
 
 
 async def _publish_conversation_stream_event(
@@ -39,6 +40,12 @@ async def _publish_conversation_stream_event(
     terminal_id: str,
     event: dict,
 ) -> None:
+    """发布 conversation stream 事件。
+
+    B122: 同时通知本地 SSE queue subscribers 和 event_bus 订阅者，
+    确保向后兼容（api 层直接调用）和新架构（services 层通过 event_bus）都能工作。
+    """
+    # 1) 通知本地 SSE queue subscribers（SSE stream 端点）
     subscribers = list(
         _conversation_stream_subscribers.get(
             _conversation_stream_key(user_id, device_id, terminal_id),
@@ -47,6 +54,8 @@ async def _publish_conversation_stream_event(
     )
     for queue in subscribers:
         await queue.put(event)
+    # 2) 通过 event_bus 通知其他订阅者（如有）
+    await event_bus.publish_conversation_stream_event(user_id, device_id, terminal_id, event)
 
 
 async def _append_and_publish_conversation_event(

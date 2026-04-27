@@ -6,7 +6,7 @@ Server 端和 Agent 端双重验证共用。Agent 端在 agent/app/command_valid
 
 三重防护：
 1. 白名单：只有 ALLOWED_COMMANDS 中的命令允许执行
-2. shell 元字符拦截：禁止 ;|&$`\\>> 等元字符
+2. shell 元字符拦截：禁止 ;|&$`\\>> 等元字符（B122: 增加 | 管道符拦截）
 3. 敏感路径过滤：禁止访问 /etc/shadow、.ssh、.env 等
 """
 import re
@@ -37,7 +37,7 @@ _SENSITIVE_PATHS = re.compile(
 
 # 人类可读的敏感路径摘要（从 _SENSITIVE_PATHS 同步维护，供 SYSTEM_PROMPT 引用）
 SENSITIVE_PATH_DISPLAY = "/etc/passwd、/etc/shadow、/etc/ssh、/root/.ssh、/proc/self、.ssh、.env、.pem、.key"
-_SHELL_META = re.compile(r'[;&$`\\]|>>|>')
+_SHELL_META = re.compile(r'[;|&$`\\]|>>|>')
 _FIND_DANGEROUS = {'-exec', '-delete', '-fls', '-ok', '-fprint'}
 
 MAX_STDOUT_LEN = 8192

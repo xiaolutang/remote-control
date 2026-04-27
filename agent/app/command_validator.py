@@ -6,7 +6,7 @@ Agent 不依赖 server 包，因此维护一份独立副本。
 
 三重防护：
 1. 白名单：只有 ALLOWED_COMMANDS 中的命令允许执行
-2. shell 元字符拦截：禁止 ;&$`\\>> 等元字符（管道 | 已放行）
+2. shell 元字符拦截：禁止 ;|&$`\\>> 等元字符
 3. 敏感路径过滤：禁止访问 /etc/shadow、.ssh、.env 等
 """
 import re
@@ -34,7 +34,7 @@ _SENSITIVE_PATHS = re.compile(
     r'\.env\b|\.pem\b|\.key\b)',
     re.IGNORECASE,
 )
-_SHELL_META = re.compile(r'[;&$`\\]|>>|>')
+_SHELL_META = re.compile(r'[;|&$`\\]|>>|>')
 _FIND_DANGEROUS = {'-exec', '-delete', '-fls', '-ok', '-fprint'}
 
 MAX_STDOUT_LEN = 8192
