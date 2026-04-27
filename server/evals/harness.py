@@ -1199,11 +1199,10 @@ class EvalHarness:
     ) -> bool:
         """评估 trial 是否通过。
 
-        简单的内置评估器，检查：
-        1. response_type 在 expected.response_type 列表中
-        2. agent_result 不是 error 类型
-
-        复杂的 grader 逻辑在 B098 中实现。
+        S126: 使用 grader 注册表进行评估。
+        依次执行 task.graders 列表中的每个 grader，
+        所有 grader.passed 为 True 时才通过。
+        如果 task.graders 为空或仅含 'exact_match'（默认值），回退到内置逻辑。
 
         Args:
             task: 评估任务定义
@@ -1218,6 +1217,66 @@ class EvalHarness:
         if agent_result.get("response_type") == "error":
             return False
 
+        # S126: 判断是否使用 grader 注册表
+        # 如果 graders 列表有实质性配置（非默认 exact_match），使用注册表
+        effective_graders = task.graders
+        has_custom_graders = (
+            effective_graders
+            and effective_graders != ["exact_match"]
+        )
+
+        if has_custom_graders:
+            return self._evaluate_with_graders(task, agent_result)
+
+        # 回退：内置简单逻辑（向后兼容）
+        return self._evaluate_builtin(task, agent_result)
+
+    def _evaluate_with_graders(
+        self, task: EvalTaskDef, agent_result: Dict[str, Any]
+    ) -> bool:
+        """使用 grader 注册表评估 trial。
+
+        构建 EvalTrial，依次调用每个 grader，全部通过才返回 True。
+        """
+        from evals.graders.code_grader import get_grader
+
+        # 构建临时 trial（用于传给 grader）
+        trial = EvalTrial(
+            task_id=task.id,
+            run_id="eval-internal",
+            transcript_json=[],
+            agent_result_json=agent_result,
+        )
+
+        for grader_name in task.graders:
+            try:
+                grader = get_grader(grader_name)
+                result = grader.grade(trial, task)
+                if not result.passed:
+                    logger.debug(
+                        "Task %s grader '%s' 未通过: %s",
+                        task.id, grader_name, result.details_json.get("reason", ""),
+                    )
+                    return False
+            except KeyError:
+                logger.warning(
+                    "Task %s 引用了未注册的 grader '%s'，跳过",
+                    task.id, grader_name,
+                )
+                # 未注册的 grader 不阻塞，继续评估其他 grader
+                continue
+
+        return True
+
+    def _evaluate_builtin(
+        self, task: EvalTaskDef, agent_result: Dict[str, Any]
+    ) -> bool:
+        """内置简单评估逻辑（向后兼容）。
+
+        检查：
+        1. response_type 在 expected.response_type 列表中
+        2. steps_contain / steps_not_contain 匹配
+        """
         # 检查 response_type
         expected_types = task.expected.response_type
         if expected_types:

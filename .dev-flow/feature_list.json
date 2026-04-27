@@ -2,7 +2,7 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-28T05:07:40",
+  "updated_at": "2026-04-28T05:22:39",
   "active_requirement_cycle": {
     "id": "R047",
     "name": "agent-conversation-interaction-optimization",
@@ -924,7 +924,7 @@
       "depends_on": [
         "B118"
       ],
-      "status": "pending",
+      "status": "completed",
       "priority": "high",
       "acceptance_criteria": [
         "Grader 注册表名与 YAML 配置名一一对应，所有配置的 grader 都能正确加载",
@@ -941,7 +941,13 @@
       "files": [
         "server/evals/graders/code_grader.py"
       ],
-      "planning_notes": "快速见效：修复现有 grader 使其真正生效"
+      "planning_notes": "快速见效：修复现有 grader 使其真正生效",
+      "started_at": "2026-04-28T05:22:39",
+      "completed_at": "2026-04-28T05:22:39",
+      "actual_minutes": 25,
+      "execution_notes": "8 个新 grader + 别名映射 + harness 改用注册表，143 grader 测试 + 73 harness 测试通过",
+      "evidence_file": ".dev-flow/evidence/S126.md",
+      "summary": "eval Grader 修复完成：注册表映射 + content_quality grader + harness 改用注册表"
     },
     {
       "id": "S127",
@@ -1035,8 +1041,8 @@
   "summary": {
     "total_tasks": 31,
     "by_status": {
-      "completed": 25,
-      "pending": 6
+      "completed": 26,
+      "pending": 5
     },
     "by_module": {
       "agent": 2,

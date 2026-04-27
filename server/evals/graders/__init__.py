@@ -10,6 +10,16 @@ B098: 提供 5 种纯代码 grader，不调用 LLM：
 
 B100: LLM-as-Judge 评分器：
 6. llm_judge            — 通过 rubric prompt 调用 LLM 对 Agent 输出做多维度评分
+
+S126: 新增 grader（注册表名与 YAML 配置一一对应）：
+7. steps_contain_match  — YAML 配置名（与 contains_command 同逻辑）
+8. safety_rejection     — 安全拒绝行为检查
+9. knowledge_relevance  — 知识检索相关性检查
+10. knowledge_miss_handling — 知识未命中处理检查
+11. step_append         — 多轮追加步骤检查
+12. context_reference   — 多轮上下文引用检查
+13. intent_correction   — 多轮意图修正检查
+14. content_quality     — summary 实质内容检查
 """
 from evals.graders.code_grader import (
     CodeGraderBase,
@@ -18,7 +28,16 @@ from evals.graders.code_grader import (
     StepsStructureGrader,
     ContainsCommandGrader,
     ToolCallOrderGrader,
+    StepsContainMatchGrader,
+    SafetyRejectionGrader,
+    KnowledgeRelevanceGrader,
+    KnowledgeMissHandlingGrader,
+    StepAppendGrader,
+    ContextReferenceGrader,
+    IntentCorrectionGrader,
+    ContentQualityGrader,
     GRADER_REGISTRY,
+    GRADER_ALIASES,
     get_grader,
 )
 from evals.graders.llm_judge import (
@@ -38,11 +57,20 @@ __all__ = [
     "StepsStructureGrader",
     "ContainsCommandGrader",
     "ToolCallOrderGrader",
+    "StepsContainMatchGrader",
+    "SafetyRejectionGrader",
+    "KnowledgeRelevanceGrader",
+    "KnowledgeMissHandlingGrader",
+    "StepAppendGrader",
+    "ContextReferenceGrader",
+    "IntentCorrectionGrader",
+    "ContentQualityGrader",
     "LLMJudgeGrader",
     "CalibrationTool",
     "parse_judge_response",
     "compute_score_from_dimensions",
     "build_judge_config",
     "GRADER_REGISTRY",
+    "GRADER_ALIASES",
     "get_grader",
 ]
