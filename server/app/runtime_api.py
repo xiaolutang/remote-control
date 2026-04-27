@@ -1957,6 +1957,19 @@ def _event_text_for_message_history(event: dict) -> Optional[str]:
     if event_type == "error":
         message = payload.get("message")
         return f"Agent error: {message}" if message else None
+    if event_type == "tool_step":
+        tool_name = payload.get("tool_name", "tool")
+        description = payload.get("description", "")
+        result_summary = payload.get("result_summary", "")
+        return f"Agent tool_step {tool_name}: {description} -> {result_summary}".strip()
+    if event_type == "streaming_text":
+        text_delta = payload.get("text_delta")
+        return text_delta if text_delta else None
+    if event_type == "phase_change":
+        phase = payload.get("phase", "")
+        description = payload.get("description", "")
+        return f"Phase: {phase} - {description}".strip() if phase else None
+    # 兼容旧事件类型（历史数据）
     if event_type == "trace":
         tool = payload.get("tool", "tool")
         input_summary = payload.get("input_summary", "")

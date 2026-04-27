@@ -6,19 +6,20 @@ B080: Agent 会话管理 & SSE API 测试。
 2. respond 唤醒正确的 ask_user Future
 3. cancel 终止 Agent 循环并清理资源
 4. 10 分钟超时自动终止
-5. SSE 事件序列正确（trace -> question -> result）
+5. SSE 事件序列正确（tool_step -> question -> result）
 6. keepalive 生成
 7. 断连恢复 4 种状态处理
 8. 6 种错误码正确推送
 9. 降级到 planner 的降级路径
 10. 用户级频率限制
-11. B106: assistant_message SSE 事件推送和格式
-12. B106: assistant_message 内容过滤兜底（CoT 标记检测）
-13. B106: ResultDelivered 后 save_agent_usage 先于 result 推送
-14. B106: finally 块稳定结束 event_queue
-15. B106: 取消/超时不丢失已推送事件和 usage
-16. B106: conversation events 持久化包含 assistant_message
-17. B106: resume_stream 正确回放 assistant_message 缓存事件
+11. B103: 新 SSE 事件类型（phase_change, streaming_text, tool_step）正确序列化
+12. B103: 旧事件类型（trace, assistant_message）不再产生
+13. B103: session_created 保留
+14. B106: ResultDelivered 后 save_agent_usage 先于 result 推送
+15. B106: finally 块稳定结束 event_queue
+16. B106: 取消/超时不丢失已推送事件和 usage
+17. B106: conversation events 持久化包含 streaming_text
+18. B106: resume_stream 正确回放 streaming_text 缓存事件
 """
 import asyncio
 import json
@@ -37,9 +38,13 @@ from app.agent_session_manager import (
     ErrorCode,
     SESSION_TIMEOUT_SECONDS,
     SSE_KEEPALIVE_SECONDS,
+    SSE_EVENT_TYPES,
+    TOOL_STEP_STATUSES,
     USER_SESSION_RATE_LIMIT,
     _error_event_dict,
-    filter_assistant_message,
+    _phase_change_event,
+    _streaming_text_event,
+    _tool_step_event,
     get_agent_session_manager,
 )
 from app.terminal_agent import AgentResult, AgentRunOutcome, CommandSequenceStep
@@ -277,14 +282,14 @@ class TestSSEEventSequence:
     """测试 SSE 事件序列正确性。"""
 
     @pytest.mark.asyncio
-    async def test_trace_question_result_sequence(self, manager):
-        """事件序列应为 trace -> question -> result。"""
+    async def test_tool_step_question_result_sequence(self, manager):
+        """事件序列应为 tool_step -> question -> result。"""
         s = await manager.create_session(
             intent="test", device_id="d", user_id="u", session_id="seq1",
         )
 
         # 手动推送事件序列
-        await s.event_queue.put(("trace", {"tool": "execute_command", "input_summary": "ls", "output_summary": "file1.txt"}))
+        await s.event_queue.put(("tool_step", {"tool_name": "execute_command", "description": "ls", "status": "done", "result_summary": "file1.txt"}))
         await s.event_queue.put(("question", {"question": "Which?", "options": ["a", "b"], "multi_select": False}))
         await s.event_queue.put(("result", {"summary": "done", "steps": [], "provider": "agent"}))
         await s.event_queue.put(None)  # 结束
@@ -294,7 +299,7 @@ class TestSSEEventSequence:
             events.append(chunk)
 
         assert len(events) == 3
-        assert "event: trace" in events[0]
+        assert "event: tool_step" in events[0]
         assert "event: question" in events[1]
         assert "event: result" in events[2]
 
@@ -305,7 +310,7 @@ class TestSSEEventSequence:
             intent="test", device_id="d", user_id="u", session_id="fmt1",
         )
 
-        await s.event_queue.put(("trace", {"tool": "think", "input_summary": "thinking", "output_summary": "done"}))
+        await s.event_queue.put(("tool_step", {"tool_name": "execute_command", "description": "ls", "status": "done", "result_summary": "file.txt"}))
         await s.event_queue.put(None)
 
         events = []
@@ -314,14 +319,15 @@ class TestSSEEventSequence:
 
         assert len(events) == 1
         event_str = events[0]
-        assert event_str.startswith("event: trace\ndata: ")
+        assert event_str.startswith("event: tool_step\ndata: ")
         assert event_str.endswith("\n\n")
 
         # 解析 data 部分
         data_line = event_str.split("\n")[1]  # data: {...}
         data_json = data_line[len("data: "):]
         data = json.loads(data_json)
-        assert data["tool"] == "think"
+        assert data["tool_name"] == "execute_command"
+        assert data["status"] == "done"
 
     @pytest.mark.asyncio
     async def test_error_event_pushed(self, manager):
@@ -394,8 +400,8 @@ class TestResumeStream:
         )
 
         # 手动推送一些事件
-        await s.event_queue.put(("trace", {"tool": "execute_command", "input_summary": "ls", "output_summary": "ok"}))
-        await s.event_queue.put(("trace", {"tool": "execute_command", "input_summary": "pwd", "output_summary": "/home"}))
+        await s.event_queue.put(("tool_step", {"tool_name": "execute_command", "description": "ls", "status": "done", "result_summary": "ok"}))
+        await s.event_queue.put(("tool_step", {"tool_name": "execute_command", "description": "pwd", "status": "done", "result_summary": "/home"}))
         await s.event_queue.put(None)  # 结束信号
 
         # 消费事件（缓存到 _last_events）
@@ -415,7 +421,7 @@ class TestResumeStream:
             resumed.append(chunk)
 
         assert len(resumed) == 2
-        assert "event: trace" in resumed[0]
+        assert "event: tool_step" in resumed[0]
 
     @pytest.mark.asyncio
     async def test_resume_from_index(self, manager):
@@ -426,7 +432,7 @@ class TestResumeStream:
 
         # 推送 3 个事件 + 结束信号
         for i in range(3):
-            await s.event_queue.put(("trace", {"tool": "cmd", "input_summary": f"cmd-{i}", "output_summary": "ok"}))
+            await s.event_queue.put(("tool_step", {"tool_name": "cmd", "description": f"cmd-{i}", "status": "done", "result_summary": "ok"}))
         await s.event_queue.put(None)
 
         # 消费并缓存
@@ -755,7 +761,7 @@ class TestAgentRunLoop:
 
     @pytest.mark.asyncio
     async def test_terminal_bound_session_persists_events(self, manager):
-        """terminal-bound session 应把 trace/question/result 写入 conversation events。"""
+        """terminal-bound session 应把 tool_step/question/result 写入 conversation events。"""
         s = await manager.create_session(
             intent="test",
             device_id="d",
@@ -806,7 +812,7 @@ class TestAgentRunLoop:
                 await asyncio.sleep(0.1)
 
         event_types = [call.kwargs["event_type"] for call in append_event.await_args_list]
-        assert event_types.count("trace") == 2
+        assert event_types.count("tool_step") == 2
         assert "question" in event_types
         assert "result" in event_types
         question_calls = [
@@ -914,7 +920,7 @@ class TestEventCacheLimit:
 
         # 推送超过限制数量的事件
         for i in range(MAX_CACHED_EVENTS + 20):
-            await s.event_queue.put(("trace", {"tool": "cmd", "input_summary": f"cmd-{i}", "output_summary": "ok"}))
+            await s.event_queue.put(("tool_step", {"tool_name": "cmd", "description": f"cmd-{i}", "status": "done", "result_summary": "ok"}))
         await s.event_queue.put(None)
 
         # 消费所有事件
@@ -1101,15 +1107,15 @@ class TestSSEResultEventType:
 
 
 # ---------------------------------------------------------------------------
-# B106: assistant_message SSE 事件
+# B103: streaming_text SSE 事件
 # ---------------------------------------------------------------------------
 
-class TestAssistantMessageSSE:
-    """B106: 测试 assistant_message SSE 事件推送和格式。"""
+class TestStreamingTextSSE:
+    """B103: 测试 streaming_text SSE 事件推送和格式。"""
 
     @pytest.mark.asyncio
-    async def test_assistant_message_pushed_via_on_model_text(self, manager):
-        """模型文本输出通过 on_model_text 回调推送 assistant_message SSE 事件。"""
+    async def test_streaming_text_pushed_via_on_model_text(self, manager):
+        """模型文本输出通过 on_model_text 回调推送 streaming_text SSE 事件。"""
         s = await manager.create_session(
             intent="test", device_id="d", user_id="u", session_id="am1",
         )
@@ -1142,19 +1148,19 @@ class TestAssistantMessageSSE:
         while not s.event_queue.empty():
             events.append(s.event_queue.get_nowait())
 
-        assistant_msg_events = [e for e in events if e is not None and e[0] == "assistant_message"]
-        assert len(assistant_msg_events) == 1
-        assert assistant_msg_events[0][1]["content"] == "我来帮你检查一下当前目录结构"
+        streaming_events = [e for e in events if e is not None and e[0] == "streaming_text"]
+        assert len(streaming_events) == 1
+        assert streaming_events[0][1]["text_delta"] == "我来帮你检查一下当前目录结构"
 
     @pytest.mark.asyncio
-    async def test_assistant_message_sse_format(self, manager):
-        """assistant_message SSE 事件格式正确。"""
+    async def test_streaming_text_sse_format(self, manager):
+        """streaming_text SSE 事件格式正确。"""
         s = await manager.create_session(
             intent="test", device_id="d", user_id="u", session_id="am2",
         )
 
-        # 直接推送 assistant_message 事件测试 SSE 格式
-        await s.event_queue.put(("assistant_message", {"content": "你好！我来帮你处理"}))
+        # 直接推送 streaming_text 事件测试 SSE 格式
+        await s.event_queue.put(("streaming_text", {"text_delta": "你好！我来帮你处理"}))
         await s.event_queue.put(None)
 
         events = []
@@ -1162,14 +1168,14 @@ class TestAssistantMessageSSE:
             events.append(chunk)
 
         assert len(events) == 1
-        assert "event: assistant_message" in events[0]
+        assert "event: streaming_text" in events[0]
         data_json = events[0].split("data: ")[1].strip()
         data = json.loads(data_json)
-        assert data["content"] == "你好！我来帮你处理"
+        assert data["text_delta"] == "你好！我来帮你处理"
 
     @pytest.mark.asyncio
-    async def test_multiple_assistant_messages(self, manager):
-        """多轮文本输出推送多个 assistant_message 事件。"""
+    async def test_multiple_streaming_texts(self, manager):
+        """多轮文本输出推送多个 streaming_text 事件。"""
         s = await manager.create_session(
             intent="test", device_id="d", user_id="u", session_id="am3",
         )
@@ -1199,58 +1205,22 @@ class TestAssistantMessageSSE:
         while not s.event_queue.empty():
             events.append(s.event_queue.get_nowait())
 
-        assistant_msg_events = [e for e in events if e is not None and e[0] == "assistant_message"]
-        assert len(assistant_msg_events) == 2
-        assert assistant_msg_events[0][1]["content"] == "第一轮回复"
-        assert assistant_msg_events[1][1]["content"] == "第二轮回复"
+        streaming_events = [e for e in events if e is not None and e[0] == "streaming_text"]
+        assert len(streaming_events) == 2
+        assert streaming_events[0][1]["text_delta"] == "第一轮回复"
+        assert streaming_events[1][1]["text_delta"] == "第二轮回复"
 
 
 # ---------------------------------------------------------------------------
-# B106: assistant_message 内容过滤兜底
+# B103: streaming_text 空文本过滤
 # ---------------------------------------------------------------------------
 
-class TestAssistantMessageFilter:
-    """B106: 测试 assistant_message 内容过滤兜底（CoT 标记检测）。"""
-
-    def test_clean_text_passes_through(self):
-        """不含 CoT 标记的文本直接通过。"""
-        assert filter_assistant_message("你好！我来帮你检查目录结构") == "你好！我来帮你检查目录结构"
-
-    def test_cot_pattern_chinese_truncated(self):
-        """中文 CoT 标记检测并截断。"""
-        result = filter_assistant_message("这是用户可见的内容一步步思考接下来的推理过程")
-        assert result == "这是用户可见的内容"
-
-    def test_cot_pattern_english_truncated(self):
-        """英文 CoT 标记检测并截断。"""
-        result = filter_assistant_message("Let me help you with that. step by step I need to...")
-        assert result == "Let me help you with that."
-
-    def test_cot_at_start_returns_empty(self):
-        """CoT 标记在开头时返回空字符串（不推送）。"""
-        assert filter_assistant_message("一步步思考这个问题") == ""
-
-    def test_cot_tag_detected(self):
-        """XML 样式的 CoT 标签检测。"""
-        result = filter_assistant_message("好的，我来帮你。<think 这个问题需要分析")
-        assert result == "好的，我来帮你。"
-
-    def test_case_insensitive_match(self):
-        """CoT 检测大小写不敏感。"""
-        result = filter_assistant_message("Good. CHAIN OF THOUGHT: let me think")
-        assert result == "Good."
-
-    def test_empty_string_passes(self):
-        """空字符串通过。"""
-        assert filter_assistant_message("") == ""
-
-    def test_whitespace_only_passes(self):
-        """纯空白文本通过（但最终不推送，因为 strip 后为空）。"""
-        assert filter_assistant_message("   ") == "   "
+class TestStreamingTextFilter:
+    """B103: 测试 streaming_text 空文本不推送。"""
 
     @pytest.mark.asyncio
-    async def test_filtered_content_not_pushed(self, manager):
-        """过滤后为空的内容不推送 assistant_message 事件。"""
+    async def test_empty_text_not_pushed(self, manager):
+        """空文本不推送 streaming_text 事件。"""
         s = await manager.create_session(
             intent="test", device_id="d", user_id="u", session_id="amf1",
         )
@@ -1265,8 +1235,9 @@ class TestAssistantMessageFilter:
         async def _mock_run_agent(**kwargs):
             on_model_text = kwargs.get("on_model_text")
             if on_model_text:
-                # 这个文本以 CoT 标记开头，会被完全过滤
-                await on_model_text("一步步思考这个复杂的问题")
+                # 空白文本不应推送
+                await on_model_text("")
+                await on_model_text("   ")
             return mock_outcome
 
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="file.txt"))
@@ -1280,12 +1251,12 @@ class TestAssistantMessageFilter:
         while not s.event_queue.empty():
             events.append(s.event_queue.get_nowait())
 
-        assistant_msg_events = [e for e in events if e is not None and e[0] == "assistant_message"]
-        assert len(assistant_msg_events) == 0  # 被过滤掉了
+        streaming_events = [e for e in events if e is not None and e[0] == "streaming_text"]
+        assert len(streaming_events) == 0  # 空白文本被过滤掉了
 
     @pytest.mark.asyncio
-    async def test_partially_filtered_content_pushed(self, manager):
-        """过滤后仍有内容的文本推送截断后的 assistant_message。"""
+    async def test_normal_text_pushed_as_streaming(self, manager):
+        """正常文本推送为 streaming_text 事件。"""
         s = await manager.create_session(
             intent="test", device_id="d", user_id="u", session_id="amf2",
         )
@@ -1300,7 +1271,7 @@ class TestAssistantMessageFilter:
         async def _mock_run_agent(**kwargs):
             on_model_text = kwargs.get("on_model_text")
             if on_model_text:
-                await on_model_text("我来帮你看看。推理过程：首先分析项目结构...")
+                await on_model_text("我来帮你看看当前目录结构")
             return mock_outcome
 
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="file.txt"))
@@ -1314,9 +1285,9 @@ class TestAssistantMessageFilter:
         while not s.event_queue.empty():
             events.append(s.event_queue.get_nowait())
 
-        assistant_msg_events = [e for e in events if e is not None and e[0] == "assistant_message"]
-        assert len(assistant_msg_events) == 1
-        assert assistant_msg_events[0][1]["content"] == "我来帮你看看。"
+        streaming_events = [e for e in events if e is not None and e[0] == "streaming_text"]
+        assert len(streaming_events) == 1
+        assert streaming_events[0][1]["text_delta"] == "我来帮你看看当前目录结构"
 
 
 # ---------------------------------------------------------------------------
@@ -1324,11 +1295,11 @@ class TestAssistantMessageFilter:
 # ---------------------------------------------------------------------------
 
 class TestResultUsageOrdering:
-    """B106: 测试 save_agent_usage 先于 result SSE 推送（含 assistant_message 场景）。"""
+    """B106: 测试 save_agent_usage 先于 result SSE 推送（含 streaming_text 场景）。"""
 
     @pytest.mark.asyncio
-    async def test_usage_saved_before_result_with_assistant_messages(self, manager):
-        """assistant_message 推送不影响 usage 先于 result 的顺序保证。"""
+    async def test_usage_saved_before_result_with_streaming_texts(self, manager):
+        """streaming_text 推送不影响 usage 先于 result 的顺序保证。"""
         s = await manager.create_session(
             intent="test", device_id="d", user_id="u", session_id="ord1",
         )
@@ -1346,8 +1317,8 @@ class TestResultUsageOrdering:
         async def _tracking_put(event):
             if event is not None and event[0] == "result":
                 ordering.append("result")
-            if event is not None and event[0] == "assistant_message":
-                ordering.append("assistant_message")
+            if event is not None and event[0] == "streaming_text":
+                ordering.append("streaming_text")
             await original_put(event)
 
         async def _save_usage(*args, **kwargs):
@@ -1370,8 +1341,8 @@ class TestResultUsageOrdering:
                 await asyncio.sleep(0.1)
 
         assert save_mock.await_count == 1
-        # assistant_message 在 saved 之前推送，result 在 saved 之后
-        assert "assistant_message" in ordering
+        # streaming_text 在 saved 之前推送，result 在 saved 之后
+        assert "streaming_text" in ordering
         assert "saved" in ordering
         assert "result" in ordering
         saved_idx = ordering.index("saved")
@@ -1496,22 +1467,22 @@ class TestCancelTimeoutPreservation:
         while not s.event_queue.empty():
             events.append(s.event_queue.get_nowait())
 
-        assistant_msgs = [e for e in events if e is not None and e[0] == "assistant_message"]
+        assistant_msgs = [e for e in events if e is not None and e[0] == "streaming_text"]
         results = [e for e in events if e is not None and e[0] == "result"]
         assert len(assistant_msgs) == 1
         assert len(results) == 1
 
 
 # ---------------------------------------------------------------------------
-# B106: conversation events 持久化包含 assistant_message
+# B103: conversation events 持久化包含 streaming_text
 # ---------------------------------------------------------------------------
 
 class TestConversationPersistence:
-    """B106: 测试 conversation events 持久化包含 assistant_message。"""
+    """B103: 测试 conversation events 持久化包含 streaming_text。"""
 
     @pytest.mark.asyncio
-    async def test_assistant_message_persisted_as_conversation_event(self, manager):
-        """assistant_message 作为 conversation event 持久化（event_type='assistant_message', role='assistant'）。"""
+    async def test_streaming_text_persisted_as_conversation_event(self, manager):
+        """streaming_text 作为 conversation event 持久化（event_type='streaming_text', role='assistant'）。"""
         s = await manager.create_session(
             intent="test", device_id="d", user_id="u",
             session_id="cp1", terminal_id="term-1", conversation_id="conv-1",
@@ -1540,33 +1511,33 @@ class TestConversationPersistence:
 
         # 检查持久化的事件类型
         event_types = [call.kwargs["event_type"] for call in append_event.await_args_list]
-        assert "assistant_message" in event_types
+        assert "streaming_text" in event_types
         # 检查 role
-        assistant_calls = [
+        streaming_calls = [
             call for call in append_event.await_args_list
-            if call.kwargs["event_type"] == "assistant_message"
+            if call.kwargs["event_type"] == "streaming_text"
         ]
-        assert len(assistant_calls) == 1
-        assert assistant_calls[0].kwargs["role"] == "assistant"
-        assert assistant_calls[0].kwargs["payload"]["content"] == "我帮你查看一下"
+        assert len(streaming_calls) == 1
+        assert streaming_calls[0].kwargs["role"] == "assistant"
+        assert streaming_calls[0].kwargs["payload"]["text_delta"] == "我帮你查看一下"
 
 
 # ---------------------------------------------------------------------------
-# B106: resume_stream 正确回放 assistant_message 缓存事件
+# B103: resume_stream 正确回放 streaming_text 缓存事件
 # ---------------------------------------------------------------------------
 
-class TestResumeAssistantMessage:
-    """B106: 测试 resume_stream 正确回放 assistant_message 缓存事件。"""
+class TestResumeStreamingText:
+    """B103: 测试 resume_stream 正确回放 streaming_text 缓存事件。"""
 
     @pytest.mark.asyncio
-    async def test_resume_replays_assistant_message(self, manager):
-        """断连恢复回放缓存的 assistant_message 事件。"""
+    async def test_resume_replays_streaming_text(self, manager):
+        """断连恢复回放缓存的 streaming_text 事件。"""
         s = await manager.create_session(
             intent="test", device_id="d", user_id="u", session_id="rsam1",
         )
 
-        # 推送 assistant_message + result + 结束信号
-        await s.event_queue.put(("assistant_message", {"content": "中间消息"}))
+        # 推送 streaming_text + result + 结束信号
+        await s.event_queue.put(("streaming_text", {"text_delta": "中间消息"}))
         await s.event_queue.put(("result", {"summary": "done", "steps": []}))
         await s.event_queue.put(None)
 
@@ -1586,19 +1557,19 @@ class TestResumeAssistantMessage:
             resumed.append(chunk)
 
         assert len(resumed) == 2
-        assert "event: assistant_message" in resumed[0]
+        assert "event: streaming_text" in resumed[0]
         assert "event: result" in resumed[1]
 
     @pytest.mark.asyncio
-    async def test_resume_from_index_skips_earlier_assistant_messages(self, manager):
-        """从指定索引恢复时跳过之前的 assistant_message。"""
+    async def test_resume_from_index_skips_earlier_streaming_texts(self, manager):
+        """从指定索引恢复时跳过之前的 streaming_text。"""
         s = await manager.create_session(
             intent="test", device_id="d", user_id="u", session_id="rsam2",
         )
 
         # 推送 3 个事件
-        await s.event_queue.put(("assistant_message", {"content": "msg-1"}))
-        await s.event_queue.put(("assistant_message", {"content": "msg-2"}))
+        await s.event_queue.put(("streaming_text", {"text_delta": "msg-1"}))
+        await s.event_queue.put(("streaming_text", {"text_delta": "msg-2"}))
         await s.event_queue.put(("result", {"summary": "done", "steps": []}))
         await s.event_queue.put(None)
 
@@ -1615,10 +1586,10 @@ class TestResumeAssistantMessage:
             resumed.append(chunk)
 
         assert len(resumed) == 2
-        assert "event: assistant_message" in resumed[0]
+        assert "event: streaming_text" in resumed[0]
         data_json = resumed[0].split("data: ")[1].strip()
         data = json.loads(data_json)
-        assert data["content"] == "msg-2"
+        assert data["text_delta"] == "msg-2"
 
 
 # ---------------------------------------------------------------------------

@@ -6,9 +6,10 @@ B080: Agent 会话管理 & SSE 流式 API。
 
 架构约束：
 - 不变量 #43: 产物收口为 CommandSequence（AgentResult）
-- 不变量 #50: 不展示模型原始 chain-of-thought。assistant_message 为用户可见回复，服务端兜底过滤
-- 不变量 #51: 每次规划必须有可回放 trace
+- 不变量 #50: 不展示模型原始 chain-of-thought。streaming_text 为逐 token 推送
 - 不变量 #52: 用户级限流 + provider timeout
+- 不变量 #60: Agent SSE 采用阶段驱动模型，6 种事件类型：
+  session_created, phase_change, streaming_text, tool_step, question, result, error
 - 权威边界: Server Terminal Agent 管理 SSE 流推送
 """
 
@@ -28,44 +29,27 @@ from app.terminal_agent import AgentResult, AgentUserFacingError
 
 logger = logging.getLogger(__name__)
 
-# trace 事件中命令输出预览的最大字符数
-_MAX_STDOUT_PREVIEW = 1000
-_MAX_STDERR_PREVIEW = 200
-
 # ---------------------------------------------------------------------------
-# B106: assistant_message 内容过滤兜底（不变量 #50）
+# B103: SSE 事件类型定义（不变量 #60）
 # ---------------------------------------------------------------------------
 
-# 检测并过滤可能的 CoT 标记
-COT_PATTERNS = [
-    "一步步思考", "推理过程", "思考步骤", "让我想想",
-    "step by step", "thinking process", "chain of thought",
-    "首先我需要", "接下来我要", "我的分析是",
-    "let me think", "let's analyze", "reasoning:",
-    "<think", "<thought", "<reasoning",
-]
+# 7 种合法 SSE 事件类型
+SSE_EVENT_TYPES = frozenset({
+    "session_created",   # 由 runtime_api.py SSE 端点产生
+    "phase_change",      # 阶段切换（B104 填充）
+    "streaming_text",    # 逐 token 文本推送（B105 填充）
+    "tool_step",         # 工具调用步骤（B106 填充）
+    "question",          # Agent 向用户提问
+    "result",            # Agent 最终结果
+    "error",             # 错误事件
+})
 
+# tool_step 事件中 status 字段的合法值
+TOOL_STEP_STATUSES = frozenset({"running", "done", "error"})
 
-def filter_assistant_message(content: str) -> str:
-    """过滤 assistant_message 中可能的 CoT 内容（不变量 #50 兜底）。
-
-    检测并截断可能的 chain-of-thought 标记。返回过滤后的内容。
-    如果截断后内容为空则返回空字符串。
-    """
-    content_lower = content.lower()
-    for pattern in COT_PATTERNS:
-        pattern_lower = pattern.lower()
-        idx = content_lower.find(pattern_lower)
-        if idx >= 0:
-            filtered = content[:idx].strip()
-            if filtered:
-                logger.info(
-                    "assistant_message CoT pattern detected and truncated: pattern=%r",
-                    pattern,
-                )
-                return filtered
-            return ""  # CoT 标记在开头，整条消息都不展示
-    return content
+# tool_step 事件中命令输出预览的最大字符数
+_MAX_TOOL_STEP_PREVIEW = 1000
+_MAX_TOOL_STEP_ERROR_PREVIEW = 200
 
 
 # ---------------------------------------------------------------------------
@@ -115,14 +99,6 @@ class AgentSessionState(str, Enum):
 # ---------------------------------------------------------------------------
 
 @dataclass
-class TraceEvent:
-    """Agent 探索过程追踪。"""
-    tool: str              # "execute_command" | "think"
-    input_summary: str     # 命令或思考摘要
-    output_summary: str    # 输出摘要
-
-
-@dataclass
 class QuestionEvent:
     """Agent 向用户提问。"""
     question: str
@@ -147,6 +123,37 @@ class ErrorEventData:
     """错误事件数据。"""
     code: str               # ErrorCode 中的值
     message: str
+
+
+# ---------------------------------------------------------------------------
+# B103: 新 SSE 事件类型辅助函数（框架，具体逻辑由 B104/B105/B106 填充）
+# ---------------------------------------------------------------------------
+
+def _phase_change_event(phase: str, description: str = "") -> dict[str, Any]:
+    """构造 phase_change 事件数据。"""
+    return {"phase": phase, "description": description}
+
+
+def _streaming_text_event(text_delta: str) -> dict[str, Any]:
+    """构造 streaming_text 事件数据。"""
+    return {"text_delta": text_delta}
+
+
+def _tool_step_event(
+    tool_name: str,
+    description: str = "",
+    status: str = "running",
+    result_summary: str = "",
+) -> dict[str, Any]:
+    """构造 tool_step 事件数据。"""
+    if status not in TOOL_STEP_STATUSES:
+        status = "running"
+    return {
+        "tool_name": tool_name,
+        "description": description,
+        "status": status,
+        "result_summary": result_summary,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -494,18 +501,18 @@ class AgentSessionManager:
             from app.terminal_agent import run_agent
 
             async def _execute_command_callback(session_id, command, cwd=None):
-                """Agent 执行命令回调：推送 trace 事件。"""
+                """Agent 执行命令回调：推送 tool_step 事件。"""
                 # 默认使用终端 CWD
                 effective_cwd = cwd or session.terminal_cwd
-                # 推送执行前的 trace
+                # 推送执行前的 tool_step（status=running）
                 await self._emit_session_event(
                     session,
-                    "trace",
-                    {
-                        "tool": "execute_command",
-                        "input_summary": command[:200],
-                        "output_summary": "",
-                    },
+                    "tool_step",
+                    _tool_step_event(
+                        tool_name="execute_command",
+                        description=command[:200],
+                        status="running",
+                    ),
                 )
                 session.last_active_at = datetime.now(timezone.utc)
                 session.state = AgentSessionState.EXPLORING
@@ -513,25 +520,29 @@ class AgentSessionManager:
                 # 调用实际的 execute_command
                 result = await execute_command_fn(session.device_id, command, cwd=effective_cwd)
 
-                # 推送执行后的 trace
+                # 推送执行后的 tool_step（status=done）
                 output_preview = (
-                    result.stdout[:_MAX_STDOUT_PREVIEW]
+                    result.stdout[:_MAX_TOOL_STEP_PREVIEW]
                     if result and result.stdout
                     else ""
                 )
+                error_status = "done"
                 if result and result.stderr:
                     output_preview += (
-                        f" [stderr: {result.stderr[:_MAX_STDERR_PREVIEW]}]"
+                        f" [stderr: {result.stderr[:_MAX_TOOL_STEP_ERROR_PREVIEW]}]"
                     )
+                    if result.exit_code != 0:
+                        error_status = "error"
 
                 await self._emit_session_event(
                     session,
-                    "trace",
-                    {
-                        "tool": "execute_command",
-                        "input_summary": command[:200],
-                        "output_summary": output_preview or "(无输出)",
-                    },
+                    "tool_step",
+                    _tool_step_event(
+                        tool_name="execute_command",
+                        description=command[:200],
+                        status=error_status,
+                        result_summary=output_preview or "(无输出)",
+                    ),
                 )
 
                 session.last_active_at = datetime.now(timezone.utc)
@@ -586,12 +597,16 @@ class AgentSessionManager:
                 except Exception as e:
                     logger.warning("Failed to load aliases: %s", e)
 
-            # Trace 包装：lookup_knowledge（含 duration）
+            # tool_step 包装：lookup_knowledge（含 duration）
             async def _traced_lookup_knowledge(query):
                 t_start = time.monotonic()
                 await self._emit_session_event(
-                    session, "trace",
-                    {"tool": "lookup_knowledge", "input_summary": query[:200], "output_summary": ""},
+                    session, "tool_step",
+                    _tool_step_event(
+                        tool_name="lookup_knowledge",
+                        description=query[:200],
+                        status="running",
+                    ),
                 )
                 result = ""
                 error_category = None
@@ -602,22 +617,28 @@ class AgentSessionManager:
                     error_category = type(e).__name__
                     duration_ms = int((time.monotonic() - t_start) * 1000)
                     await self._emit_session_event(
-                        session, "trace",
-                        {"tool": "lookup_knowledge", "input_summary": query[:200],
-                         "output_summary": "", "duration_ms": duration_ms,
-                         "error_category": error_category},
+                        session, "tool_step",
+                        _tool_step_event(
+                            tool_name="lookup_knowledge",
+                            description=query[:200],
+                            status="error",
+                            result_summary=f"error: {error_category} ({duration_ms}ms)",
+                        ),
                     )
                     raise
                 duration_ms = int((time.monotonic() - t_start) * 1000)
                 await self._emit_session_event(
-                    session, "trace",
-                    {"tool": "lookup_knowledge", "input_summary": query[:200],
-                     "output_summary": (result or "(无结果)")[:200],
-                     "duration_ms": duration_ms},
+                    session, "tool_step",
+                    _tool_step_event(
+                        tool_name="lookup_knowledge",
+                        description=query[:200],
+                        status="done",
+                        result_summary=(result or "(无结果)")[:200],
+                    ),
                 )
                 return result
 
-            # Trace 包装：call_dynamic_tool（含 duration + error category）
+            # tool_step 包装：call_dynamic_tool（含 duration + error category）
             def _classify_tool_error(error_msg: str) -> str:
                 msg = error_msg.lower()
                 if "timeout" in msg:
@@ -633,10 +654,12 @@ class AgentSessionManager:
             async def _traced_tool_call(tool_name, arguments):
                 t_start = time.monotonic()
                 await self._emit_session_event(
-                    session, "trace",
-                    {"tool": f"call_dynamic_tool:{tool_name}",
-                     "input_summary": f"{tool_name}({list(arguments.keys())})",
-                     "output_summary": ""},
+                    session, "tool_step",
+                    _tool_step_event(
+                        tool_name=f"call_dynamic_tool:{tool_name}",
+                        description=f"{tool_name}({list(arguments.keys())})",
+                        status="running",
+                    ),
                 )
                 result = {"status": "error", "error": "tool_call_fn not available"}
                 error_category = "not_found" if not tool_call_fn else None
@@ -657,26 +680,27 @@ class AgentSessionManager:
                     error_category = _classify_tool_error(result.get("error", ""))
                 duration_ms = int((time.monotonic() - t_start) * 1000)
                 output_preview = result.get("result", result.get("error", ""))[:200]
+                step_status = "error" if error_category else "done"
                 await self._emit_session_event(
-                    session, "trace",
-                    {"tool": f"call_dynamic_tool:{tool_name}",
-                     "input_summary": f"{tool_name}({list(arguments.keys())})",
-                     "output_summary": output_preview or "(无输出)",
-                     "duration_ms": duration_ms,
-                     **({"error_category": error_category} if error_category else {})},
+                    session, "tool_step",
+                    _tool_step_event(
+                        tool_name=f"call_dynamic_tool:{tool_name}",
+                        description=f"{tool_name}({list(arguments.keys())})",
+                        status=step_status,
+                        result_summary=output_preview or "(无输出)",
+                    ),
                 )
                 return result
 
-            # B106: on_model_text 回调——模型中间文本输出推送 assistant_message SSE
+            # B103/B105: on_model_text 回调——模型中间文本输出推送 streaming_text SSE
             async def _on_model_text(text: str):
-                """模型每轮文本输出回调：过滤后推送 assistant_message SSE 事件。"""
-                filtered = filter_assistant_message(text)
-                if not filtered:
+                """模型每轮文本输出回调：推送 streaming_text SSE 事件。"""
+                if not text or not text.strip():
                     return
                 await self._emit_session_event(
                     session,
-                    "assistant_message",
-                    {"content": filtered},
+                    "streaming_text",
+                    _streaming_text_event(text.strip()),
                 )
 
             # 调用 run_agent
@@ -932,8 +956,12 @@ class AgentSessionManager:
         """生成 SSE 事件流（async generator）。
 
         Yields SSE 格式字符串:
-          - event: trace / question / result / error
+          - event: tool_step / streaming_text / phase_change / question / result / error
           - : keepalive（注释帧）
+
+        不变量 #60: 7 种合法事件类型
+          session_created（由 runtime_api.py 产生）、phase_change、streaming_text、
+          tool_step、question、result、error
         """
         session._stream_ref_count += 1
         try:
