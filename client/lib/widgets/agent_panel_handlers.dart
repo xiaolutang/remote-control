@@ -1,7 +1,7 @@
 part of 'smart_terminal_side_panel.dart';
 
 /// SSE 会话管理、Intent 提交、Agent 事件处理、取消/重试
-mixin _PanelHandlersMixin on _PanelStateFields {
+mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
   void _handleIntentFocusChanged() {
     if (!mounted) return;
     setState(() {});
@@ -21,11 +21,7 @@ mixin _PanelHandlersMixin on _PanelStateFields {
   }
 
   void _scheduleScrollToLatest() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_scrollController.hasClients) return;
-      _scrollController.animateTo(_scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
-    });
+    scheduleScrollToLatest(_scrollController);
   }
 
   String? _currentTerminalId() {

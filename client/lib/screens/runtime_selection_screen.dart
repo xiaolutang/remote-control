@@ -13,6 +13,7 @@ import '../services/runtime_selection_controller.dart';
 import '../services/terminal_session_manager.dart';
 import '../services/ui_helpers.dart';
 import '../services/websocket_service.dart';
+import '../widgets/shared/status_pill.dart';
 import '../widgets/smart_terminal_create_dialog.dart';
 import 'login_screen.dart';
 import 'terminal_screen.dart';
@@ -339,19 +340,19 @@ class _TerminalPanel extends StatelessWidget {
                               spacing: 8,
                               runSpacing: 8,
                               children: [
-                                _StatusPill(
+                                StatusPill(
                                   icon: device!.agentOnline
                                       ? Icons.cloud_done_outlined
                                       : Icons.cloud_off_outlined,
                                   label: device!.agentOnline ? '设备在线' : '设备离线',
                                 ),
-                                _StatusPill(
+                                StatusPill(
                                   icon: Icons.terminal_outlined,
                                   label:
                                       '${device!.activeTerminals}/${device!.maxTerminals} 个终端',
                                 ),
                                 if (device!.hostname.isNotEmpty)
-                                  _StatusPill(
+                                  StatusPill(
                                     icon: Icons.dns_outlined,
                                     label: device!.hostname,
                                   ),
@@ -797,34 +798,5 @@ class _TerminalPanel extends StatelessWidget {
     final reason = terminal.disconnectReason;
     final reasonText = reason == null || reason.isEmpty ? '' : ' · $reason';
     return '状态: ${terminal.status} · 连接数: $viewCount$reasonText';
-  }
-}
-
-class _StatusPill extends StatelessWidget {
-  const _StatusPill({
-    required this.icon,
-    required this.label,
-  });
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.75),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16),
-          const SizedBox(width: 6),
-          Text(label),
-        ],
-      ),
-    );
   }
 }

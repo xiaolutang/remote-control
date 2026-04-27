@@ -21,6 +21,7 @@ class _SmartTerminalSidePanelContentState
     extends State<_SmartTerminalSidePanelContent>
     with
         WidgetsBindingObserver,
+        ScrollToLatestMixin,
         _PanelStateFields,
         _PanelStateLogicMixin,
         _PanelHandlersMixin,

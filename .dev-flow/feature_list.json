@@ -2,7 +2,7 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-28T04:33:51",
+  "updated_at": "2026-04-28T04:41:23",
   "active_requirement_cycle": {
     "id": "R047",
     "name": "agent-conversation-interaction-optimization",
@@ -797,7 +797,7 @@
       "description": "4 组重复代码：StatusPill 3处独立实现、ChatBubble 2处、_scheduleScrollToLatest 2处、终端转义序列处理 2处。提取为共享组件/工具。",
       "verification": "F1",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": "medium",
       "acceptance_criteria": [
         "StatusPill 提取为 widgets/shared/status_pill.dart",
@@ -813,7 +813,13 @@
         "client/lib/utils/terminal_escape_utils.dart",
         "client/lib/widgets/smart_terminal_side_panel_content.dart",
         "client/lib/screens/terminal_screen.dart"
-      ]
+      ],
+      "started_at": "2026-04-28T04:41:23",
+      "completed_at": "2026-04-28T04:41:23",
+      "actual_minutes": 20,
+      "execution_notes": "4 组重复代码提取：StatusPill/ChatBubble/ScrollToLatestMixin/EscapeUtils",
+      "evidence_file": ".dev-flow/evidence/F123.md",
+      "summary": "共享组件提取完成：StatusPill/ChatBubble/ScrollMixin/EscapeUtils 4 组去重"
     },
     {
       "id": "F124",
@@ -1011,8 +1017,8 @@
   "summary": {
     "total_tasks": 31,
     "by_status": {
-      "completed": 21,
-      "pending": 10
+      "completed": 22,
+      "pending": 9
     },
     "by_module": {
       "agent": 2,

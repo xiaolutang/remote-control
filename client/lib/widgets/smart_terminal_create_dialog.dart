@@ -6,6 +6,9 @@ import '../models/command_sequence_draft.dart';
 import '../models/terminal_launch_plan.dart';
 import '../services/command_planner/planner_provider.dart';
 import '../services/runtime_selection_controller.dart';
+import 'shared/status_pill.dart';
+import 'shared/chat_bubble.dart';
+import 'shared/scroll_mixin.dart';
 
 part 'smart_terminal_create_dialog_models.dart';
 part 'smart_terminal_create_dialog_conversation.dart';
@@ -94,7 +97,7 @@ class _SmartTerminalCreateDialog<T> extends StatefulWidget {
 
 class _SmartTerminalCreateDialogState<T>
     extends State<_SmartTerminalCreateDialog<T>>
-    with _SmartTerminalCreateDialogHandlers<T> {
+    with ScrollToLatestMixin, _SmartTerminalCreateDialogHandlers<T> {
   static const String _firstUseGuideSeenKey =
       'smart_terminal_create_first_use_guide_seen_v2';
 

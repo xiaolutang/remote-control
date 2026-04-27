@@ -99,7 +99,7 @@ class _ConversationPanel extends StatelessWidget {
           ],
           if (errorMessage != null) ...[
             _assistantBubbleSpacing,
-            _ChatBubble(
+            ChatBubble(
               alignment: Alignment.centerLeft,
               backgroundColor:
                   colorScheme.errorContainer.withValues(alpha: 0.72),
@@ -168,7 +168,7 @@ class _ConversationPanel extends StatelessWidget {
     required bool manualConfirmationAccepted,
     required ValueChanged<bool>? onToggleManualConfirmation,
   }) {
-    return _ChatBubble(
+    return ChatBubble(
       alignment: Alignment.centerLeft,
       backgroundColor: assistantBubbleColor,
       child: _CommandSequencePreview(
@@ -216,7 +216,7 @@ class _ConversationPanel extends StatelessWidget {
   }
 
   Widget _buildUserBubble(String text) {
-    return _ChatBubble(
+    return ChatBubble(
       alignment: Alignment.centerRight,
       backgroundColor: const Color(0xFFDCE8FF),
       child: Text(text),
@@ -227,7 +227,7 @@ class _ConversationPanel extends StatelessWidget {
     String text, {
     required Color backgroundColor,
   }) {
-    return _ChatBubble(
+    return ChatBubble(
       alignment: Alignment.centerLeft,
       backgroundColor: backgroundColor,
       child: Row(
@@ -248,14 +248,14 @@ class _ConversationPanel extends StatelessWidget {
   }) {
     switch (item.kind) {
       case _ConversationStreamItemKind.assistantMessage:
-        return _ChatBubble(
+        return ChatBubble(
           alignment: Alignment.centerLeft,
           backgroundColor: assistantBubbleColor,
           child: Text(item.assistantMessage!.text),
         );
       case _ConversationStreamItemKind.traceItem:
         final traceItem = item.traceItem!;
-        return _ChatBubble(
+        return ChatBubble(
           alignment: Alignment.centerLeft,
           backgroundColor: assistantBubbleColor,
           child: _TraceEventView(
@@ -264,7 +264,7 @@ class _ConversationPanel extends StatelessWidget {
           ),
         );
       case _ConversationStreamItemKind.executionEvent:
-        return _ChatBubble(
+        return ChatBubble(
           alignment: Alignment.centerLeft,
           backgroundColor: systemBubbleColor ?? const Color(0xFFEAF2FF),
           child: _ExecutionEventCard(event: item.executionEvent!),
@@ -298,42 +298,3 @@ class _AssistantIntroCard extends StatelessWidget {
   }
 }
 
-class _ChatBubble extends StatelessWidget {
-  const _ChatBubble({
-    required this.alignment,
-    required this.backgroundColor,
-    required this.child,
-  });
-
-  final Alignment alignment;
-  final Color backgroundColor;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final isUser = alignment == Alignment.centerRight;
-    final bubbleRadius = BorderRadius.only(
-      topLeft: const Radius.circular(22),
-      topRight: const Radius.circular(22),
-      bottomLeft: Radius.circular(isUser ? 22 : 8),
-      bottomRight: Radius.circular(isUser ? 8 : 22),
-    );
-    return Align(
-      alignment: alignment,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 560),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
-            color: backgroundColor,
-            borderRadius: bubbleRadius,
-            border: Border.all(
-              color: Colors.black.withValues(alpha: isUser ? 0.02 : 0.035),
-            ),
-          ),
-          child: child,
-        ),
-      ),
-    );
-  }
-}

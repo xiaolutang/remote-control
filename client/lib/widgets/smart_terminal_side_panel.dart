@@ -12,6 +12,7 @@ import '../services/runtime_selection_controller.dart';
 import '../services/usage_summary_service.dart';
 import '../services/websocket_service.dart';
 import 'mobile_bottom_inset.dart';
+import 'shared/scroll_mixin.dart';
 import 'package:provider/provider.dart';
 
 part 'agent_panel_state.dart';

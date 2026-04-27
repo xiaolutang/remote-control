@@ -19,7 +19,7 @@ class _TraceEventView extends StatelessWidget {
         Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            _StatusPill(
+            StatusPill(
               label: stageMeta.label,
               backgroundColor: stageMeta.background,
               textColor: stageMeta.foreground,
@@ -75,7 +75,7 @@ class _TraceStatusChip extends StatelessWidget {
       'failed' => (colorScheme.errorContainer, colorScheme.error),
       _ => (const Color(0xFFF0F2F6), colorScheme.onSurfaceVariant),
     };
-    return _StatusPill(
+    return StatusPill(
       label: _statusLabel(status),
       backgroundColor: background,
       textColor: text,
@@ -83,35 +83,6 @@ class _TraceStatusChip extends StatelessWidget {
   }
 }
 
-class _StatusPill extends StatelessWidget {
-  const _StatusPill({
-    required this.label,
-    required this.backgroundColor,
-    required this.textColor,
-  });
-
-  final String label;
-  final Color backgroundColor;
-  final Color textColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        label,
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: textColor,
-              fontWeight: FontWeight.w600,
-            ),
-      ),
-    );
-  }
-}
 
 class _ExecutionEventCard extends StatelessWidget {
   const _ExecutionEventCard({required this.event});
@@ -275,7 +246,7 @@ class _ExecutionStatusPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _StatusPill(
+    return StatusPill(
       label: label,
       backgroundColor: color.withValues(alpha: 0.12),
       textColor: color,

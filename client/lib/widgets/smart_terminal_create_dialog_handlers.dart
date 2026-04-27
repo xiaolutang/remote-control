@@ -1,7 +1,7 @@
 part of 'smart_terminal_create_dialog.dart';
 
 mixin _SmartTerminalCreateDialogHandlers<T>
-    on State<_SmartTerminalCreateDialog<T>> {
+    on State<_SmartTerminalCreateDialog<T>>, ScrollToLatestMixin {
   TextEditingController get _intentController;
   FocusNode get _intentFocusNode;
   ScrollController get _conversationScrollController;
@@ -24,17 +24,10 @@ mixin _SmartTerminalCreateDialogHandlers<T>
   List<_ConversationStreamItem> get _executionEvents;
 
   void _scheduleScrollToLatest() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_conversationScrollController.hasClients) {
-        return;
-      }
-      final position = _conversationScrollController.position;
-      _conversationScrollController.animateTo(
-        position.maxScrollExtent,
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOut,
-      );
-    });
+    scheduleScrollToLatest(
+      _conversationScrollController,
+      duration: const Duration(milliseconds: 220),
+    );
   }
 
   CommandSequenceDraft _buildCurrentDraft() {

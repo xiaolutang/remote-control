@@ -13,6 +13,7 @@ import '../services/logout_helper.dart';
 import '../services/runtime_device_service.dart';
 import '../services/shortcut_config_service.dart';
 import '../services/terminal_session_manager.dart';
+import '../utils/terminal_escape_utils.dart';
 import '../services/ui_helpers.dart';
 import '../services/runtime_selection_controller.dart';
 import '../services/websocket_service.dart';
@@ -38,9 +39,6 @@ class TerminalScreen extends StatefulWidget {
 
 class _TerminalScreenState extends State<TerminalScreen> {
   static const bool _enableTerminalTransitionLogs = false;
-  static final RegExp _terminalTransitionPattern = RegExp(
-    '\x1B\\[(?:\\?1049[hl]|\\?1048[hl]|\\?6[hl]|[0-9;]*r)',
-  );
 
   Terminal? _terminal;
   WebSocketService? _webSocketService;
@@ -346,7 +344,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
 
   void _onOutput(String data) {
     final shouldLogTransition = _enableTerminalTransitionLogs &&
-        _terminalTransitionPattern.hasMatch(data);
+        terminalTransitionPattern.hasMatch(data);
     if (shouldLogTransition) {
       _logTerminalTransition('before_write', data);
     }
@@ -373,30 +371,10 @@ class _TerminalScreenState extends State<TerminalScreen> {
       'view=${terminal.viewWidth}x${terminal.viewHeight} '
       'margins=${buffer.marginTop}-${buffer.marginBottom} '
       'origin=${terminal.originMode} '
-      'seq=${_summarizeTerminalSequences(data)}',
+      'seq=${summarizeTerminalSequences(data)}',
     );
   }
 
-  String _summarizeTerminalSequences(String data) {
-    final matches = _terminalTransitionPattern.allMatches(data).toList();
-    if (matches.isEmpty) {
-      return '[]';
-    }
-
-    final sequences = matches
-        .map((match) => _formatEscapeSequence(match.group(0)!))
-        .take(8)
-        .toList();
-    final suffix = matches.length > sequences.length ? ' ...' : '';
-    return '[${sequences.join(', ')}$suffix]';
-  }
-
-  String _formatEscapeSequence(String value) {
-    return value
-        .replaceAll('\x1B', '<ESC>')
-        .replaceAll('\n', r'\n')
-        .replaceAll('\r', r'\r');
-  }
 
   /// 更新输出缓冲区
   void _updateOutputBuffer(String data) {

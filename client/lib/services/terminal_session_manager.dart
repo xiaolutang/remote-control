@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import 'package:xterm/xterm.dart';
 
 import 'websocket_service.dart';
+import '../utils/terminal_escape_utils.dart';
 
 /// Recovery 超时时间：如果 snapshot_complete 未在此时间内到达，
 /// 自动 finishRecovery 以防止终端永久卡在 recovering 状态。
@@ -12,34 +13,12 @@ const Duration _recoveryTimeout = Duration(seconds: 5);
 const Duration _postInterruptReplyHold = Duration(milliseconds: 350);
 const Duration _postRecoveryReplyDrop = Duration(seconds: 2);
 const bool _enableTerminalTransitionLogs = false;
-final RegExp _terminalTransitionPattern = RegExp(
-  '\x1B\\[(?:\\?1049[hl]|\\?1048[hl]|\\?6[hl]|[0-9;]*r)',
-);
-final RegExp _alternateBufferTransitionPattern = RegExp(
-  '\x1B\\[\\?(?:1049|1047|47)[hl]',
-);
 
-String _summarizeTerminalSequences(String data) {
-  final matches = _terminalTransitionPattern.allMatches(data).toList();
-  if (matches.isEmpty) {
-    return '[]';
-  }
-
-  final sequences = matches
-      .map((match) => _formatEscapeSequence(match.group(0)!))
-      .take(8)
-      .toList();
-  final suffix = matches.length > sequences.length ? ' ...' : '';
-  return '[${sequences.join(', ')}$suffix]';
-}
-
-String _formatEscapeSequence(String value) {
-  return value
-      .replaceAll('\x1B', '<ESC>')
-      .replaceAll('\n', r'\n')
-      .replaceAll('\r', r'\r');
-}
-
+// ---- Escaped-sequence helpers now live in utils/terminal_escape_utils.dart ----
+// Re-export as private aliases so existing call-sites inside this file compile.
+final RegExp _terminalTransitionPattern = terminalTransitionPattern;
+final RegExp _alternateBufferTransitionPattern = alternateBufferTransitionPattern;
+String _summarizeTerminalSequences(String data) => summarizeTerminalSequences(data);
 enum _TerminalAutoResponseKind {
   deviceAttributes,
   statusReport,
@@ -48,24 +27,14 @@ enum _TerminalAutoResponseKind {
 }
 
 _TerminalAutoResponseKind? _classifyTerminalAutoResponse(String data) {
-  if (data.isEmpty || !data.startsWith('\x1b')) {
-    return null;
-  }
-
-  if (data == '\x1b[?1;2c' || data.startsWith('\x1b[>')) {
-    return _TerminalAutoResponseKind.deviceAttributes;
-  }
-  if (data == '\x1b[0n') {
-    return _TerminalAutoResponseKind.statusReport;
-  }
-  if (data.startsWith('\x1bP!|')) {
-    return _TerminalAutoResponseKind.deviceControlString;
-  }
-  final cursorReport = RegExp(r'^\x1b\[\d+;\d+R$');
-  if (cursorReport.hasMatch(data)) {
-    return _TerminalAutoResponseKind.cursorReport;
-  }
-  return null;
+  final kind = classifyTerminalAutoResponse(data);
+  return switch (kind) {
+    TerminalAutoResponseKind.deviceAttributes => _TerminalAutoResponseKind.deviceAttributes,
+    TerminalAutoResponseKind.statusReport => _TerminalAutoResponseKind.statusReport,
+    TerminalAutoResponseKind.cursorReport => _TerminalAutoResponseKind.cursorReport,
+    TerminalAutoResponseKind.deviceControlString => _TerminalAutoResponseKind.deviceControlString,
+    null => null,
+  };
 }
 
 bool _shouldSuppressTerminalAutoResponse(
