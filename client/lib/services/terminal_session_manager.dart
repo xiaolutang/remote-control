@@ -14,32 +14,17 @@ const Duration _postInterruptReplyHold = Duration(milliseconds: 350);
 const Duration _postRecoveryReplyDrop = Duration(seconds: 2);
 const bool _enableTerminalTransitionLogs = false;
 
-// ---- Escaped-sequence helpers now live in utils/terminal_escape_utils.dart ----
-// Re-export as private aliases so existing call-sites inside this file compile.
-final RegExp _terminalTransitionPattern = terminalTransitionPattern;
-final RegExp _alternateBufferTransitionPattern = alternateBufferTransitionPattern;
-String _summarizeTerminalSequences(String data) => summarizeTerminalSequences(data);
-enum _TerminalAutoResponseKind {
-  deviceAttributes,
-  statusReport,
-  cursorReport,
-  deviceControlString,
+// ---- Escaped-sequence helpers: directly use utils/terminal_escape_utils.dart ----
+
+enum _TerminalReplyGuardMode {
+  none,
+  interrupt,
+  recovery,
 }
 
-_TerminalAutoResponseKind? _classifyTerminalAutoResponse(String data) {
-  final kind = classifyTerminalAutoResponse(data);
-  return switch (kind) {
-    TerminalAutoResponseKind.deviceAttributes => _TerminalAutoResponseKind.deviceAttributes,
-    TerminalAutoResponseKind.statusReport => _TerminalAutoResponseKind.statusReport,
-    TerminalAutoResponseKind.cursorReport => _TerminalAutoResponseKind.cursorReport,
-    TerminalAutoResponseKind.deviceControlString => _TerminalAutoResponseKind.deviceControlString,
-    null => null,
-  };
-}
-
-bool _shouldSuppressTerminalAutoResponse(
+bool _shouldSuppressAutoResponse(
   _TerminalReplyGuardMode mode,
-  _TerminalAutoResponseKind kind,
+  TerminalAutoResponseKind kind,
 ) {
   switch (mode) {
     case _TerminalReplyGuardMode.none:
@@ -47,15 +32,9 @@ bool _shouldSuppressTerminalAutoResponse(
     case _TerminalReplyGuardMode.interrupt:
       return true;
     case _TerminalReplyGuardMode.recovery:
-      return kind == _TerminalAutoResponseKind.statusReport ||
-          kind == _TerminalAutoResponseKind.cursorReport;
+      return kind == TerminalAutoResponseKind.statusReport ||
+          kind == TerminalAutoResponseKind.cursorReport;
   }
-}
-
-enum _TerminalReplyGuardMode {
-  none,
-  interrupt,
-  recovery,
 }
 
 /// Terminal session 状态机枚举（F072）
@@ -146,7 +125,7 @@ class RendererAdapter {
 
   void _write(String data) {
     final shouldLogTransition = _enableTerminalTransitionLogs &&
-        _terminalTransitionPattern.hasMatch(data);
+        terminalTransitionPattern.hasMatch(data);
     if (shouldLogTransition) {
       _logTerminalTransition('before_write', data);
     }
@@ -171,7 +150,7 @@ class RendererAdapter {
       'view=${_terminal.viewWidth}x${_terminal.viewHeight} '
       'margins=${buffer.marginTop}-${buffer.marginBottom} '
       'origin=${_terminal.originMode} '
-      'seq=${_summarizeTerminalSequences(data)}',
+      'seq=${summarizeTerminalSequences(data)}',
     );
   }
 
@@ -373,7 +352,7 @@ class _TerminalState {
       return;
     }
 
-    final autoResponseKind = _classifyTerminalAutoResponse(data);
+    final autoResponseKind = classifyTerminalAutoResponse(data);
     if (_snapshotReplayInProgress && autoResponseKind != null) {
       return;
     }
@@ -385,7 +364,7 @@ class _TerminalState {
     }
 
     if (autoResponseKind != null &&
-        _shouldSuppressTerminalAutoResponse(
+        _shouldSuppressAutoResponse(
           _replyGuardMode,
           autoResponseKind,
         )) {
@@ -482,7 +461,7 @@ class _TerminalState {
       if (kDebugMode) {
         debugPrint(
           '[TerminalSessionState] dropping unsafe recovery snapshot '
-          'buffer=${activeBuffer.name} seq=${_summarizeTerminalSequences(data)}',
+          'buffer=${activeBuffer.name} seq=${summarizeTerminalSequences(data)}',
         );
       }
       return;
@@ -508,7 +487,7 @@ class _TerminalState {
     if (!renderer.hasMeaningfulContent) {
       return false;
     }
-    return _alternateBufferTransitionPattern.hasMatch(data);
+    return alternateBufferTransitionPattern.hasMatch(data);
   }
 
   void dispose() {

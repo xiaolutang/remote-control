@@ -2,7 +2,7 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-28T04:41:23",
+  "updated_at": "2026-04-28T04:56:34",
   "active_requirement_cycle": {
     "id": "R047",
     "name": "agent-conversation-interaction-optimization",
@@ -831,7 +831,7 @@
       "depends_on": [
         "F123"
       ],
-      "status": "pending",
+      "status": "completed",
       "priority": "medium",
       "acceptance_criteria": [
         "WS 绑定/协议事件处理逻辑下沉到 Controller 或 Manager",
@@ -844,7 +844,13 @@
       "files": [
         "client/lib/screens/terminal_screen.dart",
         "client/lib/services/terminal_session_manager.dart"
-      ]
+      ],
+      "started_at": "2026-04-28T04:56:34",
+      "completed_at": "2026-04-28T04:56:34",
+      "actual_minutes": 25,
+      "execution_notes": "1716→660行，Controller(494)+ShortcutMenuWidgets(522)提取，EscapeUtils去重40行",
+      "evidence_file": ".dev-flow/evidence/F124.md",
+      "summary": "terminal_screen.dart 重构完成：Controller+UI分离，660行，flutter analyze 0 error"
     },
     {
       "id": "F125",
@@ -1017,8 +1023,8 @@
   "summary": {
     "total_tasks": 31,
     "by_status": {
-      "completed": 22,
-      "pending": 9
+      "completed": 23,
+      "pending": 8
     },
     "by_module": {
       "agent": 2,
