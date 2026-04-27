@@ -2,7 +2,7 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-28T03:36:31",
+  "updated_at": "2026-04-28T03:51:25",
   "active_requirement_cycle": {
     "id": "R047",
     "name": "agent-conversation-interaction-optimization",
@@ -704,7 +704,7 @@
       "depends_on": [
         "B120"
       ],
-      "status": "pending",
+      "status": "completed",
       "priority": "medium",
       "acceptance_criteria": [
         "Database 基类只保留连接管理 + init_db",
@@ -720,7 +720,13 @@
         "server/app/store/database.py",
         "server/app/store/"
       ],
-      "planning_notes": "在 runtime_api 拆分后进行，减少合并冲突"
+      "planning_notes": "在 runtime_api 拆分后进行，减少合并冲突",
+      "started_at": "2026-04-28T03:51:25",
+      "completed_at": "2026-04-28T03:51:25",
+      "actual_minutes": 25,
+      "execution_notes": "database.py 1590行→8文件，Mixin 模式：6 实体域 store + _schema(DDL) + 基类(382行)。调用方零改动",
+      "evidence_file": ".dev-flow/evidence/B121.md",
+      "summary": "database.py 拆分完成：Mixin 模式按 6 实体域拆分，每个文件≤400行，模块级便捷函数 API 不变"
     },
     {
       "id": "B122",
@@ -993,8 +999,8 @@
   "summary": {
     "total_tasks": 31,
     "by_status": {
-      "completed": 18,
-      "pending": 13
+      "completed": 19,
+      "pending": 12
     },
     "by_module": {
       "agent": 2,
