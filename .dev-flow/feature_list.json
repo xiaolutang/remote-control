@@ -2,7 +2,7 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-28T02:27:02",
+  "updated_at": "2026-04-28T03:36:31",
   "active_requirement_cycle": {
     "id": "R047",
     "name": "agent-conversation-interaction-optimization",
@@ -663,7 +663,7 @@
       "depends_on": [
         "B119"
       ],
-      "status": "pending",
+      "status": "completed",
       "priority": "high",
       "acceptance_criteria": [
         "31 个 Pydantic Model 移到 api/schemas.py",
@@ -686,7 +686,13 @@
         "server/app/api/runtime_api.py",
         "server/app/api/"
       ],
-      "planning_notes": "在目录分层（B119）完成后，做 runtime_api 文件内部拆分"
+      "planning_notes": "在目录分层（B119）完成后，做 runtime_api 文件内部拆分",
+      "started_at": "2026-04-28T03:36:31",
+      "completed_at": "2026-04-28T03:36:31",
+      "actual_minutes": 45,
+      "execution_notes": "runtime_api.py 3016行→14文件，schemas.py(270) + 6路由域 + 3辅助模块 + _deps/_helpers + 聚合入口(99行)。修复13个mock绑定问题",
+      "evidence_file": ".dev-flow/evidence/B120.md",
+      "summary": "runtime_api.py 拆分完成：31 Pydantic Model→schemas.py，30 路由按域拆为 6 个路由文件，每个文件≤500行，零回归"
     },
     {
       "id": "B121",
@@ -987,8 +993,8 @@
   "summary": {
     "total_tasks": 31,
     "by_status": {
-      "completed": 17,
-      "pending": 14
+      "completed": 18,
+      "pending": 13
     },
     "by_module": {
       "agent": 2,

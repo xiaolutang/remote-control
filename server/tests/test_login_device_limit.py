@@ -561,7 +561,7 @@ class TestE2ETokenVersionEnforcement:
 
         with patch("app.infra.auth.get_token_version", return_value=2):
             with patch("app.store.session.get_session", new=AsyncMock(return_value={"user_id": "user1", "owner": "user1"})):
-                with patch("app.api.runtime_api.list_sessions_for_user", new=AsyncMock(return_value=[])):
+                with patch("app.api._deps.list_sessions_for_user", new=AsyncMock(return_value=[])):
                     response = self.client.get("/api/runtime/devices", headers=headers_v2)
 
         assert response.status_code == 200
@@ -609,7 +609,7 @@ class TestRouteLevelVerificationEnforcement:
 
     def test_runtime_api_uses_async_verify(self):
         """runtime_api 通过 Depends(get_current_user_id) 使用 async_verify_token"""
-        import app.api.runtime_api as mod
+        import app.api.device_api as mod
         import inspect
         source = inspect.getsource(mod.list_runtime_devices)
         # list_runtime_devices 通过 Depends(get_current_user_id) 鉴权

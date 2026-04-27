@@ -61,7 +61,7 @@ class TestIntegrationAgentConnection:
 
         with patch('app.ws.ws_agent.get_session', return_value={"session_id": "test-session-1", "owner": "test-user"}):
             with patch('app.ws.ws_agent.set_session_online', new_callable=AsyncMock):
-                with patch('app.ws.ws_client.get_view_counts', return_value={"mobile": 0, "desktop": 0}):
+                with patch('app.api._deps.get_view_counts', return_value={"mobile": 0, "desktop": 0}):
                     with patch('app.infra.auth.get_token_version', new_callable=AsyncMock, return_value=1):
                         try:
                             from app.ws.ws_agent import agent_websocket_handler
@@ -171,7 +171,7 @@ class TestIntegrationMultiView:
         assert counts["desktop"] == 1
 
         # 广播 presence
-        with patch('app.ws.ws_agent.get_agent_connection', return_value=None):
+        with patch('app.api._deps.get_agent_connection', return_value=None):
             await _broadcast_presence("session-1")
 
         # 验证两个客户端都收到 presence 消息
@@ -305,13 +305,13 @@ class TestTerminalBoundAgentApi:
         async def _start_agent(agent_session, execute_cmd_fn, **kwargs):
             await agent_session.event_queue.put(None)
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
-            with patch("app.api.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
-                with patch("app.api.runtime_api.get_or_create_agent_conversation", new=AsyncMock(return_value=self._conversation())):
-                    with patch("app.api.runtime_api.append_agent_conversation_event", new=append_event):
-                        with patch("app.api.runtime_api.list_agent_conversation_events", new=AsyncMock(return_value=[])):
-                            with patch("app.api.runtime_api.is_agent_connected", return_value=True):
-                                with patch("app.api.runtime_api.get_agent_session_manager", return_value=manager):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.api._deps.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
+                with patch("app.api._deps.get_or_create_agent_conversation", new=AsyncMock(return_value=self._conversation())):
+                    with patch("app.api._deps.append_agent_conversation_event", new=append_event):
+                        with patch("app.api._deps.list_agent_conversation_events", new=AsyncMock(return_value=[])):
+                            with patch("app.api._deps.is_agent_connected", return_value=True):
+                                with patch("app.api._deps.get_agent_session_manager", return_value=manager):
                                     with patch.object(manager, "start_agent", new=AsyncMock(side_effect=_start_agent)):
                                         response = self.client.post(
                                             "/api/runtime/devices/mbp-01/terminals/term-1/assistant/agent/run",
@@ -368,14 +368,14 @@ class TestTerminalBoundAgentApi:
             captured_dynamic_tools = kwargs.get("dynamic_tools", [])
             await agent_session.event_queue.put(None)
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
-            with patch("app.api.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
-                with patch("app.api.runtime_api.get_or_create_agent_conversation", new=AsyncMock(return_value=self._conversation())):
-                    with patch("app.api.runtime_api.append_agent_conversation_event", new=append_event):
-                        with patch("app.api.runtime_api.list_agent_conversation_events", new=AsyncMock(return_value=[])):
-                            with patch("app.api.runtime_api.is_agent_connected", return_value=True):
-                                with patch("app.api.runtime_api.get_agent_connection", return_value=agent_conn):
-                                    with patch("app.api.runtime_api.get_agent_session_manager", return_value=manager):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.api._deps.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
+                with patch("app.api._deps.get_or_create_agent_conversation", new=AsyncMock(return_value=self._conversation())):
+                    with patch("app.api._deps.append_agent_conversation_event", new=append_event):
+                        with patch("app.api._deps.list_agent_conversation_events", new=AsyncMock(return_value=[])):
+                            with patch("app.api._deps.is_agent_connected", return_value=True):
+                                with patch("app.api._deps.get_agent_connection", return_value=agent_conn):
+                                    with patch("app.api._deps.get_agent_session_manager", return_value=manager):
                                         with patch.object(manager, "start_agent", new=AsyncMock(side_effect=_start_agent)):
                                             response = self.client.post(
                                                 "/api/runtime/devices/mbp-01/terminals/term-1/assistant/agent/run",
@@ -424,14 +424,14 @@ class TestTerminalBoundAgentApi:
             captured_kwargs.update(kwargs)
             await agent_session.event_queue.put(None)
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
-            with patch("app.api.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
-                with patch("app.api.runtime_api.get_or_create_agent_conversation", new=AsyncMock(return_value=self._conversation())):
-                    with patch("app.api.runtime_api.append_agent_conversation_event", new=append_event):
-                        with patch("app.api.runtime_api.list_agent_conversation_events", new=AsyncMock(return_value=[])):
-                            with patch("app.api.runtime_api.is_agent_connected", return_value=True):
-                                with patch("app.api.runtime_api.get_agent_connection", return_value=agent_conn):
-                                    with patch("app.api.runtime_api.get_agent_session_manager", return_value=manager):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.api._deps.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
+                with patch("app.api._deps.get_or_create_agent_conversation", new=AsyncMock(return_value=self._conversation())):
+                    with patch("app.api._deps.append_agent_conversation_event", new=append_event):
+                        with patch("app.api._deps.list_agent_conversation_events", new=AsyncMock(return_value=[])):
+                            with patch("app.api._deps.is_agent_connected", return_value=True):
+                                with patch("app.api._deps.get_agent_connection", return_value=agent_conn):
+                                    with patch("app.api._deps.get_agent_session_manager", return_value=manager):
                                         with patch.object(manager, "start_agent", new=AsyncMock(side_effect=_start_agent)):
                                             response = self.client.post(
                                                 "/api/runtime/devices/mbp-01/terminals/term-1/assistant/agent/run",
@@ -476,14 +476,14 @@ class TestTerminalBoundAgentApi:
             captured_kwargs.update(kwargs)
             await agent_session.event_queue.put(None)
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
-            with patch("app.api.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
-                with patch("app.api.runtime_api.get_or_create_agent_conversation", new=AsyncMock(return_value=self._conversation())):
-                    with patch("app.api.runtime_api.append_agent_conversation_event", new=append_event):
-                        with patch("app.api.runtime_api.list_agent_conversation_events", new=AsyncMock(return_value=[])):
-                            with patch("app.api.runtime_api.is_agent_connected", return_value=True):
-                                with patch("app.api.runtime_api.get_agent_connection", return_value=agent_conn):
-                                    with patch("app.api.runtime_api.get_agent_session_manager", return_value=manager):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.api._deps.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
+                with patch("app.api._deps.get_or_create_agent_conversation", new=AsyncMock(return_value=self._conversation())):
+                    with patch("app.api._deps.append_agent_conversation_event", new=append_event):
+                        with patch("app.api._deps.list_agent_conversation_events", new=AsyncMock(return_value=[])):
+                            with patch("app.api._deps.is_agent_connected", return_value=True):
+                                with patch("app.api._deps.get_agent_connection", return_value=agent_conn):
+                                    with patch("app.api._deps.get_agent_session_manager", return_value=manager):
                                         with patch.object(manager, "start_agent", new=AsyncMock(side_effect=_start_agent)):
                                             response = self.client.post(
                                                 "/api/runtime/devices/mbp-01/terminals/term-1/assistant/agent/run",
@@ -527,12 +527,12 @@ class TestTerminalBoundAgentApi:
         await_none = asyncio.run(agent_session.event_queue.put(None))
         assert await_none is None
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
-            with patch("app.api.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
-                with patch("app.api.runtime_api.get_or_create_agent_conversation", new=AsyncMock(return_value=self._conversation())):
-                    with patch("app.api.runtime_api.list_agent_conversation_events", new=AsyncMock(return_value=[existing_event])):
-                        with patch("app.api.runtime_api.is_agent_connected", return_value=True):
-                            with patch("app.api.runtime_api.get_agent_session_manager", return_value=manager):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.api._deps.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
+                with patch("app.api._deps.get_or_create_agent_conversation", new=AsyncMock(return_value=self._conversation())):
+                    with patch("app.api._deps.list_agent_conversation_events", new=AsyncMock(return_value=[existing_event])):
+                        with patch("app.api._deps.is_agent_connected", return_value=True):
+                            with patch("app.api._deps.get_agent_session_manager", return_value=manager):
                                 with patch.object(manager, "start_agent", new=AsyncMock(side_effect=_start_agent)):
                                     response = self.client.post(
                                         "/api/runtime/devices/mbp-01/terminals/term-1/assistant/agent/run",
@@ -561,11 +561,11 @@ class TestTerminalBoundAgentApi:
             }
         )
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=offline_session)):
-            with patch("app.api.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
-                with patch("app.api.runtime_api.get_or_create_agent_conversation", new=AsyncMock(return_value=self._conversation())):
-                    with patch("app.api.runtime_api.list_agent_conversation_events", new=AsyncMock(return_value=[])):
-                        with patch("app.api.runtime_api.append_agent_conversation_event", new=append_event):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=offline_session)):
+            with patch("app.api._deps.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
+                with patch("app.api._deps.get_or_create_agent_conversation", new=AsyncMock(return_value=self._conversation())):
+                    with patch("app.api._deps.list_agent_conversation_events", new=AsyncMock(return_value=[])):
+                        with patch("app.api._deps.append_agent_conversation_event", new=append_event):
                             response = self.client.post(
                                 "/api/runtime/devices/mbp-01/terminals/term-1/assistant/agent/run",
                                 headers=self.headers,
@@ -608,11 +608,11 @@ class TestTerminalBoundAgentApi:
             }
         )
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
-            with patch("app.api.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
-                with patch("app.api.runtime_api.get_or_create_agent_conversation", new=AsyncMock(return_value=self._conversation())):
-                    with patch("app.api.runtime_api.append_agent_conversation_event", new=append_event):
-                        with patch("app.api.runtime_api.get_agent_session_manager", return_value=manager):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.api._deps.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
+                with patch("app.api._deps.get_or_create_agent_conversation", new=AsyncMock(return_value=self._conversation())):
+                    with patch("app.api._deps.append_agent_conversation_event", new=append_event):
+                        with patch("app.api._deps.get_agent_session_manager", return_value=manager):
                             response = self.client.post(
                                 "/api/runtime/devices/mbp-01/terminals/term-1/assistant/agent/agent-session-1/respond",
                                 headers=self.headers,
@@ -654,11 +654,11 @@ class TestTerminalBoundAgentApi:
             "session_id": "agent-session-1",
         }
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
-            with patch("app.api.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
-                with patch("app.api.runtime_api.get_or_create_agent_conversation", new=AsyncMock(return_value=self._conversation())):
-                    with patch("app.api.runtime_api.list_agent_conversation_events", new=AsyncMock(return_value=[existing_event])):
-                        with patch("app.api.runtime_api.get_agent_session_manager", return_value=manager):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.api._deps.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
+                with patch("app.api._deps.get_or_create_agent_conversation", new=AsyncMock(return_value=self._conversation())):
+                    with patch("app.api._deps.list_agent_conversation_events", new=AsyncMock(return_value=[existing_event])):
+                        with patch("app.api._deps.get_agent_session_manager", return_value=manager):
                             response = self.client.post(
                                 "/api/runtime/devices/mbp-01/terminals/term-1/assistant/agent/agent-session-1/respond",
                                 headers=self.headers,
@@ -692,14 +692,14 @@ class TestTerminalBoundAgentApi:
         agent_session._pending_question_future = MagicMock()
         agent_session._pending_question_future.done.return_value = False
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
-            with patch("app.api.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
-                with patch("app.api.runtime_api.get_or_create_agent_conversation", new=AsyncMock(return_value=self._conversation())):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.api._deps.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
+                with patch("app.api._deps.get_or_create_agent_conversation", new=AsyncMock(return_value=self._conversation())):
                     with patch(
-                        "app.api.runtime_api.append_agent_conversation_event",
+                        "app.api._deps.append_agent_conversation_event",
                         new=AsyncMock(side_effect=AgentConversationConflict("question_already_answered")),
                     ):
-                        with patch("app.api.runtime_api.get_agent_session_manager", return_value=manager):
+                        with patch("app.api._deps.get_agent_session_manager", return_value=manager):
                             response = self.client.post(
                                 "/api/runtime/devices/mbp-01/terminals/term-1/assistant/agent/agent-session-1/respond",
                                 headers=self.headers,
@@ -734,10 +734,10 @@ class TestTerminalBoundAgentApi:
             **self._conversation("conv-2"),
             "terminal_id": "term-2",
         }
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
-            with patch("app.api.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal("term-2"))):
-                with patch("app.api.runtime_api.get_or_create_agent_conversation", new=AsyncMock(return_value=wrong_conversation)):
-                    with patch("app.api.runtime_api.get_agent_session_manager", return_value=manager):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.api._deps.get_session_terminal", new=AsyncMock(return_value=self._terminal("term-2"))):
+                with patch("app.api._deps.get_or_create_agent_conversation", new=AsyncMock(return_value=wrong_conversation)):
+                    with patch("app.api._deps.get_agent_session_manager", return_value=manager):
                         response = self.client.get(
                             "/api/runtime/devices/mbp-01/terminals/term-2/assistant/agent/agent-session-1/resume",
                             headers=self.headers,
@@ -794,11 +794,11 @@ class TestTerminalBoundAgentApi:
             },
         ]
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
-            with patch("app.api.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
-                with patch("app.api.runtime_api.get_agent_conversation", new=AsyncMock(return_value=self._conversation())):
-                    with patch("app.api.runtime_api.list_agent_conversation_events", new=AsyncMock(return_value=events)):
-                        with patch("app.api.runtime_api.get_agent_session_manager", return_value=manager):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.api._deps.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
+                with patch("app.api._deps.get_agent_conversation", new=AsyncMock(return_value=self._conversation())):
+                    with patch("app.api._deps.list_agent_conversation_events", new=AsyncMock(return_value=events)):
+                        with patch("app.api._deps.get_agent_session_manager", return_value=manager):
                             response = self.client.get(
                                 "/api/runtime/devices/mbp-01/terminals/term-1/assistant/conversation",
                                 headers=self.headers,
@@ -812,9 +812,9 @@ class TestTerminalBoundAgentApi:
         assert [event["type"] for event in data["events"]] == ["user_intent", "question"]
 
     def test_terminal_conversation_fetch_empty_projection(self):
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
-            with patch("app.api.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
-                with patch("app.api.runtime_api.get_agent_conversation", new=AsyncMock(return_value=None)):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.api._deps.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
+                with patch("app.api._deps.get_agent_conversation", new=AsyncMock(return_value=None)):
                     response = self.client.get(
                         "/api/runtime/devices/mbp-01/terminals/term-1/assistant/conversation",
                         headers=self.headers,
@@ -828,7 +828,7 @@ class TestTerminalBoundAgentApi:
         assert data["next_event_index"] == 0
 
     def test_terminal_conversation_fetch_unowned_device_returns_404(self):
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=None)):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=None)):
             response = self.client.get(
                 "/api/runtime/devices/other-device/terminals/term-1/assistant/conversation",
                 headers=self.headers,
@@ -858,10 +858,10 @@ class TestTerminalBoundAgentApi:
             }
         ]
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
-            with patch("app.api.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
-                with patch("app.api.runtime_api.get_agent_conversation", new=AsyncMock(return_value=self._conversation())):
-                    with patch("app.api.runtime_api.list_agent_conversation_events", new=AsyncMock(return_value=events)) as list_events:
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.api._deps.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
+                with patch("app.api._deps.get_agent_conversation", new=AsyncMock(return_value=self._conversation())):
+                    with patch("app.api._deps.list_agent_conversation_events", new=AsyncMock(return_value=events)) as list_events:
                         response = await stream_terminal_agent_conversation(
                             "mbp-01",
                             "term-1",
@@ -921,13 +921,13 @@ class TestTerminalBoundAgentApi:
             model_name="test-model",
         )
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
-            with patch("app.api.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
-                with patch("app.api.runtime_api.get_or_create_agent_conversation", new=AsyncMock(return_value=self._conversation())):
-                    with patch("app.api.runtime_api.list_agent_conversation_events", new=AsyncMock(return_value=prior_events)):
-                        with patch("app.api.runtime_api.append_agent_conversation_event", new=append_run_event):
-                            with patch("app.api.runtime_api.is_agent_connected", return_value=True):
-                                with patch("app.api.runtime_api.get_agent_session_manager", return_value=manager):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.api._deps.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
+                with patch("app.api._deps.get_or_create_agent_conversation", new=AsyncMock(return_value=self._conversation())):
+                    with patch("app.api._deps.list_agent_conversation_events", new=AsyncMock(return_value=prior_events)):
+                        with patch("app.api._deps.append_agent_conversation_event", new=append_run_event):
+                            with patch("app.api._deps.is_agent_connected", return_value=True):
+                                with patch("app.api._deps.get_agent_session_manager", return_value=manager):
                                     with patch("app.store.database.append_agent_conversation_event", new=AsyncMock()):
                                         with patch("app.services.agent_session_manager.save_agent_usage", new=AsyncMock(return_value=True)):
                                             with patch("app.services.terminal_agent.run_agent", new=AsyncMock(return_value=outcome)) as run_agent:
@@ -991,19 +991,19 @@ class TestTerminalBoundAgentApi:
             model_name="test-model",
         )
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
-            with patch("app.api.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal("term-2"))):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.api._deps.get_session_terminal", new=AsyncMock(return_value=self._terminal("term-2"))):
                 with patch(
-                    "app.api.runtime_api.get_or_create_agent_conversation",
+                    "app.api._deps.get_or_create_agent_conversation",
                     new=AsyncMock(return_value={**self._conversation("conv-2"), "terminal_id": "term-2"}),
                 ):
                     with patch(
-                        "app.api.runtime_api.list_agent_conversation_events",
+                        "app.api._deps.list_agent_conversation_events",
                         new=AsyncMock(return_value=term_2_events),
                     ) as list_events:
-                        with patch("app.api.runtime_api.append_agent_conversation_event", new=append_run_event):
-                            with patch("app.api.runtime_api.is_agent_connected", return_value=True):
-                                with patch("app.api.runtime_api.get_agent_session_manager", return_value=manager):
+                        with patch("app.api._deps.append_agent_conversation_event", new=append_run_event):
+                            with patch("app.api._deps.is_agent_connected", return_value=True):
+                                with patch("app.api._deps.get_agent_session_manager", return_value=manager):
                                     with patch("app.store.database.append_agent_conversation_event", new=AsyncMock()):
                                         with patch("app.services.agent_session_manager.save_agent_usage", new=AsyncMock(return_value=True)):
                                             with patch("app.services.terminal_agent.run_agent", new=AsyncMock(return_value=outcome)) as run_agent:
@@ -1024,7 +1024,7 @@ class TestTerminalBoundAgentApi:
         assert "remote-control" not in repr(message_history)
 
     def test_terminal_agent_conversation_requires_owned_device(self):
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=None)):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=None)):
             response = self.client.get(
                 "/api/runtime/devices/mbp-01/terminals/term-1/assistant/conversation",
                 headers=self.headers,
@@ -1060,15 +1060,15 @@ class TestTerminalBoundAgentApi:
             "created_at": "2026-04-23T12:00:03+00:00",
         }
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
-            with patch("app.api.runtime_api.get_session_terminal", new=AsyncMock(return_value=terminal)):
-                with patch("app.api.runtime_api.request_agent_close_terminal_with_ack", new=AsyncMock()):
-                    with patch("app.api.runtime_api.get_agent_conversation", new=AsyncMock(return_value=self._conversation())):
-                        with patch("app.api.runtime_api.close_agent_conversation", new=AsyncMock(return_value=closed_event)) as close_conversation:
-                            with patch("app.api.runtime_api.get_agent_session_manager", return_value=manager):
-                                with patch("app.store.database.append_agent_conversation_event", new=AsyncMock()):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.api._deps.get_session_terminal", new=AsyncMock(return_value=terminal)):
+                with patch("app.api._deps.request_agent_close_terminal_with_ack", new=AsyncMock()):
+                    with patch("app.api._deps.get_agent_conversation", new=AsyncMock(return_value=self._conversation())):
+                        with patch("app.api._deps.close_agent_conversation", new=AsyncMock(return_value=closed_event)) as close_conversation:
+                            with patch("app.api._deps.get_agent_session_manager", return_value=manager):
+                                with patch("app.api._deps.append_agent_conversation_event", new=AsyncMock()):
                                     with patch(
-                                        "app.api.runtime_api.update_session_terminal_status",
+                                        "app.api._deps.update_session_terminal_status",
                                         new=AsyncMock(return_value={**terminal, "status": "closed", "disconnect_reason": "user_request"}),
                                     ):
                                         response = self.client.delete(
@@ -1083,9 +1083,9 @@ class TestTerminalBoundAgentApi:
     def test_closed_conversation_fetch_returns_410_without_history(self):
         closed_conversation = {**self._conversation(), "status": "closed"}
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
-            with patch("app.api.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
-                with patch("app.api.runtime_api.get_agent_conversation", new=AsyncMock(return_value=closed_conversation)):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.api._deps.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
+                with patch("app.api._deps.get_agent_conversation", new=AsyncMock(return_value=closed_conversation)):
                     response = self.client.get(
                         "/api/runtime/devices/mbp-01/terminals/term-1/assistant/conversation",
                         headers=self.headers,
@@ -1117,10 +1117,10 @@ class TestTerminalBoundAgentApi:
             "created_at": "2026-04-23T12:00:03+00:00",
         }
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
-            with patch("app.api.runtime_api.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
-                with patch("app.api.runtime_api.get_agent_conversation", new=AsyncMock(return_value=self._conversation())):
-                    with patch("app.api.runtime_api.list_agent_conversation_events", new=AsyncMock(return_value=[])):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
+            with patch("app.api._deps.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
+                with patch("app.api._deps.get_agent_conversation", new=AsyncMock(return_value=self._conversation())):
+                    with patch("app.api._deps.list_agent_conversation_events", new=AsyncMock(return_value=[])):
                         response = await stream_terminal_agent_conversation(
                             "mbp-01",
                             "term-1",
@@ -1166,9 +1166,9 @@ class TestAgentUsageSummaryApi:
             "device": {"device_id": "mbp-01"},
         }
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
             with patch(
-                "app.api.runtime_api.get_usage_summary",
+                "app.api._deps.get_usage_summary",
                 new=AsyncMock(side_effect=[
                     {
                         "total_sessions": 2,
@@ -1203,9 +1203,9 @@ class TestAgentUsageSummaryApi:
         assert get_summary.await_args_list[1].args == ("user1", None)
 
     def test_usage_summary_for_unowned_device_returns_zero_device_scope(self):
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=None)):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=None)):
             with patch(
-                "app.api.runtime_api.get_usage_summary",
+                "app.api._deps.get_usage_summary",
                 new=AsyncMock(
                     return_value={
                         "total_sessions": 3,
@@ -1262,8 +1262,8 @@ class TestRuntimeDeviceApi:
             }
         ]
 
-        with patch("app.api.runtime_api.is_agent_connected", return_value=True):
-            with patch("app.api.runtime_api.list_sessions_for_user", new=AsyncMock(return_value=sessions)):
+        with patch("app.api._deps.is_agent_connected", return_value=True):
+            with patch("app.api._deps.list_sessions_for_user", new=AsyncMock(return_value=sessions)):
                 response = self.client.get("/api/runtime/devices", headers=self.headers)
 
         assert response.status_code == 200
@@ -1289,8 +1289,8 @@ class TestRuntimeDeviceApi:
             }
         ]
 
-        with patch("app.api.runtime_api.is_agent_connected", return_value=True):
-            with patch("app.api.runtime_api.list_sessions_for_user", new=AsyncMock(return_value=sessions)):
+        with patch("app.api._deps.is_agent_connected", return_value=True):
+            with patch("app.api._deps.list_sessions_for_user", new=AsyncMock(return_value=sessions)):
                 response = self.client.get("/api/runtime/devices", headers=self.headers)
 
         assert response.status_code == 200
@@ -1316,10 +1316,10 @@ class TestRuntimeDeviceApi:
             "views": {"mobile": 0, "desktop": 0},
         }]
 
-        with patch("app.api.runtime_api.is_agent_connected", return_value=True):
-            with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-                with patch("app.api.runtime_api.list_session_terminals", new=AsyncMock(return_value=terminals)):
-                    with patch("app.api.runtime_api.get_view_counts", return_value={"mobile": 1, "desktop": 0}):
+        with patch("app.api._deps.is_agent_connected", return_value=True):
+            with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
+                with patch("app.api._deps.list_session_terminals", new=AsyncMock(return_value=terminals)):
+                    with patch("app.api._deps.get_view_counts", return_value={"mobile": 1, "desktop": 0}):
                         response = self.client.get("/api/runtime/devices/mbp-01/terminals", headers=self.headers)
 
         assert response.status_code == 200
@@ -1345,10 +1345,10 @@ class TestRuntimeDeviceApi:
             }
         ]
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-            with patch("app.api.runtime_api.list_session_terminals", new=AsyncMock(return_value=terminals)):
-                with patch("app.api.runtime_api.get_pinned_projects", new=AsyncMock(return_value=[])):
-                    with patch("app.api.runtime_api.get_approved_scan_roots", new=AsyncMock(return_value=[])):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
+            with patch("app.api._deps.list_session_terminals", new=AsyncMock(return_value=terminals)):
+                with patch("app.api._deps.get_pinned_projects", new=AsyncMock(return_value=[])):
+                    with patch("app.api._deps.get_approved_scan_roots", new=AsyncMock(return_value=[])):
                         response = self.client.get(
                             "/api/runtime/devices/mbp-01/project-context",
                             headers=self.headers,
@@ -1394,10 +1394,10 @@ class TestRuntimeDeviceApi:
             },
         ]
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-            with patch("app.api.runtime_api.list_session_terminals", new=AsyncMock(return_value=terminals)):
-                with patch("app.api.runtime_api.get_pinned_projects", new=AsyncMock(return_value=pinned_projects)):
-                    with patch("app.api.runtime_api.get_approved_scan_roots", new=AsyncMock(return_value=[])):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
+            with patch("app.api._deps.list_session_terminals", new=AsyncMock(return_value=terminals)):
+                with patch("app.api._deps.get_pinned_projects", new=AsyncMock(return_value=pinned_projects)):
+                    with patch("app.api._deps.get_approved_scan_roots", new=AsyncMock(return_value=[])):
                         response = self.client.get(
                             "/api/runtime/devices/mbp-01/project-context",
                             headers=self.headers,
@@ -1419,10 +1419,10 @@ class TestRuntimeDeviceApi:
             "device": {"device_id": "mbp-01"},
         }
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-            with patch("app.api.runtime_api.list_session_terminals", new=AsyncMock(return_value=[])):
-                with patch("app.api.runtime_api.get_pinned_projects", new=AsyncMock(return_value=[])):
-                    with patch("app.api.runtime_api.get_approved_scan_roots", new=AsyncMock(return_value=[])):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
+            with patch("app.api._deps.list_session_terminals", new=AsyncMock(return_value=[])):
+                with patch("app.api._deps.get_pinned_projects", new=AsyncMock(return_value=[])):
+                    with patch("app.api._deps.get_approved_scan_roots", new=AsyncMock(return_value=[])):
                         response = self.client.get(
                             "/api/runtime/devices/mbp-01/project-context",
                             headers=self.headers,
@@ -1452,10 +1452,10 @@ class TestRuntimeDeviceApi:
         get_pinned = AsyncMock(return_value=pinned_projects)
         get_scan_roots = AsyncMock(return_value=[{"root_path": "/Users/demo/project", "enabled": 1}])
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-            with patch("app.api.runtime_api.list_session_terminals", new=list_terminals):
-                with patch("app.api.runtime_api.get_pinned_projects", new=get_pinned):
-                    with patch("app.api.runtime_api.get_approved_scan_roots", new=get_scan_roots):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
+            with patch("app.api._deps.list_session_terminals", new=list_terminals):
+                with patch("app.api._deps.get_pinned_projects", new=get_pinned):
+                    with patch("app.api._deps.get_approved_scan_roots", new=get_scan_roots):
                         response = self.client.post(
                             "/api/runtime/devices/mbp-01/project-context:refresh",
                             headers=self.headers,
@@ -1476,9 +1476,9 @@ class TestRuntimeDeviceApi:
             "device": {"device_id": "mbp-01"},
         }
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
             with patch(
-                "app.api.runtime_api.get_pinned_projects",
+                "app.api._deps.get_pinned_projects",
                 new=AsyncMock(
                     return_value=[
                         {"label": "remote-control", "cwd": "/Users/demo/project/remote-control"},
@@ -1486,7 +1486,7 @@ class TestRuntimeDeviceApi:
                 ),
             ):
                 with patch(
-                    "app.api.runtime_api.get_approved_scan_roots",
+                    "app.api._deps.get_approved_scan_roots",
                     new=AsyncMock(
                         return_value=[
                             {"root_path": "/Users/demo/project", "scan_depth": 2, "enabled": 1},
@@ -1494,7 +1494,7 @@ class TestRuntimeDeviceApi:
                     ),
                 ):
                     with patch(
-                        "app.api.runtime_api.get_planner_config",
+                        "app.api._deps.get_planner_config",
                         new=AsyncMock(
                             return_value={
                                 "provider": "llm",
@@ -1525,11 +1525,11 @@ class TestRuntimeDeviceApi:
             "device": {"device_id": "mbp-01"},
         }
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-            with patch("app.api.runtime_api.get_pinned_projects", new=AsyncMock(return_value=[])):
-                with patch("app.api.runtime_api.get_approved_scan_roots", new=AsyncMock(return_value=[])):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
+            with patch("app.api._deps.get_pinned_projects", new=AsyncMock(return_value=[])):
+                with patch("app.api._deps.get_approved_scan_roots", new=AsyncMock(return_value=[])):
                     with patch(
-                        "app.api.runtime_api.get_planner_config",
+                        "app.api._deps.get_planner_config",
                         new=AsyncMock(return_value=None),
                     ):
                         response = self.client.get(
@@ -1551,11 +1551,11 @@ class TestRuntimeDeviceApi:
             "device": {"device_id": "mbp-01"},
         }
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-            with patch("app.api.runtime_api.get_pinned_projects", new=AsyncMock(return_value=[])):
-                with patch("app.api.runtime_api.get_approved_scan_roots", new=AsyncMock(return_value=[])):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
+            with patch("app.api._deps.get_pinned_projects", new=AsyncMock(return_value=[])):
+                with patch("app.api._deps.get_approved_scan_roots", new=AsyncMock(return_value=[])):
                     with patch(
-                        "app.api.runtime_api.get_planner_config",
+                        "app.api._deps.get_planner_config",
                         new=AsyncMock(
                             return_value={
                                 "provider": "local_rules",
@@ -1588,12 +1588,12 @@ class TestRuntimeDeviceApi:
         replace_scan_roots = AsyncMock()
         save_planner = AsyncMock()
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-            with patch("app.api.runtime_api.replace_pinned_projects", new=replace_pinned):
-                with patch("app.api.runtime_api.replace_approved_scan_roots", new=replace_scan_roots):
-                    with patch("app.api.runtime_api.save_planner_config", new=save_planner):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
+            with patch("app.api._deps.replace_pinned_projects", new=replace_pinned):
+                with patch("app.api._deps.replace_approved_scan_roots", new=replace_scan_roots):
+                    with patch("app.api._deps.save_planner_config", new=save_planner):
                         with patch(
-                            "app.api.runtime_api.get_pinned_projects",
+                            "app.api._deps.get_pinned_projects",
                             new=AsyncMock(
                                 return_value=[
                                     {"label": "remote-control", "cwd": "/Users/demo/project/remote-control"},
@@ -1601,7 +1601,7 @@ class TestRuntimeDeviceApi:
                             ),
                         ):
                             with patch(
-                                "app.api.runtime_api.get_approved_scan_roots",
+                                "app.api._deps.get_approved_scan_roots",
                                 new=AsyncMock(
                                     return_value=[
                                         {"root_path": "/Users/demo/project", "scan_depth": 2, "enabled": 1},
@@ -1609,7 +1609,7 @@ class TestRuntimeDeviceApi:
                                 ),
                             ):
                                 with patch(
-                                    "app.api.runtime_api.get_planner_config",
+                                    "app.api._deps.get_planner_config",
                                     new=AsyncMock(
                                         return_value={
                                             "provider": "llm",
@@ -1714,10 +1714,10 @@ class TestRuntimeDeviceApi:
         )
         save_run = AsyncMock()
 
-        with patch("app.api.runtime_api.is_agent_connected", return_value=True):
-            with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
+        with patch("app.api._deps.is_agent_connected", return_value=True):
+            with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
                 with patch(
-                    "app.api.runtime_api.list_session_terminals",
+                    "app.api._deps.list_session_terminals",
                     new=AsyncMock(
                         return_value=[
                             {
@@ -1731,13 +1731,13 @@ class TestRuntimeDeviceApi:
                         ]
                     ),
                 ):
-                    with patch("app.api.runtime_api.get_pinned_projects", new=AsyncMock(return_value=[])):
-                        with patch("app.api.runtime_api.get_approved_scan_roots", new=AsyncMock(return_value=[])):
-                            with patch("app.api.runtime_api.get_planner_config", new=AsyncMock(return_value=None)):
-                                with patch("app.api.runtime_api.list_assistant_planner_memory", new=AsyncMock(return_value=[])):
-                                    with patch("app.api.runtime_api._check_assistant_plan_rate_limit", new=AsyncMock(return_value=None)):
-                                        with patch("app.api.runtime_api.plan_with_service_llm", new=planner_mock):
-                                            with patch("app.api.runtime_api.save_assistant_planner_run", new=save_run):
+                    with patch("app.api._deps.get_pinned_projects", new=AsyncMock(return_value=[])):
+                        with patch("app.api._deps.get_approved_scan_roots", new=AsyncMock(return_value=[])):
+                            with patch("app.api._deps.get_planner_config", new=AsyncMock(return_value=None)):
+                                with patch("app.api._deps.list_assistant_planner_memory", new=AsyncMock(return_value=[])):
+                                    with patch("app.api.assistant_plan_helpers._check_assistant_plan_rate_limit", new=AsyncMock(return_value=None)):
+                                        with patch("app.api._deps.plan_with_service_llm", new=planner_mock):
+                                            with patch("app.api._deps.save_assistant_planner_run", new=save_run):
                                                 response = self.client.post(
                                                     "/api/runtime/devices/mbp-01/assistant/plan",
                                                     headers=self.headers,
@@ -1812,10 +1812,10 @@ class TestRuntimeDeviceApi:
         )
         save_run = AsyncMock()
 
-        with patch("app.api.runtime_api.is_agent_connected", return_value=True):
-            with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
+        with patch("app.api._deps.is_agent_connected", return_value=True):
+            with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
                 with patch(
-                    "app.api.runtime_api.list_session_terminals",
+                    "app.api._deps.list_session_terminals",
                     new=AsyncMock(
                         return_value=[
                             {
@@ -1829,13 +1829,13 @@ class TestRuntimeDeviceApi:
                         ]
                     ),
                 ):
-                    with patch("app.api.runtime_api.get_pinned_projects", new=AsyncMock(return_value=[])):
-                        with patch("app.api.runtime_api.get_approved_scan_roots", new=AsyncMock(return_value=[])):
-                            with patch("app.api.runtime_api.get_planner_config", new=AsyncMock(return_value=None)):
-                                with patch("app.api.runtime_api.list_assistant_planner_memory", new=AsyncMock(return_value=[])):
-                                    with patch("app.api.runtime_api._check_assistant_plan_rate_limit", new=AsyncMock(return_value=None)):
-                                        with patch("app.api.runtime_api.plan_with_service_llm", new=planner_mock):
-                                            with patch("app.api.runtime_api.save_assistant_planner_run", new=save_run):
+                    with patch("app.api._deps.get_pinned_projects", new=AsyncMock(return_value=[])):
+                        with patch("app.api._deps.get_approved_scan_roots", new=AsyncMock(return_value=[])):
+                            with patch("app.api._deps.get_planner_config", new=AsyncMock(return_value=None)):
+                                with patch("app.api._deps.list_assistant_planner_memory", new=AsyncMock(return_value=[])):
+                                    with patch("app.api.assistant_plan_helpers._check_assistant_plan_rate_limit", new=AsyncMock(return_value=None)):
+                                        with patch("app.api._deps.plan_with_service_llm", new=planner_mock):
+                                            with patch("app.api._deps.save_assistant_planner_run", new=save_run):
                                                 response = self.client.post(
                                                     "/api/runtime/devices/mbp-01/assistant/plan/stream",
                                                     headers=self.headers,
@@ -1941,11 +1941,11 @@ class TestRuntimeDeviceApi:
         )
         save_run = AsyncMock()
 
-        with patch("app.api.runtime_api.is_agent_connected", return_value=True):
-            with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-                with patch("app.api.runtime_api.list_session_terminals", new=AsyncMock(return_value=[])):
+        with patch("app.api._deps.is_agent_connected", return_value=True):
+            with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
+                with patch("app.api._deps.list_session_terminals", new=AsyncMock(return_value=[])):
                     with patch(
-                        "app.api.runtime_api.get_pinned_projects",
+                        "app.api._deps.get_pinned_projects",
                         new=AsyncMock(
                             return_value=[
                                 {
@@ -1956,12 +1956,12 @@ class TestRuntimeDeviceApi:
                             ]
                         ),
                     ):
-                        with patch("app.api.runtime_api.get_approved_scan_roots", new=AsyncMock(return_value=[])):
-                            with patch("app.api.runtime_api.get_planner_config", new=AsyncMock(return_value=None)):
-                                with patch("app.api.runtime_api.list_assistant_planner_memory", new=AsyncMock(return_value=[])):
-                                    with patch("app.api.runtime_api._check_assistant_plan_rate_limit", new=AsyncMock(return_value=None)):
-                                        with patch("app.api.runtime_api.plan_with_service_llm", new=planner_mock):
-                                            with patch("app.api.runtime_api.save_assistant_planner_run", new=save_run):
+                        with patch("app.api._deps.get_approved_scan_roots", new=AsyncMock(return_value=[])):
+                            with patch("app.api._deps.get_planner_config", new=AsyncMock(return_value=None)):
+                                with patch("app.api._deps.list_assistant_planner_memory", new=AsyncMock(return_value=[])):
+                                    with patch("app.api.assistant_plan_helpers._check_assistant_plan_rate_limit", new=AsyncMock(return_value=None)):
+                                        with patch("app.api._deps.plan_with_service_llm", new=planner_mock):
+                                            with patch("app.api._deps.save_assistant_planner_run", new=save_run):
                                                 response = self.client.post(
                                                     "/api/runtime/devices/mbp-01/assistant/plan/stream",
                                                     headers=self.headers,
@@ -2010,8 +2010,8 @@ class TestRuntimeDeviceApi:
             "device": {"device_id": "mbp-01"},
         }
 
-        with patch("app.api.runtime_api.is_agent_connected", return_value=False):
-            with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
+        with patch("app.api._deps.is_agent_connected", return_value=False):
+            with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
                 response = self.client.post(
                     "/api/runtime/devices/mbp-01/assistant/plan",
                     headers=self.headers,
@@ -2034,9 +2034,9 @@ class TestRuntimeDeviceApi:
             "device": {"device_id": "mbp-01"},
         }
 
-        with patch("app.api.runtime_api.is_agent_connected", return_value=True):
-            with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-                with patch("app.api.runtime_api._check_assistant_plan_rate_limit", new=AsyncMock(return_value=60)):
+        with patch("app.api._deps.is_agent_connected", return_value=True):
+            with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
+                with patch("app.api.assistant_plan_helpers._check_assistant_plan_rate_limit", new=AsyncMock(return_value=60)):
                     response = self.client.post(
                         "/api/runtime/devices/mbp-01/assistant/plan",
                         headers=self.headers,
@@ -2062,16 +2062,16 @@ class TestRuntimeDeviceApi:
             "device": {"device_id": "mbp-01", "max_terminals": 3},
         }
 
-        with patch("app.api.runtime_api.is_agent_connected", return_value=True):
-            with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-                with patch("app.api.runtime_api.list_session_terminals", new=AsyncMock(return_value=[])):
-                    with patch("app.api.runtime_api.get_pinned_projects", new=AsyncMock(return_value=[])):
-                        with patch("app.api.runtime_api.get_approved_scan_roots", new=AsyncMock(return_value=[])):
-                            with patch("app.api.runtime_api.get_planner_config", new=AsyncMock(return_value=None)):
-                                with patch("app.api.runtime_api.list_assistant_planner_memory", new=AsyncMock(return_value=[])):
-                                    with patch("app.api.runtime_api._check_assistant_plan_rate_limit", new=AsyncMock(return_value=None)):
+        with patch("app.api._deps.is_agent_connected", return_value=True):
+            with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
+                with patch("app.api._deps.list_session_terminals", new=AsyncMock(return_value=[])):
+                    with patch("app.api._deps.get_pinned_projects", new=AsyncMock(return_value=[])):
+                        with patch("app.api._deps.get_approved_scan_roots", new=AsyncMock(return_value=[])):
+                            with patch("app.api._deps.get_planner_config", new=AsyncMock(return_value=None)):
+                                with patch("app.api._deps.list_assistant_planner_memory", new=AsyncMock(return_value=[])):
+                                    with patch("app.api.assistant_plan_helpers._check_assistant_plan_rate_limit", new=AsyncMock(return_value=None)):
                                         with patch(
-                                            "app.api.runtime_api.plan_with_service_llm",
+                                            "app.api._deps.plan_with_service_llm",
                                             new=AsyncMock(
                                                 side_effect=AssistantPlannerRateLimited(
                                                     "service_llm_budget_blocked",
@@ -2105,16 +2105,16 @@ class TestRuntimeDeviceApi:
             "device": {"device_id": "mbp-01", "max_terminals": 3},
         }
 
-        with patch("app.api.runtime_api.is_agent_connected", return_value=True):
-            with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-                with patch("app.api.runtime_api.list_session_terminals", new=AsyncMock(return_value=[])):
-                    with patch("app.api.runtime_api.get_pinned_projects", new=AsyncMock(return_value=[])):
-                        with patch("app.api.runtime_api.get_approved_scan_roots", new=AsyncMock(return_value=[])):
-                            with patch("app.api.runtime_api.get_planner_config", new=AsyncMock(return_value=None)):
-                                with patch("app.api.runtime_api.list_assistant_planner_memory", new=AsyncMock(return_value=[])):
-                                    with patch("app.api.runtime_api._check_assistant_plan_rate_limit", new=AsyncMock(return_value=None)):
+        with patch("app.api._deps.is_agent_connected", return_value=True):
+            with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
+                with patch("app.api._deps.list_session_terminals", new=AsyncMock(return_value=[])):
+                    with patch("app.api._deps.get_pinned_projects", new=AsyncMock(return_value=[])):
+                        with patch("app.api._deps.get_approved_scan_roots", new=AsyncMock(return_value=[])):
+                            with patch("app.api._deps.get_planner_config", new=AsyncMock(return_value=None)):
+                                with patch("app.api._deps.list_assistant_planner_memory", new=AsyncMock(return_value=[])):
+                                    with patch("app.api.assistant_plan_helpers._check_assistant_plan_rate_limit", new=AsyncMock(return_value=None)):
                                         with patch(
-                                            "app.api.runtime_api.plan_with_service_llm",
+                                            "app.api._deps.plan_with_service_llm",
                                             new=AsyncMock(
                                                 side_effect=AssistantPlannerTimeout(
                                                     "service_llm_timeout",
@@ -2143,13 +2143,13 @@ class TestRuntimeDeviceApi:
             "device": {"device_id": "mbp-01"},
         }
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
             with patch(
-                "app.api.runtime_api.get_assistant_planner_run",
+                "app.api._deps.get_assistant_planner_run",
                 new=AsyncMock(return_value={"execution_status": "planned"}),
             ):
                 with patch(
-                    "app.api.runtime_api.report_assistant_execution",
+                    "app.api._deps.report_assistant_execution",
                     new=AsyncMock(return_value={"execution_status": "succeeded"}),
                 ) as report_mock:
                     response = self.client.post(
@@ -2199,8 +2199,8 @@ class TestRuntimeDeviceApi:
             "device": {"device_id": "mbp-01"},
         }
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-            with patch("app.api.runtime_api.get_assistant_planner_run", new=AsyncMock(return_value=None)):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
+            with patch("app.api._deps.get_assistant_planner_run", new=AsyncMock(return_value=None)):
                 response = self.client.post(
                     "/api/runtime/devices/mbp-01/assistant/executions/report",
                     headers=self.headers,
@@ -2248,7 +2248,7 @@ class TestRuntimeDeviceApi:
             }
         ]
 
-        with patch("app.api.runtime_api.list_sessions_for_user", new=AsyncMock(return_value=sessions)):
+        with patch("app.api._deps.list_sessions_for_user", new=AsyncMock(return_value=sessions)):
             response = self.client.get("/api/runtime/devices", headers=self.headers)
 
         assert response.status_code == 200
@@ -2279,8 +2279,8 @@ class TestRuntimeDeviceApi:
 
         update_mock = AsyncMock(return_value=updated)
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-            with patch("app.api.runtime_api.update_session_device_metadata", new=update_mock):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
+            with patch("app.api._deps.update_session_device_metadata", new=update_mock):
                 response = self.client.patch(
                     "/api/runtime/devices/mbp-01",
                     headers=self.headers,
@@ -2311,7 +2311,7 @@ class TestRuntimeDeviceApi:
             "terminals": [],
         }
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
             response = self.client.patch(
                 "/api/runtime/devices/mbp-01",
                 headers=self.headers,
@@ -2329,8 +2329,8 @@ class TestRuntimeDeviceApi:
             "device": {"device_id": "mbp-01"},
         }
 
-        with patch("app.api.runtime_api.is_agent_connected", return_value=False):
-            with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
+        with patch("app.api._deps.is_agent_connected", return_value=False):
+            with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
                 response = self.client.post(
                     "/api/runtime/devices/mbp-01/terminals",
                     headers=self.headers,
@@ -2363,11 +2363,11 @@ class TestRuntimeDeviceApi:
             "views": {"mobile": 0, "desktop": 0},
         }
 
-        with patch("app.api.runtime_api.is_agent_connected", return_value=True):
-            with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-                with patch("app.api.runtime_api.create_session_terminal", new=AsyncMock(return_value=terminal)):
+        with patch("app.api._deps.is_agent_connected", return_value=True):
+            with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
+                with patch("app.api._deps.create_session_terminal", new=AsyncMock(return_value=terminal)):
                     with patch(
-                        "app.api.runtime_api.request_agent_create_terminal",
+                        "app.api._deps.request_agent_create_terminal",
                         new=AsyncMock(return_value={**terminal, "status": "detached"}),
                     ):
                         response = self.client.post(
@@ -2392,14 +2392,14 @@ class TestRuntimeDeviceApi:
             "device": {"device_id": "mbp-01"},
         }
 
-        with patch("app.api.runtime_api.is_agent_connected", return_value=True):
-            with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-                with patch("app.api.runtime_api.create_session_terminal", new=AsyncMock(return_value={"terminal_id": "term-1"})):
+        with patch("app.api._deps.is_agent_connected", return_value=True):
+            with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
+                with patch("app.api._deps.create_session_terminal", new=AsyncMock(return_value={"terminal_id": "term-1"})):
                     with patch(
-                        "app.api.runtime_api.request_agent_create_terminal",
+                        "app.api._deps.request_agent_create_terminal",
                         new=AsyncMock(side_effect=HTTPException(status_code=409, detail="device offline")),
                     ):
-                        with patch("app.api.runtime_api.update_session_terminal_status", new=AsyncMock()) as mock_update:
+                        with patch("app.api._deps.update_session_terminal_status", new=AsyncMock()) as mock_update:
                             response = self.client.post(
                                 "/api/runtime/devices/mbp-01/terminals",
                                 headers=self.headers,
@@ -2433,11 +2433,11 @@ class TestRuntimeDeviceApi:
             "views": {"mobile": 0, "desktop": 0},
         }
 
-        with patch("app.api.runtime_api.is_agent_connected", return_value=True):
-            with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-                with patch("app.api.runtime_api.create_session_terminal", new=AsyncMock(return_value=terminal)):
+        with patch("app.api._deps.is_agent_connected", return_value=True):
+            with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
+                with patch("app.api._deps.create_session_terminal", new=AsyncMock(return_value=terminal)):
                     with patch(
-                        "app.api.runtime_api.request_agent_create_terminal",
+                        "app.api._deps.request_agent_create_terminal",
                         new=AsyncMock(return_value={**terminal, "status": "detached"}),
                     ):
                         response = self.client.post(
@@ -2483,11 +2483,11 @@ class TestRuntimeDeviceApi:
             "views": {"mobile": 0, "desktop": 0},
         }
 
-        with patch("app.api.runtime_api.is_agent_connected", return_value=True):
-            with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-                with patch("app.api.runtime_api.create_session_terminal", new=AsyncMock(return_value=terminal)):
+        with patch("app.api._deps.is_agent_connected", return_value=True):
+            with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
+                with patch("app.api._deps.create_session_terminal", new=AsyncMock(return_value=terminal)):
                     with patch(
-                        "app.api.runtime_api.request_agent_create_terminal",
+                        "app.api._deps.request_agent_create_terminal",
                         new=AsyncMock(return_value={**terminal, "status": "detached"}),
                     ):
                         response = self.client.post(
@@ -2523,11 +2523,11 @@ class TestRuntimeDeviceApi:
             "views": {"mobile": 0, "desktop": 0},
         }
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-            with patch("app.api.runtime_api.get_session_terminal", new=AsyncMock(return_value=terminal)):
-                with patch("app.api.runtime_api.request_agent_close_terminal_with_ack", new=AsyncMock()):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
+            with patch("app.api._deps.get_session_terminal", new=AsyncMock(return_value=terminal)):
+                with patch("app.api._deps.request_agent_close_terminal_with_ack", new=AsyncMock()):
                     with patch(
-                        "app.api.runtime_api.update_session_terminal_status",
+                        "app.api._deps.update_session_terminal_status",
                         new=AsyncMock(return_value={**terminal, "status": "closed", "disconnect_reason": "server_forced_close"}),
                     ):
                         response = self.client.delete(
@@ -2558,8 +2558,8 @@ class TestRuntimeDeviceApi:
             "views": {"mobile": 0, "desktop": 0},
         }
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-            with patch("app.api.runtime_api.update_session_terminal_metadata", new=AsyncMock(return_value=terminal)):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
+            with patch("app.api._deps.update_session_terminal_metadata", new=AsyncMock(return_value=terminal)):
                 response = self.client.patch(
                     "/api/runtime/devices/mbp-01/terminals/term-1",
                     headers=self.headers,
@@ -2586,11 +2586,11 @@ class TestRuntimeDeviceApi:
             "views": {"mobile": 1, "desktop": 0},
         }
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-            with patch("app.api.runtime_api.get_session_terminal", new=AsyncMock(return_value=terminal)):
-                with patch("app.api.runtime_api.request_agent_close_terminal_with_ack", new=AsyncMock()) as request_close:
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
+            with patch("app.api._deps.get_session_terminal", new=AsyncMock(return_value=terminal)):
+                with patch("app.api._deps.request_agent_close_terminal_with_ack", new=AsyncMock()) as request_close:
                     with patch(
-                        "app.api.runtime_api.update_session_terminal_status",
+                        "app.api._deps.update_session_terminal_status",
                         new=AsyncMock(return_value={**terminal, "status": "closed", "disconnect_reason": "server_forced_close"}),
                     ):
                         response = self.client.delete(
@@ -2620,12 +2620,12 @@ class TestRuntimeDeviceApi:
             "disconnect_reason": None,
         }
 
-        with patch("app.api.runtime_api.get_session_by_device_id", new=AsyncMock(return_value=session)):
-            with patch("app.api.runtime_api.get_session_terminal", new=AsyncMock(return_value=terminal)):
-                with patch("app.api.runtime_api.get_view_counts", return_value={"mobile": 0, "desktop": 0}):
-                    with patch("app.api.runtime_api.request_agent_close_terminal_with_ack", new=AsyncMock()):
+        with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
+            with patch("app.api._deps.get_session_terminal", new=AsyncMock(return_value=terminal)):
+                with patch("app.api._deps.get_view_counts", return_value={"mobile": 0, "desktop": 0}):
+                    with patch("app.api._deps.request_agent_close_terminal_with_ack", new=AsyncMock()):
                         with patch(
-                            "app.api.runtime_api.update_session_terminal_status",
+                            "app.api._deps.update_session_terminal_status",
                             new=AsyncMock(return_value={**terminal, "status": "closed", "disconnect_reason": "server_forced_close"}),
                         ):
                             response = self.client.delete(
@@ -2653,7 +2653,7 @@ class TestIntegrationContracts:
 
         with patch('app.ws.ws_agent.get_session', return_value={"session_id": "contract-test-1", "owner": "owner-1"}):
             with patch('app.ws.ws_agent.set_session_online', new_callable=AsyncMock):
-                with patch('app.ws.ws_client.get_view_counts', return_value={"mobile": 1, "desktop": 0}):
+                with patch('app.api._deps.get_view_counts', return_value={"mobile": 1, "desktop": 0}):
                     with patch('app.infra.auth.get_token_version', new_callable=AsyncMock, return_value=1):
                         try:
                             from app.ws.ws_agent import agent_websocket_handler

@@ -480,7 +480,7 @@ def _apply_auth_and_db(mock_db):
     return [
         patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
         patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-        patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
+        patch("app.api.eval_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
     ]
 
 
@@ -534,7 +534,7 @@ class TestCandidateAPIHappy:
         patches = [
             patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
             patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-            patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, side_effect=Exception("db error")),
+            patch("app.api.eval_api._ensure_eval_db", new_callable=AsyncMock, side_effect=Exception("db error")),
         ]
         started = [p.start() for p in patches]
         try:

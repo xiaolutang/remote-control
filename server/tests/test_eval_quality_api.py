@@ -97,7 +97,7 @@ class TestQualityMetricsHappy:
         stop = _apply_patches([
             patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
             patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-            patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
+            patch("app.api.eval_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
         ])
         try:
             resp = client.get("/api/eval/quality/metrics", headers=auth_headers)
@@ -128,7 +128,7 @@ class TestQualityMetricsHappy:
         stop = _apply_patches([
             patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
             patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-            patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
+            patch("app.api.eval_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
         ])
         try:
             resp = client.get("/api/eval/quality/metrics", headers=auth_headers)
@@ -151,7 +151,7 @@ class TestQualityMetricsFilters:
         stop = _apply_patches([
             patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
             patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-            patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
+            patch("app.api.eval_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
         ])
         try:
             resp = client.get(
@@ -172,7 +172,7 @@ class TestQualityMetricsFilters:
         stop = _apply_patches([
             patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
             patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-            patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
+            patch("app.api.eval_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
         ])
         try:
             resp = client.get(
@@ -192,7 +192,7 @@ class TestQualityMetricsFilters:
         stop = _apply_patches([
             patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
             patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-            patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
+            patch("app.api.eval_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
         ])
         try:
             resp = client.get(
@@ -216,7 +216,7 @@ class TestQualityMetricsFilters:
         stop = _apply_patches([
             patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
             patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-            patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
+            patch("app.api.eval_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
         ])
         try:
             resp = client.get(
@@ -236,7 +236,7 @@ class TestQualityMetricsFilters:
         stop = _apply_patches([
             patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
             patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-            patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
+            patch("app.api.eval_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
         ])
         try:
             resp = client.get(
@@ -264,7 +264,7 @@ class TestQualitySummaryHappy:
         stop = _apply_patches([
             patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
             patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-            patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
+            patch("app.api.eval_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
         ])
         try:
             resp = client.get("/api/eval/quality/summary", headers=auth_headers)
@@ -292,7 +292,7 @@ class TestQualitySummaryHappy:
         stop = _apply_patches([
             patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
             patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-            patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
+            patch("app.api.eval_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
         ])
         try:
             resp = client.get("/api/eval/quality/summary", headers=auth_headers)
@@ -316,7 +316,7 @@ class TestQualitySummaryAggregation:
         stop = _apply_patches([
             patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
             patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-            patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
+            patch("app.api.eval_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
         ])
         try:
             resp = client.get(
@@ -336,7 +336,7 @@ class TestQualitySummaryAggregation:
         stop = _apply_patches([
             patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
             patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-            patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
+            patch("app.api.eval_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
         ])
         try:
             resp = client.get(
@@ -356,7 +356,7 @@ class TestQualitySummaryAggregation:
         stop = _apply_patches([
             patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
             patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-            patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
+            patch("app.api.eval_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
         ])
         try:
             resp = client.get(
@@ -386,7 +386,7 @@ class TestQualityMetricsDbError:
         stop = _apply_patches([
             patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
             patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-            patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
+            patch("app.api.eval_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
         ])
         try:
             resp = client.get("/api/eval/quality/metrics", headers=auth_headers)
@@ -402,7 +402,7 @@ class TestQualityMetricsDbError:
         stop = _apply_patches([
             patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
             patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-            patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
+            patch("app.api.eval_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
         ])
         try:
             resp = client.get("/api/eval/quality/summary", headers=auth_headers)
