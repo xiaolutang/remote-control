@@ -5,8 +5,8 @@ import '../models/runtime_device.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'auth_service.dart';
 import 'config_service.dart';
-import 'desktop_agent_manager.dart';
-import 'desktop_startup_terminal_cleanup_service.dart';
+import 'desktop/desktop_agent_manager.dart';
+import 'desktop/desktop_startup_terminal_cleanup_service.dart';
 import 'runtime_device_service.dart';
 
 enum AppStartupDestination {

@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rc_client/models/config.dart';
 import 'package:rc_client/services/config_service.dart';
-import 'package:rc_client/services/desktop_exit_policy_service.dart';
-import 'package:rc_client/services/desktop_termination_snapshot_service.dart';
+import 'package:rc_client/services/desktop/desktop_exit_policy_service.dart';
+import 'package:rc_client/services/desktop/desktop_termination_snapshot_service.dart';
 import 'package:rc_client/services/environment_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 

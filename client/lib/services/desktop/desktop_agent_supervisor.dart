@@ -6,11 +6,11 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../models/runtime_device.dart';
+import '../../models/runtime_device.dart';
 import 'desktop_agent_http_client.dart';
 import 'desktop_termination_snapshot_service.dart';
-import 'runtime_device_service.dart';
-import 'secure_storage_service.dart';
+import '../runtime_device_service.dart';
+import '../../modules/desktop_permissions/secure_storage_service.dart';
 
 typedef AgentProcessStarter = Future<Process> Function(
   String executable,

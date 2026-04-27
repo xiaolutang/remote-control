@@ -3,25 +3,25 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../models/runtime_device.dart';
-import '../models/runtime_terminal.dart';
-import '../navigation/account_menu_actions.dart';
-import '../services/account_menu_action_handler.dart';
-import '../services/auth_service.dart';
-import '../services/config_service.dart';
-import '../services/desktop_agent_bootstrap_service.dart';
-import '../services/desktop_agent_manager.dart';
-import '../services/desktop_workspace_controller.dart';
-import '../services/environment_service.dart';
-import '../services/logout_helper.dart';
-import '../services/runtime_device_service.dart';
-import '../services/runtime_selection_controller.dart';
-import '../services/terminal_session_manager.dart';
-import '../services/ui_helpers.dart';
-import '../services/websocket_service.dart';
-import 'login_screen.dart';
-import 'skill_config_screen.dart';
-import 'terminal_screen.dart';
+import '../../models/runtime_device.dart';
+import '../../models/runtime_terminal.dart';
+import '../../navigation/account_menu_actions.dart';
+import '../../services/account_menu_action_handler.dart';
+import '../../services/auth_service.dart';
+import '../../services/config_service.dart';
+import '../../services/desktop/desktop_agent_bootstrap_service.dart';
+import '../../services/desktop/desktop_agent_manager.dart';
+import '../../services/desktop/desktop_workspace_controller.dart';
+import '../../services/environment_service.dart';
+import '../../services/logout_helper.dart';
+import '../../services/runtime_device_service.dart';
+import '../../services/runtime_selection_controller.dart';
+import '../../services/terminal_session_manager.dart';
+import '../../services/ui_helpers.dart';
+import '../../services/websocket_service.dart';
+import '../login_screen.dart';
+import '../skill_config_screen.dart';
+import '../terminal_screen.dart';
 
 class TerminalWorkspaceScreen extends StatelessWidget {
   const TerminalWorkspaceScreen({

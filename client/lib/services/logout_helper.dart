@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'auth_service.dart';
-import 'desktop_agent_manager.dart';
+import 'desktop/desktop_agent_manager.dart';
 import 'environment_service.dart';
 import 'terminal_session_manager.dart';
 

@@ -1,8 +1,8 @@
 import 'dart:io';
 
-import 'config_service.dart';
+import '../config_service.dart';
 import 'desktop_exit_policy_service.dart';
-import 'runtime_device_service.dart';
+import '../runtime_device_service.dart';
 
 class DesktopStartupTerminalCleanupService {
   DesktopStartupTerminalCleanupService({

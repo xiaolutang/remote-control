@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rc_client/models/runtime_terminal.dart';
-import 'package:rc_client/services/desktop_exit_policy_service.dart';
-import 'package:rc_client/services/desktop_startup_terminal_cleanup_service.dart';
+import 'package:rc_client/services/desktop/desktop_exit_policy_service.dart';
+import 'package:rc_client/services/desktop/desktop_startup_terminal_cleanup_service.dart';
 import 'package:rc_client/services/environment_service.dart';
 import 'package:rc_client/services/runtime_device_service.dart';
 

@@ -3,12 +3,12 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
-import '../models/runtime_terminal.dart';
-import 'config_service.dart';
+import '../../models/runtime_terminal.dart';
+import '../config_service.dart';
 import 'desktop_agent_manager.dart';
 import 'desktop_agent_bootstrap_service.dart';
 import 'desktop_exit_policy_service.dart';
-import 'runtime_selection_controller.dart';
+import '../runtime_selection_controller.dart';
 
 void _logWorkspaceAction(String message) {
   if (Platform.environment.containsKey("FLUTTER_TEST")) {

@@ -5,9 +5,9 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../models/agent_lifecycle_state.dart';
-import '../models/config.dart';
-import 'config_service.dart';
+import '../../models/agent_lifecycle_state.dart';
+import '../../models/config.dart';
+import '../config_service.dart';
 import 'desktop_exit_policy_service.dart';
 import 'desktop_agent_supervisor.dart';
 

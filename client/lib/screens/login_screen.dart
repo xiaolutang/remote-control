@@ -5,10 +5,10 @@ import 'package:provider/provider.dart';
 
 import '../models/app_environment_presentation.dart';
 import '../services/auth_service.dart';
-import '../services/desktop_agent_manager.dart';
+import '../services/desktop/desktop_agent_manager.dart';
 import '../services/environment_service.dart';
 import 'network_settings_screen.dart';
-import 'terminal_workspace_screen.dart';
+import 'desktop/terminal_workspace_screen.dart';
 
 /// 登录/注册屏幕
 class LoginScreen extends StatefulWidget {

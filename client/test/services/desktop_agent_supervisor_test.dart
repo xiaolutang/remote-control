@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rc_client/models/runtime_device.dart';
-import 'package:rc_client/services/desktop_agent_http_client.dart';
-import 'package:rc_client/services/desktop_agent_supervisor.dart';
+import 'package:rc_client/services/desktop/desktop_agent_http_client.dart';
+import 'package:rc_client/services/desktop/desktop_agent_supervisor.dart';
 import 'package:rc_client/services/runtime_device_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 

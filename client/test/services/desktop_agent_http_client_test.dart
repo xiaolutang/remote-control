@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:rc_client/services/desktop_agent_http_client.dart';
+import 'package:rc_client/services/desktop/desktop_agent_http_client.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

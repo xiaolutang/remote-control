@@ -11,6 +11,7 @@ import '../services/account_menu_action_handler.dart';
 import '../services/config_service.dart';
 import '../services/runtime_selection_controller.dart';
 import '../services/terminal_session_manager.dart';
+import '../services/terminal_view_config.dart';
 import '../services/ui_helpers.dart';
 import '../services/websocket_service.dart';
 import '../models/shortcut_item.dart';
@@ -38,14 +39,17 @@ class TerminalScreen extends StatefulWidget {
 
 class _TerminalScreenState extends State<TerminalScreen> {
   late final TerminalScreenController _ctrl;
+  late final TerminalViewConfig _viewConfig;
   final FocusNode _terminalFocusNode = FocusNode();
 
   @override
   void initState() {
     super.initState();
+    final platform = widget.platformOverride ?? defaultTargetPlatform;
     _ctrl = TerminalScreenController(
-      platformGetter: () => widget.platformOverride ?? defaultTargetPlatform,
+      platformGetter: () => platform,
     );
+    _viewConfig = TerminalViewConfig.forPlatform(platform);
     _ctrl.addListener(_onControllerChanged);
     unawaited(_ctrl.loadShortcutItems());
   }
@@ -410,12 +414,9 @@ class _TerminalScreenState extends State<TerminalScreen> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final terminalTheme = _buildTerminalTheme(theme);
-    final platform = widget.platformOverride ?? defaultTargetPlatform;
     final service = _ctrl.webSocketService;
+    final vc = _viewConfig;
 
-    final terminalTextStyle = _ctrl.isMobilePlatform
-        ? _mobileTerminalStyle(platform)
-        : const TerminalStyle(fontSize: 14, fontFamily: 'monospace');
     final terminalShellColor =
         theme.brightness == Brightness.dark ? Colors.black : const Color(0xFFF3F6FB);
     final terminalPanelColor = theme.brightness == Brightness.dark
@@ -466,20 +467,18 @@ class _TerminalScreenState extends State<TerminalScreen> {
                           _ctrl.terminal!,
                           controller: _ctrl.terminalController,
                           focusNode: _terminalFocusNode,
-                          autofocus: !_ctrl.isMobilePlatform,
+                          autofocus: vc.autofocus,
                           autoResize: service != null && _ctrl.shouldAutoResize(service),
                           theme: terminalTheme,
                           padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
                           backgroundOpacity: 1,
                           deleteDetection: true,
                           keyboardType: TextInputType.text,
-                          inputAction: _ctrl.isMobilePlatform
-                              ? TextInputAction.send
-                              : TextInputAction.newline,
-                          enableSuggestions: _ctrl.isMobilePlatform,
-                          enableIMEPersonalizedLearning: _ctrl.isMobilePlatform,
+                          inputAction: vc.inputAction,
+                          enableSuggestions: vc.enableSuggestions,
+                          enableIMEPersonalizedLearning: vc.enableIMEPersonalizedLearning,
                           autocorrect: false,
-                          textStyle: terminalTextStyle,
+                          textStyle: vc.textStyle,
                         ),
                       ),
                     ),
@@ -489,7 +488,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
             ),
           ),
         ),
-        if (_ctrl.isMobilePlatform)
+        if (vc.showTuiSelector)
           ValueListenableBuilder<String>(
             valueListenable: _ctrl.outputListenable,
             builder: (context, output, _) => TuiSelector(
@@ -497,7 +496,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
               onSelect: _ctrl.sendSpecialKey,
             ),
           ),
-        if (_ctrl.isMobilePlatform &&
+        if (vc.showShortcutBar &&
             (_ctrl.shortcutLayout.coreItems.isNotEmpty ||
                 _ctrl.shortcutLayout.smartItems.isNotEmpty))
           TerminalShortcutBar(
@@ -516,7 +515,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
     }
 
     return Scaffold(
-      resizeToAvoidBottomInset: !_ctrl.isMobilePlatform,
+      resizeToAvoidBottomInset: vc.resizeToAvoidBottomInset,
       appBar: AppBar(
         title: const Text('Remote Terminal'),
         actions: [
@@ -571,34 +570,9 @@ class _TerminalScreenState extends State<TerminalScreen> {
     );
   }
 
-  TerminalStyle _mobileTerminalStyle(TargetPlatform platform) {
-    if (platform == TargetPlatform.iOS) {
-      return const TerminalStyle(
-        fontSize: 13, height: 1.2, fontFamily: 'Courier',
-        fontFamilyFallback: [
-          'Courier New', 'Menlo', 'Monaco', 'SF Mono',
-          'Noto Sans Mono CJK SC', 'Noto Sans Mono CJK TC',
-          'Noto Sans Mono CJK KR', 'Noto Sans Mono CJK JP',
-          'Noto Sans Mono CJK HK', 'PingFang SC', 'Hiragino Sans GB',
-          'Noto Color Emoji', 'Noto Sans Symbols', 'monospace', 'sans-serif',
-        ],
-      );
-    }
-    return const TerminalStyle(
-      fontSize: 13, height: 1.2, fontFamily: 'monospace',
-      fontFamilyFallback: [
-        'Roboto Mono', 'Noto Sans Mono',
-        'Noto Sans Mono CJK SC', 'Noto Sans Mono CJK TC',
-        'Noto Sans Mono CJK KR', 'Noto Sans Mono CJK JP',
-        'Noto Sans Mono CJK HK', 'Noto Color Emoji',
-        'Noto Sans Symbols', 'monospace', 'sans-serif',
-      ],
-    );
-  }
-
   Future<void> _onRetryConnection() async {
     await _ctrl.retryConnection(context.read<TerminalSessionManager>());
-    if (!mounted || _ctrl.isMobilePlatform) return;
+    if (!mounted || !_viewConfig.requestFocusAfterRetry) return;
     _terminalFocusNode.requestFocus();
   }
 
@@ -645,7 +619,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
         const SizedBox(width: 8),
         Text(text, style: TextStyle(color: color)),
         if (status == ConnectionStatus.connected) ...[
-          const SizedBox(width: 12),
+          const SizedBox(height: 12),
           Icon(Icons.phone_android, size: 14, color: cs.onSurfaceVariant),
           Text(' ${_ctrl.views['mobile'] ?? 0}',
               style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12)),

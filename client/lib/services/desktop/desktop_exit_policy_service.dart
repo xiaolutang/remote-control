@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../models/config.dart';
-import 'config_service.dart';
+import '../../models/config.dart';
+import '../config_service.dart';
 
 class DesktopExitPolicyService {
   DesktopExitPolicyService({

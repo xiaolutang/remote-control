@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import 'desktop_agent_manager.dart';
 import 'desktop_agent_supervisor.dart';
-import 'runtime_device_service.dart';
+import '../runtime_device_service.dart';
 
 void _logBootstrapAction(String message) {
   if (Platform.environment.containsKey('FLUTTER_TEST')) {
