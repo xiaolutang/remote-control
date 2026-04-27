@@ -37,13 +37,13 @@ _SENSITIVE_PATHS = re.compile(
 
 # 人类可读的敏感路径摘要（从 _SENSITIVE_PATHS 同步维护，供 SYSTEM_PROMPT 引用）
 SENSITIVE_PATH_DISPLAY = "/etc/passwd、/etc/shadow、/etc/ssh、/root/.ssh、/proc/self、.ssh、.env、.pem、.key"
-_SHELL_META = re.compile(r'[;|&$`\\]|>>|>')
+_SHELL_META = re.compile(r'[;&$`\\]|>>|>')
 _FIND_DANGEROUS = {'-exec', '-delete', '-fls', '-ok', '-fprint'}
 
-MAX_STDOUT_LEN = 4096
+MAX_STDOUT_LEN = 8192
 MAX_STDERR_LEN = 4096
 DEFAULT_COMMAND_TIMEOUT = 10  # 秒
-MAX_COMMAND_RATE_PER_MINUTE = 10  # 每会话每分钟
+MAX_COMMAND_RATE_PER_MINUTE = 60  # 每会话每分钟
 
 
 def validate_command(command: str) -> tuple[bool, str]:

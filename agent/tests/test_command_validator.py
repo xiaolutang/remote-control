@@ -182,6 +182,6 @@ class TestAgentValidateCommandEdgeCases:
         assert not ok
 
     def test_constants(self):
-        assert MAX_STDOUT_LEN == 4096
+        assert MAX_STDOUT_LEN == 8192
         assert MAX_STDERR_LEN == 4096
         assert DEFAULT_COMMAND_TIMEOUT == 10

@@ -775,8 +775,8 @@ class TestOutputBoundaryIntegration:
 
     @pytest.mark.asyncio
     async def test_max_stdout_len_constant(self):
-        """MAX_STDOUT_LEN 常量应为 4096。"""
-        assert MAX_STDOUT_LEN == 4096
+        """MAX_STDOUT_LEN 常量应为 8192。"""
+        assert MAX_STDOUT_LEN == 8192
 
     @pytest.mark.asyncio
     async def test_empty_output_returns_placeholder(self):
