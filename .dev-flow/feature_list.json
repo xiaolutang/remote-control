@@ -385,8 +385,13 @@
       "description": "系统性修复 S109 剩余 8 个失败 case（22/30 → 24/30+）。根因：SYSTEM_PROMPT 条件分支过多，glm-5.1 无法稳定处理。修复方向：简化条件逻辑而非逐 case 打补丁。\n\n三类修复：\n1. SYSTEM_PROMPT 简化（cg_001/cg_002/cg_004/ic_004）：简化模型侧 ask_user 对话流程（仅去掉模型主动追问，不变更产品层 #48 确认不变量）、明确 execute_command vs deliver_result 边界、ai_prompt 使用场景收窄\n2. Eval 数据集修正（cg_003/ic_008）：cg_003 改为期望 message 类型（Codex 产品层不暴露，符合 architecture.md 决策）；ic_008 补充 mock_tool_responses 文件内容\n3. 模型能力边界（mt_002/kr_003）：尝试多轮对话指导和超时优化，不保证修复\n\n注意：去掉 ask_user 仅指模型不再主动追问「Claude Code 在运行吗」，产品层 command 确认执行不变量 #48 不受影响（所有 command 结果仍需用户确认才能执行）。",
       "verification": "L2",
       "depends_on": ["S109"],
-      "status": "pending",
+      "status": "completed",
       "priority": 8,
+      "started_at": "2026-04-27T17:00:00+0800",
+      "completed_at": "2026-04-27T18:30:00+0800",
+      "actual_minutes": 90,
+      "commit": "58c3abe",
+      "summary": "SYSTEM_PROMPT 三选一互斥规则 + need_confirm #48 强制执行 + no-delivery 重试 + eval 数据集修正。166 测试通过，ic_008 eval 实测通过。",
       "acceptance_criteria": [
         "SYSTEM_PROMPT 简化模型侧 ask_user 对话流程（用 Claude Code 打开/做某事 → 直接生成 command，不再主动追问。注意：这不影响产品层 #48 确认不变量，所有 command 仍需用户确认执行）",
         "SYSTEM_PROMPT 明确 execute_command vs deliver_result 边界（用户要求的操作用 deliver_result(command)，自己探索用 execute_command）",
@@ -428,9 +433,9 @@
   "summary": {
     "total_tasks": 9,
     "by_status": {
-      "pending": 1,
+      "pending": 0,
       "in_progress": 0,
-      "completed": 8,
+      "completed": 9,
       "blocked": 0,
       "cancelled": 0
     },
