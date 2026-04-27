@@ -539,7 +539,7 @@ class AgentSessionManager:
                     "tool_step",
                     _tool_step_event(
                         tool_name="execute_command",
-                        description=command[:200],
+                        description=f"执行: {command[:60]}",
                         status="running",
                     ),
                 )
@@ -568,7 +568,7 @@ class AgentSessionManager:
                     "tool_step",
                     _tool_step_event(
                         tool_name="execute_command",
-                        description=command[:200],
+                        description=f"执行: {command[:60]}",
                         status=error_status,
                         result_summary=output_preview or "(无输出)",
                     ),
@@ -592,6 +592,17 @@ class AgentSessionManager:
                 question_id = f"q_{uuid4().hex}"
                 session.pending_question_id = question_id
 
+                # B106: 推送 tool_step(running) — ask_user
+                await self._emit_session_event(
+                    session,
+                    "tool_step",
+                    _tool_step_event(
+                        tool_name="ask_user",
+                        description="向用户提问",
+                        status="running",
+                    ),
+                )
+
                 # 推送 QuestionEvent
                 await self._emit_session_event(
                     session,
@@ -611,10 +622,44 @@ class AgentSessionManager:
                     session.pending_question_id = None
                     session.last_active_at = datetime.now(timezone.utc)
                     session.state = AgentSessionState.EXPLORING
+                    # B106: 推送 tool_step(done) — ask_user 收到回复
+                    answer_summary = str(answer)[:200] if answer else "(无回复)"
+                    await self._emit_session_event(
+                        session,
+                        "tool_step",
+                        _tool_step_event(
+                            tool_name="ask_user",
+                            description="向用户提问",
+                            status="done",
+                            result_summary=answer_summary,
+                        ),
+                    )
                     return answer
                 except asyncio.TimeoutError:
+                    # B106: 推送 tool_step(error) — 超时
+                    await self._emit_session_event(
+                        session,
+                        "tool_step",
+                        _tool_step_event(
+                            tool_name="ask_user",
+                            description="向用户提问",
+                            status="error",
+                            result_summary="timeout",
+                        ),
+                    )
                     raise AgentSessionExpired()
                 except AgentSessionCancelled:
+                    # B106: 推送 tool_step(error) — 取消
+                    await self._emit_session_event(
+                        session,
+                        "tool_step",
+                        _tool_step_event(
+                            tool_name="ask_user",
+                            description="向用户提问",
+                            status="error",
+                            result_summary="cancelled",
+                        ),
+                    )
                     raise
 
             # 使用覆盖回调或默认回调
@@ -639,7 +684,7 @@ class AgentSessionManager:
                     session, "tool_step",
                     _tool_step_event(
                         tool_name="lookup_knowledge",
-                        description=query[:200],
+                        description=f"搜索知识库: {query[:60]}",
                         status="running",
                     ),
                 )
@@ -655,7 +700,7 @@ class AgentSessionManager:
                         session, "tool_step",
                         _tool_step_event(
                             tool_name="lookup_knowledge",
-                            description=query[:200],
+                            description=f"搜索知识库: {query[:60]}",
                             status="error",
                             result_summary=f"error: {error_category} ({duration_ms}ms)",
                         ),
@@ -666,7 +711,7 @@ class AgentSessionManager:
                     session, "tool_step",
                     _tool_step_event(
                         tool_name="lookup_knowledge",
-                        description=query[:200],
+                        description=f"搜索知识库: {query[:60]}",
                         status="done",
                         result_summary=(result or "(无结果)")[:200],
                     ),
@@ -696,7 +741,7 @@ class AgentSessionManager:
                     session, "tool_step",
                     _tool_step_event(
                         tool_name=f"call_dynamic_tool:{tool_name}",
-                        description=f"{tool_name}({list(arguments.keys())})",
+                        description=f"调用 {tool_name}",
                         status="running",
                     ),
                 )
@@ -724,7 +769,7 @@ class AgentSessionManager:
                     session, "tool_step",
                     _tool_step_event(
                         tool_name=f"call_dynamic_tool:{tool_name}",
-                        description=f"{tool_name}({list(arguments.keys())})",
+                        description=f"调用 {tool_name}",
                         status=step_status,
                         result_summary=output_preview or "(无输出)",
                     ),

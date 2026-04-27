@@ -812,7 +812,18 @@ class TestAgentRunLoop:
                 await asyncio.sleep(0.1)
 
         event_types = [call.kwargs["event_type"] for call in append_event.await_args_list]
-        assert event_types.count("tool_step") == 2
+        # B106: execute_command (running+done) + ask_user (running+done) = 4 tool_steps
+        assert event_types.count("tool_step") == 4
+        # B106: 验证 ask_user tool_step 的 description 和 tool_name
+        ask_user_steps = [
+            call for call in append_event.await_args_list
+            if call.kwargs["event_type"] == "tool_step"
+            and call.kwargs["payload"].get("tool_name") == "ask_user"
+        ]
+        assert len(ask_user_steps) == 2  # running + done
+        assert ask_user_steps[0].kwargs["payload"]["description"] == "向用户提问"
+        assert ask_user_steps[0].kwargs["payload"]["status"] == "running"
+        assert ask_user_steps[1].kwargs["payload"]["status"] == "done"
         assert "question" in event_types
         assert "result" in event_types
         question_calls = [
