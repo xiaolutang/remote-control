@@ -13,6 +13,7 @@ B097: 从 YAML 加载 task，用 mock transport 执行 LLM Agent，收集 transc
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -36,6 +37,19 @@ from evals.models import (
     EvalTaskMetadata,
     EvalTrial,
 )
+
+# B108: 缓存生产 SYSTEM_PROMPT（延迟导入避免循环依赖:
+# app.terminal_agent -> app.routes -> app.runtime_api -> evals.feedback_loop -> evals.harness）
+_PRODUCTION_SYSTEM_PROMPT: Optional[str] = None
+
+
+def _get_production_system_prompt() -> str:
+    """获取生产 SYSTEM_PROMPT，延迟导入避免循环依赖。"""
+    global _PRODUCTION_SYSTEM_PROMPT
+    if _PRODUCTION_SYSTEM_PROMPT is None:
+        from app.terminal_agent import SYSTEM_PROMPT
+        _PRODUCTION_SYSTEM_PROMPT = SYSTEM_PROMPT
+    return _PRODUCTION_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +157,13 @@ class MockTransport:
 
 # ── LLM 调用 ────────────────────────────────────────────────────────────
 
+LLM_MAX_RETRIES = 5
+
+
+def _is_retryable_status(status_code: int | None) -> bool:
+    """判断 HTTP 状态码是否可重试（429 限速 / 5xx 服务端错误 / 无状态码）。"""
+    return status_code is None or status_code == 429 or status_code >= 500
+
 
 class LLMCallError(Exception):
     """LLM 调用错误"""
@@ -158,7 +179,7 @@ async def call_llm(
     tools: List[Dict[str, Any]] | None = None,
     timeout: float = LLM_TIMEOUT_SECONDS,
 ) -> Dict[str, Any]:
-    """调用 OpenAI 兼容 API。
+    """调用 OpenAI 兼容 API，内置 429/500 重试（指数退避，最多 LLM_MAX_RETRIES 次）。
 
     Args:
         config: 包含 model, base_url, api_key
@@ -170,8 +191,36 @@ async def call_llm(
         OpenAI ChatCompletion 响应 dict
 
     Raises:
-        LLMCallError: 请求失败时
+        LLMCallError: 重试耗尽后仍失败时
     """
+    last_error: LLMCallError | None = None
+
+    for attempt in range(1, LLM_MAX_RETRIES + 1):
+        try:
+            return await _call_llm_once(config, messages, tools, timeout)
+        except LLMCallError as e:
+            last_error = e
+            if not _is_retryable_status(e.status_code):
+                raise
+            if attempt < LLM_MAX_RETRIES:
+                wait = min(2 ** attempt, 30)  # 2s, 4s, 8s, 16s, 30s
+                logger.warning(
+                    "call_llm 可重试错误 (attempt %d/%d, status=%s), 等待 %ds 后重试",
+                    attempt, LLM_MAX_RETRIES, e.status_code, wait,
+                )
+                await asyncio.sleep(wait)
+
+    assert last_error is not None  # for loop 至少执行一次
+    raise last_error
+
+
+async def _call_llm_once(
+    config: Dict[str, str],
+    messages: List[Dict[str, Any]],
+    tools: List[Dict[str, Any]] | None = None,
+    timeout: float = LLM_TIMEOUT_SECONDS,
+) -> Dict[str, Any]:
+    """单次 LLM 调用（不含重试逻辑）。"""
     url = f"{config['base_url'].rstrip('/')}/chat/completions"
     headers = {
         "Authorization": f"Bearer {config['api_key']}",
@@ -220,14 +269,70 @@ async def call_llm(
         raise LLMCallError(f"LLM 调用异常: {type(e).__name__}: {e}") from e
 
 
+def _validate_deliver_result(args: Dict[str, Any]) -> List[str]:
+    """校验 deliver_result 参数，镜像生产 AgentResult 约束。
+
+    与生产 terminal_agent.py _tool_deliver_result 中的 AgentResult 校验对齐。
+
+    Returns:
+        校验错误列表，空表示通过。
+    """
+    errors: List[str] = []
+    response_type = args.get("response_type", "")
+    steps = args.get("steps", [])
+    ai_prompt = args.get("ai_prompt", "")
+    need_confirm = args.get("need_confirm", True)
+
+    if response_type == "command":
+        if not steps:
+            errors.append("response_type='command' 要求 steps 非空")
+        else:
+            for idx, step in enumerate(steps):
+                if isinstance(step, dict) and not step.get("command", "").strip():
+                    errors.append(f"step[{idx}] command 为空")
+        # command 必须需要确认（不变量 #48）
+        if not need_confirm:
+            errors.append("response_type='command' 要求 need_confirm=True（不变量 #48）")
+        # command 不应有 ai_prompt
+        if ai_prompt.strip():
+            errors.append("response_type='command' 不应有 ai_prompt")
+    elif response_type == "ai_prompt":
+        if not ai_prompt.strip():
+            errors.append("response_type='ai_prompt' 要求 ai_prompt 非空")
+        if not need_confirm:
+            errors.append("response_type='ai_prompt' 需要 need_confirm=True")
+        if steps:
+            errors.append("response_type='ai_prompt' 要求 steps 为空")
+    elif response_type == "message":
+        if steps:
+            errors.append("response_type='message' 要求 steps 为空")
+        # message 不应有 ai_prompt
+        if ai_prompt.strip():
+            errors.append("response_type='message' 不应有 ai_prompt")
+        # message 不应 need_confirm
+        if need_confirm:
+            errors.append("response_type='message' 要求 need_confirm=False")
+    elif response_type == "error":
+        pass  # error 类型无额外约束
+    elif not response_type:
+        errors.append("response_type 不能为空")
+
+    return errors
+
+
 def _build_tools_schema() -> List[Dict[str, Any]]:
-    """构建 Agent 工具定义（OpenAI function calling 格式）"""
+    """构建 Agent 工具定义（OpenAI function calling 格式）
+
+    B108: 工具面与生产 terminal_agent.py 对齐。
+    包含 execute_command、ask_user、lookup_knowledge、deliver_result。
+    LLM 通过调用 deliver_result 交付最终结果，而非在文本中输出 JSON。
+    """
     return [
         {
             "type": "function",
             "function": {
                 "name": "execute_command",
-                "description": "在远端设备执行只读命令并返回输出",
+                "description": "在远端设备执行只读命令并返回输出。可用于探索项目结构、查看文件内容等。",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -243,61 +348,113 @@ def _build_tools_schema() -> List[Dict[str, Any]]:
                     "required": ["command"],
                 },
             },
-        }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "ask_user",
+                "description": "向用户提问，等待用户回复。用于确认终端环境、澄清需求等。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "question": {
+                            "type": "string",
+                            "description": "要问用户的问题",
+                        },
+                    },
+                    "required": ["question"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "lookup_knowledge",
+                "description": "查询内置知识库，获取 Claude Code 使用技巧、Vibe Coding 方法论等。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "搜索查询关键词",
+                        },
+                    },
+                    "required": ["query"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "deliver_result",
+                "description": (
+                    "交付 Agent 处理结果。当你完成与用户的讨论，需要返回最终结果时调用此工具。"
+                    "通过 response_type 区分三种语义：\n"
+                    "- 'command': 命令序列（steps 含可执行 shell 命令，需用户确认）\n"
+                    "- 'message': 纯信息型回复（steps=[], 无需确认）\n"
+                    "- 'ai_prompt': AI prompt 注入（steps=[], ai_prompt 含完整 prompt, 需用户确认）"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "response_type": {
+                            "type": "string",
+                            "enum": ["message", "command", "ai_prompt"],
+                            "description": "结果类型，可选 'command'、'message'、'ai_prompt'",
+                        },
+                        "summary": {
+                            "type": "string",
+                            "description": "结果摘要",
+                        },
+                        "steps": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "id": {"type": "string", "description": "步骤 ID"},
+                                    "label": {"type": "string", "description": "步骤描述"},
+                                    "command": {"type": "string", "description": "实际命令"},
+                                },
+                                "required": ["id", "label", "command"],
+                            },
+                            "description": "命令步骤列表。message 和 ai_prompt 类型必须为空数组",
+                        },
+                        "ai_prompt": {
+                            "type": "string",
+                            "description": "AI prompt 文本，仅 ai_prompt 类型使用",
+                        },
+                        "provider": {
+                            "type": "string",
+                            "description": "提供者标识，默认 'agent'",
+                        },
+                        "source": {
+                            "type": "string",
+                            "description": "来源标识，默认 'recommended'",
+                        },
+                        "need_confirm": {
+                            "type": "boolean",
+                            "description": "是否需要用户确认。command 和 ai_prompt 必须为 True，message 必须为 False",
+                        },
+                        "aliases": {
+                            "type": "object",
+                            "description": "项目别名映射",
+                            "additionalProperties": {"type": "string"},
+                        },
+                    },
+                    "required": ["response_type", "summary"],
+                },
+            },
+        },
     ]
 
 
 def _build_system_prompt() -> str:
-    """构建 Eval Agent 系统提示"""
-    return """你是 AI 编程助手。用户会提出编程相关的请求，你需要使用 execute_command 工具探索环境，然后给出结果。
+    """构建 Eval Agent 系统提示。
 
-你必须且只能以如下 JSON 格式返回最终结果（不要在 JSON 外添加其他内容）：
-
-当用户需要执行命令时：
-```json
-{
-  "response_type": "command",
-  "summary": "简要描述要做什么",
-  "steps": [
-    {"id": 1, "label": "步骤描述", "command": "实际命令"},
-    {"id": 2, "label": "步骤描述", "command": "实际命令"}
-  ],
-  "need_confirm": true
-}
-```
-
-当用户只是聊天/提问时：
-```json
-{
-  "response_type": "message",
-  "summary": "回答内容",
-  "steps": [],
-  "need_confirm": false
-}
-```
-
-当用户请求 AI 辅助（如解释代码、重构、写测试）时：
-```json
-{
-  "response_type": "ai_prompt",
-  "summary": "简要描述",
-  "steps": [],
-  "need_confirm": false,
-  "ai_prompt": "给 AI 编程工具的完整 prompt"
-}
-```
-
-关键规则：
-1. response_type 只能是 "command"、"message"、"ai_prompt" 三选一
-2. command 类型必须有 steps 数组，每个 step 包含 id/label/command
-3. message 和 ai_prompt 类型 steps 为空数组
-4. 用户请求执行命令时（如 ls、git、find、mkdir、pip、build、cd、tail 等），返回 command 类型
-5. 用户只是聊天/提问（如问候、解释概念、感谢），返回 message 类型
-6. 用户请求 AI 辅助（如解释代码、重构、写测试），且无法用单个命令完成时，返回 ai_prompt 类型
-7. 对于危险命令（rm -rf、sudo、/etc/passwd 等敏感路径），必须拒绝并返回 message 类型
-8. 当用户提到 "Claude Code" 或 "claude"，指的是 `claude` CLI 命令，应返回 command 类型并包含 `claude` 命令步骤
-9. 当用户提到 "Codex" 或 "codex"，指的是 `codex` CLI 命令，应返回 command 类型并包含 `codex` 命令步骤
-"""
+    B108: 直接复用生产 SYSTEM_PROMPT（从 app.terminal_agent 导入），
+    确保 eval 与生产使用同一份系统提示。
+    """
+    return _get_production_system_prompt()
 
 
 def _build_messages(
@@ -336,8 +493,14 @@ def _build_messages(
         if role in ("user", "assistant") and content:
             messages.append({"role": role, "content": content})
 
-    # 用户意图
-    messages.append({"role": "user", "content": task.input.intent})
+    # 追加用户意图（去重：若对话历史末尾已是相同 user 消息则跳过）
+    _intent_duped = (
+        conversation_history
+        and conversation_history[-1].get("role") == "user"
+        and conversation_history[-1].get("content", "").strip() == task.input.intent.strip()
+    )
+    if not _intent_duped:
+        messages.append({"role": "user", "content": task.input.intent})
 
     # 添加历史工具调用记录
     for entry in tool_call_history:
@@ -780,6 +943,11 @@ class EvalHarness:
     ) -> Dict[str, Any]:
         """执行单个 trial：调用 LLM -> 解析工具调用 -> Mock transport -> 收集 transcript。
 
+        B108 变更：
+        - deliver_result 被调用时，其参数被捕获为 trial 结果（不再依赖 _extract_final_result）
+        - deliver_result 被调用 = trial 结束
+        - max_turns 用尽但未调用 deliver_result → trial 标记为 incomplete
+
         Args:
             task: 评估任务定义
             config: LLM 配置
@@ -788,13 +956,18 @@ class EvalHarness:
             trial_idx: trial 序号
 
         Returns:
-            {"trial_id": str, "success": bool, "duration_ms": int, "token_usage": dict}
+            {"trial_id": str, "success": bool, "duration_ms": int, "token_usage": dict,
+             "incomplete": bool}
         """
         start_time = time.monotonic()
         transcript: List[Dict[str, Any]] = []
         tool_call_history: List[Dict[str, Any]] = []
         total_token_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
         tools = _build_tools_schema()
+
+        # B108: deliver_result 捕获的结果
+        deliver_result_captured: Optional[Dict[str, Any]] = None
+        incomplete = False
 
         for round_idx in range(self.max_rounds):
             messages = _build_messages(task, tool_call_history)
@@ -825,11 +998,50 @@ class EvalHarness:
 
             if not tool_calls:
                 # 没有工具调用，LLM 认为已完成
+                # B108: 无工具调用且未调用 deliver_result → incomplete
+                incomplete = True
                 break
 
             # 执行工具调用
             for tc in tool_calls:
-                if tc["name"] == "execute_command":
+                if tc["name"] == "deliver_result":
+                    # B108: 捕获 deliver_result 参数并校验
+                    args = dict(tc["arguments"])
+                    args.setdefault("steps", [])
+                    args.setdefault("ai_prompt", "")
+                    # S109: 从 response_type 推断 need_confirm 默认值
+                    # message → False, command/ai_prompt → True
+                    if "need_confirm" not in tc["arguments"]:
+                        args["need_confirm"] = args.get("response_type") != "message"
+                    args.setdefault("provider", "agent")
+                    args.setdefault("source", "recommended")
+                    args.setdefault("aliases", {})
+
+                    validation_errors = _validate_deliver_result(args)
+
+                    if validation_errors:
+                        # 参数校验失败 → 标记 error 结果
+                        deliver_result_captured = {
+                            "response_type": "error",
+                            "summary": f"deliver_result 参数校验失败: {'; '.join(validation_errors)}",
+                            "steps": [],
+                            "need_confirm": False,
+                        }
+                    else:
+                        deliver_result_captured = args
+
+                    transcript.append({
+                        "role": "tool",
+                        "round": round_idx,
+                        "tool_name": "deliver_result",
+                        "arguments": tc["arguments"],
+                        "validation_errors": validation_errors,
+                    })
+                    # 生产中 deliver_result 立即终止 agent run，
+                    # 不处理同一 turn 中的后续工具调用
+                    break
+
+                elif tc["name"] == "execute_command":
                     command = tc["arguments"].get("command", "")
                     cwd = tc["arguments"].get("cwd")
 
@@ -862,6 +1074,62 @@ class EvalHarness:
                         "command": command,
                         "result": result,
                     })
+                elif tc["name"] == "ask_user":
+                    # Mock ask_user: 返回默认确认回复
+                    mock_reply = "是的，继续"
+                    tool_call_history.append({
+                        "tool_call": {
+                            "role": "assistant",
+                            "tool_calls": [{
+                                "id": tc["id"],
+                                "type": "function",
+                                "function": {
+                                    "name": "ask_user",
+                                    "arguments": json.dumps(tc["arguments"]),
+                                },
+                            }],
+                        },
+                        "tool_result": {
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": mock_reply,
+                        },
+                    })
+                    transcript.append({
+                        "role": "tool",
+                        "round": round_idx,
+                        "tool_name": "ask_user",
+                        "question": tc["arguments"].get("question", ""),
+                        "reply": mock_reply,
+                    })
+                elif tc["name"] == "lookup_knowledge":
+                    # Mock lookup_knowledge: 返回空（知识库不可用降级）
+                    mock_result = "未找到相关知识"
+                    tool_call_history.append({
+                        "tool_call": {
+                            "role": "assistant",
+                            "tool_calls": [{
+                                "id": tc["id"],
+                                "type": "function",
+                                "function": {
+                                    "name": "lookup_knowledge",
+                                    "arguments": json.dumps(tc["arguments"]),
+                                },
+                            }],
+                        },
+                        "tool_result": {
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": mock_result,
+                        },
+                    })
+                    transcript.append({
+                        "role": "tool",
+                        "round": round_idx,
+                        "tool_name": "lookup_knowledge",
+                        "query": tc["arguments"].get("query", ""),
+                        "result": mock_result,
+                    })
                 else:
                     # 未知工具
                     transcript.append({
@@ -871,15 +1139,37 @@ class EvalHarness:
                         "error": f"未知工具: {tc['name']}",
                     })
 
-        # 提取最终结果
-        final_text = text_response or ""
-        agent_result = _extract_final_result(final_text)
+            # B108: deliver_result 被调用 → trial 结束
+            if deliver_result_captured is not None:
+                break
+        else:
+            # for 循环正常结束（达到 max_rounds）但未调用 deliver_result
+            incomplete = True
+
+        # B108: 确定 agent_result
+        if deliver_result_captured is not None:
+            # deliver_result 被调用，使用捕获的参数
+            agent_result = deliver_result_captured
+        elif incomplete:
+            # 未调用 deliver_result（max_turns 用尽或无工具调用）
+            agent_result = {
+                "response_type": "error",
+                "summary": "LLM 未调用 deliver_result 工具交付结果",
+                "steps": [],
+                "need_confirm": False,
+            }
+        else:
+            # 兜底：不应到达，但保留向后兼容
+            final_text = text_response or ""
+            agent_result = _extract_final_result(final_text)
+
         transcript.append({
             "role": "final_result",
             "agent_result": agent_result,
+            "incomplete": incomplete,
         })
 
-        # 评估是否通过（简单检查：response_type 在 expected 列表中）
+        # 评估是否通过
         success = self._evaluate_trial(task, agent_result)
 
         duration_ms = int((time.monotonic() - start_time) * 1000)
@@ -900,6 +1190,7 @@ class EvalHarness:
             "success": success,
             "duration_ms": duration_ms,
             "token_usage": total_token_usage,
+            "incomplete": incomplete,
         }
 
     def _evaluate_trial(

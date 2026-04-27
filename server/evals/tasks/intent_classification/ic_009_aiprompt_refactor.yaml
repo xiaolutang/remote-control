@@ -1,6 +1,6 @@
 id: ic_009_aiprompt_refactor
 category: intent_classification
-description: "测试 Agent 正确识别代码重构需求为 ai_prompt 类型"
+description: "测试 Agent 将代码重构需求识别为 command 类型（生成 claude 命令）"
 input:
   intent: "帮我重构 utils.py 里的 parse_config 函数，让它更易读"
   context:
@@ -8,12 +8,12 @@ input:
     device_online: true
     mock_tool_responses: {}
 expected:
-  response_type: ["ai_prompt"]
-  steps_contain: []
+  response_type: ["command"]
+  steps_contain: ["claude"]
   steps_not_contain: []
-graders: ["response_type_match", "steps_structure"]
+graders: ["response_type_match", "steps_structure", "steps_contain_match"]
 metadata:
   source: daily_usage
   difficulty: medium
-  tags: ["ai_prompt", "refactor", "code_modification"]
-  reference_solution: "response_type=ai_prompt, 生成重构代码的 prompt 注入"
+  tags: ["command", "refactor", "claude_code"]
+  reference_solution: "response_type=command, 生成 claude -p '重构 parse_config 函数' 命令"

@@ -344,6 +344,73 @@ class TestStepsStructureGrader:
         assert result.passed is False
         assert len(result.details_json["issues"]) == 2
 
+    def test_pass_ai_prompt_empty_steps(self):
+        """B108: ai_prompt 类型允许 steps 为空"""
+        trial = _make_trial(agent_result={
+            "response_type": "ai_prompt",
+            "steps": [],
+            "ai_prompt": "请解释 main.py 中的 run 函数",
+        })
+        task = _make_task()
+        result = self.grader.grade(trial, task)
+        assert result.passed is True
+
+    def test_pass_message_empty_steps(self):
+        """B108: message 类型允许 steps 为空"""
+        trial = _make_trial(agent_result={
+            "response_type": "message",
+            "steps": [],
+            "need_confirm": False,
+        })
+        task = _make_task()
+        result = self.grader.grade(trial, task)
+        assert result.passed is True
+
+    def test_fail_message_with_need_confirm(self):
+        """B108: message + need_confirm=True → fail"""
+        trial = _make_trial(agent_result={
+            "response_type": "message",
+            "steps": [],
+            "need_confirm": True,
+        })
+        task = _make_task()
+        result = self.grader.grade(trial, task)
+        assert result.passed is False
+
+    def test_fail_message_with_ai_prompt(self):
+        """B108: message + 非空 ai_prompt → fail"""
+        trial = _make_trial(agent_result={
+            "response_type": "message",
+            "steps": [],
+            "ai_prompt": "unexpected",
+            "need_confirm": False,
+        })
+        task = _make_task()
+        result = self.grader.grade(trial, task)
+        assert result.passed is False
+
+    def test_fail_ai_prompt_empty_prompt(self):
+        """B108: ai_prompt + 空 ai_prompt 字段 → fail"""
+        trial = _make_trial(agent_result={
+            "response_type": "ai_prompt",
+            "steps": [],
+            "ai_prompt": "",
+        })
+        task = _make_task()
+        result = self.grader.grade(trial, task)
+        assert result.passed is False
+
+    def test_fail_ai_prompt_with_steps(self):
+        """B108: ai_prompt + 非空 steps → fail"""
+        trial = _make_trial(agent_result={
+            "response_type": "ai_prompt",
+            "steps": [{"command": "ls"}],
+            "ai_prompt": "explain this",
+        })
+        task = _make_task()
+        result = self.grader.grade(trial, task)
+        assert result.passed is False
+
 
 # ── ContainsCommandGrader ───────────────────────────────────────────────────
 
@@ -603,6 +670,92 @@ class TestToolCallOrderGrader:
         })
         result = self.grader.grade(trial, task)
         assert result.passed is True
+
+    def test_deliver_result_excluded_from_order(self):
+        """B108: deliver_result 不参与工具调用序列评分"""
+        transcript = [
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {"name": "execute_command", "arguments": {"command": "ls -la"}},
+                ],
+            },
+            {
+                "role": "tool",
+                "tool_name": "execute_command",
+                "command": "ls -la",
+            },
+            {
+                "role": "tool",
+                "tool_name": "deliver_result",
+                "arguments": {"response_type": "command", "summary": "test"},
+            },
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {"name": "execute_command", "arguments": {"command": "grep pattern"}},
+                ],
+            },
+        ]
+        trial = _make_trial(transcript=transcript)
+        task = _make_task(extra_expected={
+            "tool_call_order": [
+                {"name": "execute_command", "command_pattern": "ls"},
+                {"name": "execute_command", "command_pattern": "grep"},
+            ],
+        })
+        result = self.grader.grade(trial, task)
+        assert result.passed is True
+        assert result.score == 1.0
+        # 确认 deliver_result 被排除
+        assert "deliver_result" in result.details_json["excluded_tools"]
+
+    def test_deliver_result_in_assistant_tool_calls_excluded(self):
+        """B108: deliver_result 出现在 assistant tool_calls 中也被排除"""
+        transcript = [
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {"name": "execute_command", "arguments": {"command": "ls"}},
+                ],
+            },
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {"name": "deliver_result", "arguments": {"response_type": "command", "summary": "test"}},
+                ],
+            },
+        ]
+        trial = _make_trial(transcript=transcript)
+        task = _make_task(extra_expected={
+            "tool_call_order": [
+                {"name": "execute_command", "command_pattern": "ls"},
+            ],
+        })
+        result = self.grader.grade(trial, task)
+        assert result.passed is True
+        assert result.score == 1.0
+
+    def test_only_deliver_result_still_passes(self):
+        """B108: transcript 中只有 deliver_result 也能正常处理"""
+        transcript = [
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {"name": "deliver_result", "arguments": {"response_type": "message", "summary": "hello"}},
+                ],
+            },
+        ]
+        trial = _make_trial(transcript=transcript)
+        task = _make_task(extra_expected={
+            "tool_call_order": [
+                {"name": "execute_command", "command_pattern": "ls"},
+            ],
+        })
+        result = self.grader.grade(trial, task)
+        # deliver_result 被排除后，没有匹配的工具调用
+        assert result.passed is False
+        assert result.score == 0.0
 
 
 # ── EvalGraderResult 结构验证 ──────────────────────────────────────────────

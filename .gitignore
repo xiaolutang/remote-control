@@ -38,6 +38,9 @@ client/.flutter-plugins-dependencies
 # 临时 sdk（构建时通过 --build-context 挂载）
 server/sdk/
 
+# Eval 数据库（本地运行产物）
+server/evals.db
+
 # Dev flow 执行证据（运行时生成）
 .dev-flow/evidence/
 

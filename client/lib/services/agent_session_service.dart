@@ -461,6 +461,8 @@ class AgentSessionService {
           return AgentSessionCreatedEvent.fromJson(json);
         case 'trace':
           return AgentTraceEvent.fromJson(json);
+        case 'assistant_message':
+          return AgentAssistantMessageEvent.fromJson(json);
         case 'question':
           return AgentQuestionEvent.fromJson(json);
         case 'result':

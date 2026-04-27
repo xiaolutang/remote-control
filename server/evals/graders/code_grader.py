@@ -204,9 +204,9 @@ class StepsStructureGrader(CodeGraderBase):
     """检查 steps 结构完整性。
 
     验证：
-    1. steps 非空
-    2. 每条 step 有 command 字段（如果是 dict）
-    3. response_type 不是 error
+    1. response_type 不是 error
+    2. command 类型: steps 非空，每条 step 有 command 字段
+    3. message/ai_prompt 类型: steps 允许为空（语义正确）
     """
 
     @property
@@ -224,8 +224,28 @@ class StepsStructureGrader(CodeGraderBase):
         if response_type == "error":
             issues.append("response_type 为 error")
 
-        # 检查 steps 非空
-        if not steps:
+        # B108: message 和 ai_prompt 类型允许 steps 为空，但需校验完整 schema
+        if response_type == "message":
+            # message 不应有 steps
+            if steps:
+                issues.append("response_type='message' 不应有 steps")
+            # message 不应有 ai_prompt
+            ai_prompt = agent_result.get("ai_prompt", "")
+            if ai_prompt and ai_prompt.strip():
+                issues.append("response_type='message' 不应有 ai_prompt")
+            # message 不应 need_confirm
+            if agent_result.get("need_confirm", False):
+                issues.append("response_type='message' 不应 need_confirm")
+        elif response_type == "ai_prompt":
+            # ai_prompt 不应有 steps
+            if steps:
+                issues.append("response_type='ai_prompt' 不应有 steps")
+            # ai_prompt 应有非空 ai_prompt 字段
+            ai_prompt = agent_result.get("ai_prompt", "")
+            if not (ai_prompt and ai_prompt.strip()):
+                issues.append("response_type='ai_prompt' 要求 ai_prompt 非空")
+        elif not steps:
+            # command 类型必须有 steps
             issues.append("steps 为空")
         else:
             # 检查每条 step 的结构
@@ -343,6 +363,9 @@ class ToolCallOrderGrader(CodeGraderBase):
     从 trial.transcript_json 中提取所有工具调用，
     按顺序检查是否匹配 task.expected 中配置的 tool_call_order。
 
+    B108 变更：排除 deliver_result 工具调用。deliver_result 是最终交付工具，
+    不是探索工具，不应参与工具调用序列评分。
+
     expected 格式示例:
         expected:
           response_type: ["command"]
@@ -354,6 +377,9 @@ class ToolCallOrderGrader(CodeGraderBase):
 
     支持精确匹配和正则匹配（command_pattern 支持 re.search）。
     """
+
+    # B108: 排除交付工具，只检查探索工具的调用顺序
+    EXCLUDED_TOOLS = {"deliver_result"}
 
     @property
     def grader_type(self) -> str:
@@ -373,21 +399,26 @@ class ToolCallOrderGrader(CodeGraderBase):
                 },
             )
 
-        # 从 transcript 中提取实际工具调用序列
+        # 从 transcript 中提取实际工具调用序列（排除 deliver_result）
         actual_calls: List[Dict[str, str]] = []
         for entry in trial.transcript_json:
             role = entry.get("role", "")
             if role == "assistant":
                 tool_calls = entry.get("tool_calls", [])
                 for tc in tool_calls:
+                    name = tc.get("name", "")
+                    if name in self.EXCLUDED_TOOLS:
+                        continue
                     args = tc.get("arguments", {})
                     actual_calls.append({
-                        "name": tc.get("name", ""),
+                        "name": name,
                         "command": args.get("command", "") if isinstance(args, dict) else "",
                     })
             elif role == "tool":
                 tool_name = entry.get("tool_name", "")
                 command = entry.get("command", "")
+                if tool_name in self.EXCLUDED_TOOLS:
+                    continue
                 if tool_name and command:
                     actual_calls.append({
                         "name": tool_name,
@@ -449,6 +480,7 @@ class ToolCallOrderGrader(CodeGraderBase):
                 "matched_count": matched_count,
                 "actual_call_count": len(actual_calls),
                 "match_results": match_results,
+                "excluded_tools": list(self.EXCLUDED_TOOLS),
                 "reason": (
                     f"所有 {total_expected} 个期望调用均已匹配"
                     if all_matched

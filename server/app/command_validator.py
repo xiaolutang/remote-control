@@ -29,11 +29,14 @@ SAFE_GIT_SUBCOMMANDS = frozenset({
 })
 
 _SENSITIVE_PATHS = re.compile(
-    r'(/etc/shadow\b|/etc/ssh\b|/root/\.ssh\b|/proc/self\b|'
+    r'(/etc/passwd\b|/etc/shadow\b|/etc/ssh\b|/root/\.ssh\b|/proc/self\b|'
     r'\.ssh/id_|\.ssh/known_hosts\b|\.ssh/authorized_keys\b|'
     r'\.env\b|\.pem\b|\.key\b)',
     re.IGNORECASE,
 )
+
+# 人类可读的敏感路径摘要（从 _SENSITIVE_PATHS 同步维护，供 SYSTEM_PROMPT 引用）
+SENSITIVE_PATH_DISPLAY = "/etc/passwd、/etc/shadow、/etc/ssh、/root/.ssh、/proc/self、.ssh、.env、.pem、.key"
 _SHELL_META = re.compile(r'[;|&$`\\]|>>|>')
 _FIND_DANGEROUS = {'-exec', '-delete', '-fls', '-ok', '-fprint'}
 

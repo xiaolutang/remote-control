@@ -67,6 +67,94 @@ void main() {
         expect(trace.outputSummary, 'Desktop\nDocuments\n...');
       });
 
+      test('解析 assistant_message 事件', () async {
+        final sseText = buildSSE([
+          MapEntry(
+              'assistant_message',
+              jsonEncode({
+                'content': '我来帮你检查一下当前目录结构...',
+              })),
+        ]);
+
+        final client = MockClient.streaming((request, bodyStream) async {
+          return http.StreamedResponse(
+            Stream.value(utf8.encode(sseText)),
+            200,
+            headers: const {'content-type': 'text/event-stream'},
+          );
+        });
+
+        final service = AgentSessionService(
+          serverUrl: testServerUrl,
+          client: client,
+        );
+
+        final events = await service
+            .runSession(
+              deviceId: testDeviceId,
+              intent: '查看目录',
+              token: testToken,
+            )
+            .toList();
+
+        // assistant_message 不关闭流，但流结束时会关闭 controller
+        expect(events, hasLength(1));
+        expect(events[0], isA<AgentAssistantMessageEvent>());
+        final msg = events[0] as AgentAssistantMessageEvent;
+        expect(msg.content, '我来帮你检查一下当前目录结构...');
+      });
+
+      test('assistant_message + trace + result 多事件不中断流', () async {
+        final sseText = buildSSE([
+          MapEntry(
+              'assistant_message',
+              jsonEncode({'content': '正在分析...'})),
+          MapEntry(
+              'trace',
+              jsonEncode({
+                'tool': 'execute_command',
+                'input_summary': 'ls -la',
+                'output_summary': 'file1.txt\nfile2.txt',
+              })),
+          MapEntry(
+              'result',
+              jsonEncode({
+                'summary': '找到2个文件',
+                'steps': <Map<String, dynamic>>[],
+                'provider': 'agent',
+                'source': 'recommended',
+                'need_confirm': false,
+                'aliases': <String, String>{},
+              })),
+        ]);
+
+        final client = MockClient.streaming((request, bodyStream) async {
+          return http.StreamedResponse(
+            Stream.value(utf8.encode(sseText)),
+            200,
+            headers: const {'content-type': 'text/event-stream'},
+          );
+        });
+
+        final service = AgentSessionService(
+          serverUrl: testServerUrl,
+          client: client,
+        );
+
+        final events = await service
+            .runSession(
+              deviceId: testDeviceId,
+              intent: '查看文件',
+              token: testToken,
+            )
+            .toList();
+
+        expect(events, hasLength(3));
+        expect(events[0], isA<AgentAssistantMessageEvent>());
+        expect(events[1], isA<AgentTraceEvent>());
+        expect(events[2], isA<AgentResultEvent>());
+      });
+
       test('解析 question 事件', () async {
         final sseText = buildSSE([
           MapEntry(
@@ -781,6 +869,40 @@ void main() {
         final error = events[0] as AgentErrorEvent;
         expect(error.code, 'SESSION_EXPIRED');
         expect(error.message, '会话已过期');
+      });
+
+      test('resume 恢复 assistant_message 事件', () async {
+        final sseText = buildSSE([
+          MapEntry('assistant_message', jsonEncode({
+            'content': '我来分析一下这个问题',
+          })),
+        ]);
+
+        final client = MockClient.streaming((request, bodyStream) async {
+          return http.StreamedResponse(
+            Stream.value(utf8.encode(sseText)),
+            200,
+            headers: const {'content-type': 'text/event-stream'},
+          );
+        });
+
+        final service = AgentSessionService(
+          serverUrl: testServerUrl,
+          client: client,
+        );
+
+        final events = await service
+            .resumeSession(
+              deviceId: testDeviceId,
+              sessionId: testSessionId,
+              token: testToken,
+            )
+            .toList();
+
+        expect(events, hasLength(1));
+        expect(events[0], isA<AgentAssistantMessageEvent>());
+        final msg = events[0] as AgentAssistantMessageEvent;
+        expect(msg.content, '我来分析一下这个问题');
       });
     });
 

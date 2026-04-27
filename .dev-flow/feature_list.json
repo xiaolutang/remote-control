@@ -2,9 +2,18 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-26T13:30:00+0800",
-  "status": "idle",
+  "updated_at": "2026-04-27T21:50:00+0800",
   "archived_cycles": [
+    {
+      "id": "R046",
+      "name": "agent-prompt-strategy-upgrade",
+      "status": "completed",
+      "branch": "feat/R046-agent-prompt-strategy-upgrade",
+      "started_at": "2026-04-26",
+      "archived_at": "2026-04-27T21:50:00+0800",
+      "archive_path": "_archive/R046_agent-prompt-strategy-upgrade/",
+      "summary": "Agent 自由对话 + deliver_result 工具 + SYSTEM_PROMPT 三路互斥 + Eval 100% 通过。9 个任务全部完成。"
+    },
     {
       "id": "R045",
       "name": "smart-panel-convergence",
@@ -54,6 +63,10 @@
       "summary": "ReAct Agent + SSE + 双端 conversation 同步 + Token 追踪。验收未通过：双端消息同步 bug（已修复未验证）+ 模型交互不可观测"
     }
   ],
-  "archived_phases": [],
-  "features": []
+  "features": [],
+  "summary": {
+    "total_tasks": 0,
+    "by_status": {},
+    "by_module": {}
+  }
 }

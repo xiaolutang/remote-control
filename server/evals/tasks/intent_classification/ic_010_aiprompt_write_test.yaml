@@ -1,6 +1,6 @@
 id: ic_010_aiprompt_write_test
 category: intent_classification
-description: "测试 Agent 正确识别生成测试需求为 ai_prompt 类型"
+description: "测试 Agent 将生成测试需求识别为 command 类型（生成 claude 命令）"
 input:
   intent: "帮我为 database.py 写单元测试"
   context:
@@ -8,12 +8,12 @@ input:
     device_online: true
     mock_tool_responses: {}
 expected:
-  response_type: ["ai_prompt"]
-  steps_contain: []
+  response_type: ["command"]
+  steps_contain: ["claude"]
   steps_not_contain: []
-graders: ["response_type_match", "steps_structure"]
+graders: ["response_type_match", "steps_structure", "steps_contain_match"]
 metadata:
   source: daily_usage
   difficulty: medium
-  tags: ["ai_prompt", "test", "code_generation"]
-  reference_solution: "response_type=ai_prompt, 生成编写测试的 prompt 注入"
+  tags: ["command", "test", "claude_code"]
+  reference_solution: "response_type=command, 生成 claude -p '为 database.py 写单元测试' 命令"

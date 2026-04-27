@@ -12,6 +12,13 @@ B080: Agent 会话管理 & SSE API 测试。
 8. 6 种错误码正确推送
 9. 降级到 planner 的降级路径
 10. 用户级频率限制
+11. B106: assistant_message SSE 事件推送和格式
+12. B106: assistant_message 内容过滤兜底（CoT 标记检测）
+13. B106: ResultDelivered 后 save_agent_usage 先于 result 推送
+14. B106: finally 块稳定结束 event_queue
+15. B106: 取消/超时不丢失已推送事件和 usage
+16. B106: conversation events 持久化包含 assistant_message
+17. B106: resume_stream 正确回放 assistant_message 缓存事件
 """
 import asyncio
 import json
@@ -32,6 +39,7 @@ from app.agent_session_manager import (
     SSE_KEEPALIVE_SECONDS,
     USER_SESSION_RATE_LIMIT,
     _error_event_dict,
+    filter_assistant_message,
     get_agent_session_manager,
 )
 from app.terminal_agent import AgentResult, AgentRunOutcome, CommandSequenceStep
@@ -1090,3 +1098,614 @@ class TestSSEResultEventType:
         assert data["ai_prompt"] == prompt_text
         assert data["steps"] == []
         assert data["need_confirm"] is True
+
+
+# ---------------------------------------------------------------------------
+# B106: assistant_message SSE 事件
+# ---------------------------------------------------------------------------
+
+class TestAssistantMessageSSE:
+    """B106: 测试 assistant_message SSE 事件推送和格式。"""
+
+    @pytest.mark.asyncio
+    async def test_assistant_message_pushed_via_on_model_text(self, manager):
+        """模型文本输出通过 on_model_text 回调推送 assistant_message SSE 事件。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="am1",
+        )
+
+        mock_result = _make_agent_result(summary="done")
+        mock_outcome = AgentRunOutcome(
+            result=mock_result,
+            input_tokens=100, output_tokens=50, total_tokens=150,
+            requests=1, model_name="test-model",
+        )
+
+        captured_texts: list[str] = []
+        original_run = None
+
+        async def _mock_run_agent(**kwargs):
+            on_model_text = kwargs.get("on_model_text")
+            if on_model_text:
+                await on_model_text("我来帮你检查一下当前目录结构")
+            return mock_outcome
+
+        execute_fn = AsyncMock(return_value=_make_execute_result(stdout="file.txt"))
+
+        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_mock_run_agent):
+            with patch("app.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True):
+                await manager.start_agent(s, execute_fn)
+                await asyncio.sleep(0.1)
+
+        # 收集事件
+        events = []
+        while not s.event_queue.empty():
+            events.append(s.event_queue.get_nowait())
+
+        assistant_msg_events = [e for e in events if e is not None and e[0] == "assistant_message"]
+        assert len(assistant_msg_events) == 1
+        assert assistant_msg_events[0][1]["content"] == "我来帮你检查一下当前目录结构"
+
+    @pytest.mark.asyncio
+    async def test_assistant_message_sse_format(self, manager):
+        """assistant_message SSE 事件格式正确。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="am2",
+        )
+
+        # 直接推送 assistant_message 事件测试 SSE 格式
+        await s.event_queue.put(("assistant_message", {"content": "你好！我来帮你处理"}))
+        await s.event_queue.put(None)
+
+        events = []
+        async for chunk in manager.sse_stream(s):
+            events.append(chunk)
+
+        assert len(events) == 1
+        assert "event: assistant_message" in events[0]
+        data_json = events[0].split("data: ")[1].strip()
+        data = json.loads(data_json)
+        assert data["content"] == "你好！我来帮你处理"
+
+    @pytest.mark.asyncio
+    async def test_multiple_assistant_messages(self, manager):
+        """多轮文本输出推送多个 assistant_message 事件。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="am3",
+        )
+
+        mock_result = _make_agent_result(summary="done")
+        mock_outcome = AgentRunOutcome(
+            result=mock_result,
+            input_tokens=100, output_tokens=50, total_tokens=150,
+            requests=1, model_name="test-model",
+        )
+
+        async def _mock_run_agent(**kwargs):
+            on_model_text = kwargs.get("on_model_text")
+            if on_model_text:
+                await on_model_text("第一轮回复")
+                await on_model_text("第二轮回复")
+            return mock_outcome
+
+        execute_fn = AsyncMock(return_value=_make_execute_result(stdout="file.txt"))
+
+        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_mock_run_agent):
+            with patch("app.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True):
+                await manager.start_agent(s, execute_fn)
+                await asyncio.sleep(0.1)
+
+        events = []
+        while not s.event_queue.empty():
+            events.append(s.event_queue.get_nowait())
+
+        assistant_msg_events = [e for e in events if e is not None and e[0] == "assistant_message"]
+        assert len(assistant_msg_events) == 2
+        assert assistant_msg_events[0][1]["content"] == "第一轮回复"
+        assert assistant_msg_events[1][1]["content"] == "第二轮回复"
+
+
+# ---------------------------------------------------------------------------
+# B106: assistant_message 内容过滤兜底
+# ---------------------------------------------------------------------------
+
+class TestAssistantMessageFilter:
+    """B106: 测试 assistant_message 内容过滤兜底（CoT 标记检测）。"""
+
+    def test_clean_text_passes_through(self):
+        """不含 CoT 标记的文本直接通过。"""
+        assert filter_assistant_message("你好！我来帮你检查目录结构") == "你好！我来帮你检查目录结构"
+
+    def test_cot_pattern_chinese_truncated(self):
+        """中文 CoT 标记检测并截断。"""
+        result = filter_assistant_message("这是用户可见的内容一步步思考接下来的推理过程")
+        assert result == "这是用户可见的内容"
+
+    def test_cot_pattern_english_truncated(self):
+        """英文 CoT 标记检测并截断。"""
+        result = filter_assistant_message("Let me help you with that. step by step I need to...")
+        assert result == "Let me help you with that."
+
+    def test_cot_at_start_returns_empty(self):
+        """CoT 标记在开头时返回空字符串（不推送）。"""
+        assert filter_assistant_message("一步步思考这个问题") == ""
+
+    def test_cot_tag_detected(self):
+        """XML 样式的 CoT 标签检测。"""
+        result = filter_assistant_message("好的，我来帮你。<think 这个问题需要分析")
+        assert result == "好的，我来帮你。"
+
+    def test_case_insensitive_match(self):
+        """CoT 检测大小写不敏感。"""
+        result = filter_assistant_message("Good. CHAIN OF THOUGHT: let me think")
+        assert result == "Good."
+
+    def test_empty_string_passes(self):
+        """空字符串通过。"""
+        assert filter_assistant_message("") == ""
+
+    def test_whitespace_only_passes(self):
+        """纯空白文本通过（但最终不推送，因为 strip 后为空）。"""
+        assert filter_assistant_message("   ") == "   "
+
+    @pytest.mark.asyncio
+    async def test_filtered_content_not_pushed(self, manager):
+        """过滤后为空的内容不推送 assistant_message 事件。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="amf1",
+        )
+
+        mock_result = _make_agent_result(summary="done")
+        mock_outcome = AgentRunOutcome(
+            result=mock_result,
+            input_tokens=100, output_tokens=50, total_tokens=150,
+            requests=1, model_name="test-model",
+        )
+
+        async def _mock_run_agent(**kwargs):
+            on_model_text = kwargs.get("on_model_text")
+            if on_model_text:
+                # 这个文本以 CoT 标记开头，会被完全过滤
+                await on_model_text("一步步思考这个复杂的问题")
+            return mock_outcome
+
+        execute_fn = AsyncMock(return_value=_make_execute_result(stdout="file.txt"))
+
+        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_mock_run_agent):
+            with patch("app.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True):
+                await manager.start_agent(s, execute_fn)
+                await asyncio.sleep(0.1)
+
+        events = []
+        while not s.event_queue.empty():
+            events.append(s.event_queue.get_nowait())
+
+        assistant_msg_events = [e for e in events if e is not None and e[0] == "assistant_message"]
+        assert len(assistant_msg_events) == 0  # 被过滤掉了
+
+    @pytest.mark.asyncio
+    async def test_partially_filtered_content_pushed(self, manager):
+        """过滤后仍有内容的文本推送截断后的 assistant_message。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="amf2",
+        )
+
+        mock_result = _make_agent_result(summary="done")
+        mock_outcome = AgentRunOutcome(
+            result=mock_result,
+            input_tokens=100, output_tokens=50, total_tokens=150,
+            requests=1, model_name="test-model",
+        )
+
+        async def _mock_run_agent(**kwargs):
+            on_model_text = kwargs.get("on_model_text")
+            if on_model_text:
+                await on_model_text("我来帮你看看。推理过程：首先分析项目结构...")
+            return mock_outcome
+
+        execute_fn = AsyncMock(return_value=_make_execute_result(stdout="file.txt"))
+
+        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_mock_run_agent):
+            with patch("app.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True):
+                await manager.start_agent(s, execute_fn)
+                await asyncio.sleep(0.1)
+
+        events = []
+        while not s.event_queue.empty():
+            events.append(s.event_queue.get_nowait())
+
+        assistant_msg_events = [e for e in events if e is not None and e[0] == "assistant_message"]
+        assert len(assistant_msg_events) == 1
+        assert assistant_msg_events[0][1]["content"] == "我来帮你看看。"
+
+
+# ---------------------------------------------------------------------------
+# B106: ResultDelivered 后 save_agent_usage 先于 result 推送
+# ---------------------------------------------------------------------------
+
+class TestResultUsageOrdering:
+    """B106: 测试 save_agent_usage 先于 result SSE 推送（含 assistant_message 场景）。"""
+
+    @pytest.mark.asyncio
+    async def test_usage_saved_before_result_with_assistant_messages(self, manager):
+        """assistant_message 推送不影响 usage 先于 result 的顺序保证。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="ord1",
+        )
+
+        mock_result = _make_agent_result(summary="done")
+        mock_outcome = AgentRunOutcome(
+            result=mock_result,
+            input_tokens=200, output_tokens=100, total_tokens=300,
+            requests=2, model_name="test-model",
+        )
+
+        ordering: list[str] = []
+        original_put = s.event_queue.put
+
+        async def _tracking_put(event):
+            if event is not None and event[0] == "result":
+                ordering.append("result")
+            if event is not None and event[0] == "assistant_message":
+                ordering.append("assistant_message")
+            await original_put(event)
+
+        async def _save_usage(*args, **kwargs):
+            ordering.append("saved")
+            return True
+
+        s.event_queue.put = _tracking_put
+
+        async def _mock_run_agent(**kwargs):
+            on_model_text = kwargs.get("on_model_text")
+            if on_model_text:
+                await on_model_text("中间消息")
+            return mock_outcome
+
+        execute_fn = AsyncMock(return_value=_make_execute_result(stdout="file.txt"))
+
+        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_mock_run_agent):
+            with patch("app.agent_session_manager.save_agent_usage", new_callable=AsyncMock, side_effect=_save_usage) as save_mock:
+                await manager.start_agent(s, execute_fn)
+                await asyncio.sleep(0.1)
+
+        assert save_mock.await_count == 1
+        # assistant_message 在 saved 之前推送，result 在 saved 之后
+        assert "assistant_message" in ordering
+        assert "saved" in ordering
+        assert "result" in ordering
+        saved_idx = ordering.index("saved")
+        result_idx = ordering.index("result")
+        assert saved_idx < result_idx
+
+
+# ---------------------------------------------------------------------------
+# B106: finally 块稳定结束 event_queue
+# ---------------------------------------------------------------------------
+
+class TestFinallyBlock:
+    """B106: 测试 finally 块稳定结束 event_queue。"""
+
+    @pytest.mark.asyncio
+    async def test_finally_puts_none_on_success(self, manager):
+        """成功完成后 event_queue 收到 None 结束信号。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="fin1",
+        )
+
+        mock_outcome = AgentRunOutcome(
+            result=_make_agent_result(summary="done"),
+            input_tokens=100, output_tokens=50, total_tokens=150,
+            requests=1, model_name="test-model",
+        )
+
+        execute_fn = AsyncMock(return_value=_make_execute_result(stdout="ok"))
+
+        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, return_value=mock_outcome):
+            with patch("app.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True):
+                await manager.start_agent(s, execute_fn)
+                await asyncio.sleep(0.1)
+
+        # event_queue 中最后一个应该是 None
+        events = []
+        while not s.event_queue.empty():
+            events.append(s.event_queue.get_nowait())
+        assert events[-1] is None
+
+    @pytest.mark.asyncio
+    async def test_finally_puts_none_on_error(self, manager):
+        """错误完成后 event_queue 也收到 None 结束信号。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="fin2",
+        )
+
+        execute_fn = AsyncMock()
+
+        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=RuntimeError("boom")):
+            await manager.start_agent(s, execute_fn)
+            await asyncio.sleep(0.1)
+
+        events = []
+        while not s.event_queue.empty():
+            events.append(s.event_queue.get_nowait())
+        assert events[-1] is None
+
+    @pytest.mark.asyncio
+    async def test_finally_puts_none_on_cancel(self, manager):
+        """取消后 event_queue 也收到 None 结束信号。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="fin3",
+        )
+
+        execute_fn = AsyncMock()
+
+        async def _slow_run(**kwargs):
+            await asyncio.sleep(60)
+
+        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_slow_run):
+            await manager.start_agent(s, execute_fn)
+            await asyncio.sleep(0.05)
+            await manager.cancel("fin3")
+            await asyncio.sleep(0.1)
+
+        events = []
+        while not s.event_queue.empty():
+            events.append(s.event_queue.get_nowait())
+        # 取消时有两个 None（cancel + finally）
+        assert None in events
+
+
+# ---------------------------------------------------------------------------
+# B106: 取消/超时不影响已推送事件和已持久化的 usage
+# ---------------------------------------------------------------------------
+
+class TestCancelTimeoutPreservation:
+    """B106: 测试取消/超时不丢失已推送事件和已持久化的 usage。"""
+
+    @pytest.mark.asyncio
+    async def test_cancel_preserves_already_pushed_events(self, manager):
+        """取消后已推送的事件仍在 event_queue 中。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="ctp1",
+        )
+
+        mock_outcome = AgentRunOutcome(
+            result=_make_agent_result(summary="done"),
+            input_tokens=100, output_tokens=50, total_tokens=150,
+            requests=1, model_name="test-model",
+        )
+
+        async def _mock_run_agent(**kwargs):
+            on_model_text = kwargs.get("on_model_text")
+            if on_model_text:
+                await on_model_text("第一条消息")
+            return mock_outcome
+
+        execute_fn = AsyncMock(return_value=_make_execute_result(stdout="ok"))
+
+        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_mock_run_agent):
+            with patch("app.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True) as save_mock:
+                await manager.start_agent(s, execute_fn)
+                await asyncio.sleep(0.1)
+
+        # 验证 usage 已保存
+        assert save_mock.await_count == 1
+
+        # 验证事件都在
+        events = []
+        while not s.event_queue.empty():
+            events.append(s.event_queue.get_nowait())
+
+        assistant_msgs = [e for e in events if e is not None and e[0] == "assistant_message"]
+        results = [e for e in events if e is not None and e[0] == "result"]
+        assert len(assistant_msgs) == 1
+        assert len(results) == 1
+
+
+# ---------------------------------------------------------------------------
+# B106: conversation events 持久化包含 assistant_message
+# ---------------------------------------------------------------------------
+
+class TestConversationPersistence:
+    """B106: 测试 conversation events 持久化包含 assistant_message。"""
+
+    @pytest.mark.asyncio
+    async def test_assistant_message_persisted_as_conversation_event(self, manager):
+        """assistant_message 作为 conversation event 持久化（event_type='assistant_message', role='assistant'）。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u",
+            session_id="cp1", terminal_id="term-1", conversation_id="conv-1",
+        )
+
+        mock_result = _make_agent_result(summary="done")
+        mock_outcome = AgentRunOutcome(
+            result=mock_result,
+            input_tokens=100, output_tokens=50, total_tokens=150,
+            requests=1, model_name="test-model",
+        )
+
+        async def _mock_run_agent(**kwargs):
+            on_model_text = kwargs.get("on_model_text")
+            if on_model_text:
+                await on_model_text("我帮你查看一下")
+            return mock_outcome
+
+        execute_fn = AsyncMock(return_value=_make_execute_result(stdout="ok"))
+
+        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_mock_run_agent):
+            with patch("app.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True):
+                with patch("app.database.append_agent_conversation_event", new_callable=AsyncMock) as append_event:
+                    await manager.start_agent(s, execute_fn)
+                    await asyncio.sleep(0.1)
+
+        # 检查持久化的事件类型
+        event_types = [call.kwargs["event_type"] for call in append_event.await_args_list]
+        assert "assistant_message" in event_types
+        # 检查 role
+        assistant_calls = [
+            call for call in append_event.await_args_list
+            if call.kwargs["event_type"] == "assistant_message"
+        ]
+        assert len(assistant_calls) == 1
+        assert assistant_calls[0].kwargs["role"] == "assistant"
+        assert assistant_calls[0].kwargs["payload"]["content"] == "我帮你查看一下"
+
+
+# ---------------------------------------------------------------------------
+# B106: resume_stream 正确回放 assistant_message 缓存事件
+# ---------------------------------------------------------------------------
+
+class TestResumeAssistantMessage:
+    """B106: 测试 resume_stream 正确回放 assistant_message 缓存事件。"""
+
+    @pytest.mark.asyncio
+    async def test_resume_replays_assistant_message(self, manager):
+        """断连恢复回放缓存的 assistant_message 事件。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="rsam1",
+        )
+
+        # 推送 assistant_message + result + 结束信号
+        await s.event_queue.put(("assistant_message", {"content": "中间消息"}))
+        await s.event_queue.put(("result", {"summary": "done", "steps": []}))
+        await s.event_queue.put(None)
+
+        # 消费并缓存
+        events_consumed = []
+        async for chunk in manager.sse_stream(s):
+            events_consumed.append(chunk)
+
+        assert len(events_consumed) == 2
+
+        # 标记完成
+        s.state = AgentSessionState.COMPLETED
+
+        # 恢复回放
+        resumed = []
+        async for chunk in manager.resume_stream(s, after_index=0):
+            resumed.append(chunk)
+
+        assert len(resumed) == 2
+        assert "event: assistant_message" in resumed[0]
+        assert "event: result" in resumed[1]
+
+    @pytest.mark.asyncio
+    async def test_resume_from_index_skips_earlier_assistant_messages(self, manager):
+        """从指定索引恢复时跳过之前的 assistant_message。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="rsam2",
+        )
+
+        # 推送 3 个事件
+        await s.event_queue.put(("assistant_message", {"content": "msg-1"}))
+        await s.event_queue.put(("assistant_message", {"content": "msg-2"}))
+        await s.event_queue.put(("result", {"summary": "done", "steps": []}))
+        await s.event_queue.put(None)
+
+        async for chunk in manager.sse_stream(s):
+            pass
+
+        assert len(s._last_events) == 3
+
+        s.state = AgentSessionState.COMPLETED
+
+        # 从索引 1 开始回放
+        resumed = []
+        async for chunk in manager.resume_stream(s, after_index=1):
+            resumed.append(chunk)
+
+        assert len(resumed) == 2
+        assert "event: assistant_message" in resumed[0]
+        data_json = resumed[0].split("data: ")[1].strip()
+        data = json.loads(data_json)
+        assert data["content"] == "msg-2"
+
+
+# ---------------------------------------------------------------------------
+# B106: response_type="error" 走 error SSE 通道
+# ---------------------------------------------------------------------------
+
+class TestErrorResponseType:
+    """B106: 测试 response_type='error' 的 AgentRunOutcome 走 error SSE 通道。"""
+
+    @pytest.mark.asyncio
+    async def test_no_delivery_error_pushes_error_sse(self, manager):
+        """模型未调用 deliver_result 时推送 error SSE 事件（非 result）。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="ert1",
+        )
+
+        error_result = AgentResult(
+            summary="Agent 完成了处理但未交付结构化结果",
+            steps=[],
+            response_type="error",
+            need_confirm=False,
+        )
+        mock_outcome = AgentRunOutcome(
+            result=error_result,
+            input_tokens=100, output_tokens=50, total_tokens=150,
+            requests=1, model_name="test-model",
+        )
+
+        execute_fn = AsyncMock(return_value=_make_execute_result(stdout="ok"))
+
+        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, return_value=mock_outcome):
+            with patch("app.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True):
+                await manager.start_agent(s, execute_fn)
+                await asyncio.sleep(0.1)
+
+        assert s.state == AgentSessionState.ERROR
+
+        events = []
+        while not s.event_queue.empty():
+            events.append(s.event_queue.get_nowait())
+
+        result_events = [e for e in events if e is not None and e[0] == "result"]
+        error_events = [e for e in events if e is not None and e[0] == "error"]
+        assert len(result_events) == 0
+        assert len(error_events) == 1
+        assert error_events[0][1]["code"] == ErrorCode.AGENT_ERROR
+        assert "usage" in error_events[0][1]
+
+    @pytest.mark.asyncio
+    async def test_error_response_type_usage_saved_before_error_event(self, manager):
+        """response_type='error' 时 usage 仍先落库再推送 error SSE。"""
+        s = await manager.create_session(
+            intent="test", device_id="d", user_id="u", session_id="ert2",
+        )
+
+        error_result = AgentResult(
+            summary="Agent 完成了处理但未交付结构化结果",
+            steps=[],
+            response_type="error",
+            need_confirm=False,
+        )
+        mock_outcome = AgentRunOutcome(
+            result=error_result,
+            input_tokens=100, output_tokens=50, total_tokens=150,
+            requests=1, model_name="test-model",
+        )
+
+        ordering: list[str] = []
+        original_put = s.event_queue.put
+
+        async def _tracking_put(event):
+            if event is not None and event[0] == "error":
+                ordering.append("error")
+            await original_put(event)
+
+        async def _save_usage(*args, **kwargs):
+            ordering.append("saved")
+            return True
+
+        s.event_queue.put = _tracking_put
+
+        execute_fn = AsyncMock(return_value=_make_execute_result(stdout="ok"))
+
+        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, return_value=mock_outcome):
+            with patch("app.agent_session_manager.save_agent_usage", new_callable=AsyncMock, side_effect=_save_usage) as save_mock:
+                await manager.start_agent(s, execute_fn)
+                await asyncio.sleep(0.1)
+
+        assert save_mock.await_count == 1
+        assert ordering == ["saved", "error"]

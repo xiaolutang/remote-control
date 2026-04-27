@@ -1962,6 +1962,9 @@ def _event_text_for_message_history(event: dict) -> Optional[str]:
         input_summary = payload.get("input_summary", "")
         output_summary = payload.get("output_summary", "")
         return f"Agent trace {tool}: {input_summary} -> {output_summary}".strip()
+    if event_type == "assistant_message":
+        content = payload.get("content")
+        return content if content else None
     return None
 
 
@@ -2435,90 +2438,6 @@ async def _agent_sse_response_wrapper(
                 "SSE client disconnected, session still active: session_id=%s state=%s",
                 agent_session.id, agent_session.state,
             )
-
-
-async def _agent_fallback_stream(
-    *,
-    intent: str,
-    device_id: str,
-    user_id: str,
-    http_request: FastAPIRequest,
-    terminal_id: Optional[str] = None,
-    agent_session_id: Optional[str] = None,
-):
-    """Agent 不可用时降级到无状态 planner，以 SSE 格式推送结果。"""
-    # 推送降级提示
-    yield f"event: fallback\ndata: {json.dumps({'message': '设备离线，已切换到快速规划模式'}, ensure_ascii=False)}\n\n"
-
-    try:
-        plan_request = AssistantPlanRequest(
-            intent=intent,
-            conversation_id=uuid4().hex[:16],
-            message_id=uuid4().hex[:16],
-        )
-        result = await _create_assistant_plan_impl(
-            device_id=device_id,
-            request=plan_request,
-            http_request=http_request,
-            user_id=user_id,
-        )
-
-        # 推送 result 事件
-        result_data = {
-            "summary": result.command_sequence.summary,
-            "steps": [step.model_dump() for step in result.command_sequence.steps],
-            "response_type": "command",
-            "ai_prompt": "",
-            "provider": result.command_sequence.provider,
-            "source": result.command_sequence.source,
-            "need_confirm": result.command_sequence.need_confirm,
-            "aliases": {},
-            "fallback_used": True,
-        }
-        if terminal_id:
-            await append_agent_conversation_event(
-                user_id,
-                device_id,
-                terminal_id,
-                event_type="result",
-                role="assistant",
-                payload=result_data,
-                session_id=agent_session_id,
-            )
-        yield f"event: result\ndata: {json.dumps(result_data, ensure_ascii=False)}\n\n"
-    except HTTPException as exc:
-        detail = exc.detail if isinstance(exc.detail, dict) else {}
-        error_data = {
-            "code": ErrorCode.AGENT_OFFLINE,
-            "message": detail.get("message", "快速规划也失败，请稍后重试"),
-        }
-        if terminal_id:
-            await append_agent_conversation_event(
-                user_id,
-                device_id,
-                terminal_id,
-                event_type="error",
-                role="assistant",
-                payload=error_data,
-                session_id=agent_session_id,
-            )
-        yield f"event: error\ndata: {json.dumps(error_data, ensure_ascii=False)}\n\n"
-    except Exception as e:
-        error_data = {
-            "code": ErrorCode.INTERNAL_ERROR,
-            "message": f"规划失败: {type(e).__name__}",
-        }
-        if terminal_id:
-            await append_agent_conversation_event(
-                user_id,
-                device_id,
-                terminal_id,
-                event_type="error",
-                role="assistant",
-                payload=error_data,
-                session_id=agent_session_id,
-            )
-        yield f"event: error\ndata: {json.dumps(error_data, ensure_ascii=False)}\n\n"
 
 
 @router.post("/runtime/devices/{device_id}/terminals/{terminal_id}/assistant/agent/{session_id}/respond")

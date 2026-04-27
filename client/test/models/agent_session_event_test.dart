@@ -122,4 +122,35 @@ void main() {
       expect(event.aiPrompt, 'some prompt text');
     });
   });
+
+  group('AgentAssistantMessageEvent', () {
+    test('parses content from json', () {
+      final json = {'content': '我来帮你检查一下当前目录结构...'};
+      final event = AgentAssistantMessageEvent.fromJson(json);
+      expect(event.content, '我来帮你检查一下当前目录结构...');
+    });
+
+    test('defaults content to empty string when missing', () {
+      final json = <String, dynamic>{};
+      final event = AgentAssistantMessageEvent.fromJson(json);
+      expect(event.content, '');
+    });
+
+    test('trims whitespace from content', () {
+      final json = {'content': '  hello world  '};
+      final event = AgentAssistantMessageEvent.fromJson(json);
+      expect(event.content, 'hello world');
+    });
+
+    test('handles null content gracefully', () {
+      final json = {'content': null};
+      final event = AgentAssistantMessageEvent.fromJson(json);
+      expect(event.content, '');
+    });
+
+    test('constructor accepts content', () {
+      const event = AgentAssistantMessageEvent(content: 'test message');
+      expect(event.content, 'test message');
+    });
+  });
 }

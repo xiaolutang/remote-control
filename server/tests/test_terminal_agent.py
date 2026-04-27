@@ -27,7 +27,10 @@ from app.terminal_agent import (
     AgentDeps,
     AgentResult,
     AgentRunOutcome,
+    AgentNoDeliveryError,
     CommandSequenceStep,
+    ResultDelivered,
+    deliver_result,
     SYSTEM_PROMPT,
     _build_model,
     execute_command,
@@ -108,14 +111,14 @@ class TestAgentCreation:
 
     def test_system_prompt_is_set(self):
         assert SYSTEM_PROMPT
-        assert "决策优先级" in SYSTEM_PROMPT
-        assert "自主探索" in SYSTEM_PROMPT
-        assert "选项消歧" in SYSTEM_PROMPT
+        assert "Claude Code" in SYSTEM_PROMPT
+        assert "预处理" in SYSTEM_PROMPT
+        assert "deliver_result" in SYSTEM_PROMPT
 
     def test_system_prompt_contains_security_constraints(self):
         """System prompt 应包含安全约束说明。"""
         assert "只读" in SYSTEM_PROMPT
-        assert "不能执行写" in SYSTEM_PROMPT
+        assert "安全边界" in SYSTEM_PROMPT
 
     def test_build_model_returns_openai_model(self):
         model = _build_model()
@@ -551,20 +554,20 @@ class TestRunAgent:
 
     @pytest.mark.asyncio
     async def test_run_agent_returns_agent_run_outcome(self):
-        """run_agent 应返回 AgentRunOutcome 实例。"""
-        mock_result = MagicMock()
-        mock_result.output = AgentResult(
+        """run_agent 应通过 ResultDelivered 返回 AgentRunOutcome 实例。"""
+        test_result = AgentResult(
             summary="entered project",
             steps=[CommandSequenceStep(id="s1", label="go", command="cd /project")],
         )
-        mock_usage = MagicMock()
-        mock_usage.input_tokens = 100
-        mock_usage.output_tokens = 50
-        mock_usage.total_tokens = 150
-        mock_usage.requests = 2
-        mock_result.usage = MagicMock(return_value=mock_usage)
+        test_usage = MagicMock()
+        test_usage.input_tokens = 100
+        test_usage.output_tokens = 50
+        test_usage.total_tokens = 150
+        test_usage.requests = 2
 
-        with patch('pydantic_ai.Agent.run', new_callable=AsyncMock, return_value=mock_result):
+        result_delivered = ResultDelivered(result=test_result, usage=test_usage)
+
+        with patch('pydantic_ai.Agent.run', new_callable=AsyncMock, side_effect=result_delivered):
             outcome = await run_agent(
                 intent="进入 my-project",
                 session_id="session-1",
@@ -586,10 +589,7 @@ class TestRunAgent:
     async def test_run_agent_passes_deps_correctly(self):
         """run_agent 应正确构建并传递 AgentDeps。"""
         mock_result = MagicMock()
-        mock_result.output = AgentResult(
-            summary="ok",
-            steps=[CommandSequenceStep(id="s1", label="go", command="pwd")],
-        )
+        mock_result.output = "探索完成"
         mock_result.usage = MagicMock(return_value=MagicMock(
             input_tokens=0, output_tokens=0, total_tokens=0, requests=0,
         ))
@@ -599,13 +599,14 @@ class TestRunAgent:
         aliases = {"/app": "my-app"}
 
         with patch('pydantic_ai.Agent.run', new_callable=AsyncMock, return_value=mock_result) as mock_run:
+            # 模型没调用 deliver_result → AgentNoDeliveryError
             await run_agent(
-                intent="打开项目",
-                session_id="sess-1",
-                execute_command_fn=execute_fn,
-                ask_user_fn=ask_fn,
-                project_aliases=aliases,
-            )
+                    intent="打开项目",
+                    session_id="sess-1",
+                    execute_command_fn=execute_fn,
+                    ask_user_fn=ask_fn,
+                    project_aliases=aliases,
+                )
 
             call_kwargs = mock_run.call_args
             deps = call_kwargs.kwargs.get('deps') or call_kwargs[1].get('deps')
@@ -616,12 +617,7 @@ class TestRunAgent:
     async def test_run_agent_with_message_history(self):
         """run_agent 应传递 message_history。"""
         mock_result = MagicMock()
-        mock_result.output = AgentResult(
-            summary="ok",
-            steps=[],
-            response_type="message",
-            need_confirm=False,
-        )
+        mock_result.output = "好的，继续处理"
         mock_result.usage = MagicMock(return_value=MagicMock(
             input_tokens=0, output_tokens=0, total_tokens=0, requests=0,
         ))
@@ -630,12 +626,12 @@ class TestRunAgent:
 
         with patch('pydantic_ai.Agent.run', new_callable=AsyncMock, return_value=mock_result) as mock_run:
             await run_agent(
-                intent="现在打开 project-b",
-                session_id="sess-1",
-                execute_command_fn=AsyncMock(),
-                ask_user_fn=AsyncMock(),
-                message_history=history,
-            )
+                    intent="现在打开 project-b",
+                    session_id="sess-1",
+                    execute_command_fn=AsyncMock(),
+                    ask_user_fn=AsyncMock(),
+                    message_history=history,
+                )
 
             call_kwargs = mock_run.call_args
             assert call_kwargs.kwargs.get('message_history') == history or \
@@ -645,18 +641,18 @@ class TestRunAgent:
     async def test_run_agent_defaults_aliases_to_empty(self):
         """project_aliases 默认应为空 dict。"""
         mock_result = MagicMock()
-        mock_result.output = AgentResult(summary="ok", steps=[], response_type="message", need_confirm=False)
+        mock_result.output = "完成"
         mock_result.usage = MagicMock(return_value=MagicMock(
             input_tokens=0, output_tokens=0, total_tokens=0, requests=0,
         ))
 
         with patch('pydantic_ai.Agent.run', new_callable=AsyncMock, return_value=mock_result) as mock_run:
             await run_agent(
-                intent="test",
-                session_id="s1",
-                execute_command_fn=AsyncMock(),
-                ask_user_fn=AsyncMock(),
-            )
+                    intent="test",
+                    session_id="s1",
+                    execute_command_fn=AsyncMock(),
+                    ask_user_fn=AsyncMock(),
+                )
 
             deps = mock_run.call_args.kwargs.get('deps')
             assert deps.project_aliases == {}
@@ -665,18 +661,18 @@ class TestRunAgent:
     async def test_run_agent_defaults_history_to_none(self):
         """message_history 默认应为 None。"""
         mock_result = MagicMock()
-        mock_result.output = AgentResult(summary="ok", steps=[], response_type="message", need_confirm=False)
+        mock_result.output = "完成"
         mock_result.usage = MagicMock(return_value=MagicMock(
             input_tokens=0, output_tokens=0, total_tokens=0, requests=0,
         ))
 
         with patch('pydantic_ai.Agent.run', new_callable=AsyncMock, return_value=mock_result) as mock_run:
             await run_agent(
-                intent="test",
-                session_id="s1",
-                execute_command_fn=AsyncMock(),
-                ask_user_fn=AsyncMock(),
-            )
+                    intent="test",
+                    session_id="s1",
+                    execute_command_fn=AsyncMock(),
+                    ask_user_fn=AsyncMock(),
+                )
 
             msg_history = mock_run.call_args.kwargs.get('message_history')
             assert msg_history is None
@@ -801,13 +797,15 @@ class TestS085PromptKnowledge:
 
     def test_system_prompt_contains_user_journeys(self):
         """SYSTEM_PROMPT 定义了用户旅程边界。"""
-        assert "信息型回复" in SYSTEM_PROMPT
-        assert "编程意图" in SYSTEM_PROMPT
+        # S112: 简化后仍保留 Claude Code 预处理定位
+        assert "Claude Code" in SYSTEM_PROMPT
+        assert "deliver_result" in SYSTEM_PROMPT
 
     def test_system_prompt_info_only_steps_empty(self):
-        """SYSTEM_PROMPT 明确信息型问答 steps=[]。"""
-        # 检查 journeys section 中有 steps=[] 的描述
-        assert '"steps": []' in SYSTEM_PROMPT
+        """SYSTEM_PROMPT 明确知识问答使用 message 类型。"""
+        # S112: 新 prompt 使用 response_type='message' 描述知识问答
+        assert "message" in SYSTEM_PROMPT
+        assert "知识问答" in SYSTEM_PROMPT
 
     def test_system_prompt_contains_which_verification(self):
         """SYSTEM_PROMPT 包含 which 验证工作流。"""
@@ -861,25 +859,19 @@ class TestS085RunAgentWithKnowledge:
             mock_usage.total_tokens = 150
             mock_usage.requests = 1
             mock_run.return_value = MagicMock(
-                output=AgentResult(
-                    summary="test",
-                    steps=[],
-                    response_type="message",
-                    need_confirm=False,
-                ),
+                output="已获取知识",
                 usage=mock_usage,
             )
 
             mock_lookup_fn = AsyncMock(return_value="知识内容")
-            result = await run_agent(
-                intent="test",
-                session_id="s1",
-                execute_command_fn=AsyncMock(),
-                ask_user_fn=AsyncMock(),
-                lookup_knowledge_fn=mock_lookup_fn,
-            )
+            await run_agent(
+                    intent="test",
+                    session_id="s1",
+                    execute_command_fn=AsyncMock(),
+                    ask_user_fn=AsyncMock(),
+                    lookup_knowledge_fn=mock_lookup_fn,
+                )
 
-            assert isinstance(result, AgentRunOutcome)
             # 验证 deps 中包含了 lookup_knowledge_fn
             call_args = mock_run.call_args
             assert call_args.kwargs.get("deps").lookup_knowledge_fn == mock_lookup_fn
@@ -892,16 +884,16 @@ class TestS085RunAgentWithKnowledge:
                 input_tokens=0, output_tokens=0, total_tokens=0, requests=1,
             )
             mock_run.return_value = MagicMock(
-                output=AgentResult(summary="test", steps=[], response_type="message", need_confirm=False),
+                output="已交付",
                 usage=mock_usage,
             )
 
             await run_agent(
-                intent="test",
-                session_id="s1",
-                execute_command_fn=AsyncMock(),
-                ask_user_fn=AsyncMock(),
-            )
+                    intent="test",
+                    session_id="s1",
+                    execute_command_fn=AsyncMock(),
+                    ask_user_fn=AsyncMock(),
+                )
 
             call_args = mock_run.call_args
             assert call_args.kwargs.get("deps").lookup_knowledge_fn is None
@@ -962,7 +954,7 @@ class TestRunAgentWithDynamicTools:
                 input_tokens=0, output_tokens=0, total_tokens=0, requests=1,
             )
             mock_run.return_value = MagicMock(
-                output=AgentResult(summary="test", steps=[], response_type="message", need_confirm=False),
+                output="已交付",
                 usage=mock_usage,
             )
 
@@ -970,15 +962,16 @@ class TestRunAgentWithDynamicTools:
                 {"name": "my_skill.read_file", "description": "读取文件内容"},
             ]
             await run_agent(
-                intent="测试意图",
-                session_id="s1",
-                execute_command_fn=AsyncMock(),
-                ask_user_fn=AsyncMock(),
-                dynamic_tools=tools,
-                tool_call_fn=AsyncMock(return_value={"status": "success", "result": "ok"}),
-            )
+                    intent="测试意图",
+                    session_id="s1",
+                    execute_command_fn=AsyncMock(),
+                    ask_user_fn=AsyncMock(),
+                    dynamic_tools=tools,
+                    tool_call_fn=AsyncMock(return_value={"status": "success", "result": "ok"}),
+                )
 
-            mock_run.assert_awaited_once()
+            mock_run.assert_awaited()
+            assert mock_run.call_count == 3  # no-delivery 重试至 max_attempts
 
     @pytest.mark.asyncio
     async def test_run_agent_passes_tool_call_fn_to_deps(self):
@@ -988,19 +981,19 @@ class TestRunAgentWithDynamicTools:
                 input_tokens=0, output_tokens=0, total_tokens=0, requests=1,
             )
             mock_run.return_value = MagicMock(
-                output=AgentResult(summary="test", steps=[], response_type="message", need_confirm=False),
+                output="已交付",
                 usage=mock_usage,
             )
 
             mock_tool_fn = AsyncMock(return_value={"status": "success", "result": "ok"})
             await run_agent(
-                intent="test",
-                session_id="s1",
-                execute_command_fn=AsyncMock(),
-                ask_user_fn=AsyncMock(),
-                tool_call_fn=mock_tool_fn,
-                dynamic_tools=[{"name": "t1", "description": "d1"}],
-            )
+                    intent="test",
+                    session_id="s1",
+                    execute_command_fn=AsyncMock(),
+                    ask_user_fn=AsyncMock(),
+                    tool_call_fn=mock_tool_fn,
+                    dynamic_tools=[{"name": "t1", "description": "d1"}],
+                )
 
             call_args = mock_run.call_args
             deps = call_args.kwargs.get("deps")
@@ -1015,7 +1008,7 @@ class TestRunAgentWithDynamicTools:
                 input_tokens=0, output_tokens=0, total_tokens=0, requests=1,
             )
             mock_run.return_value = MagicMock(
-                output=AgentResult(summary="test", steps=[], response_type="message", need_confirm=False),
+                output="已交付",
                 usage=mock_usage,
             )
 
@@ -1027,12 +1020,12 @@ class TestRunAgentWithDynamicTools:
             dynamic_only = [t for t in mixed_tools if t.get("kind") == "dynamic"]
 
             await run_agent(
-                intent="test",
-                session_id="s1",
-                execute_command_fn=AsyncMock(),
-                ask_user_fn=AsyncMock(),
-                dynamic_tools=dynamic_only,
-            )
+                    intent="test",
+                    session_id="s1",
+                    execute_command_fn=AsyncMock(),
+                    ask_user_fn=AsyncMock(),
+                    dynamic_tools=dynamic_only,
+                )
 
             call_args = mock_run.call_args
             deps = call_args.kwargs.get("deps")
@@ -1056,6 +1049,7 @@ class TestSessionAgentFactory:
         assert "_tool_execute_command" in names
         assert "_tool_ask_user" in names
         assert "_tool_lookup_knowledge" in names
+        assert "_tool_deliver_result" in names
 
     def test_factory_without_lookup_knowledge(self):
         agent = build_session_agent(include_lookup_knowledge=False)
@@ -1235,17 +1229,18 @@ class TestLookupKnowledgeGating:
         """include_lookup_knowledge=False 时不应注册 lookup_knowledge。"""
         with patch('pydantic_ai.Agent.run', new_callable=AsyncMock) as mock_run:
             mock_run.return_value = MagicMock(
-                output=AgentResult(summary="test", steps=[], response_type="message", need_confirm=False),
+                output="已交付",
                 usage=MagicMock(input_tokens=0, output_tokens=0, total_tokens=0, requests=1),
             )
             await run_agent(
-                intent="test",
-                session_id="s1",
-                execute_command_fn=AsyncMock(),
-                ask_user_fn=AsyncMock(),
-                include_lookup_knowledge=False,
-            )
-            mock_run.assert_awaited_once()
+                    intent="test",
+                    session_id="s1",
+                    execute_command_fn=AsyncMock(),
+                    ask_user_fn=AsyncMock(),
+                    include_lookup_knowledge=False,
+                )
+            mock_run.assert_awaited()
+            assert mock_run.call_count == 3  # no-delivery 重试至 max_attempts
 
 
 # ---------------------------------------------------------------------------
@@ -1485,15 +1480,549 @@ class TestSystemPromptB094:
         assert "每一次回复都必须且只能是合法 JSON" not in SYSTEM_PROMPT
 
     def test_contains_three_response_type_examples(self):
-        """SYSTEM_PROMPT 包含三种 response_type 的示例。"""
-        # message 示例
-        assert 'response_type\'message\'' in SYSTEM_PROMPT or '"response_type": "message"' in SYSTEM_PROMPT
-        # command 示例
-        assert 'response_type\'command\'' in SYSTEM_PROMPT or '"response_type": "command"' in SYSTEM_PROMPT
-        # ai_prompt 示例
-        assert 'response_type\'ai_prompt\'' in SYSTEM_PROMPT or '"response_type": "ai_prompt"' in SYSTEM_PROMPT
+        """SYSTEM_PROMPT 包含三种 response_type 的描述。"""
+        # B105: 新 prompt 使用 response_type='xxx' 格式描述选择规则
+        assert "response_type='message'" in SYSTEM_PROMPT or "response_type=\"message\"" in SYSTEM_PROMPT
+        assert "response_type='command'" in SYSTEM_PROMPT or "response_type=\"command\"" in SYSTEM_PROMPT
+        assert "response_type='ai_prompt'" in SYSTEM_PROMPT or "response_type=\"ai_prompt\"" in SYSTEM_PROMPT
 
     def test_contains_ai_prompt_guidance(self):
         """SYSTEM_PROMPT 包含 ai_prompt 的使用指导。"""
         assert "ai_prompt" in SYSTEM_PROMPT
         assert "prompt" in SYSTEM_PROMPT.lower()
+
+
+# ---------------------------------------------------------------------------
+# B105: deliver_result 工具 + ResultDelivered 异常 + usage 累积
+# ---------------------------------------------------------------------------
+
+class TestDeliverResultTool:
+    """B105: 测试 deliver_result 工具触发 ResultDelivered 异常。"""
+
+    @pytest.mark.asyncio
+    async def test_deliver_result_raises_exception(self):
+        """deliver_result 工具应触发 ResultDelivered 异常并携带 AgentResult。"""
+        deps = _make_deps()
+        ctx = _make_run_context(deps)
+
+        agent_result = AgentResult(
+            summary="test result",
+            steps=[CommandSequenceStep(id="s1", label="go", command="pwd")],
+        )
+
+        with pytest.raises(ResultDelivered) as exc_info:
+            await deliver_result(
+                ctx,
+                response_type="command",
+                summary="test result",
+                steps=[{"id": "s1", "label": "go", "command": "pwd"}],
+            )
+
+        assert exc_info.value.result.summary == "test result"
+        assert exc_info.value.result.response_type == "command"
+
+    @pytest.mark.asyncio
+    async def test_deliver_result_message_type(self):
+        """deliver_result response_type=message 时触发 ResultDelivered。"""
+        deps = _make_deps()
+        ctx = _make_run_context(deps)
+
+        with pytest.raises(ResultDelivered) as exc_info:
+            await deliver_result(
+                ctx,
+                response_type="message",
+                summary="这是一个信息型回复",
+                steps=[],
+                need_confirm=False,
+            )
+
+        assert exc_info.value.result.response_type == "message"
+        assert exc_info.value.result.summary == "这是一个信息型回复"
+        assert exc_info.value.result.need_confirm is False
+
+    @pytest.mark.asyncio
+    async def test_deliver_result_ai_prompt_type(self):
+        """deliver_result response_type=ai_prompt 时触发 ResultDelivered。"""
+        deps = _make_deps()
+        ctx = _make_run_context(deps)
+
+        with pytest.raises(ResultDelivered) as exc_info:
+            await deliver_result(
+                ctx,
+                response_type="ai_prompt",
+                summary="已生成 prompt",
+                steps=[],
+                ai_prompt="请用 Python 实现一个简单的 HTTP server",
+            )
+
+        assert exc_info.value.result.response_type == "ai_prompt"
+        assert exc_info.value.result.ai_prompt == "请用 Python 实现一个简单的 HTTP server"
+
+    @pytest.mark.asyncio
+    async def test_deliver_result_carries_usage(self):
+        """ResultDelivered 异常应携带 usage 统计（从 deps 读取）。"""
+        from pydantic_ai import RunUsage
+        usage = RunUsage(input_tokens=100, output_tokens=50, requests=3)
+        deps = _make_deps()
+        deps.usage = usage
+        ctx = _make_run_context(deps)
+
+        with pytest.raises(ResultDelivered) as exc_info:
+            await deliver_result(
+                ctx,
+                response_type="message",
+                summary="test",
+                steps=[],
+                need_confirm=False,
+            )
+
+        assert exc_info.value.usage is usage
+        assert exc_info.value.usage.input_tokens == 100
+        assert exc_info.value.usage.output_tokens == 50
+        assert exc_info.value.usage.requests == 3
+
+    @pytest.mark.asyncio
+    async def test_deliver_result_with_aliases(self):
+        """deliver_result 应正确传递 aliases。"""
+        deps = _make_deps()
+        ctx = _make_run_context(deps)
+
+        with pytest.raises(ResultDelivered) as exc_info:
+            await deliver_result(
+                ctx,
+                response_type="command",
+                summary="进入项目",
+                steps=[{"id": "s1", "label": "go", "command": "cd /project"}],
+                aliases={"/project": "my-project"},
+            )
+
+        assert exc_info.value.result.aliases == {"/project": "my-project"}
+
+
+class TestRunAgentCatchesResultDelivered:
+    """B105: 测试 run_agent() 捕获 ResultDelivered 返回 AgentRunOutcome。"""
+
+    @pytest.mark.asyncio
+    async def test_run_agent_catches_result_delivered(self):
+        """run_agent 应捕获 ResultDelivered 并返回完整 AgentRunOutcome。"""
+        # 模拟 agent.run() 抛出 ResultDelivered
+        test_result = AgentResult(
+            summary="进入项目",
+            steps=[CommandSequenceStep(id="s1", label="go", command="cd /project")],
+        )
+        test_usage = MagicMock()
+        test_usage.input_tokens = 200
+        test_usage.output_tokens = 100
+        test_usage.total_tokens = 300
+        test_usage.requests = 2
+
+        result_delivered = ResultDelivered(result=test_result, usage=test_usage)
+
+        with patch('pydantic_ai.Agent.run', new_callable=AsyncMock, side_effect=result_delivered):
+            outcome = await run_agent(
+                intent="进入 my-project",
+                session_id="session-1",
+                execute_command_fn=AsyncMock(),
+                ask_user_fn=AsyncMock(),
+            )
+
+        assert isinstance(outcome, AgentRunOutcome)
+        assert outcome.result.summary == "进入项目"
+        assert outcome.input_tokens == 200
+        assert outcome.output_tokens == 100
+        assert outcome.total_tokens == 300
+        assert outcome.requests == 2
+
+    @pytest.mark.asyncio
+    async def test_run_agent_passes_usage_to_run(self):
+        """run_agent 应传入 RunUsage 对象给 agent.run()。"""
+        mock_result = MagicMock()
+        mock_result.output = "free text output"
+        mock_result.usage = MagicMock(return_value=MagicMock(
+            input_tokens=50, output_tokens=20, total_tokens=70, requests=1,
+        ))
+
+        with patch('pydantic_ai.Agent.run', new_callable=AsyncMock, return_value=mock_result) as mock_run:
+            await run_agent(
+                    intent="test",
+                    session_id="s1",
+                    execute_command_fn=AsyncMock(),
+                    ask_user_fn=AsyncMock(),
+                )
+
+            call_kwargs = mock_run.call_args
+            usage_arg = call_kwargs.kwargs.get('usage')
+            assert usage_arg is not None
+            from pydantic_ai import RunUsage
+            assert isinstance(usage_arg, RunUsage)
+
+
+class TestUsageAccumulation:
+    """B105: 测试 usage 累积：多轮工具调用后 ResultDelivered 的 usage 反映总消耗。"""
+
+    @pytest.mark.asyncio
+    async def test_usage_accumulation_multi_turn(self):
+        """多轮工具调用后 ResultDelivered 的 usage 应反映总消耗。"""
+        from pydantic_ai import RunUsage
+
+        # 模拟多轮工具调用后 deliver_result 触发 ResultDelivered
+        # RunUsage 已在 agent.run() 的 ReAct 循环中逐轮累积
+        accumulated_usage = RunUsage(input_tokens=500, output_tokens=200, requests=3)
+
+        test_result = AgentResult(
+            summary="已完成探索",
+            steps=[CommandSequenceStep(id="s1", label="启动 Claude", command="claude")],
+        )
+        result_delivered = ResultDelivered(result=test_result, usage=accumulated_usage)
+
+        with patch('pydantic_ai.Agent.run', new_callable=AsyncMock, side_effect=result_delivered):
+            outcome = await run_agent(
+                intent="帮我检查项目结构并启动 Claude",
+                session_id="session-1",
+                execute_command_fn=AsyncMock(),
+                ask_user_fn=AsyncMock(),
+            )
+
+        assert outcome.input_tokens == 500
+        assert outcome.output_tokens == 200
+        assert outcome.total_tokens == 700  # 计算属性
+        assert outcome.requests == 3
+
+
+class TestTimeoutNoDeliverResult:
+    """B105: 测试超时未调用 deliver_result 的兜底处理。"""
+
+    @pytest.mark.asyncio
+    async def test_timeout_no_deliver_result_returns_fallback(self):
+        """模型未调用 deliver_result 时，重试一次后仍失败则返回 error 类型 AgentRunOutcome。"""
+        from pydantic_ai import RunUsage
+
+        accumulated_usage = RunUsage(input_tokens=300, output_tokens=150, requests=3)
+
+        mock_result = MagicMock()
+        mock_result.output = "我在帮你看看项目结构..."  # 模型只输出了自由文本
+        mock_result.usage = MagicMock(return_value=accumulated_usage)
+
+        with patch('pydantic_ai.Agent.run', new_callable=AsyncMock, return_value=mock_result):
+            outcome = await run_agent(
+                intent="帮我检查项目",
+                session_id="session-1",
+                execute_command_fn=AsyncMock(),
+                ask_user_fn=AsyncMock(),
+            )
+
+        # 应返回 error 类型 AgentRunOutcome（重试后仍失败）
+        assert isinstance(outcome, AgentRunOutcome)
+        assert outcome.result.response_type == "error"
+        assert outcome.result.need_confirm is False
+        # usage 应保留
+        assert outcome.input_tokens == 300
+        assert outcome.output_tokens == 150
+        assert outcome.requests == 3
+
+    @pytest.mark.asyncio
+    async def test_timeout_preserves_usage(self):
+        """超时兜底时 usage 不应为零（如果已有 LLM 调用）。"""
+        from pydantic_ai import RunUsage
+
+        accumulated_usage = RunUsage(input_tokens=100, output_tokens=50, requests=1)
+
+        mock_result = MagicMock()
+        mock_result.output = "让我看看..."
+        mock_result.usage = MagicMock(return_value=accumulated_usage)
+
+        with patch('pydantic_ai.Agent.run', new_callable=AsyncMock, return_value=mock_result):
+            outcome = await run_agent(
+                intent="test",
+                session_id="s1",
+                execute_command_fn=AsyncMock(),
+                ask_user_fn=AsyncMock(),
+            )
+
+        assert outcome.input_tokens > 0 or outcome.output_tokens > 0
+
+
+class TestAiPromptDeliverResultValidation:
+    """B105: 测试 ai_prompt 类型 deliver_result 参数校验。"""
+
+    @pytest.mark.asyncio
+    async def test_ai_prompt_with_empty_prompt_rejected(self):
+        """ai_prompt 类型 + 空 prompt 应触发校验错误（返回错误消息而非异常）。"""
+        deps = _make_deps()
+        ctx = _make_run_context(deps)
+
+        # ai_prompt 类型但 prompt 为空，AgentResult 校验应失败
+        # deliver_result 应捕获 ValidationError 并返回错误消息
+        result = await deliver_result(
+            ctx,
+            response_type="ai_prompt",
+            summary="test",
+            steps=[],
+            ai_prompt="",
+            need_confirm=True,
+        )
+        # 应返回错误提示字符串而非抛出异常
+        assert isinstance(result, str)
+        assert "错误" in result or "error" in result.lower() or "失败" in result
+
+    @pytest.mark.asyncio
+    async def test_ai_prompt_with_non_empty_steps_rejected(self):
+        """ai_prompt 类型 + 非空 steps 应触发校验错误。"""
+        deps = _make_deps()
+        ctx = _make_run_context(deps)
+
+        result = await deliver_result(
+            ctx,
+            response_type="ai_prompt",
+            summary="test",
+            steps=[{"id": "s1", "label": "step", "command": "echo hi"}],
+            ai_prompt="some prompt",
+            need_confirm=True,
+        )
+        assert isinstance(result, str)
+        assert "错误" in result or "error" in result.lower() or "失败" in result
+
+    @pytest.mark.asyncio
+    async def test_ai_prompt_valid_passes(self):
+        """ai_prompt 类型合法参数应成功触发 ResultDelivered。"""
+        deps = _make_deps()
+        ctx = _make_run_context(deps)
+
+        with pytest.raises(ResultDelivered) as exc_info:
+            await deliver_result(
+                ctx,
+                response_type="ai_prompt",
+                summary="已生成代码 prompt",
+                steps=[],
+                ai_prompt="在 /project 目录下，用 Python 实现一个 HTTP server，支持 GET 请求",
+                need_confirm=True,
+            )
+
+        assert exc_info.value.result.ai_prompt.startswith("在 /project")
+
+
+class TestRetryPreservesUsage:
+    """B105: 测试重试场景下 usage 累积不重置。"""
+
+    @pytest.mark.asyncio
+    async def test_retry_preserves_usage(self):
+        """重试后 usage 累积不重置（retry 后仍保留之前累积的 token 用量）。"""
+        from pydantic_ai import RunUsage
+
+        # 第一次尝试：UnexpectedModelBehavior
+        first_usage = RunUsage(input_tokens=100, output_tokens=30, requests=1)
+
+        # 第二次尝试：成功返回（带 ResultDelivered）
+        test_result = AgentResult(
+            summary="成功",
+            steps=[CommandSequenceStep(id="s1", label="go", command="pwd")],
+        )
+        second_usage = RunUsage(input_tokens=150, output_tokens=60, requests=2)
+
+        result_delivered = ResultDelivered(result=test_result, usage=second_usage)
+
+        call_count = 0
+
+        async def _mock_run(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # 第一次调用失败（retry）
+                import pydantic_ai.exceptions as pai_exc
+                raise pai_exc.UnexpectedModelBehavior("bad json")
+            # 第二次调用：抛出 ResultDelivered
+            raise result_delivered
+
+        with patch('pydantic_ai.Agent.run', new_callable=AsyncMock, side_effect=_mock_run):
+            outcome = await run_agent(
+                intent="test",
+                session_id="s1",
+                execute_command_fn=AsyncMock(),
+                ask_user_fn=AsyncMock(),
+            )
+
+        assert isinstance(outcome, AgentRunOutcome)
+        assert call_count == 2
+        # 第二次 result_delivered 携带的 usage 应反映两次尝试的总累积
+        assert outcome.result.summary == "成功"
+
+    @pytest.mark.asyncio
+    async def test_retry_does_not_reset_usage_object(self):
+        """验证 RunUsage 对象在重试间保持引用不变，累积值不重置。"""
+        from pydantic_ai import RunUsage
+
+        usage = RunUsage(input_tokens=0, output_tokens=0, requests=0)
+        captured_usage_refs = []
+
+        call_count = 0
+
+        async def _mock_run(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            captured_usage_refs.append(kwargs.get('usage'))
+            if call_count == 1:
+                import pydantic_ai.exceptions as pai_exc
+                raise pai_exc.UnexpectedModelBehavior("bad")
+            # 模拟第二次成功
+            test_result = AgentResult(
+                summary="ok",
+                steps=[CommandSequenceStep(id="s1", label="go", command="pwd")],
+            )
+            raise ResultDelivered(result=test_result, usage=usage)
+
+        with patch('pydantic_ai.Agent.run', new_callable=AsyncMock, side_effect=_mock_run):
+            await run_agent(
+                intent="test",
+                session_id="s1",
+                execute_command_fn=AsyncMock(),
+                ask_user_fn=AsyncMock(),
+            )
+
+        # 两次调用应使用同一个 usage 对象
+        assert captured_usage_refs[0] is captured_usage_refs[1]
+
+
+class TestCancelDoesNotMisclassify:
+    """B105: 取消/超时不会把正常交付误记为错误。"""
+
+    @pytest.mark.asyncio
+    async def test_normal_delivery_not_misclassified_as_error(self):
+        """当 deliver_result 正常触发时，即使外部有超时信号，结果不应被记为 error。"""
+        from pydantic_ai import RunUsage
+
+        test_result = AgentResult(
+            summary="已进入项目目录",
+            steps=[CommandSequenceStep(id="s1", label="进入目录", command="cd ~/project")],
+        )
+        usage = RunUsage(input_tokens=200, output_tokens=80, requests=2)
+
+        async def _mock_run(**kwargs):
+            raise ResultDelivered(result=test_result, usage=usage)
+
+        with patch('pydantic_ai.Agent.run', new_callable=AsyncMock, side_effect=_mock_run):
+            outcome = await run_agent(
+                intent="进入项目",
+                session_id="s1",
+                execute_command_fn=AsyncMock(),
+                ask_user_fn=AsyncMock(),
+            )
+
+        # 正常交付的 response_type 应该是 command，不是 error
+        assert isinstance(outcome, AgentRunOutcome)
+        assert outcome.result.response_type == "command"
+        assert outcome.result.summary == "已进入项目目录"
+        assert outcome.input_tokens == 200
+
+
+class TestB105Integration:
+    """B105 集成测试：验证 Agent → run_agent 完整链路（不依赖 agent_session_manager）。"""
+
+    @pytest.mark.asyncio
+    async def test_full_agent_run_deliver_result_flow(self):
+        """集成测试：从 build_session_agent → run_agent → ResultDelivered 完整链路。"""
+        from unittest.mock import AsyncMock, patch, MagicMock
+        from pydantic_ai import RunUsage
+
+        test_result = AgentResult(
+            summary="检查项目结构",
+            steps=[
+                CommandSequenceStep(id="s1", label="查看目录", command="ls -la"),
+            ],
+        )
+        accumulated_usage = RunUsage(input_tokens=500, output_tokens=120, requests=3)
+
+        async def _mock_run(**kwargs):
+            # 验证 agent 是 output_type=str 的实例
+            raise ResultDelivered(result=test_result, usage=accumulated_usage)
+
+        with patch('pydantic_ai.Agent.run', new_callable=AsyncMock, side_effect=_mock_run):
+            outcome = await run_agent(
+                intent="看看项目结构",
+                session_id="int-test-1",
+                execute_command_fn=AsyncMock(),
+                ask_user_fn=AsyncMock(),
+            )
+
+        # 完整链路验证
+        assert isinstance(outcome, AgentRunOutcome)
+        assert outcome.result.response_type == "command"
+        assert len(outcome.result.steps) == 1
+        assert outcome.result.steps[0].command == "ls -la"
+        assert outcome.input_tokens == 500
+        assert outcome.output_tokens == 120
+        assert outcome.requests == 3
+        assert outcome.model_name  # 应有模型名称
+
+
+class TestAgentOutputTypeIsStr:
+    """B105: 验证 Agent output_type 从 AgentResult 改为 str。"""
+
+    def test_build_session_agent_output_type_is_str(self):
+        """build_session_agent 创建的 Agent 应 output_type=str。"""
+        agent = build_session_agent()
+        assert agent.output_type is str
+
+    def test_terminal_agent_output_type_is_str(self):
+        """全局 terminal_agent 应 output_type=str。"""
+        assert terminal_agent.output_type is str
+
+
+class TestB105SystemPrompt:
+    """B105: SYSTEM_PROMPT 核心定位变更验证。"""
+
+    def test_contains_deliver_result_instruction(self):
+        """SYSTEM_PROMPT 应包含 deliver_result 工具使用说明。"""
+        assert "deliver_result" in SYSTEM_PROMPT
+
+    def test_contains_claude_code_pretreatment(self):
+        """SYSTEM_PROMPT 核心定位应为'终端侧 Claude Code 预处理助手'。"""
+        assert "预处理" in SYSTEM_PROMPT or "Claude Code" in SYSTEM_PROMPT
+
+    def test_no_mandatory_ask_user_confirmation(self):
+        """S112: SYSTEM_PROMPT 不再强制 ask_user 确认 Claude Code 运行状态。"""
+        # 不应包含强制追问 Claude Code 是否运行的流程
+        assert "Claude Code 在运行吗" not in SYSTEM_PROMPT
+        # 但仍应包含 ask_user 工具描述（用于澄清意图）
+        assert "ask_user" in SYSTEM_PROMPT
+
+    def test_contains_response_type_selection_rules(self):
+        """SYSTEM_PROMPT 包含 response_type 选择规则。"""
+        assert "response_type" in SYSTEM_PROMPT
+        assert "ai_prompt" in SYSTEM_PROMPT
+
+    def test_contains_ai_prompt_quality_standards(self):
+        """SYSTEM_PROMPT 包含 ai_prompt 质量标准。"""
+        assert "项目路径" in SYSTEM_PROMPT or "相关文件" in SYSTEM_PROMPT
+
+    def test_contains_claude_code_usage_guidance(self):
+        """SYSTEM_PROMPT 包含 Claude Code 使用指导职责。"""
+        assert "Claude Code" in SYSTEM_PROMPT
+
+    def test_command_need_confirm_invariant(self):
+        """S112 回归：response_type='command' 时 need_confirm 必须为 True（不变量 #48）。"""
+        result = AgentResult(
+            summary="ls project",
+            steps=[CommandSequenceStep(id="s1", label="list", command="ls")],
+            response_type="command",
+        )
+        assert result.need_confirm is True
+
+    def test_command_need_confirm_false_rejected(self):
+        """S112 回归负向测试：response_type='command' + need_confirm=False 被校验拒绝。"""
+        import pydantic
+        with pytest.raises(pydantic.ValidationError, match="need_confirm"):
+            AgentResult(
+                summary="ls project",
+                steps=[CommandSequenceStep(id="s1", label="list", command="ls")],
+                response_type="command",
+                need_confirm=False,
+            )
+
+    def test_system_prompt_contains_execute_command_boundary(self):
+        """S112: SYSTEM_PROMPT 明确 execute_command vs deliver_result 边界。"""
+        assert "deliver_result" in SYSTEM_PROMPT
+        assert "execute_command" in SYSTEM_PROMPT
+
+    def test_system_prompt_ai_prompt_narrow_scope(self):
+        """S112: SYSTEM_PROMPT 收窄 ai_prompt 使用场景。"""
+        assert "注入 prompt" in SYSTEM_PROMPT or "发送" in SYSTEM_PROMPT

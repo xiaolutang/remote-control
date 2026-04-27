@@ -1,19 +1,26 @@
 id: ic_008_aiprompt_explain_code
 category: intent_classification
-description: "测试 Agent 正确识别代码解释需求为 ai_prompt 类型"
+description: "测试 Agent 将代码解释需求识别为 message 类型（知识问答）"
 input:
   intent: "帮我解释一下 src/main.py 里的 run 函数在做什么"
   context:
     cwd: /home/user/project
     device_online: true
-    mock_tool_responses: {}
+    mock_tool_responses:
+      "cat src/main.py": |
+        def run():
+            """Main entry point for the application."""
+            config = load_config()
+            app = create_app(config)
+            app.run(host='0.0.0.0', port=8000)
+            return app
 expected:
-  response_type: ["ai_prompt"]
+  response_type: ["message"]
   steps_contain: []
   steps_not_contain: []
 graders: ["response_type_match", "steps_structure"]
 metadata:
   source: daily_usage
   difficulty: medium
-  tags: ["ai_prompt", "explain", "code_reading"]
-  reference_solution: "response_type=ai_prompt, 生成解释代码的 prompt 注入"
+  tags: ["message", "explain", "code_reading"]
+  reference_solution: "response_type=message, 直接解释代码内容"

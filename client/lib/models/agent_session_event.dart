@@ -176,6 +176,24 @@ class AgentResultEvent extends AgentSessionEvent {
   }
 }
 
+/// Agent 助手中间消息事件（对话过程气泡，非最终结果）
+///
+/// 服务端在 Agent 处理过程中推送的用户可见助手回复。
+/// 与 [AgentResultEvent]（responseType=message）区分：
+/// assistant_message 是中间过程消息，message result 是结构化结果卡片。
+class AgentAssistantMessageEvent extends AgentSessionEvent {
+  const AgentAssistantMessageEvent({required this.content});
+
+  /// 助手消息文本内容
+  final String content;
+
+  factory AgentAssistantMessageEvent.fromJson(Map<String, dynamic> json) {
+    return AgentAssistantMessageEvent(
+      content: (json['content'] as String? ?? '').trim(),
+    );
+  }
+}
+
 /// Agent 错误事件
 class AgentErrorEvent extends AgentSessionEvent {
   const AgentErrorEvent({

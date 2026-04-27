@@ -1,6 +1,6 @@
 id: cg_003_codex_analyze
 category: command_generation
-description: "测试 Agent 正确将 '用 Codex 分析代码' 映射为 codex 命令"
+description: "测试 Agent 正确将 '用 Codex 分析代码' 映射为知识说明响应（Codex 产品层不暴露执行命令）"
 input:
   intent: "用 Codex 分析一下代码质量"
   context:
@@ -8,12 +8,12 @@ input:
     device_online: true
     mock_tool_responses: {}
 expected:
-  response_type: ["command"]
-  steps_contain: ["codex"]
-  steps_not_contain: ["claude", "chatgpt"]
+  response_type: ["message"]
+  steps_contain: []
+  steps_not_contain: ["codex", "claude", "chatgpt"]
 graders: ["response_type_match", "steps_contain_match"]
 metadata:
   source: daily_usage
   difficulty: easy
-  tags: ["command", "codex", "tool_mapping"]
-  reference_solution: "response_type=command, steps=[codex .]"
+  tags: ["message", "codex", "tool_mapping"]
+  reference_solution: "response_type=message, 知识说明 Codex 为 info-only 工具，summary 不包含可执行命令"
