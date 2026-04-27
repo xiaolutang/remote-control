@@ -1,0 +1,50 @@
+id: mt_004
+category: multi_turn
+description: "长上下文测试 - 8 轮对话后仍能正确理解上下文并生成命令"
+input:
+  intent: "打开那个项目"
+  context:
+    cwd: /Users/demo/projects
+    device_online: true
+    conversation_history:
+      - role: user
+        content: "我有一个叫 web-app 的项目"
+      - role: assistant
+        content: "好的，web-app 项目已记录。需要我帮你做什么吗？"
+      - role: user
+        content: "看看它用的是什么框架"
+      - role: assistant
+        content: "web-app 使用 Next.js 框架，TypeScript 编写。"
+      - role: user
+        content: "运行一下开发服务器"
+      - role: assistant
+        content: "好的，启动 Next.js 开发服务器。"
+      - role: user
+        content: "现在检查一下测试覆盖"
+      - role: assistant
+        content: "测试覆盖率约 75%，核心模块覆盖良好。"
+      - role: user
+        content: "有个登录页面 bug 需要修"
+      - role: assistant
+        content: "了解，登录页面有 bug。需要我打开项目帮你定位吗？"
+      - role: user
+        content: "帮我看看 git log"
+      - role: assistant
+        content: "最近 3 次提交都是关于登录页面的修改。"
+      - role: user
+        content: "好的谢谢"
+      - role: assistant
+        content: "不客气，随时需要帮助可以继续说。"
+      - role: user
+        content: "打开那个项目"
+    mock_tool_responses: {}
+expected:
+  response_type: ["command"]
+  steps_contain: ["web-app"]
+  steps_not_contain: []
+graders: ["response_type_match", "contains_command"]
+metadata:
+  source: b116_long_context
+  difficulty: hard
+  tags: ["multi_turn", "long_context", "reference"]
+  reference_solution: "response_type=command, steps=[cd web-app]"

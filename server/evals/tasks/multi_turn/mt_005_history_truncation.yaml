@@ -1,0 +1,76 @@
+id: mt_005
+category: multi_turn
+description: "历史窗口裁剪测试 - 30 条历史事件下仍正确生成命令"
+input:
+  intent: "进入那个有超时问题的后端项目"
+  context:
+    cwd: /Users/demo/projects
+    device_online: true
+    conversation_history:
+      # 15 轮 = 30 条消息
+      # 前面的轮次提到各种项目名，关键信息在后面的轮次
+      - role: user
+        content: "列出所有项目"
+      - role: assistant
+        content: "找到以下项目：web-app, api-server, mobile-app, shared-libs"
+      - role: user
+        content: "看看 web-app"
+      - role: assistant
+        content: "web-app 是前端项目，使用 React。"
+      - role: user
+        content: "api-server 呢"
+      - role: assistant
+        content: "api-server 是后端服务，使用 Python FastAPI。"
+      - role: user
+        content: "mobile-app 是什么"
+      - role: assistant
+        content: "mobile-app 是 Flutter 移动端应用。"
+      - role: user
+        content: "shared-libs 有什么"
+      - role: assistant
+        content: "shared-libs 包含共享工具函数和类型定义。"
+      - role: user
+        content: "web-app 的测试跑了没"
+      - role: assistant
+        content: "web-app 测试全部通过。"
+      - role: user
+        content: "api-server 有什么问题"
+      - role: assistant
+        content: "api-server 有一个未解决的登录超时问题。"
+      - role: user
+        content: "查看 api-server 的 git status"
+      - role: assistant
+        content: "api-server 有 3 个未提交的文件修改。"
+      - role: user
+        content: "mobile-app 编译成功吗"
+      - role: assistant
+        content: "mobile-app 上次编译成功，没有错误。"
+      - role: user
+        content: "shared-libs 版本号多少"
+      - role: assistant
+        content: "shared-libs 当前版本 2.3.1。"
+      - role: user
+        content: "api-server 那个登录超时的问题严重吗"
+      - role: assistant
+        content: "登录超时问题影响约 5% 的用户，优先级较高。"
+      - role: user
+        content: "web-app 需要更新依赖吗"
+      - role: assistant
+        content: "web-app 有 2 个依赖有安全更新可用。"
+      - role: user
+        content: "好的，现在帮我看一下 api-server 的日志"
+      - role: assistant
+        content: "api-server 最近日志显示登录接口偶尔超时，响应时间超过 10 秒。"
+      - role: user
+        content: "进入那个有超时问题的后端项目"
+    mock_tool_responses: {}
+expected:
+  response_type: ["command"]
+  steps_contain: ["api-server"]
+  steps_not_contain: []
+graders: ["response_type_match", "contains_command"]
+metadata:
+  source: b116_history_truncation
+  difficulty: hard
+  tags: ["multi_turn", "long_context", "history_truncation", "disambiguation"]
+  reference_solution: "response_type=command, steps=[cd api-server]"
