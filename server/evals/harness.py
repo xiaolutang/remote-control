@@ -171,7 +171,7 @@ async def call_llm(
     tools: List[Dict[str, Any]] | None = None,
     timeout: float = LLM_TIMEOUT_SECONDS,
 ) -> Dict[str, Any]:
-    """调用 OpenAI 兼容 API。
+    """调用 OpenAI 兼容 API，内置 429/500 重试（指数退避，最多 5 次）。
 
     Args:
         config: 包含 model, base_url, api_key
@@ -183,8 +183,39 @@ async def call_llm(
         OpenAI ChatCompletion 响应 dict
 
     Raises:
-        LLMCallError: 请求失败时
+        LLMCallError: 重试耗尽后仍失败时
     """
+    import asyncio
+
+    max_retries = 5
+    last_error: LLMCallError | None = None
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            return await _call_llm_once(config, messages, tools, timeout)
+        except LLMCallError as e:
+            last_error = e
+            # 只对 429 和 5xx 重试
+            if e.status_code not in (429, None) and (e.status_code or 0) < 500:
+                raise
+            if attempt < max_retries:
+                wait = min(2 ** attempt, 30)  # 2s, 4s, 8s, 16s, 30s
+                logger.warning(
+                    "call_llm 可重试错误 (attempt %d/%d, status=%s), 等待 %ds 后重试",
+                    attempt, max_retries, e.status_code, wait,
+                )
+                await asyncio.sleep(wait)
+
+    raise last_error  # type: ignore[misc]
+
+
+async def _call_llm_once(
+    config: Dict[str, str],
+    messages: List[Dict[str, Any]],
+    tools: List[Dict[str, Any]] | None = None,
+    timeout: float = LLM_TIMEOUT_SECONDS,
+) -> Dict[str, Any]:
+    """单次 LLM 调用（不含重试逻辑）。"""
     url = f"{config['base_url'].rstrip('/')}/chat/completions"
     headers = {
         "Authorization": f"Bearer {config['api_key']}",
