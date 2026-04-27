@@ -2,7 +2,7 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-28T04:56:34",
+  "updated_at": "2026-04-28T04:59:21",
   "active_requirement_cycle": {
     "id": "R047",
     "name": "agent-conversation-interaction-optimization",
@@ -860,7 +860,7 @@
       "description": "1013 行，前 170 行是纯数据模型定义（ConnectionStatus、TerminalProtocolEvent 等）与连接逻辑耦合。将协议模型移至 models/terminal_protocol.dart。",
       "verification": "F1",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": "low",
       "acceptance_criteria": [
         "TerminalProtocolEvent 等 170 行模型定义移到 models/terminal_protocol.dart",
@@ -871,7 +871,13 @@
       "files": [
         "client/lib/services/websocket_service.dart",
         "client/lib/models/terminal_protocol.dart"
-      ]
+      ],
+      "started_at": "2026-04-28T04:59:21",
+      "completed_at": "2026-04-28T04:59:21",
+      "actual_minutes": 10,
+      "execution_notes": "5 enum + 3 class 提取到 models/terminal_protocol.dart(93行)，websocket_service 通过 export 保持下游零改动",
+      "evidence_file": ".dev-flow/evidence/F125.md",
+      "summary": "websocket_service.dart 协议模型提取完成：1013→922行，下游零改动"
     },
     {
       "id": "F126",
@@ -1023,8 +1029,8 @@
   "summary": {
     "total_tasks": 31,
     "by_status": {
-      "completed": 23,
-      "pending": 8
+      "completed": 24,
+      "pending": 7
     },
     "by_module": {
       "agent": 2,
