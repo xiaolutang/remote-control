@@ -47,6 +47,24 @@ SSE_EVENT_TYPES = frozenset({
 # tool_step 事件中 status 字段的合法值
 TOOL_STEP_STATUSES = frozenset({"running", "done", "error"})
 
+# B104: Phase 常量定义
+PHASE_THINKING = "THINKING"        # Agent 启动，正在分析意图
+PHASE_EXPLORING = "EXPLORING"      # 正在执行工具/命令探索环境
+PHASE_ANALYZING = "ANALYZING"      # 正在分析工具执行结果
+PHASE_CONFIRMING = "CONFIRMING"    # 等待用户确认（ask_user 工具）
+PHASE_RESPONDING = "RESPONDING"    # 正在生成回复（文本输出）
+PHASE_RESULT = "RESULT"            # 完成，已交付结果
+
+# Phase 描述映射
+_PHASE_DESCRIPTIONS: dict[str, str] = {
+    PHASE_THINKING: "正在分析你的意图...",
+    PHASE_EXPLORING: "正在探索环境...",
+    PHASE_ANALYZING: "正在分析结果...",
+    PHASE_CONFIRMING: "等待确认...",
+    PHASE_RESPONDING: "正在生成回复...",
+    PHASE_RESULT: "完成",
+}
+
 # tool_step 事件中命令输出预览的最大字符数
 _MAX_TOOL_STEP_PREVIEW = 1000
 _MAX_TOOL_STEP_ERROR_PREVIEW = 200
@@ -504,6 +522,8 @@ class AgentSessionManager:
                 """Agent 执行命令回调：推送 tool_step 事件。"""
                 # 默认使用终端 CWD
                 effective_cwd = cwd or session.terminal_cwd
+                # B104: 工具调用开始 → EXPLORING
+                await _emit_phase_change(PHASE_EXPLORING)
                 # 推送执行前的 tool_step（status=running）
                 await self._emit_session_event(
                     session,
@@ -546,6 +566,8 @@ class AgentSessionManager:
                 )
 
                 session.last_active_at = datetime.now(timezone.utc)
+                # B104: 工具调用完成 → ANALYZING
+                await _emit_phase_change(PHASE_ANALYZING)
                 return result
 
             async def _ask_user_callback(question, options, multi_select):
@@ -554,6 +576,8 @@ class AgentSessionManager:
                 future = loop.create_future()
                 session._pending_question_future = future
 
+                # B104: ask_user → CONFIRMING
+                await _emit_phase_change(PHASE_CONFIRMING)
                 session.state = AgentSessionState.ASKING
                 session.last_active_at = datetime.now(timezone.utc)
                 question_id = f"q_{uuid4().hex}"
@@ -600,6 +624,8 @@ class AgentSessionManager:
             # tool_step 包装：lookup_knowledge（含 duration）
             async def _traced_lookup_knowledge(query):
                 t_start = time.monotonic()
+                # B104: 工具调用开始 → EXPLORING
+                await _emit_phase_change(PHASE_EXPLORING)
                 await self._emit_session_event(
                     session, "tool_step",
                     _tool_step_event(
@@ -636,6 +662,8 @@ class AgentSessionManager:
                         result_summary=(result or "(无结果)")[:200],
                     ),
                 )
+                # B104: 工具调用完成 → ANALYZING
+                await _emit_phase_change(PHASE_ANALYZING)
                 return result
 
             # tool_step 包装：call_dynamic_tool（含 duration + error category）
@@ -653,6 +681,8 @@ class AgentSessionManager:
 
             async def _traced_tool_call(tool_name, arguments):
                 t_start = time.monotonic()
+                # B104: 工具调用开始 → EXPLORING
+                await _emit_phase_change(PHASE_EXPLORING)
                 await self._emit_session_event(
                     session, "tool_step",
                     _tool_step_event(
@@ -690,13 +720,36 @@ class AgentSessionManager:
                         result_summary=output_preview or "(无输出)",
                     ),
                 )
+                # B104: 工具调用完成 → ANALYZING
+                await _emit_phase_change(PHASE_ANALYZING)
                 return result
+
+            # B104: Phase 推断状态追踪
+            _current_phase: str = ""
+
+            async def _emit_phase_change(phase: str, description: str = "") -> None:
+                """B104: 推送 phase_change 事件（去重：相同 phase 不重复 emit）。"""
+                nonlocal _current_phase
+                if phase == _current_phase:
+                    return
+                _current_phase = phase
+                desc = description or _PHASE_DESCRIPTIONS.get(phase, "")
+                await self._emit_session_event(
+                    session,
+                    "phase_change",
+                    _phase_change_event(phase, desc),
+                )
+
+            # Agent 启动 → THINKING
+            await _emit_phase_change(PHASE_THINKING)
 
             # B103/B105: on_model_text 回调——模型中间文本输出推送 streaming_text SSE
             async def _on_model_text(text: str):
                 """模型每轮文本输出回调：推送 streaming_text SSE 事件。"""
                 if not text or not text.strip():
                     return
+                # 文本输出 → RESPONDING
+                await _emit_phase_change(PHASE_RESPONDING)
                 await self._emit_session_event(
                     session,
                     "streaming_text",
@@ -755,6 +808,8 @@ class AgentSessionManager:
 
             # B106: response_type="error" 走 error SSE 通道（模型未调用 deliver_result 的兜底）
             if outcome.result.response_type == "error":
+                # B104: deliver_result → RESULT
+                await _emit_phase_change(PHASE_RESULT)
                 session.state = AgentSessionState.ERROR
                 session.pending_question_id = None
                 session.last_active_at = datetime.now(timezone.utc)
@@ -769,6 +824,8 @@ class AgentSessionManager:
                 )
             else:
                 # 推送 ResultEvent
+                # B104: deliver_result → RESULT
+                await _emit_phase_change(PHASE_RESULT)
                 session.state = AgentSessionState.COMPLETED
                 session.result = outcome.result
                 session.last_active_at = datetime.now(timezone.utc)

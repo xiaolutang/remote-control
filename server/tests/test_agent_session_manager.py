@@ -793,7 +793,7 @@ class TestAgentRunLoop:
                 await manager.start_agent(s, execute_fn)
 
                 question_event = None
-                for _ in range(5):
+                for _ in range(10):
                     event = await asyncio.wait_for(s.event_queue.get(), timeout=1.0)
                     if event is not None and event[0] == "question":
                         question_event = event
