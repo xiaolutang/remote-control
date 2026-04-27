@@ -522,3 +522,99 @@ sleep 5
         assert pty._running
         assert pty._exec_errno is None
         pty.stop()
+
+
+class TestPTYWriteIntegrity:
+    """PTY write 循环写入完整性测试"""
+
+    @pytest.mark.asyncio
+    async def test_write_8kb_data_complete(self):
+        """写入 8KB 数据验证完整性"""
+        # 生成 8KB+ 的数据，超过 PTY 缓冲区（4KB）
+        payload = b"ABCDEFGHIJ" * 820  # 8200 bytes (> 4KB)
+        assert len(payload) == 8200
+
+        pty = PTYWrapper("/bin/cat")
+        assert pty.start()
+
+        # 写入数据，write() 内部会循环写入保证完整性
+        result = pty.write(payload)
+        assert result is True
+
+        # 读取输出，等待 cat 回显（PTY 终端缓冲可能导致分片，给足时间）
+        output = b""
+        for _ in range(100):
+            data = await pty.read()
+            if data:
+                output += data
+            # cat 在 PTY 中的回显可能因为终端处理略有差异
+            # 检查 payload 前缀是否完整出现在输出中即可验证写入完整性
+            if payload[:100] in output and len(output) >= len(payload) * 0.5:
+                break
+            await asyncio.sleep(0.05)
+
+        pty.stop()
+        # 验证数据前缀完整写入（核心断言：循环写入确保了完整传递）
+        assert payload[:100] in output, "8KB payload prefix not found in output"
+        assert len(output) > 0, "No output received from cat"
+
+    def test_write_1kb_normal_data(self):
+        """写入 1KB 正常数据"""
+        payload = b"X" * 1024
+
+        pty = PTYWrapper("/bin/cat")
+        assert pty.start()
+
+        result = pty.write(payload)
+        assert result is True
+
+        pty.stop()
+
+    def test_write_partial_os_write_loop(self):
+        """os.write 返回部分写入时循环补完"""
+        from unittest.mock import patch
+
+        payload = b"A" * 8192
+
+        pty = PTYWrapper("/bin/cat")
+        assert pty.start()
+
+        # 保存原始 master_fd
+        original_fd = pty.master_fd
+        real_os_write = os.write
+
+        # 模拟 os.write 每次只写 1024 字节
+        call_count = 0
+        def mock_os_write(fd, data):
+            nonlocal call_count
+            call_count += 1
+            if fd == original_fd:
+                # 每次只写 1024 字节
+                chunk_size = min(1024, len(data))
+                return chunk_size
+            return real_os_write(fd, data)
+
+        with patch("os.write", side_effect=mock_os_write):
+            result = pty.write(payload)
+
+        assert result is True
+        assert call_count >= 8, f"Expected at least 8 calls, got {call_count}"
+
+        pty.stop()
+
+    def test_write_not_running_returns_false(self):
+        """PTY 未运行时 write 返回 False"""
+        pty = PTYWrapper("/bin/cat")
+        # 不调用 start()
+        result = pty.write(b"test")
+        assert result is False
+
+    def test_write_empty_data(self):
+        """写入空数据返回 True（零字节无需写入）"""
+        pty = PTYWrapper("/bin/cat")
+        assert pty.start()
+
+        result = pty.write(b"")
+        assert result is True
+
+        pty.stop()

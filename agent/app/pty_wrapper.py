@@ -263,6 +263,9 @@ class PTYWrapper:
         """
         写入数据到 PTY
 
+        循环写入保证完整性：os.write 可能返回小于 len(data) 的值，
+        需要继续写入剩余部分直到全部写完或发生错误。
+
         Args:
             data: 要写入的数据
 
@@ -273,7 +276,14 @@ class PTYWrapper:
             return False
 
         try:
-            os.write(self.master_fd, data)
+            written = 0
+            total = len(data)
+            while written < total:
+                n = os.write(self.master_fd, data[written:])
+                if n == 0:
+                    # os.write 返回 0 表示无法写入（不应发生，但防御性处理）
+                    return False
+                written += n
             return True
         except Exception:
             return False
