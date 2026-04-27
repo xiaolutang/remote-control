@@ -14,6 +14,12 @@ import '../services/websocket_service.dart';
 import 'mobile_bottom_inset.dart';
 import 'package:provider/provider.dart';
 
+part 'agent_panel_state.dart';
+part 'agent_panel_handlers.dart';
+part 'agent_panel_conversation.dart';
+part 'agent_panel_result_views.dart';
+part 'agent_panel_input.dart';
+part 'agent_panel_widgets.dart';
 part 'smart_terminal_side_panel_content.dart';
 
 typedef AgentSessionServiceFactory = AgentSessionService Function(

@@ -2,7 +2,7 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-28T04:02:06",
+  "updated_at": "2026-04-28T04:33:51",
   "active_requirement_cycle": {
     "id": "R047",
     "name": "agent-conversation-interaction-optimization",
@@ -767,7 +767,7 @@
       "description": "3772 行，5 种职责混杂（状态管理/网络通信/UI渲染/子组件/数据模型），33 个 build 方法。参照 smart_terminal_create_dialog 的拆分模式，拆为 6 个 part 文件。",
       "verification": "F1",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": "high",
       "acceptance_criteria": [
         "拆分为：agent_panel_state / agent_panel_handlers / agent_panel_conversation / agent_panel_result_views / agent_panel_input / agent_panel_widgets",
@@ -781,7 +781,13 @@
         "client/lib/widgets/smart_terminal_side_panel_content.dart",
         "client/lib/widgets/smart_terminal_side_panel/"
       ],
-      "planning_notes": "前端最严重的架构问题。项目已有成功拆分先例（create_dialog 拆为 6 个 part）"
+      "planning_notes": "前端最严重的架构问题。项目已有成功拆分先例（create_dialog 拆为 6 个 part）",
+      "started_at": "2026-04-28T04:33:51",
+      "completed_at": "2026-04-28T04:33:51",
+      "actual_minutes": 35,
+      "execution_notes": "3772行→7文件，mixin 模式：state(416) handlers(500) conversation(424) result_views(182) input(143) widgets(177) 主文件(418)",
+      "evidence_file": ".dev-flow/evidence/F122.md",
+      "summary": "smart_terminal_side_panel_content.dart 拆分完成：7 个文件，最大 500 行，flutter analyze 0 error"
     },
     {
       "id": "F123",
@@ -1005,8 +1011,8 @@
   "summary": {
     "total_tasks": 31,
     "by_status": {
-      "completed": 20,
-      "pending": 11
+      "completed": 21,
+      "pending": 10
     },
     "by_module": {
       "agent": 2,
