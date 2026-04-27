@@ -2,7 +2,7 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-28T01:21:29",
+  "updated_at": "2026-04-28T01:44:15",
   "active_requirement_cycle": {
     "id": "R047",
     "name": "agent-conversation-interaction-optimization",
@@ -581,7 +581,7 @@
       "description": "核心问题：_build_agent_message_history_from_events 将工具调用扁平化为纯文本，传给 LLM 的历史只有 user/assistant 两种角色，丢失 ToolCallPart/ToolReturnPart 结构，导致多轮对话后模型无法理解之前的工具交互。修复：正确重建工具调用结构，ask_user 用 ToolCallPart + answer 用 ToolReturnPart 配对。代码已改但未提交未实测。",
       "verification": "L2",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": "high",
       "acceptance_criteria": [
         "tool_step(running) → ModelResponse(ToolCallPart)，tool_step(done) → ModelRequest(ToolReturnPart) 配对",
@@ -603,7 +603,13 @@
       "files": [
         "server/app/runtime_api.py"
       ],
-      "planning_notes": "代码已在 working tree 中修改，需提交并手动验证。包含 simplify 审查的 tool_call_id 配对 bug 修复"
+      "planning_notes": "代码已在 working tree 中修改，需提交并手动验证。包含 simplify 审查的 tool_call_id 配对 bug 修复",
+      "started_at": "2026-04-28T01:44:15",
+      "completed_at": "2026-04-28T01:44:15",
+      "actual_minutes": 20,
+      "execution_notes": "重写 _build_agent_message_history_from_events：ToolCallPart/ToolReturnPart 结构化重建 + 修复 tool_call_id 串扰 bug",
+      "evidence_file": ".dev-flow/evidence/B118.md",
+      "summary": "完成 message_history 角色重建：ToolCallPart/ToolReturnPart 配对，双变量追踪 pending_tool_step_id/pending_question_id 避免串扰"
     },
     {
       "id": "B119",
@@ -975,8 +981,8 @@
   "summary": {
     "total_tasks": 31,
     "by_status": {
-      "completed": 15,
-      "pending": 16
+      "completed": 16,
+      "pending": 15
     },
     "by_module": {
       "agent": 2,

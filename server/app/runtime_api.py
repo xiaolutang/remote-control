@@ -14,7 +14,10 @@ from fastapi import APIRouter, HTTPException, status, Depends, Request as FastAP
 import logging
 from pydantic import BaseModel, Field
 from fastapi.responses import StreamingResponse
-from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
+from pydantic_ai.messages import (
+    ModelRequest, ModelResponse, TextPart, UserPromptPart,
+    ToolCallPart, ToolReturnPart,
+)
 
 from app.assistant_planner import (
     AssistantPlannerRateLimited,
@@ -1939,60 +1942,115 @@ async def _close_terminal_agent_conversation(
         )
 
 
-def _event_text_for_message_history(event: dict) -> Optional[str]:
-    event_type = event.get("event_type")
-    payload = event.get("payload") or {}
-    if event_type == "user_intent":
-        return payload.get("text")
-    if event_type == "answer":
-        return payload.get("text")
-    if event_type == "question":
-        question = payload.get("question") or payload.get("text")
-        options = payload.get("options") or []
-        options_text = f" Options: {', '.join(options)}" if options else ""
-        return f"Agent question: {question}{options_text}" if question else None
-    if event_type == "result":
-        summary = payload.get("summary")
-        return f"Agent result: {summary}" if summary else None
-    if event_type == "error":
-        message = payload.get("message")
-        return f"Agent error: {message}" if message else None
-    if event_type == "tool_step":
-        tool_name = payload.get("tool_name", "tool")
-        description = payload.get("description", "")
-        result_summary = payload.get("result_summary", "")
-        return f"Agent tool_step {tool_name}: {description} -> {result_summary}".strip()
-    if event_type == "streaming_text":
-        text_delta = payload.get("text_delta")
-        return text_delta if text_delta else None
-    if event_type == "phase_change":
-        phase = payload.get("phase", "")
-        description = payload.get("description", "")
-        return f"Phase: {phase} - {description}".strip() if phase else None
-    # 兼容旧事件类型（历史数据）
-    if event_type == "trace":
-        tool = payload.get("tool", "tool")
-        input_summary = payload.get("input_summary", "")
-        output_summary = payload.get("output_summary", "")
-        return f"Agent trace {tool}: {input_summary} -> {output_summary}".strip()
-    if event_type == "assistant_message":
-        content = payload.get("content")
-        return content if content else None
-    return None
-
-
 def _build_agent_message_history_from_events(events: list[dict]) -> list:
-    """Convert authoritative conversation events to Pydantic AI message history."""
+    """Convert authoritative conversation events to Pydantic AI message history.
+
+    正确重建工具调用结构：
+    - user_intent → ModelRequest(UserPromptPart)
+    - tool_step(running) → ModelResponse(ToolCallPart)
+    - tool_step(done/error) → ModelRequest(ToolReturnPart) [配对最近的 running]
+    - result → ModelResponse(TextPart)
+    - question → ModelResponse(ToolCallPart ask_user)
+    - answer → ModelRequest(ToolReturnPart ask_user) [配对最近的 question]
+    跳过 streaming_text 和 phase_change（噪声太大）。
+    """
     history: list = []
+    tc_counter = 0
+    # 分开跟踪：question/answer 与 tool_step(running/done) 各自配对
+    pending_question_id: str | None = None
+    pending_tool_step_id: str | None = None
+
     for event in events:
-        text = _event_text_for_message_history(event)
-        if not text:
+        event_type = event.get("event_type")
+        payload = event.get("payload") or {}
+
+        # 用户消息
+        if event_type == "user_intent":
+            text = payload.get("text")
+            if text:
+                history.append(ModelRequest(parts=[UserPromptPart(content=text)]))
             continue
-        if event.get("role") == "user":
-            history.append(ModelRequest(parts=[UserPromptPart(content=text)]))
-        else:
-            history.append(ModelResponse(parts=[TextPart(content=text)]))
+
+        # ask_user 问题 → ModelResponse(ToolCallPart ask_user)
+        if event_type == "question":
+            question = payload.get("question") or payload.get("text")
+            if question:
+                tc_counter += 1
+                pending_question_id = f"tc_{tc_counter}"
+                history.append(ModelResponse(parts=[
+                    ToolCallPart(tool_name="ask_user", args={"question": question}, tool_call_id=pending_question_id)
+                ]))
+            continue
+
+        # 用户回答 ask_user → ModelRequest(ToolReturnPart) 配对 question
+        if event_type == "answer":
+            text = payload.get("text")
+            if text:
+                if pending_question_id:
+                    history.append(ModelRequest(parts=[
+                        ToolReturnPart(tool_name="ask_user", content=text, tool_call_id=pending_question_id)
+                    ]))
+                    pending_question_id = None
+                else:
+                    # 无配对的 question，退化为普通用户消息
+                    history.append(ModelRequest(parts=[UserPromptPart(content=text)]))
+            continue
+
+        # 工具调用开始 → ModelResponse(ToolCallPart)
+        if event_type == "tool_step" and payload.get("status") == "running":
+            tc_counter += 1
+            pending_tool_step_id = f"tc_{tc_counter}"
+            tool_name = payload.get("tool_name", "tool")
+            args = _extract_tool_args_from_event(tool_name, payload)
+            history.append(ModelResponse(parts=[
+                ToolCallPart(tool_name=tool_name, args=args, tool_call_id=pending_tool_step_id)
+            ]))
+            continue
+
+        # 工具调用完成 → ModelRequest(ToolReturnPart) 配对 running
+        if event_type == "tool_step" and payload.get("status") in ("done", "error"):
+            result_summary = payload.get("result_summary", "")
+            tool_name = payload.get("tool_name", "tool")
+            content = result_summary if result_summary else "(no output)"
+            tc_id = pending_tool_step_id or f"tc_{tc_counter}"
+            history.append(ModelRequest(parts=[
+                ToolReturnPart(tool_name=tool_name, content=content, tool_call_id=tc_id)
+            ]))
+            pending_tool_step_id = None
+            continue
+
+        # 最终结果 → ModelResponse(TextPart)
+        if event_type == "result":
+            summary = payload.get("summary")
+            if summary:
+                history.append(ModelResponse(parts=[TextPart(content=summary)]))
+            continue
+
+        # 跳过 streaming_text、phase_change、closed 等噪声事件
+
     return history
+
+
+def _extract_tool_args_from_event(tool_name: str, payload: dict) -> dict:
+    """从事件 payload 中提取工具调用参数。
+
+    优先使用 payload.command（结构化数据），退化为从 description 解析。
+    """
+    if tool_name == "execute_command":
+        # 优先使用结构化字段
+        cmd = payload.get("command", "")
+        if not cmd:
+            description = payload.get("description", "")
+            if description:
+                # 从 description 提取命令（格式如 "执行: ls -la" 或 "执行：ls -la"）
+                for sep in ("：", ": "):
+                    if sep in description:
+                        cmd = description.split(sep, 1)[1].strip()
+                        break
+                if not cmd:
+                    cmd = description.strip()
+        return {"command": cmd} if cmd else {}
+    return {"description": payload.get("description", "")}
 
 
 async def _build_agent_conversation_projection(
