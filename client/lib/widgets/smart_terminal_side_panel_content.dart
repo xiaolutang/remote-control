@@ -81,6 +81,7 @@ class _SmartTerminalSidePanelContentState
   final Set<String> _multiSelectChosen = {};
   String? _agentIntent; // 当前 Agent 正在处理的意图
   final List<_AgentHistoryEntry> _agentHistory = []; // Agent 对话历史
+  final Set<int> _expandedHistorySet = {}; // F110: 展开的历史轮次索引
   final List<_AgentAnswerEntry> _agentAnswers = []; // 当前 Agent 轮次内的问答
   final List<AgentConversationEventItem> _serverConversationEvents = [];
   String? _agentConversationId;
@@ -260,6 +261,7 @@ class _SmartTerminalSidePanelContentState
 
     _resetAgentRenderState();
     _agentHistory.clear();
+    _expandedHistorySet.clear();
     _serverConversationEvents.clear();
     _agentConversationId = null;
     _nextConversationEventIndex = 0;
@@ -280,6 +282,7 @@ class _SmartTerminalSidePanelContentState
     _draft = _defaultDraft();
     _resetAgentRenderState();
     _agentHistory.clear();
+    _expandedHistorySet.clear();
     _serverConversationEvents.clear();
     _agentConversationId = null;
     _nextConversationEventIndex = 0;
@@ -401,6 +404,7 @@ class _SmartTerminalSidePanelContentState
       }
       _serverConversationEvents.clear();
       _agentHistory.clear();
+    _expandedHistorySet.clear();
       _nextConversationEventIndex = 0;
       _resetAgentRenderState(resetDraft: true);
       return;
@@ -837,6 +841,7 @@ class _SmartTerminalSidePanelContentState
             setState(() {
               _serverConversationEvents.clear();
               _agentHistory.clear();
+    _expandedHistorySet.clear();
               _nextConversationEventIndex = 0;
               _pendingReset = false;
               _resetAgentRenderState(resetDraft: true);
@@ -1275,6 +1280,7 @@ class _SmartTerminalSidePanelContentState
     if (_pendingReset) {
       _serverConversationEvents.clear();
       _agentHistory.clear();
+    _expandedHistorySet.clear();
       _nextConversationEventIndex = 0;
       _resetAgentRenderState(resetDraft: true);
       _pendingReset = false;
@@ -1523,35 +1529,19 @@ class _SmartTerminalSidePanelContentState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // 历史对话
+        // F110: 折叠式历史对话
         for (var i = 0; i < _agentHistory.length; i++) ...[
-          () {
-            final entry = _agentHistory[i];
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildUserBubble(
-                  entry.intent,
-                  historyIndex: i,
-                  canEdit: true,
-                ),
-                const SizedBox(height: 8),
-                ..._buildOrderedTurnEvents(
-                  order: entry.turnEventOrder,
-                  answers: entry.answers,
-                  assistantMessages: entry.assistantMessages,
-                  colorScheme: colorScheme,
-                  historyIndex: i,
-                ),
-                if (entry.result != null)
-                  _buildHistoryResultBubble(entry.result!, colorScheme)
-                else if (entry.error != null)
-                  _buildHistoryErrorBubble(entry.error!, colorScheme),
-                const SizedBox(height: 12),
-              ],
-            );
-          }(),
+          _buildCollapsibleHistoryEntry(i, colorScheme),
+          if (i < _agentHistory.length - 1) const SizedBox(height: 6),
         ],
+
+        // F110: 历史/当前分界线
+        if (_agentHistory.isNotEmpty && _agentIntent != null)
+          _buildRoundDivider(colorScheme, _agentHistory.length),
+
+        // F110: 追问衔接提示
+        if (_agentHistory.isNotEmpty && _agentIntent != null)
+          _buildContinuationHint(colorScheme),
 
         // 当前活跃意图气泡
         if (_agentIntent != null) ...[
@@ -1591,6 +1581,217 @@ class _SmartTerminalSidePanelContentState
         _currentPhase == AgentPhase.exploring ||
         _currentPhase == AgentPhase.analyzing ||
         _currentPhase == AgentPhase.responding;
+  }
+
+  // --- F110: 多轮对话节奏优化 ---
+
+  /// 从历史条目提取阶段摘要标签
+  String _buildStageLabel(_AgentHistoryEntry entry) {
+    final toolCount = entry.traces.length;
+    final hasFollowUp = entry.answers.isNotEmpty;
+    final result = entry.result;
+
+    final resultLabel = result != null
+        ? switch (result.responseType) {
+            'message' => '回答了你的问题',
+            'ai_prompt' => '生成了 AI Prompt',
+            _ => result.steps.isNotEmpty
+                ? '生成了 ${result.steps.length} 条命令'
+                : '生成了命令',
+          }
+        : entry.error != null
+            ? '出错了'
+            : '已结束';
+
+    final prefix = hasFollowUp
+        ? '追问后'
+        : toolCount > 0
+            ? '探索了 $toolCount 步'
+            : '';
+
+    if (prefix.isEmpty) return resultLabel;
+    return '$prefix → $resultLabel';
+  }
+
+  /// 折叠式历史轮次组件
+  Widget _buildCollapsibleHistoryEntry(int index, ColorScheme colorScheme) {
+    final entry = _agentHistory[index];
+    final isExpanded = _expandedHistorySet.contains(index);
+    final stageLabel = _buildStageLabel(entry);
+    final roundLabel = '第 ${index + 1} 轮';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // 轮次标签
+        Padding(
+          padding: const EdgeInsets.only(bottom: 4),
+          child: Text(
+            roundLabel,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
+                  fontSize: 10,
+                ),
+          ),
+        ),
+        // 折叠/展开的摘要行
+        GestureDetector(
+          onTap: () {
+            setState(() {
+              if (isExpanded) {
+                _expandedHistorySet.remove(index);
+              } else {
+                _expandedHistorySet.add(index);
+              }
+            });
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: colorScheme.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: colorScheme.outlineVariant.withValues(alpha: 0.12),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  entry.error != null
+                      ? Icons.error_outline
+                      : Icons.chat_bubble_outline,
+                  size: 14,
+                  color: entry.error != null
+                      ? colorScheme.error
+                      : colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        entry.intent,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              fontWeight: FontWeight.w500,
+                            ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        stageLabel,
+                        style:
+                            Theme.of(context).textTheme.labelSmall?.copyWith(
+                                  color: colorScheme.onSurfaceVariant,
+                                  fontSize: 10,
+                                ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 4),
+                AnimatedRotation(
+                  turns: isExpanded ? 0.25 : 0,
+                  duration: const Duration(milliseconds: 200),
+                  child: Icon(
+                    Icons.chevron_right,
+                    size: 16,
+                    color: colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        // 展开内容
+        if (isExpanded) ...[
+          const SizedBox(height: 6),
+          Padding(
+            padding: const EdgeInsets.only(left: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildUserBubble(
+                  entry.intent,
+                  historyIndex: index,
+                  canEdit: true,
+                ),
+                const SizedBox(height: 8),
+                ..._buildOrderedTurnEvents(
+                  order: entry.turnEventOrder,
+                  answers: entry.answers,
+                  assistantMessages: entry.assistantMessages,
+                  colorScheme: colorScheme,
+                  historyIndex: index,
+                ),
+                if (entry.result != null)
+                  _buildHistoryResultBubble(entry.result!, colorScheme)
+                else if (entry.error != null)
+                  _buildHistoryErrorBubble(entry.error!, colorScheme),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// 历史/当前轮次分界线
+  Widget _buildRoundDivider(ColorScheme colorScheme, int roundIndex) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Container(
+              height: 1,
+              color: colorScheme.outlineVariant.withValues(alpha: 0.2),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Text(
+              '第 ${roundIndex + 1} 轮',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+                    fontSize: 10,
+                  ),
+            ),
+          ),
+          Expanded(
+            child: Container(
+              height: 1,
+              color: colorScheme.outlineVariant.withValues(alpha: 0.2),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 追问衔接提示
+  Widget _buildContinuationHint(ColorScheme colorScheme) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        children: [
+          Icon(
+            Icons.reply_rounded,
+            size: 12,
+            color: colorScheme.primary.withValues(alpha: 0.6),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            '基于上轮结果继续',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: colorScheme.primary.withValues(alpha: 0.7),
+                  fontSize: 10,
+                ),
+          ),
+        ],
+      ),
+    );
   }
 
   /// 按 turnEventOrder 交错渲染 answers 和 assistantMessages，保持原始事件顺序
@@ -1991,6 +2192,7 @@ class _SmartTerminalSidePanelContentState
     if (_pendingReset) {
       _serverConversationEvents.clear();
       _agentHistory.clear();
+    _expandedHistorySet.clear();
       _nextConversationEventIndex = 0;
       _resetAgentRenderState(resetDraft: true);
       _pendingReset = false;
