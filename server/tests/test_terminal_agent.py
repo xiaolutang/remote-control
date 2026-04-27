@@ -971,7 +971,7 @@ class TestRunAgentWithDynamicTools:
                 )
 
             mock_run.assert_awaited()
-            assert mock_run.call_count == 3  # no-delivery 重试至 max_attempts
+            assert mock_run.call_count == 1  # 模型输出文本直接返回，不重试
 
     @pytest.mark.asyncio
     async def test_run_agent_passes_tool_call_fn_to_deps(self):
@@ -1240,7 +1240,7 @@ class TestLookupKnowledgeGating:
                     include_lookup_knowledge=False,
                 )
             mock_run.assert_awaited()
-            assert mock_run.call_count == 3  # no-delivery 重试至 max_attempts
+            assert mock_run.call_count == 1  # 模型输出文本直接返回，不重试
 
 
 # ---------------------------------------------------------------------------
@@ -1479,12 +1479,12 @@ class TestSystemPromptB094:
         assert "禁止输出：纯文本" not in SYSTEM_PROMPT
         assert "每一次回复都必须且只能是合法 JSON" not in SYSTEM_PROMPT
 
-    def test_contains_three_response_type_examples(self):
-        """SYSTEM_PROMPT 包含三种 response_type 的描述。"""
-        # B105: 新 prompt 使用 response_type='xxx' 格式描述选择规则
-        assert "response_type='message'" in SYSTEM_PROMPT or "response_type=\"message\"" in SYSTEM_PROMPT
+    def test_contains_response_type_examples(self):
+        """SYSTEM_PROMPT 包含 command 和 ai_prompt 两种 response_type，message 已改为直接文本输出。"""
         assert "response_type='command'" in SYSTEM_PROMPT or "response_type=\"command\"" in SYSTEM_PROMPT
         assert "response_type='ai_prompt'" in SYSTEM_PROMPT or "response_type=\"ai_prompt\"" in SYSTEM_PROMPT
+        # message 类型已不再通过 deliver_result 工具输出，改为直接文本
+        assert "直接输出" in SYSTEM_PROMPT
 
     def test_contains_ai_prompt_guidance(self):
         """SYSTEM_PROMPT 包含 ai_prompt 的使用指导。"""
@@ -1700,7 +1700,7 @@ class TestTimeoutNoDeliverResult:
         accumulated_usage = RunUsage(input_tokens=300, output_tokens=150, requests=3)
 
         mock_result = MagicMock()
-        mock_result.output = "我在帮你看看项目结构..."  # 模型只输出了自由文本
+        mock_result.output = "我在帮你看看项目结构..."  # 模型直接输出文本 → message 类型
         mock_result.usage = MagicMock(return_value=accumulated_usage)
 
         with patch('pydantic_ai.Agent.run', new_callable=AsyncMock, return_value=mock_result):
@@ -1711,9 +1711,10 @@ class TestTimeoutNoDeliverResult:
                 ask_user_fn=AsyncMock(),
             )
 
-        # 应返回 error 类型 AgentRunOutcome（重试后仍失败）
+        # 模型直接输出文本 → message 类型响应
         assert isinstance(outcome, AgentRunOutcome)
-        assert outcome.result.response_type == "error"
+        assert outcome.result.response_type == "message"
+        assert outcome.result.summary == "我在帮你看看项目结构..."
         assert outcome.result.need_confirm is False
         # usage 应保留
         assert outcome.input_tokens == 300
