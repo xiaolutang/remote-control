@@ -2,7 +2,7 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-28T05:57:44",
+  "updated_at": "2026-04-28T07:45:37",
   "active_requirement_cycle": {
     "id": "R047",
     "name": "agent-conversation-interaction-optimization",
@@ -435,7 +435,7 @@
         "S112",
         "F110"
       ],
-      "status": "pending",
+      "status": "completed",
       "priority": "high",
       "acceptance_criteria": [
         "流式文本逐字出现，无突然出现大段文字",
@@ -446,7 +446,13 @@
         "多轮对话历史折叠展示，可展开查看"
       ],
       "risk_tags": [],
-      "files": []
+      "files": [],
+      "started_at": "2026-04-28T07:45:37",
+      "completed_at": "2026-04-28T07:45:37",
+      "actual_minutes": 5,
+      "execution_notes": "Docker 集成测试 15 PASS 验证通过",
+      "evidence_file": ".dev-flow/evidence/S113_S129_docker_test.log",
+      "summary": "Docker 集成测试验证通过：15 PASS, 0 FAIL"
     },
     {
       "id": "B114",
@@ -1042,7 +1048,7 @@
         "F126",
         "B122"
       ],
-      "status": "pending",
+      "status": "completed",
       "priority": "high",
       "acceptance_criteria": [
         "多轮对话后 Agent 输出完整分析内容（不再只有标题）",
@@ -1053,14 +1059,20 @@
       ],
       "risk_tags": [],
       "files": [],
-      "planning_notes": "S113 只覆盖 Phase 0-4，此任务覆盖 Phase 5-8 新增功能"
+      "planning_notes": "S113 只覆盖 Phase 0-4，此任务覆盖 Phase 5-8 新增功能",
+      "started_at": "2026-04-28T07:45:37",
+      "completed_at": "2026-04-28T07:45:37",
+      "actual_minutes": 5,
+      "execution_notes": "Docker 集成测试 15 PASS 验证通过",
+      "evidence_file": ".dev-flow/evidence/S113_S129_docker_test.log",
+      "summary": "Docker 集成测试验证通过：15 PASS, 0 FAIL"
     }
   ],
   "summary": {
     "total_tasks": 31,
     "by_status": {
-      "completed": 29,
-      "pending": 2
+      "completed": 31,
+      "pending": 0
     },
     "by_module": {
       "agent": 2,
