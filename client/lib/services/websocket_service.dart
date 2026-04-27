@@ -874,8 +874,8 @@ class WebSocketService extends ChangeNotifier {
     }
   }
 
-  /// 发送数据
-  void send(String data) {
+  /// 发送数据并等待消息 flush 到网络（不变量 #61）
+  Future<void> send(String data) async {
     if (_status != ConnectionStatus.connected || _channel == null) {
       return;
     }
@@ -891,6 +891,10 @@ class WebSocketService extends ChangeNotifier {
         : jsonEncode(raw);
 
     _channel!.sink.add(message);
+    // 等待 IOWebSocketChannel 内部 ready Future，确保消息已 flush 到网络
+    if (_channel is IOWebSocketChannel) {
+      await (_channel as IOWebSocketChannel).ready;
+    }
   }
 
   void sendLine(String data) {

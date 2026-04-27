@@ -111,7 +111,7 @@ class MockWebSocketService extends WebSocketService {
   }
 
   @override
-  void send(String data) {
+  Future<void> send(String data) async {
     sentMessages.add(data);
   }
 

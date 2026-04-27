@@ -385,7 +385,7 @@ class MockWebSocketService extends ChangeNotifier implements WebSocketService {
   }
 
   @override
-  void send(String data) {
+  Future<void> send(String data) async {
     sentMessages.add(data);
   }
 

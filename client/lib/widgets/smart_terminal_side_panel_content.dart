@@ -1082,7 +1082,7 @@ class _SmartTerminalSidePanelContentState
     _handleResolveIntent();
   }
 
-  /// 执行 Agent 结果（注入命令到终端）
+  /// 执行 Agent 结果（注入命令到终端），send 完成后再关闭面板（不变量 #61）
   Future<void> _executeAgentResult() async {
     if (_executing || !_isConnected) return;
     setState(() => _executing = true);
@@ -1093,7 +1093,7 @@ class _SmartTerminalSidePanelContentState
     if (input.isNotEmpty) {
       try {
         final service = context.read<WebSocketService>();
-        service.send(input);
+        await service.send(input);
       } catch (e) {
         injectFailed = true;
         if (!mounted) return;
@@ -1114,8 +1114,8 @@ class _SmartTerminalSidePanelContentState
     }
   }
 
-  /// 注入 ai_prompt 文本到终端 stdin
-  void _injectAiPrompt() {
+  /// 注入 ai_prompt 文本到终端 stdin，send 完成后再归档（不变量 #61）
+  Future<void> _injectAiPrompt() async {
     if (_executing || !_isConnected) return;
     final result = _agentResult;
     if (result == null || result.aiPrompt.isEmpty) return;
@@ -1124,7 +1124,7 @@ class _SmartTerminalSidePanelContentState
 
     try {
       final service = context.read<WebSocketService>();
-      service.send('${result.aiPrompt}\r');
+      await service.send('${result.aiPrompt}\r');
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -1138,7 +1138,7 @@ class _SmartTerminalSidePanelContentState
     }
 
     if (!mounted) return;
-    // 归档当前轮次并回到 idle
+    // 归档当前轮次并回到 idle（send 完成后执行）
     _archiveAgentTurn(result: result);
     setState(() {
       _executing = false;
