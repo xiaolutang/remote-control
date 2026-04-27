@@ -13,6 +13,7 @@ B097: 从 YAML 加载 task，用 mock transport 执行 LLM Agent，收集 transc
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -156,6 +157,13 @@ class MockTransport:
 
 # ── LLM 调用 ────────────────────────────────────────────────────────────
 
+LLM_MAX_RETRIES = 5
+
+
+def _is_retryable_status(status_code: int | None) -> bool:
+    """判断 HTTP 状态码是否可重试（429 限速 / 5xx 服务端错误 / 无状态码）。"""
+    return status_code is None or status_code == 429 or status_code >= 500
+
 
 class LLMCallError(Exception):
     """LLM 调用错误"""
@@ -171,7 +179,7 @@ async def call_llm(
     tools: List[Dict[str, Any]] | None = None,
     timeout: float = LLM_TIMEOUT_SECONDS,
 ) -> Dict[str, Any]:
-    """调用 OpenAI 兼容 API，内置 429/500 重试（指数退避，最多 5 次）。
+    """调用 OpenAI 兼容 API，内置 429/500 重试（指数退避，最多 LLM_MAX_RETRIES 次）。
 
     Args:
         config: 包含 model, base_url, api_key
@@ -185,28 +193,25 @@ async def call_llm(
     Raises:
         LLMCallError: 重试耗尽后仍失败时
     """
-    import asyncio
-
-    max_retries = 5
     last_error: LLMCallError | None = None
 
-    for attempt in range(1, max_retries + 1):
+    for attempt in range(1, LLM_MAX_RETRIES + 1):
         try:
             return await _call_llm_once(config, messages, tools, timeout)
         except LLMCallError as e:
             last_error = e
-            # 只对 429 和 5xx 重试
-            if e.status_code not in (429, None) and (e.status_code or 0) < 500:
+            if not _is_retryable_status(e.status_code):
                 raise
-            if attempt < max_retries:
+            if attempt < LLM_MAX_RETRIES:
                 wait = min(2 ** attempt, 30)  # 2s, 4s, 8s, 16s, 30s
                 logger.warning(
                     "call_llm 可重试错误 (attempt %d/%d, status=%s), 等待 %ds 后重试",
-                    attempt, max_retries, e.status_code, wait,
+                    attempt, LLM_MAX_RETRIES, e.status_code, wait,
                 )
                 await asyncio.sleep(wait)
 
-    raise last_error  # type: ignore[misc]
+    assert last_error is not None  # for loop 至少执行一次
+    raise last_error
 
 
 async def _call_llm_once(
@@ -488,15 +493,13 @@ def _build_messages(
         if role in ("user", "assistant") and content:
             messages.append({"role": role, "content": content})
 
-    # 去重：若对话历史最后一条与 intent 相同，跳过重复追加
-    intent_text = task.input.intent.strip()
-    if (
+    # 追加用户意图（去重：若对话历史末尾已是相同 user 消息则跳过）
+    _intent_duped = (
         conversation_history
-        and conversation_history[-1].get("content", "").strip() == intent_text
         and conversation_history[-1].get("role") == "user"
-    ):
-        pass  # intent 已在 conversation_history 中，不再追加
-    else:
+        and conversation_history[-1].get("content", "").strip() == task.input.intent.strip()
+    )
+    if not _intent_duped:
         messages.append({"role": "user", "content": task.input.intent})
 
     # 添加历史工具调用记录

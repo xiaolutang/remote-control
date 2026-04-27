@@ -29,7 +29,7 @@ SAFE_GIT_SUBCOMMANDS = frozenset({
 })
 
 _SENSITIVE_PATHS = re.compile(
-    r'(/etc/shadow\b|/etc/ssh\b|/root/\.ssh\b|/proc/self\b|'
+    r'(/etc/passwd\b|/etc/shadow\b|/etc/ssh\b|/root/\.ssh\b|/proc/self\b|'
     r'\.ssh/id_|\.ssh/known_hosts\b|\.ssh/authorized_keys\b|'
     r'\.env\b|\.pem\b|\.key\b)',
     re.IGNORECASE,
