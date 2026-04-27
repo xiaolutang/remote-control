@@ -1,20 +1,29 @@
 part of 'smart_terminal_side_panel.dart';
 
-/// Agent 面板交互状态
-enum AgentPanelState {
+/// Agent 面板 Phase 驱动状态
+enum AgentPhase {
   /// 空闲/初始状态
   idle,
 
-  /// Agent 正在探索（执行工具调用）
+  /// THINKING 阶段：正在思考
+  thinking,
+
+  /// EXPLORING 阶段：执行工具调用
   exploring,
 
-  /// Agent 在提问，等待用户回答
-  asking,
+  /// ANALYZING 阶段：分析结果
+  analyzing,
 
-  /// Agent 返回了最终结果
+  /// RESPONDING 阶段：流式文本输出
+  responding,
+
+  /// CONFIRMING 阶段：ask_user 等待确认
+  confirming,
+
+  /// RESULT 阶段：显示结果卡片
   result,
 
-  /// Agent 会话出错
+  /// 错误
   error,
 }
 
@@ -55,10 +64,13 @@ class _SmartTerminalSidePanelContentState
   bool _executing = false;
 
   // --- Agent SSE 模式状态 ---
-  AgentPanelState _agentState = AgentPanelState.idle;
+  AgentPhase _currentPhase = AgentPhase.idle;
+  String _phaseDescription = ''; // 当前 phase 的描述文字
   final List<AgentTraceEvent> _traces = [];
   final List<_TurnEventType> _turnEventOrder = [];
   final List<AgentAssistantMessageEvent> _assistantMessages = [];
+  final StringBuffer _streamingTextBuffer = StringBuffer(); // F108: streaming text
+  final List<ToolStepEvent> _toolSteps = []; // F108: tool step 列表
   AgentQuestionEvent? _currentQuestion;
   AgentResultEvent? _agentResult;
   AgentErrorEvent? _agentError;
@@ -217,10 +229,13 @@ class _SmartTerminalSidePanelContentState
   }
 
   void _resetAgentRenderState({bool resetDraft = false}) {
-    _agentState = AgentPanelState.idle;
+    _currentPhase = AgentPhase.idle;
+    _phaseDescription = '';
     _traces.clear();
     _turnEventOrder.clear();
     _assistantMessages.clear();
+    _streamingTextBuffer.clear();
+    _toolSteps.clear();
     _currentQuestion = null;
     _agentResult = null;
     _agentError = null;
@@ -330,7 +345,7 @@ class _SmartTerminalSidePanelContentState
           _markTerminalConversationClosed('当前 terminal 已关闭，智能对话已结束。');
           return;
         }
-        _agentState = AgentPanelState.error;
+        _currentPhase = AgentPhase.error;
         _agentError = AgentErrorEvent(
           code: error.code ?? 'PROJECTION_LOAD_FAILED',
           message: error.message,
@@ -348,7 +363,8 @@ class _SmartTerminalSidePanelContentState
     _nextConversationEventIndex = projection.nextEventIndex;
     _terminalConversationClosed = false;
     _terminalClosedReason = null;
-    _agentState = renderState.state;
+    _currentPhase = renderState.state;
+    _phaseDescription = renderState.phaseDescription;
     _agentHistory.addAll(renderState.history);
     _traces.addAll(renderState.traces);
     _turnEventOrder.addAll(renderState.turnEventOrder);
@@ -359,6 +375,8 @@ class _SmartTerminalSidePanelContentState
     _activeSessionId = projection.activeSessionId;
     _agentIntent = renderState.intent;
     _agentAnswers.addAll(renderState.answers);
+    _streamingTextBuffer.clear();
+    _toolSteps.clear();
     if (_agentResult != null) {
       _draft = _buildDraftFromAgentResult(_agentResult!);
     }
@@ -425,8 +443,8 @@ class _SmartTerminalSidePanelContentState
       ));
       _terminalConversationClosed = false;
       _terminalClosedReason = null;
-      if (_agentState != AgentPanelState.asking) {
-        _agentState = AgentPanelState.exploring;
+      if (_currentPhase != AgentPhase.confirming) {
+        _currentPhase = AgentPhase.exploring;
       }
       return;
     }
@@ -437,9 +455,9 @@ class _SmartTerminalSidePanelContentState
       _turnEventOrder.add(_TurnEventType.assistantMessage);
       _terminalConversationClosed = false;
       _terminalClosedReason = null;
-      // 仅从 idle 转到 exploring；asking 状态保持不变（等待用户回答）
-      if (_agentState == AgentPanelState.idle) {
-        _agentState = AgentPanelState.exploring;
+      // 仅从 idle 转到 exploring；confirming 状态保持不变（等待用户回答）
+      if (_currentPhase == AgentPhase.idle) {
+        _currentPhase = AgentPhase.exploring;
       }
       return;
     }
@@ -448,7 +466,8 @@ class _SmartTerminalSidePanelContentState
     final renderState = _deriveAgentRenderState(_serverConversationEvents);
     _terminalConversationClosed = false;
     _terminalClosedReason = null;
-    _agentState = renderState.state;
+    _currentPhase = renderState.state;
+    _phaseDescription = renderState.phaseDescription;
     _agentHistory
       ..clear()
       ..addAll(renderState.history);
@@ -472,8 +491,10 @@ class _SmartTerminalSidePanelContentState
     // 当状态为 asking/exploring 时，agent 会话可能仍在服务端存活，
     // 从最近的事件中提取 sessionId 以便用户能继续回答。
     if (_activeSessionId == null &&
-        (_agentState == AgentPanelState.asking ||
-            _agentState == AgentPanelState.exploring)) {
+        (_currentPhase == AgentPhase.confirming ||
+            _currentPhase == AgentPhase.exploring ||
+            _currentPhase == AgentPhase.thinking ||
+            _currentPhase == AgentPhase.analyzing)) {
       AgentConversationEventItem? eventWithSession;
       for (var i = _serverConversationEvents.length - 1; i >= 0; i--) {
         final e = _serverConversationEvents[i];
@@ -562,7 +583,8 @@ class _SmartTerminalSidePanelContentState
     AgentQuestionEvent? currentQuestion;
     AgentResultEvent? result;
     AgentErrorEvent? error;
-    var state = AgentPanelState.idle;
+    var state = AgentPhase.idle;
+    var phaseDescription = '';
 
     void archiveCurrent({
       AgentResultEvent? archivedResult,
@@ -596,13 +618,14 @@ class _SmartTerminalSidePanelContentState
           archiveCurrent(archivedResult: result, archivedError: error);
           final text = (event.payload['text']?.toString() ?? '').trim();
           if (text.isEmpty) {
-            state = AgentPanelState.idle;
+            state = AgentPhase.idle;
             break;
           }
           activeIntent = text;
           result = null;
           error = null;
-          state = AgentPanelState.exploring;
+          state = AgentPhase.thinking;
+          phaseDescription = '正在分析你的意图...';
 
         case 'trace':
           traces.add(AgentTraceEvent.fromJson(Map<String, dynamic>.from(
@@ -610,7 +633,8 @@ class _SmartTerminalSidePanelContentState
           )));
           result = null;
           error = null;
-          state = AgentPanelState.exploring;
+          state = AgentPhase.exploring;
+          phaseDescription = '正在执行工具调用...';
 
         case 'assistant_message':
           assistantMessages.add(AgentAssistantMessageEvent.fromJson(
@@ -619,7 +643,7 @@ class _SmartTerminalSidePanelContentState
           turnEventOrder.add(_TurnEventType.assistantMessage);
           result = null;
           error = null;
-          state = AgentPanelState.exploring;
+          state = AgentPhase.responding;
 
         case 'question':
           currentQuestion = AgentQuestionEvent.fromJson({
@@ -629,7 +653,8 @@ class _SmartTerminalSidePanelContentState
           lastQuestionText = currentQuestion?.question;
           result = null;
           error = null;
-          state = AgentPanelState.asking;
+          state = AgentPhase.confirming;
+          phaseDescription = currentQuestion?.question ?? '';
 
         case 'answer':
           final answer = (event.payload['text']?.toString() ?? '').trim();
@@ -643,26 +668,28 @@ class _SmartTerminalSidePanelContentState
           currentQuestion = null;
           result = null;
           error = null;
-          state = AgentPanelState.exploring;
+          state = AgentPhase.exploring;
+          phaseDescription = '正在执行工具调用...';
 
         case 'result':
           result = AgentResultEvent.fromJson(
             Map<String, dynamic>.from(event.payload),
           );
           error = null;
-          state = AgentPanelState.result;
+          state = AgentPhase.result;
 
         case 'error':
           error = AgentErrorEvent.fromJson(
             Map<String, dynamic>.from(event.payload),
           );
           result = null;
-          state = AgentPanelState.error;
+          state = AgentPhase.error;
       }
     }
 
     return _AgentRenderState(
       state: state,
+      phaseDescription: phaseDescription,
       history: history,
       intent: activeIntent,
       traces: List.of(traces),
@@ -749,10 +776,13 @@ class _SmartTerminalSidePanelContentState
     final serverUrl = controller.serverUrl;
 
     setState(() {
-      _agentState = AgentPanelState.exploring;
+      _currentPhase = AgentPhase.thinking;
+      _phaseDescription = '正在分析你的意图...';
       _traces.clear();
       _turnEventOrder.clear();
       _assistantMessages.clear();
+      _streamingTextBuffer.clear();
+      _toolSteps.clear();
       _currentQuestion = null;
       _agentResult = null;
       _agentError = null;
@@ -815,9 +845,13 @@ class _SmartTerminalSidePanelContentState
           // SSE 结束：清空 _eventSubscription 使 conversation stream 恢复完整重建能力。
           _eventSubscription = null;
           // F093: pendingReset 导致的关闭是预期行为，不报 STREAM_CLOSED 错误
-          if (_agentState == AgentPanelState.exploring && !didReset) {
+          if ((_currentPhase == AgentPhase.exploring ||
+                  _currentPhase == AgentPhase.thinking ||
+                  _currentPhase == AgentPhase.analyzing ||
+                  _currentPhase == AgentPhase.responding) &&
+              !didReset) {
             setState(() {
-              _agentState = AgentPanelState.error;
+              _currentPhase = AgentPhase.error;
               _agentError = const AgentErrorEvent(
                 code: 'STREAM_CLOSED',
                 message: 'Agent 会话意外关闭',
@@ -871,41 +905,56 @@ class _SmartTerminalSidePanelContentState
           }
         });
 
-      // --- F107 新事件类型：最小化处理，详细 UI 在 F108 ---
-      case PhaseChangeEvent():
-        // 阶段变更：暂不展示，仅保持 exploring 状态
+      // --- F108: Phase 驱动事件 ---
+      case PhaseChangeEvent phaseChange:
         setState(() {
-          if (_agentState == AgentPanelState.idle) {
-            _agentState = AgentPanelState.exploring;
+          final phaseName = phaseChange.phase.toUpperCase();
+          _currentPhase = _phaseFromEvent(phaseName);
+          if (phaseChange.description != null &&
+              phaseChange.description!.isNotEmpty) {
+            _phaseDescription = phaseChange.description!;
+          } else {
+            _phaseDescription = _defaultPhaseDescription(_currentPhase);
           }
         });
+        _scheduleScrollToLatest();
 
-      case StreamingTextEvent():
-        // 流式文本：暂不展示，仅保持 exploring 状态
+      case StreamingTextEvent streamingText:
         setState(() {
-          if (_agentState == AgentPanelState.idle) {
-            _agentState = AgentPanelState.exploring;
+          _streamingTextBuffer.write(streamingText.textDelta);
+          // 如果还没到 responding 阶段，自动推进
+          if (_currentPhase != AgentPhase.responding &&
+              _currentPhase != AgentPhase.result &&
+              _currentPhase != AgentPhase.error &&
+              _currentPhase != AgentPhase.confirming) {
+            _currentPhase = AgentPhase.responding;
+            _phaseDescription = '正在生成回复...';
           }
         });
+        _scheduleScrollToLatest();
 
-      case ToolStepEvent():
-        // 工具步骤：暂不展示，仅保持 exploring 状态
+      case ToolStepEvent toolStep:
         setState(() {
-          if (_agentState == AgentPanelState.idle ||
-              _agentState == AgentPanelState.asking) {
-            _agentState = AgentPanelState.exploring;
+          _toolSteps.add(toolStep);
+          // 如果还没进入 exploring 阶段，自动推进
+          if (_currentPhase == AgentPhase.idle ||
+              _currentPhase == AgentPhase.thinking) {
+            _currentPhase = AgentPhase.exploring;
+            _phaseDescription = '正在执行工具调用...';
           }
         });
+        _scheduleScrollToLatest();
 
-      // --- F107 新事件类型结束 ---
+      // --- 旧事件兼容（保留功能不退化）---
 
       case AgentTraceEvent trace:
         setState(() {
           _traces.add(trace);
-          // 保持 exploring 状态（或者从 asking 回到 exploring）
-          if (_agentState == AgentPanelState.idle ||
-              _agentState == AgentPanelState.asking) {
-            _agentState = AgentPanelState.exploring;
+          // 保持 exploring 状态（或者从 confirming 回到 exploring）
+          if (_currentPhase == AgentPhase.idle ||
+              _currentPhase == AgentPhase.confirming) {
+            _currentPhase = AgentPhase.exploring;
+            _phaseDescription = '正在执行工具调用...';
           }
         });
         _scheduleScrollToLatest();
@@ -914,9 +963,10 @@ class _SmartTerminalSidePanelContentState
         setState(() {
           _assistantMessages.add(assistantMsg);
           _turnEventOrder.add(_TurnEventType.assistantMessage);
-          // 仅从 idle 转到 exploring；asking 状态保持不变（等待用户回答）
-          if (_agentState == AgentPanelState.idle) {
-            _agentState = AgentPanelState.exploring;
+          // 仅从 idle 转到 responding
+          if (_currentPhase == AgentPhase.idle) {
+            _currentPhase = AgentPhase.responding;
+            _phaseDescription = '正在生成回复...';
           }
         });
         _scheduleScrollToLatest();
@@ -924,7 +974,8 @@ class _SmartTerminalSidePanelContentState
       case AgentQuestionEvent question:
         setState(() {
           _currentQuestion = question;
-          _agentState = AgentPanelState.asking;
+          _currentPhase = AgentPhase.confirming;
+          _phaseDescription = question.question;
           _multiSelectChosen.clear();
         });
         _scheduleScrollToLatest();
@@ -932,7 +983,7 @@ class _SmartTerminalSidePanelContentState
       case AgentResultEvent result:
         setState(() {
           _agentResult = result;
-          _agentState = AgentPanelState.result;
+          _currentPhase = AgentPhase.result;
           _activeSessionId = null;
           // 仅 command 类型构建 CommandSequenceDraft
           if (_isCommandResult(result)) {
@@ -950,7 +1001,7 @@ class _SmartTerminalSidePanelContentState
       case AgentErrorEvent error:
         setState(() {
           _agentError = error;
-          _agentState = AgentPanelState.error;
+          _currentPhase = AgentPhase.error;
           _activeSessionId = null;
         });
         // conversation stream 常驻，无需重启。
@@ -959,6 +1010,34 @@ class _SmartTerminalSidePanelContentState
         }
         _scheduleScrollToLatest();
     }
+  }
+
+  /// 从 PhaseChangeEvent.phase 字符串映射到 AgentPhase
+  static AgentPhase _phaseFromEvent(String phaseName) {
+    return switch (phaseName) {
+      'THINKING' => AgentPhase.thinking,
+      'EXPLORING' || 'ACTING' => AgentPhase.exploring,
+      'ANALYZING' => AgentPhase.analyzing,
+      'RESPONDING' => AgentPhase.responding,
+      'CONFIRMING' || 'ASK_USER' => AgentPhase.confirming,
+      'RESULT' => AgentPhase.result,
+      'ERROR' => AgentPhase.error,
+      _ => AgentPhase.exploring, // 未知 phase 降级为 exploring
+    };
+  }
+
+  /// 返回默认 phase 描述
+  static String _defaultPhaseDescription(AgentPhase phase) {
+    return switch (phase) {
+      AgentPhase.idle => '',
+      AgentPhase.thinking => '正在思考...',
+      AgentPhase.exploring => '正在执行工具调用...',
+      AgentPhase.analyzing => '正在分析结果...',
+      AgentPhase.responding => '正在生成回复...',
+      AgentPhase.confirming => '等待确认...',
+      AgentPhase.result => '',
+      AgentPhase.error => '',
+    };
   }
 
   /// 归档当前 Agent 对话轮次到历史列表
@@ -987,7 +1066,7 @@ class _SmartTerminalSidePanelContentState
   }) {
     if (!mounted) return;
     setState(() {
-      _agentState = AgentPanelState.error;
+      _currentPhase = AgentPhase.error;
       _agentError = AgentErrorEvent(code: code, message: message);
       _activeSessionId = null;
       _currentQuestion = null;
@@ -1053,7 +1132,8 @@ class _SmartTerminalSidePanelContentState
         ));
         _turnEventOrder.add(_TurnEventType.answer);
       }
-      _agentState = AgentPanelState.exploring;
+      _currentPhase = AgentPhase.exploring;
+      _phaseDescription = '正在执行工具调用...';
       _currentQuestion = null;
     });
 
@@ -1074,7 +1154,7 @@ class _SmartTerminalSidePanelContentState
           code: 'RESPOND_FAILED',
           message: '回复失败：$e',
         );
-        _agentState = AgentPanelState.error;
+        _currentPhase = AgentPhase.error;
       });
     }
   }
@@ -1084,13 +1164,13 @@ class _SmartTerminalSidePanelContentState
       return;
     }
     if (_pendingReset) return; // F093: reset 待处理时拒绝 stale 操作
-    if (_agentState == AgentPanelState.asking) {
+    if (_currentPhase == AgentPhase.confirming) {
       final text = _intentController.text.trim();
       if (text.isEmpty) return;
       // 如果 sessionId 丢失，恢复输入文字并提示错误，避免静默丢弃
       if (_activeSessionId == null) {
         setState(() {
-          _agentState = AgentPanelState.error;
+          _currentPhase = AgentPhase.error;
           _agentError = AgentErrorEvent(
             code: 'SESSION_LOST',
             message: '会话已断开，请重新发送您的问题',
@@ -1104,7 +1184,10 @@ class _SmartTerminalSidePanelContentState
       return;
     }
     if (_executing ||
-        _agentState == AgentPanelState.exploring) {
+        _currentPhase == AgentPhase.exploring ||
+        _currentPhase == AgentPhase.thinking ||
+        _currentPhase == AgentPhase.analyzing ||
+        _currentPhase == AgentPhase.responding) {
       return;
     }
     _handleResolveIntent();
@@ -1126,7 +1209,7 @@ class _SmartTerminalSidePanelContentState
         injectFailed = true;
         if (!mounted) return;
         setState(() {
-          _agentState = AgentPanelState.error;
+          _currentPhase = AgentPhase.error;
           _agentError = AgentErrorEvent(
             code: 'INJECT_FAILED',
             message: '命令注入失败：$e',
@@ -1156,7 +1239,7 @@ class _SmartTerminalSidePanelContentState
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _agentState = AgentPanelState.error;
+        _currentPhase = AgentPhase.error;
         _agentError = AgentErrorEvent(
           code: 'INJECT_FAILED',
           message: 'Prompt 注入失败：$e',
@@ -1170,11 +1253,14 @@ class _SmartTerminalSidePanelContentState
     _archiveAgentTurn(result: result);
     setState(() {
       _executing = false;
-      _agentState = AgentPanelState.idle;
+      _currentPhase = AgentPhase.idle;
+      _phaseDescription = '';
       _agentResult = null;
       _traces.clear();
       _turnEventOrder.clear();
       _assistantMessages.clear();
+      _streamingTextBuffer.clear();
+      _toolSteps.clear();
       _agentAnswers.clear();
       _currentQuestion = null;
     });
@@ -1203,7 +1289,8 @@ class _SmartTerminalSidePanelContentState
       // 截断当前失败轮次的事件，避免重试后在其他设备上产生重复消息。
       final truncateAfterIndex = _findTruncateAfterIndexForCurrentTurn();
       setState(() {
-        _agentState = AgentPanelState.idle;
+        _currentPhase = AgentPhase.idle;
+        _phaseDescription = '';
         _agentError = null;
       });
       _startAgentSession(
@@ -1429,10 +1516,7 @@ class _SmartTerminalSidePanelContentState
   }
 
   bool _isAgentActive() {
-    return _agentState == AgentPanelState.exploring ||
-        _agentState == AgentPanelState.asking ||
-        _agentState == AgentPanelState.result ||
-        _agentState == AgentPanelState.error;
+    return _currentPhase != AgentPhase.idle;
   }
 
   Widget _buildAgentBody(ColorScheme colorScheme, bool connected) {
@@ -1473,7 +1557,7 @@ class _SmartTerminalSidePanelContentState
         if (_agentIntent != null) ...[
           _buildUserBubble(
             _agentIntent!,
-            canEdit: _agentState != AgentPanelState.exploring && !_pendingReset,
+            canEdit: !_isPhaseActive() && !_pendingReset,
           ),
           const SizedBox(height: 8),
           ..._buildOrderedTurnEvents(
@@ -1485,15 +1569,28 @@ class _SmartTerminalSidePanelContentState
           ),
         ],
 
-        switch (_agentState) {
-          AgentPanelState.exploring => _buildExploringView(colorScheme),
-          AgentPanelState.asking => _buildAskingView(colorScheme),
-          AgentPanelState.result => _buildResultView(colorScheme, connected),
-          AgentPanelState.error => _buildErrorView(colorScheme),
+        // Phase 驱动渲染分发
+        switch (_currentPhase) {
+          AgentPhase.thinking ||
+          AgentPhase.exploring ||
+          AgentPhase.analyzing =>
+            _buildProgressView(colorScheme),
+          AgentPhase.responding => _buildRespondingView(colorScheme),
+          AgentPhase.confirming => _buildAskingView(colorScheme),
+          AgentPhase.result => _buildResultView(colorScheme, connected),
+          AgentPhase.error => _buildErrorView(colorScheme),
           _ => const SizedBox.shrink(),
         },
       ],
     );
+  }
+
+  /// 判断当前 phase 是否为活跃执行阶段（不可编辑意图）
+  bool _isPhaseActive() {
+    return _currentPhase == AgentPhase.thinking ||
+        _currentPhase == AgentPhase.exploring ||
+        _currentPhase == AgentPhase.analyzing ||
+        _currentPhase == AgentPhase.responding;
   }
 
   /// 按 turnEventOrder 交错渲染 answers 和 assistantMessages，保持原始事件顺序
@@ -1660,14 +1757,30 @@ class _SmartTerminalSidePanelContentState
     );
   }
 
-  /// Exploring：可折叠进度列表 + 加载指示 + 取消按钮
-  Widget _buildExploringView(ColorScheme colorScheme) {
+  /// THINKING/EXPLORING/ANALYZING 阶段：phase 描述 + tool step 列表 + 加载指示 + 取消按钮
+  Widget _buildProgressView(ColorScheme colorScheme) {
+    final phaseLabel = switch (_currentPhase) {
+      AgentPhase.thinking => '思考中',
+      AgentPhase.analyzing => '分析中',
+      _ => '执行中',
+    };
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (_traces.isNotEmpty) _buildAgentTraceExpansionTile(colorScheme),
-        if (_traces.isNotEmpty) const SizedBox(height: 8),
-        _buildLoadingBubble('Agent 正在分析...', colorScheme),
+        // F108: 新版 tool steps 列表
+        if (_toolSteps.isNotEmpty) _buildToolStepExpansionTile(colorScheme),
+        if (_toolSteps.isNotEmpty) const SizedBox(height: 8),
+        // 兼容旧版 traces
+        if (_traces.isNotEmpty && _toolSteps.isEmpty)
+          _buildAgentTraceExpansionTile(colorScheme),
+        if (_traces.isNotEmpty && _toolSteps.isEmpty) const SizedBox(height: 8),
+        _buildLoadingBubble(
+          _phaseDescription.isNotEmpty
+              ? _phaseDescription
+              : 'Agent 正在$phaseLabel...',
+          colorScheme,
+        ),
         const SizedBox(height: 10),
         Center(
           child: OutlinedButton(
@@ -1694,6 +1807,160 @@ class _SmartTerminalSidePanelContentState
     );
   }
 
+  /// RESPONDING 阶段：流式文本输出区域
+  Widget _buildRespondingView(ColorScheme colorScheme) {
+    final text = _streamingTextBuffer.toString();
+    if (text.isEmpty) {
+      return _buildLoadingBubble('正在生成回复...', colorScheme);
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildAssistantBubble(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                text,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              // 流式文本末尾闪烁光标
+              if (_currentPhase == AgentPhase.responding)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(width: 2),
+                    _buildBlinkingCursor(colorScheme),
+                  ],
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 闪烁光标指示器
+  Widget _buildBlinkingCursor(ColorScheme colorScheme) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.0, end: 1.0),
+      duration: const Duration(milliseconds: 800),
+      builder: (context, value, child) {
+        return Opacity(
+          opacity: (value * 0.8 + 0.2).clamp(0.0, 1.0),
+          child: Container(
+            width: 2,
+            height: 14,
+            decoration: BoxDecoration(
+              color: colorScheme.primary,
+              borderRadius: BorderRadius.circular(1),
+            ),
+          ),
+        );
+      },
+      onEnd: () {
+        // 通过 setState 触发重建实现闪烁
+        if (mounted && _currentPhase == AgentPhase.responding) {
+          setState(() {});
+        }
+      },
+    );
+  }
+
+  /// F108: 新版 Tool Step 可折叠列表
+  Widget _buildToolStepExpansionTile(ColorScheme colorScheme) {
+    return Container(
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.14),
+        ),
+      ),
+      child: ExpansionTile(
+        key: const Key('agent-tool-step-expansion'),
+        initiallyExpanded: false,
+        tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+        dense: true,
+        title: Text(
+          '执行步骤 (${_toolSteps.length})',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w600,
+              ),
+        ),
+        children: [
+          for (final step in _toolSteps) ...[
+            _buildToolStepItem(step, colorScheme),
+            if (step != _toolSteps.last) const SizedBox(height: 6),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// F108: 单个 Tool Step 项
+  Widget _buildToolStepItem(ToolStepEvent step, ColorScheme colorScheme) {
+    final icon = switch (step.status) {
+      'running' => Icons.hourglass_top,
+      'done' => Icons.check_circle_outline,
+      'error' => Icons.error_outline,
+      _ => Icons.build_outlined,
+    };
+    final iconColor = switch (step.status) {
+      'running' => colorScheme.primary,
+      'done' => colorScheme.primary,
+      'error' => colorScheme.error,
+      _ => colorScheme.onSurfaceVariant,
+    };
+
+    return _buildAssistantBubble(
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _SidePanelStagePill(stage: step.status == 'running' ? 'running' : 'tool'),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  step.toolName,
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ),
+              Icon(icon, size: 14, color: iconColor),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            step.description,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                  height: 1.4,
+                ),
+          ),
+          if (step.resultSummary != null &&
+              step.resultSummary!.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              step.resultSummary!,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                    height: 1.3,
+                  ),
+              maxLines: 5,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   /// 取消当前 Agent 会话
   Future<void> _cancelAgentSession() async {
     await _doCancelAgentNetwork();
@@ -1714,7 +1981,8 @@ class _SmartTerminalSidePanelContentState
           ),
         ));
       }
-      _agentState = AgentPanelState.idle;
+      _currentPhase = AgentPhase.idle;
+      _phaseDescription = '';
       _agentIntent = null;
       _activeSessionId = null;
     });
@@ -2496,8 +2764,8 @@ class _SmartTerminalSidePanelContentState
 
   /// 底部输入栏
   Widget _buildInputBar(ColorScheme colorScheme) {
-    final isExploring = _agentState == AgentPanelState.exploring;
-    final isAwaitingAnswer = _agentState == AgentPanelState.asking;
+    final isExploring = _isPhaseActive();
+    final isAwaitingAnswer = _currentPhase == AgentPhase.confirming;
     final isClosed = _terminalConversationClosed;
     final canSend = !isClosed && !_pendingReset &&
         (isAwaitingAnswer
@@ -2531,7 +2799,7 @@ class _SmartTerminalSidePanelContentState
                   decoration: InputDecoration(
                     hintText: isClosed
                         ? 'terminal 已关闭，无法继续智能交互'
-                        : _agentState == AgentPanelState.asking
+                        : _currentPhase == AgentPhase.confirming
                             ? '输入回答...'
                             : '说目标，例如：进入日知项目',
                     border: OutlineInputBorder(
@@ -2901,7 +3169,8 @@ class _SmartTerminalSidePanelContentState
         _agentHistory
           ..clear()
           ..addAll(renderState.history);
-        _agentState = AgentPanelState.exploring;
+        _currentPhase = AgentPhase.exploring;
+        _phaseDescription = '正在执行工具调用...';
         _agentIntent = renderState.intent ?? savedIntent;
         _traces
           ..clear()
@@ -2946,7 +3215,8 @@ class _SmartTerminalSidePanelContentState
         if (msgKeep < _assistantMessages.length) {
           _assistantMessages.removeRange(msgKeep, _assistantMessages.length);
         }
-        _agentState = AgentPanelState.exploring;
+        _currentPhase = AgentPhase.exploring;
+        _phaseDescription = '正在执行工具调用...';
         _agentIntent = savedIntent;
         _traces.clear();
       }
@@ -3085,13 +3355,15 @@ class _AgentRenderState {
     required this.turnEventOrder,
     required this.assistantMessages,
     required this.answers,
+    this.phaseDescription = '',
     this.intent,
     this.currentQuestion,
     this.result,
     this.error,
   });
 
-  final AgentPanelState state;
+  final AgentPhase state;
+  final String phaseDescription;
   final List<_AgentHistoryEntry> history;
   final String? intent;
   final List<AgentTraceEvent> traces;
@@ -3115,6 +3387,9 @@ class _SidePanelStagePill extends StatelessWidget {
       'tool' || 'tools' => ('工具', colorScheme.primaryContainer, colorScheme.primary),
       'context' => ('上下文', colorScheme.tertiaryContainer, colorScheme.tertiary),
       'plan' || 'planner' => ('思考', colorScheme.secondaryContainer, colorScheme.secondary),
+      'running' => ('执行中', colorScheme.secondaryContainer, colorScheme.secondary),
+      'done' => ('完成', colorScheme.primaryContainer, colorScheme.primary),
+      'error' => ('错误', colorScheme.errorContainer, colorScheme.error),
       _ => ('处理', colorScheme.surfaceContainerHighest, colorScheme.onSurfaceVariant),
     };
     return Container(
