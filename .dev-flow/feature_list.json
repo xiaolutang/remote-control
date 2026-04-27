@@ -2,7 +2,7 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-28T05:22:39",
+  "updated_at": "2026-04-28T05:35:34",
   "active_requirement_cycle": {
     "id": "R047",
     "name": "agent-conversation-interaction-optimization",
@@ -959,7 +959,7 @@
       "depends_on": [
         "S126"
       ],
-      "status": "pending",
+      "status": "completed",
       "priority": "high",
       "acceptance_criteria": [
         "eval --mode integration 自动执行：deploy/build.sh → docker-compose up → health check → eval 打真实 API → tear down",
@@ -981,7 +981,13 @@
         "server/evals/harness.py",
         "server/evals/integration.py"
       ],
-      "planning_notes": "Docker 集成测试是解决根因 #1（只测大脑不测神经系统）和 #5（Mock 太理想化）的最直接方案"
+      "planning_notes": "Docker 集成测试是解决根因 #1（只测大脑不测神经系统）和 #5（Mock 太理想化）的最直接方案",
+      "started_at": "2026-04-28T05:35:34",
+      "completed_at": "2026-04-28T05:35:34",
+      "actual_minutes": 30,
+      "execution_notes": "IntegrationRunner + IntegrationEvalClient，CLI 增加 --mode integration，33 个新测试通过",
+      "evidence_file": ".dev-flow/evidence/S127.md",
+      "summary": "eval Docker 集成测试框架完成：--mode integration 支持，graceful 报错，unit mode 不变"
     },
     {
       "id": "S128",
@@ -1041,8 +1047,8 @@
   "summary": {
     "total_tasks": 31,
     "by_status": {
-      "completed": 26,
-      "pending": 5
+      "completed": 27,
+      "pending": 4
     },
     "by_module": {
       "agent": 2,
