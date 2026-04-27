@@ -394,7 +394,7 @@ async def create_session(
     Returns:
         包含 session_id, status, created_at 的字典
     """
-    from app.auth import generate_session_id
+    from app.infra.auth import generate_session_id
 
     if not session_id:
         session_id = generate_session_id()

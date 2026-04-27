@@ -27,7 +27,7 @@ from unittest.mock import patch, AsyncMock, MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.auth import generate_token
+from app.infra.auth import generate_token
 
 
 # ---------------------------------------------------------------------------
@@ -69,8 +69,8 @@ def _patch_issue_deps(*, issue_data=None, logs_data=None, logs_error=None, issue
     - logs_error: GET /api/logs 异常（best-effort）
     - issue_error: POST /api/issues 异常（ConnectError/HTTPStatusError）
     """
-    session_patch = patch("app.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION)
-    token_version_patch = patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=1)
+    session_patch = patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION)
+    token_version_patch = patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1)
 
     mock_http = AsyncMock()
 
@@ -92,7 +92,7 @@ def _patch_issue_deps(*, issue_data=None, logs_data=None, logs_error=None, issue
         mock_issue_resp.json = MagicMock(return_value=issue_data or DEFAULT_ISSUE)
         mock_http.post = AsyncMock(return_value=mock_issue_resp)
 
-    client_patch = patch("app.feedback_service.get_shared_http_client", return_value=mock_http)
+    client_patch = patch("app.services.feedback_service.get_shared_http_client", return_value=mock_http)
 
     return [session_patch, token_version_patch, client_patch], mock_http
 
@@ -212,8 +212,8 @@ class TestFeedbackValidation:
 
     def test_invalid_category_returns_422(self, client, auth_headers):
         """[validation] 无效分类 → 422"""
-        with patch("app.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION), \
-             patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=1):
+        with patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION), \
+             patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1):
             resp = client.post(
                 "/api/feedback",
                 json={
@@ -456,9 +456,9 @@ class TestGetFeedbackDetailHappy:
             "logs": [{"level": "info", "message": "log entry 1", "timestamp": "2026-04-11T10:00:00Z"}],
         }
 
-        with patch("app.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION), \
-             patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=1), \
-             patch("app.feedback_api.get_feedback", new_callable=AsyncMock, return_value=feedback_detail) as mock_get:
+        with patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION), \
+             patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1), \
+             patch("app.api.feedback_api.get_feedback", new_callable=AsyncMock, return_value=feedback_detail) as mock_get:
             resp = client.get("/api/feedback/fb-001", headers=auth_headers)
 
         assert resp.status_code == 200
@@ -476,9 +476,9 @@ class TestGetFeedbackNotFound:
 
     def test_get_feedback_not_found(self, client, auth_headers):
         """[boundary] GET 查询不存在的反馈 → 404"""
-        with patch("app.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION), \
-             patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=1), \
-             patch("app.feedback_api.get_feedback", new_callable=AsyncMock, return_value=None):
+        with patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION), \
+             patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1), \
+             patch("app.api.feedback_api.get_feedback", new_callable=AsyncMock, return_value=None):
             resp = client.get("/api/feedback/nonexistent-id-12345", headers=auth_headers)
 
         assert resp.status_code == 404
@@ -495,9 +495,9 @@ class TestGetFeedbackUnauthorized:
         other_headers = {"Authorization": f"Bearer {other_token}"}
         other_session = {"id": "other-user-session", "user_id": "otheruser", "owner": "otheruser"}
 
-        with patch("app.session.get_session", new_callable=AsyncMock, return_value=other_session), \
-             patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=1), \
-             patch("app.feedback_api.get_feedback", new_callable=AsyncMock, return_value=None) as mock_get:
+        with patch("app.store.session.get_session", new_callable=AsyncMock, return_value=other_session), \
+             patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1), \
+             patch("app.api.feedback_api.get_feedback", new_callable=AsyncMock, return_value=None) as mock_get:
             resp = client.get("/api/feedback/fb-002", headers=other_headers)
 
         assert resp.status_code == 404
@@ -522,7 +522,7 @@ class TestUserIdFailClosed:
         from fastapi import HTTPException
         patches, _ = _patch_issue_deps()
         # 覆盖 get_session 抛出 404（session 不存在）
-        patches[0] = patch("app.session.get_session", new_callable=AsyncMock,
+        patches[0] = patch("app.store.session.get_session", new_callable=AsyncMock,
                            side_effect=HTTPException(status_code=404, detail="session not found"))
 
         for p in patches:
@@ -543,7 +543,7 @@ class TestUserIdFailClosed:
         session_no_user = {"id": "test-session-fb", "user_id": "", "owner": ""}
         patches, _ = _patch_issue_deps()
         # 覆盖 get_session 返回空 user_id 的 session
-        patches[0] = patch("app.session.get_session", new_callable=AsyncMock, return_value=session_no_user)
+        patches[0] = patch("app.store.session.get_session", new_callable=AsyncMock, return_value=session_no_user)
 
         for p in patches:
             p.start()
@@ -576,16 +576,16 @@ class TestLoginResponseUsername:
     def test_login_response_contains_username(self, client):
         """[contract] login 响应包含 username"""
         real_hash = hashlib.sha256("test123456".encode()).hexdigest()
-        with patch("app.user_api.get_user", new_callable=AsyncMock, return_value={
+        with patch("app.api.user_api.get_user", new_callable=AsyncMock, return_value={
             "username": "testuser", "password_hash": real_hash, "created_at": "2026-04-01T00:00:00Z"
         }), \
-             patch("app.user_api.create_session", new_callable=AsyncMock, return_value={
+             patch("app.api.user_api.create_session", new_callable=AsyncMock, return_value={
                  "session_id": "sess-1", "status": "pending", "created_at": "2026-04-12T00:00:00Z",
                  "user_id": "testuser", "owner": "testuser"
              }), \
-             patch("app.user_api.increment_token_version", new_callable=AsyncMock, return_value=1), \
-             patch("app.user_api.store_refresh_token", new_callable=AsyncMock), \
-             patch("app.user_api.update_password_hash", new_callable=AsyncMock):
+             patch("app.api.user_api.increment_token_version", new_callable=AsyncMock, return_value=1), \
+             patch("app.api.user_api.store_refresh_token", new_callable=AsyncMock), \
+             patch("app.api.user_api.update_password_hash", new_callable=AsyncMock):
             resp = client.post("/api/login", json={"username": "testuser", "password": "test123456"})
 
         assert resp.status_code == 200
@@ -595,13 +595,13 @@ class TestLoginResponseUsername:
 
     def test_register_response_contains_username(self, client):
         """[contract] register 响应包含 username"""
-        with patch("app.user_api.get_user", new_callable=AsyncMock, return_value=None), \
-             patch("app.user_api.save_user", new_callable=AsyncMock), \
-             patch("app.user_api.create_session", new_callable=AsyncMock, return_value={
+        with patch("app.api.user_api.get_user", new_callable=AsyncMock, return_value=None), \
+             patch("app.api.user_api.save_user", new_callable=AsyncMock), \
+             patch("app.api.user_api.create_session", new_callable=AsyncMock, return_value={
                  "session_id": "sess-2", "status": "pending", "created_at": "2026-04-12T00:00:00Z",
                  "user_id": "newuser", "owner": "newuser"
              }), \
-             patch("app.user_api.increment_token_version", new_callable=AsyncMock, return_value=1):
+             patch("app.api.user_api.increment_token_version", new_callable=AsyncMock, return_value=1):
             resp = client.post("/api/register", json={"username": "newuser", "password": "test123456"})
 
         assert resp.status_code == 200
@@ -620,7 +620,7 @@ class TestGetFeedbackViaLogService:
     @pytest.mark.asyncio
     async def test_normal_query_parses_component(self):
         """正常查询 → component='feedback:connection' → category='connection'"""
-        from app.feedback_service import get_feedback
+        from app.services.feedback_service import get_feedback
 
         issue_resp = {
             "id": 42,
@@ -632,7 +632,7 @@ class TestGetFeedbackViaLogService:
             "created_at": "2026-04-12T12:00:00Z",
         }
 
-        with patch("app.feedback_service.get_shared_http_client") as mock_client:
+        with patch("app.services.feedback_service.get_shared_http_client") as mock_client:
             mock_http = AsyncMock()
             mock_resp = MagicMock(status_code=200)
             mock_resp.raise_for_status = MagicMock()
@@ -652,7 +652,7 @@ class TestGetFeedbackViaLogService:
     @pytest.mark.asyncio
     async def test_reporter_mismatch_returns_none(self):
         """reporter ≠ user_id → None（404）"""
-        from app.feedback_service import get_feedback
+        from app.services.feedback_service import get_feedback
 
         issue_resp = {
             "id": 42,
@@ -662,7 +662,7 @@ class TestGetFeedbackViaLogService:
             "created_at": "2026-04-12T12:00:00Z",
         }
 
-        with patch("app.feedback_service.get_shared_http_client") as mock_client:
+        with patch("app.services.feedback_service.get_shared_http_client") as mock_client:
             mock_http = AsyncMock()
             mock_resp = MagicMock(status_code=200)
             mock_resp.raise_for_status = MagicMock()
@@ -677,11 +677,11 @@ class TestGetFeedbackViaLogService:
     @pytest.mark.asyncio
     async def test_log_service_unreachable_returns_503(self):
         """log-service 不可达 → 503"""
-        from app.feedback_service import get_feedback
+        from app.services.feedback_service import get_feedback
         from fastapi import HTTPException
         import httpx
 
-        with patch("app.feedback_service.get_shared_http_client") as mock_client:
+        with patch("app.services.feedback_service.get_shared_http_client") as mock_client:
             mock_http = AsyncMock()
             mock_http.get = AsyncMock(side_effect=httpx.ConnectError("refused"))
             mock_client.return_value = mock_http
@@ -693,10 +693,10 @@ class TestGetFeedbackViaLogService:
     @pytest.mark.asyncio
     async def test_issue_not_found_returns_none(self):
         """issue 不存在 → 404 HTTPStatusError → None"""
-        from app.feedback_service import get_feedback
+        from app.services.feedback_service import get_feedback
         import httpx
 
-        with patch("app.feedback_service.get_shared_http_client") as mock_client:
+        with patch("app.services.feedback_service.get_shared_http_client") as mock_client:
             mock_http = AsyncMock()
             mock_http.get = AsyncMock(side_effect=httpx.HTTPStatusError(
                 "404", request=httpx.Request("GET", "http://test"), response=httpx.Response(status_code=404),
@@ -711,7 +711,7 @@ class TestGetFeedbackViaLogService:
     @pytest.mark.asyncio
     async def test_environment_with_platform_and_version(self):
         """environment='android / 1.0.0' → platform='android', app_version='1.0.0'"""
-        from app.feedback_service import get_feedback
+        from app.services.feedback_service import get_feedback
 
         issue_resp = {
             "id": 43,
@@ -723,7 +723,7 @@ class TestGetFeedbackViaLogService:
             "created_at": "2026-04-12T13:00:00Z",
         }
 
-        with patch("app.feedback_service.get_shared_http_client") as mock_client:
+        with patch("app.services.feedback_service.get_shared_http_client") as mock_client:
             mock_http = AsyncMock()
             mock_resp = MagicMock(status_code=200)
             mock_resp.raise_for_status = MagicMock()
@@ -741,7 +741,7 @@ class TestGetFeedbackViaLogService:
     @pytest.mark.asyncio
     async def test_environment_platform_only(self):
         """environment='android'（无版本号）→ platform='android', app_version=''"""
-        from app.feedback_service import get_feedback
+        from app.services.feedback_service import get_feedback
 
         issue_resp = {
             "id": 44,
@@ -753,7 +753,7 @@ class TestGetFeedbackViaLogService:
             "created_at": "2026-04-12T14:00:00Z",
         }
 
-        with patch("app.feedback_service.get_shared_http_client") as mock_client:
+        with patch("app.services.feedback_service.get_shared_http_client") as mock_client:
             mock_http = AsyncMock()
             mock_resp = MagicMock(status_code=200)
             mock_resp.raise_for_status = MagicMock()
@@ -770,7 +770,7 @@ class TestGetFeedbackViaLogService:
     @pytest.mark.asyncio
     async def test_environment_empty(self):
         """environment='' → platform='', app_version=''"""
-        from app.feedback_service import get_feedback
+        from app.services.feedback_service import get_feedback
 
         issue_resp = {
             "id": 45,
@@ -782,7 +782,7 @@ class TestGetFeedbackViaLogService:
             "created_at": "2026-04-12T15:00:00Z",
         }
 
-        with patch("app.feedback_service.get_shared_http_client") as mock_client:
+        with patch("app.services.feedback_service.get_shared_http_client") as mock_client:
             mock_http = AsyncMock()
             mock_resp = MagicMock(status_code=200)
             mock_resp.raise_for_status = MagicMock()
@@ -804,7 +804,7 @@ class TestFeedbackServiceNoRedis:
     def test_no_redis_import(self):
         """feedback_service.py 不含 redis_conn / rc:feedback"""
         import inspect
-        from app import feedback_service
+        from app.services import feedback_service
         source = inspect.getsource(feedback_service)
         assert "redis_conn" not in source, "feedback_service.py 不应包含 redis_conn"
         assert "rc:feedback" not in source, "feedback_service.py 不应包含 rc:feedback 键名"

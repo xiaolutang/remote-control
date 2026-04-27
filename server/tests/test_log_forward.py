@@ -13,7 +13,7 @@ from unittest.mock import patch, AsyncMock, MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.auth import generate_token
+from app.infra.auth import generate_token
 
 
 @pytest.fixture
@@ -30,7 +30,7 @@ def auth_headers():
 
 def _with_auth_mock():
     """公共 mock：get_token_version 返回匹配值"""
-    return patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=1)
+    return patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1)
 
 
 class TestLogForwarding:
@@ -39,8 +39,8 @@ class TestLogForwarding:
     def test_upload_logs_stores_and_forwards(self, client, auth_headers):
         """[happy] Client 上报日志 → Redis 存储成功 + 转发到 log-service"""
         with _with_auth_mock(), \
-             patch("app.log_api._forward_to_log_service", new_callable=AsyncMock) as mock_fwd, \
-             patch("app.log_api.append_logs_batch", new_callable=AsyncMock, return_value={"received": 2}):
+             patch("app.api.log_api._forward_to_log_service", new_callable=AsyncMock) as mock_fwd, \
+             patch("app.api.log_api.append_logs_batch", new_callable=AsyncMock, return_value={"received": 2}):
             resp = client.post(
                 "/api/logs",
                 json={
@@ -59,13 +59,13 @@ class TestLogForwarding:
     def test_upload_logs_redis_ok_forward_fails(self, client, auth_headers, caplog):
         """[fail] log-service 不可达 → Redis 正常存储，API 正常响应"""
         with _with_auth_mock(), \
-             patch("app.log_api.append_logs_batch", new_callable=AsyncMock, return_value={"received": 1}), \
-             patch("app.log_api.get_shared_http_client") as mock_client:
+             patch("app.api.log_api.append_logs_batch", new_callable=AsyncMock, return_value={"received": 1}), \
+             patch("app.api.log_api.get_shared_http_client") as mock_client:
             mock_http = AsyncMock()
             mock_http.post = AsyncMock(side_effect=ConnectionError("log-service unreachable"))
             mock_client.return_value = mock_http
 
-            with caplog.at_level(logging.WARNING, logger="app.log_api"):
+            with caplog.at_level(logging.WARNING, logger="app.api.log_api"):
                 resp = client.post(
                     "/api/logs",
                     json={
@@ -78,7 +78,7 @@ class TestLogForwarding:
                 assert resp.json()["received"] == 1
 
         # 应有 warning 日志
-        warning_logs = [r for r in caplog.records if r.name == "app.log_api" and r.levelno >= logging.WARNING and "best-effort" in r.message]
+        warning_logs = [r for r in caplog.records if r.name == "app.api.log_api" and r.levelno >= logging.WARNING and "best-effort" in r.message]
         assert len(warning_logs) >= 1
 
     def test_batch_forward_normal(self, client, auth_headers):
@@ -86,8 +86,8 @@ class TestLogForwarding:
         logs = [{"level": "info", "message": f"log {i}"} for i in range(15)]
 
         with _with_auth_mock(), \
-             patch("app.log_api._forward_to_log_service", new_callable=AsyncMock) as mock_fwd, \
-             patch("app.log_api.append_logs_batch", new_callable=AsyncMock, return_value={"received": 15}):
+             patch("app.api.log_api._forward_to_log_service", new_callable=AsyncMock) as mock_fwd, \
+             patch("app.api.log_api.append_logs_batch", new_callable=AsyncMock, return_value={"received": 15}):
             resp = client.post(
                 "/api/logs",
                 json={"session_id": "test-session-fwd", "logs": logs},
@@ -100,11 +100,11 @@ class TestLogForwarding:
     def test_get_logs_unaffected(self, client, auth_headers):
         """[happy] GET /api/logs Redis 查询正常返回"""
         with _with_auth_mock(), \
-             patch("app.session.get_session", new_callable=AsyncMock, return_value={
+             patch("app.store.session.get_session", new_callable=AsyncMock, return_value={
                  "id": "test-session-fwd", "user_id": "test-session-fwd", "owner": "test-session-fwd",
              }), \
-             patch("app.log_api._verify_session_ownership", new_callable=AsyncMock), \
-             patch("app.log_api.get_logs", new_callable=AsyncMock, return_value={
+             patch("app.api.log_api._verify_session_ownership", new_callable=AsyncMock), \
+             patch("app.api.log_api.get_logs", new_callable=AsyncMock, return_value={
             "session_id": "test-session-fwd",
             "total": 0,
             "offset": 0,
@@ -125,9 +125,9 @@ class TestForwardFormat:
     @pytest.mark.asyncio
     async def test_log_format_mapping(self):
         """日志格式映射正确"""
-        from app.log_api import _forward_to_log_service
+        from app.api.log_api import _forward_to_log_service
 
-        with patch("app.log_api.get_shared_http_client") as mock_client:
+        with patch("app.api.log_api.get_shared_http_client") as mock_client:
             mock_http = AsyncMock()
             mock_http.post = AsyncMock(return_value=MagicMock(status_code=200))
             mock_client.return_value = mock_http
@@ -155,9 +155,9 @@ class TestForwardFormat:
     @pytest.mark.asyncio
     async def test_forward_uses_correct_url(self):
         """[escape] 转发 URL 必须是 /api/logs/ingest（不是 /api/ingest）"""
-        from app.log_api import _forward_to_log_service
+        from app.api.log_api import _forward_to_log_service
 
-        with patch("app.log_api.get_shared_http_client") as mock_client:
+        with patch("app.api.log_api.get_shared_http_client") as mock_client:
             mock_http = AsyncMock()
             mock_response = MagicMock(status_code=200)
             mock_response.raise_for_status = MagicMock()
@@ -173,10 +173,10 @@ class TestForwardFormat:
     @pytest.mark.asyncio
     async def test_forward_404_triggers_warning(self, caplog):
         """[escape] log-service 返回 404 时 raise_for_status 抛异常 → warning 日志"""
-        from app.log_api import _forward_to_log_service
+        from app.api.log_api import _forward_to_log_service
         from httpx import HTTPStatusError, Request, Response
 
-        with patch("app.log_api.get_shared_http_client") as mock_client:
+        with patch("app.api.log_api.get_shared_http_client") as mock_client:
             mock_http = AsyncMock()
             mock_response = MagicMock(status_code=404)
             mock_response.raise_for_status = MagicMock(
@@ -185,10 +185,10 @@ class TestForwardFormat:
             mock_http.post = AsyncMock(return_value=mock_response)
             mock_client.return_value = mock_http
 
-            with caplog.at_level(logging.WARNING, logger="app.log_api"):
+            with caplog.at_level(logging.WARNING, logger="app.api.log_api"):
                 await _forward_to_log_service("sess-123", [{"level": "info", "message": "test"}])
 
-            warning_logs = [r for r in caplog.records if r.name == "app.log_api" and "best-effort" in r.message]
+            warning_logs = [r for r in caplog.records if r.name == "app.api.log_api" and "best-effort" in r.message]
             assert len(warning_logs) >= 1, "404 应触发 warning 日志"
 
 
@@ -198,9 +198,9 @@ class TestForwardUid:
     @pytest.mark.asyncio
     async def test_forward_entry_contains_uid(self):
         """转发 entry 包含 uid 字段且值与客户端传来的一致"""
-        from app.log_api import _forward_to_log_service
+        from app.api.log_api import _forward_to_log_service
 
-        with patch("app.log_api.get_shared_http_client") as mock_client:
+        with patch("app.api.log_api.get_shared_http_client") as mock_client:
             mock_http = AsyncMock()
             mock_response = MagicMock(status_code=200)
             mock_response.raise_for_status = MagicMock()
@@ -217,9 +217,9 @@ class TestForwardUid:
     @pytest.mark.asyncio
     async def test_forward_entry_uid_empty_when_not_provided(self):
         """请求 body 无 uid → uid 为空字符串（不阻塞转发）"""
-        from app.log_api import _forward_to_log_service
+        from app.api.log_api import _forward_to_log_service
 
-        with patch("app.log_api.get_shared_http_client") as mock_client:
+        with patch("app.api.log_api.get_shared_http_client") as mock_client:
             mock_http = AsyncMock()
             mock_response = MagicMock(status_code=200)
             mock_response.raise_for_status = MagicMock()

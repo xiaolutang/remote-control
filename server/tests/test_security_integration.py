@@ -37,11 +37,11 @@ class TestBcryptIntegration:
 
     def test_register_uses_bcrypt_hash(self, client):
         """注册 → password_hash 以 $2b$ 开头"""
-        with patch("app.user_api.get_user", return_value=None), \
-             patch("app.user_api.save_user", new=AsyncMock()) as mock_save, \
-             patch("app.user_api.create_session", new=AsyncMock()), \
-             patch("app.user_api.increment_token_version", new=AsyncMock(return_value=1)), \
-             patch("app.rate_limit._get_rate_limit_redis") as mock_redis:
+        with patch("app.api.user_api.get_user", return_value=None), \
+             patch("app.api.user_api.save_user", new=AsyncMock()) as mock_save, \
+             patch("app.api.user_api.create_session", new=AsyncMock()), \
+             patch("app.api.user_api.increment_token_version", new=AsyncMock(return_value=1)), \
+             patch("app.infra.rate_limit._get_rate_limit_redis") as mock_redis:
             redis = AsyncMock()
             redis.incr = AsyncMock(return_value=1)
             redis.expire = AsyncMock()
@@ -65,22 +65,22 @@ class TestRateLimitIntegration:
 
     def test_rate_limit_blocks_excess_requests(self, client, auth_env):
         """连续登录超过限制 → 429"""
-        with patch("app.user_api.get_user", return_value={
+        with patch("app.api.user_api.get_user", return_value={
             "username": "testuser", "password_hash": "$2b$12$" + "a" * 53
         }), \
-             patch("app.user_api.verify_password", return_value=True), \
-             patch("app.user_api.is_legacy_hash", return_value=False), \
-             patch("app.user_api.get_session_by_name", return_value={
+             patch("app.api.user_api.verify_password", return_value=True), \
+             patch("app.api.user_api.is_legacy_hash", return_value=False), \
+             patch("app.api.user_api.get_session_by_name", return_value={
                  "id": "sess-1", "name": "testuser_session"
              }), \
-             patch("app.user_api.create_token_with_session", return_value={
+             patch("app.api.user_api.create_token_with_session", return_value={
                  "session_id": "sess-1", "token": "old",
                  "expires_at": "2026-04-16T00:00:00Z"
              }), \
-             patch("app.user_api.increment_token_version", new=AsyncMock(return_value=1)), \
-             patch("app.user_api.generate_refresh_token", return_value="rt"), \
-             patch("app.user_api.store_refresh_token", new=AsyncMock()), \
-             patch("app.rate_limit._get_rate_limit_redis") as mock_redis:
+             patch("app.api.user_api.increment_token_version", new=AsyncMock(return_value=1)), \
+             patch("app.api.user_api.generate_refresh_token", return_value="rt"), \
+             patch("app.api.user_api.store_refresh_token", new=AsyncMock()), \
+             patch("app.infra.rate_limit._get_rate_limit_redis") as mock_redis:
             redis = AsyncMock()
             redis.incr = AsyncMock(side_effect=[1, 2, 3, 4])
             redis.expire = AsyncMock()

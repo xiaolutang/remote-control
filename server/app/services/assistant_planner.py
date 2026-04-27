@@ -10,7 +10,7 @@ import json
 import os
 from typing import Any, Dict, List, Optional
 
-from app.http_client import get_shared_http_client
+from app.infra.http_client import get_shared_http_client
 
 
 class AssistantPlannerError(Exception):
@@ -54,7 +54,7 @@ def planner_budget_retry_after() -> int:
 
 
 def planner_endpoint() -> str:
-    return os.environ.get("ASSISTANT_LLM_PLANNER_URL", "").strip()
+    return os.environ.get("LLM_PLANNER_URL", "").strip()
 
 
 def planner_api_key() -> str:
@@ -67,21 +67,11 @@ def planner_api_key() -> str:
 
 
 def planner_base_url() -> str:
-    return (
-        os.environ.get("ASSISTANT_LLM_BASE_URL")
-        or os.environ.get("LLM_BASE_URL")
-        or os.environ.get("OPENAI_BASE_URL")
-        or os.environ.get("ASSISTANT_LLM_URL")
-        or ""
-    ).strip()
+    return os.environ.get("LLM_BASE_URL", "").strip()
 
 
 def planner_model() -> str:
-    return (
-        os.environ.get("ASSISTANT_LLM_MODEL")
-        or os.environ.get("LLM_MODEL")
-        or "gpt-4.1-mini"
-    ).strip()
+    return os.environ.get("LLM_MODEL", "glm-5.1").strip()
 
 
 def _extract_json_block(raw: Any) -> Optional[str]:

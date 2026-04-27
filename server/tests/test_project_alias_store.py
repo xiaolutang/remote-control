@@ -17,8 +17,8 @@ import aiosqlite
 import pytest
 import pytest_asyncio
 
-from app.database import Database
-from app.project_alias_store import ProjectAliasStore
+from app.store.database import Database
+from app.store.project_alias_store import ProjectAliasStore
 
 TEST_DB = "/tmp/test_rc_project_aliases.db"
 
@@ -390,7 +390,7 @@ async def test_list_all_ordered_by_updated_at_desc(store):
 @pytest.mark.asyncio
 async def test_alias_store_integration_with_session_manager(store):
     """验证 AgentSessionManager 能通过 alias_store 加载和保存别名。"""
-    from app.agent_session_manager import AgentSessionManager
+    from app.services.agent_session_manager import AgentSessionManager
 
     # 预存一些别名
     await store.save("alice", "device-1", "known-project", "/home/alice/known")

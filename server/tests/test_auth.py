@@ -7,8 +7,8 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 from concurrent.futures import ThreadPoolExecutor
 
-import app.auth as auth_module
-from app.auth import (
+import app.infra.auth as auth_module
+from app.infra.auth import (
     generate_token,
     verify_token,
     generate_session_id,
@@ -57,7 +57,7 @@ class TestTokenExpiration:
     def test_token_near_expiry(self):
         """token 剩余 1 秒过期，验证通过"""
         # 生成一个即将过期的 token
-        with patch('app.auth.JWT_EXPIRATION_HOURS', 1/3600):  # 1 秒
+        with patch('app.infra.auth.JWT_EXPIRATION_HOURS', 1/3600):  # 1 秒
             token = generate_token("expiring-session")
             # 立即验证应该通过
             payload = verify_token(token)
@@ -66,7 +66,7 @@ class TestTokenExpiration:
     def test_expired_token_returns_401(self):
         """过期 token → 401"""
         # 生成一个已过期的 token
-        with patch('app.auth.JWT_EXPIRATION_HOURS', -1/3600):  # -1 秒（已过期）
+        with patch('app.infra.auth.JWT_EXPIRATION_HOURS', -1/3600):  # -1 秒（已过期）
             token = generate_token("expired-session")
 
             with pytest.raises(HTTPException) as e:
@@ -264,7 +264,7 @@ class TestEnvironmentCompatibility:
         # auth_module reload 后 TokenVerificationError 变成新类，
         # 需要在现有 app 上重新注册 exception handler
         from app import app
-        from app.auth import TokenVerificationError
+        from app.infra.auth import TokenVerificationError
         from fastapi import Request
         from fastapi.responses import JSONResponse
 
@@ -292,7 +292,7 @@ class TestEnvironmentCompatibility:
         """过期 refresh token → 401"""
         # 生成一个已过期的 refresh token
         from unittest.mock import patch
-        with patch('app.auth.REFRESH_TOKEN_EXPIRATION_DAYS', -1):  # 已过期
+        with patch('app.infra.auth.REFRESH_TOKEN_EXPIRATION_DAYS', -1):  # 已过期
             refresh_token = generate_refresh_token("expired-session")
 
             with pytest.raises(HTTPException) as e:

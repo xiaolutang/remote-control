@@ -43,7 +43,7 @@ from evals.models import (
     EvalTaskInput,
     EvalTaskMetadata,
 )
-from app.terminal_agent import SYSTEM_PROMPT
+from app.services.terminal_agent import SYSTEM_PROMPT
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────

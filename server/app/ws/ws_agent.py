@@ -11,13 +11,13 @@ from typing import Optional
 from uuid import uuid4
 from fastapi import WebSocketDisconnect, HTTPException, status
 
-from app.crypto import get_crypto_manager, encrypt_message, decrypt_message, should_encrypt
-from app.command_validator import (
+from app.infra.crypto import get_crypto_manager, encrypt_message, decrypt_message, should_encrypt
+from app.infra.command_validator import (
     validate_command,
     DEFAULT_COMMAND_TIMEOUT,
     MAX_COMMAND_RATE_PER_MINUTE,
 )
-from app.ws_auth import (
+from app.ws.ws_auth import (
     wait_for_ws_auth,
     http_to_ws_code,
     MAX_WS_MESSAGE_SIZE,
@@ -26,7 +26,7 @@ from app.ws_auth import (
 import logging
 
 logger = logging.getLogger(__name__)
-from app.session import (
+from app.store.session import (
     get_session,
     set_session_online,
     set_session_offline,
@@ -71,8 +71,8 @@ async def _close_agent_conversation_for_terminal(
         if not user_id or not device_id:
             return
 
-        from app.agent_session_manager import get_agent_session_manager
-        from app.database import close_agent_conversation, get_agent_conversation
+        from app.services.agent_session_manager import get_agent_session_manager
+        from app.store.database import close_agent_conversation, get_agent_conversation
 
         conversation = await get_agent_conversation(user_id, device_id, terminal_id)
         if conversation is None or conversation.get("status") != "active":
@@ -243,7 +243,7 @@ async def agent_websocket_handler(
 
     try:
         # 获取当前视图连接数
-        from app.ws_client import get_view_counts
+        from app.ws.ws_client import get_view_counts
         view_counts = get_view_counts(session_id)
 
         # 发送连接成功消息（符合 CONTRACT-002）
@@ -325,7 +325,7 @@ async def _handle_agent_message(websocket, session_id: str, message: dict):
         message: 消息内容
     """
     # 延迟导入避免循环依赖，但只在函数顶部导入一次
-    from app.ws_client import broadcast_to_clients
+    from app.ws.ws_client import broadcast_to_clients
 
     msg_type = message.get("type")
 
@@ -455,7 +455,7 @@ async def _handle_agent_message(websocket, session_id: str, message: dict):
         # B093: Agent 上报工具目录
         tools = message.get("tools", [])
         if isinstance(tools, list):
-            from app.terminal_agent import validate_tool_catalog
+            from app.services.terminal_agent import validate_tool_catalog
             validated = validate_tool_catalog(tools)
             agent_conn = get_agent_connection(session_id)
             if agent_conn:

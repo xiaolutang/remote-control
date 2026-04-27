@@ -7,8 +7,8 @@ from typing import Optional
 import hashlib
 from datetime import datetime, timezone, timedelta
 
-from app.session import get_redis, create_session, get_session, verify_session_ownership, get_session_by_name, cleanup_user_sessions
-from app.auth import (
+from app.store.session import get_redis, create_session, get_session, verify_session_ownership, get_session_by_name, cleanup_user_sessions
+from app.infra.auth import (
     create_token_response,
     generate_refresh_token,
     verify_refresh_token,
@@ -23,8 +23,8 @@ from app.auth import (
     REFRESH_TOKEN_EXPIRATION_DAYS,
     get_current_user_id,
 )
-from app.database import get_user, save_user, get_user_devices, add_user_device, update_password_hash
-from app.rate_limit import check_rate_limit
+from app.store.database import get_user, save_user, get_user_devices, add_user_device, update_password_hash
+from app.infra.rate_limit import check_rate_limit
 
 router = APIRouter()
 
@@ -149,7 +149,7 @@ async def delete_refresh_token(session_id: str):
 def _resolve_password(password: Optional[str], password_encrypted: Optional[str]) -> str:
     """从明文或 RSA 加密字段解析出真实密码"""
     if password_encrypted:
-        from app.crypto import get_crypto_manager
+        from app.infra.crypto import get_crypto_manager
         return get_crypto_manager().rsa_decrypt(password_encrypted).decode("utf-8")
     if password:
         return password
@@ -162,7 +162,7 @@ def _resolve_password(password: Optional[str], password_encrypted: Optional[str]
 @router.get("/public-key")
 async def get_public_key():
     """获取服务器 RSA 公钥（供客户端加密密码和 AES 密钥交换）"""
-    from app.crypto import get_crypto_manager
+    from app.infra.crypto import get_crypto_manager
     return get_crypto_manager().get_public_key_info()
 
 
@@ -433,8 +433,8 @@ async def get_session_state(
         raise
 
     # 获取当前视图连接数
-    from app.ws_client import get_view_counts
-    from app.ws_agent import is_agent_connected
+    from app.ws.ws_client import get_view_counts
+    from app.ws.ws_agent import is_agent_connected
 
     view_counts = get_view_counts(session_id)
     agent_online = is_agent_connected(session_id)

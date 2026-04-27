@@ -10,9 +10,9 @@ import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.auth import TokenVerificationError
-from app.ws_client import client_websocket_handler, ClientConnection, active_clients
-from app.ws_agent import agent_websocket_handler
+from app.infra.auth import TokenVerificationError
+from app.ws.ws_client import client_websocket_handler, ClientConnection, active_clients
+from app.ws.ws_agent import agent_websocket_handler
 
 
 # ---------- WS Client Token 校验行为 ----------
@@ -26,7 +26,7 @@ class TestWSClientTokenReplaced:
         mock_ws = AsyncMock()
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "old-token"}))
 
-        with patch('app.ws_client.async_verify_token') as mock_verify:
+        with patch('app.ws.ws_client.async_verify_token') as mock_verify:
             mock_verify.side_effect = TokenVerificationError(
                 status_code=401,
                 detail="Token 已在其他设备登录",
@@ -51,7 +51,7 @@ class TestWSClientTokenExpired:
         mock_ws = AsyncMock()
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "expired-token"}))
 
-        with patch('app.ws_client.async_verify_token') as mock_verify:
+        with patch('app.ws.ws_client.async_verify_token') as mock_verify:
             mock_verify.side_effect = TokenVerificationError(
                 status_code=401,
                 detail="Token 已过期",
@@ -76,7 +76,7 @@ class TestWSClientTokenInvalid:
         mock_ws = AsyncMock()
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "bad-token"}))
 
-        with patch('app.ws_client.async_verify_token') as mock_verify:
+        with patch('app.ws.ws_client.async_verify_token') as mock_verify:
             mock_verify.side_effect = TokenVerificationError(
                 status_code=401,
                 detail="Token 无效: signature mismatch",
@@ -104,7 +104,7 @@ class TestWSClientRedisUnavailable:
         mock_ws = AsyncMock()
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "token-with-version"}))
 
-        with patch('app.ws_client.async_verify_token') as mock_verify:
+        with patch('app.ws.ws_client.async_verify_token') as mock_verify:
             mock_verify.side_effect = HTTPException(
                 status_code=503,
                 detail="Token 验证服务暂不可用",
@@ -130,15 +130,15 @@ class TestWSClientRedisUnavailable:
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "old-token-no-version"}))
         mock_ws.iter_text = MagicMock(return_value=cancelled_iter_text())
 
-        with patch('app.ws_client.async_verify_token', return_value={
+        with patch('app.ws.ws_client.async_verify_token', return_value={
             "session_id": "session-1", "sub": "user1"
         }):
-            with patch('app.ws_client.get_session', return_value={
+            with patch('app.ws.ws_client.get_session', return_value={
                 "session_id": "session-1", "owner": "user1"
             }):
-                with patch('app.ws_client.is_agent_connected', return_value=False):
-                    with patch('app.ws_client.update_session_view_count', new_callable=AsyncMock):
-                        with patch('app.ws_client._broadcast_presence', new_callable=AsyncMock):
+                with patch('app.ws.ws_client.is_agent_connected', return_value=False):
+                    with patch('app.ws.ws_client.update_session_view_count', new_callable=AsyncMock):
+                        with patch('app.ws.ws_client._broadcast_presence', new_callable=AsyncMock):
                             try:
                                 await client_websocket_handler(
                                     mock_ws, "session-1",
@@ -168,18 +168,18 @@ class TestWSClientCurrentTokenAccepted:
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
         mock_ws.iter_text = MagicMock(return_value=cancelled_iter_text())
 
-        with patch('app.ws_client.async_verify_token', return_value={
+        with patch('app.ws.ws_client.async_verify_token', return_value={
             "session_id": "session-1",
             "sub": "user1",
             "token_version": 2,
             "view_type": "mobile",
         }):
-            with patch('app.ws_client.get_session', return_value={
+            with patch('app.ws.ws_client.get_session', return_value={
                 "session_id": "session-1", "owner": "user1"
             }):
-                with patch('app.ws_client.is_agent_connected', return_value=False):
-                    with patch('app.ws_client.update_session_view_count', new_callable=AsyncMock):
-                        with patch('app.ws_client._broadcast_presence', new_callable=AsyncMock):
+                with patch('app.ws.ws_client.is_agent_connected', return_value=False):
+                    with patch('app.ws.ws_client.update_session_view_count', new_callable=AsyncMock):
+                        with patch('app.ws.ws_client._broadcast_presence', new_callable=AsyncMock):
                             try:
                                 await client_websocket_handler(
                                     mock_ws, "session-1",
@@ -205,7 +205,7 @@ class TestWSAgentTokenReplaced:
         mock_ws = AsyncMock()
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "old-token"}))
 
-        with patch('app.ws_agent.async_verify_token') as mock_verify:
+        with patch('app.ws.ws_agent.async_verify_token') as mock_verify:
             mock_verify.side_effect = TokenVerificationError(
                 status_code=401,
                 detail="Token 已在其他设备登录",
@@ -228,7 +228,7 @@ class TestWSAgentTokenExpired:
         mock_ws = AsyncMock()
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "expired-token"}))
 
-        with patch('app.ws_agent.async_verify_token') as mock_verify:
+        with patch('app.ws.ws_agent.async_verify_token') as mock_verify:
             mock_verify.side_effect = TokenVerificationError(
                 status_code=401,
                 detail="Token 已过期",
@@ -251,7 +251,7 @@ class TestWSAgentTokenInvalid:
         mock_ws = AsyncMock()
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "bad-token"}))
 
-        with patch('app.ws_agent.async_verify_token') as mock_verify:
+        with patch('app.ws.ws_agent.async_verify_token') as mock_verify:
             mock_verify.side_effect = TokenVerificationError(
                 status_code=401,
                 detail="Token 无效: bad signature",
@@ -275,7 +275,7 @@ class TestWSAgentRedisUnavailable:
         mock_ws = AsyncMock()
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "token-with-version"}))
 
-        with patch('app.ws_agent.async_verify_token') as mock_verify:
+        with patch('app.ws.ws_agent.async_verify_token') as mock_verify:
             mock_verify.side_effect = HTTPException(
                 status_code=503,
                 detail="Token 验证服务暂不可用",
@@ -302,16 +302,16 @@ class TestWSAgentOldTokenAccepted:
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "old-token"}))
         mock_ws.iter_text = MagicMock(return_value=cancelled_iter_text())
 
-        with patch('app.ws_agent.async_verify_token', return_value={
+        with patch('app.ws.ws_agent.async_verify_token', return_value={
             "session_id": "session-1", "sub": "user1"
         }):
-            with patch('app.ws_agent.get_session', return_value={
+            with patch('app.ws.ws_agent.get_session', return_value={
                 "session_id": "session-1", "owner": "user1"
             }):
-                with patch('app.ws_agent.set_session_online', new_callable=AsyncMock):
-                    with patch('app.ws_agent.update_session_device_heartbeat', new_callable=AsyncMock):
-                        with patch('app.ws_agent._restore_recoverable_terminals', new_callable=AsyncMock):
-                            with patch('app.ws_client.get_view_counts', return_value={"mobile": 0, "desktop": 0}):
+                with patch('app.ws.ws_agent.set_session_online', new_callable=AsyncMock):
+                    with patch('app.ws.ws_agent.update_session_device_heartbeat', new_callable=AsyncMock):
+                        with patch('app.ws.ws_agent._restore_recoverable_terminals', new_callable=AsyncMock):
+                            with patch('app.ws.ws_client.get_view_counts', return_value={"mobile": 0, "desktop": 0}):
                                 try:
                                     await agent_websocket_handler(mock_ws)
                                 except asyncio.CancelledError:
@@ -331,7 +331,7 @@ class TestHistoryApiAsyncVerify:
     """history_api 使用 get_current_user_id（内部调用 async_verify_token）"""
 
     def test_imports_async_version(self):
-        import app.history_api as mod
+        import app.api.history_api as mod
         import inspect
         source = inspect.getsource(mod.get_history_endpoint)
         assert "get_current_user_id" in source
@@ -339,7 +339,7 @@ class TestHistoryApiAsyncVerify:
 
     def test_auth_provides_get_current_user_id(self):
         """auth.py 导出 get_current_user_id"""
-        from app.auth import get_current_user_id
+        from app.infra.auth import get_current_user_id
         assert callable(get_current_user_id)
 
 
@@ -359,7 +359,7 @@ class TestDF20260409Regression:
         mock_ws_a = AsyncMock()
         mock_ws_a.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "ios-old-token"}))
 
-        with patch('app.ws_client.async_verify_token') as mock_verify:
+        with patch('app.ws.ws_client.async_verify_token') as mock_verify:
             mock_verify.side_effect = TokenVerificationError(
                 status_code=401,
                 detail="Token 已在其他设备登录",
@@ -387,7 +387,7 @@ class TestDF20260409Regression:
         # A 用旧 token 重连 → 在 async_verify_token 阶段被拒
         mock_ws_a = AsyncMock()
         mock_ws_a.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "ios-old-token"}))
-        with patch('app.ws_client.async_verify_token') as mock_verify:
+        with patch('app.ws.ws_client.async_verify_token') as mock_verify:
             mock_verify.side_effect = TokenVerificationError(
                 status_code=401,
                 detail="Token 已在其他设备登录",
@@ -429,7 +429,7 @@ class TestCrossViewNoKick:
         # mobile 旧 token 重连 → 被拒
         mock_ws_mobile = AsyncMock()
         mock_ws_mobile.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "mobile-old-token"}))
-        with patch('app.ws_client.async_verify_token') as mock_verify:
+        with patch('app.ws.ws_client.async_verify_token') as mock_verify:
             mock_verify.side_effect = TokenVerificationError(
                 status_code=401,
                 detail="Token 已在其他设备登录",
@@ -477,16 +477,16 @@ class TestDirectKick:
         mock_ws_b.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "new-device-token"}))
         mock_ws_b.iter_text = MagicMock(return_value=cancelled_iter_text())
 
-        with patch('app.ws_client.async_verify_token', return_value={
+        with patch('app.ws.ws_client.async_verify_token', return_value={
             "session_id": "session-1", "sub": "user1",
             "token_version": 2, "view_type": "mobile",
         }):
-            with patch('app.ws_client.get_session', return_value={
+            with patch('app.ws.ws_client.get_session', return_value={
                 "session_id": "session-1", "owner": "user1"
             }):
-                with patch('app.ws_client.is_agent_connected', return_value=False):
-                    with patch('app.ws_client.update_session_view_count', new_callable=AsyncMock):
-                        with patch('app.ws_client._broadcast_presence', new_callable=AsyncMock):
+                with patch('app.ws.ws_client.is_agent_connected', return_value=False):
+                    with patch('app.ws.ws_client.update_session_view_count', new_callable=AsyncMock):
+                        with patch('app.ws.ws_client._broadcast_presence', new_callable=AsyncMock):
                             try:
                                 await client_websocket_handler(
                                     mock_ws_b, "session-1",
@@ -532,15 +532,15 @@ class TestDirectKick:
         mock_ws_mobile.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "mobile-token"}))
         mock_ws_mobile.iter_text = MagicMock(return_value=cancelled_iter_text())
 
-        with patch('app.ws_client.async_verify_token', return_value={
+        with patch('app.ws.ws_client.async_verify_token', return_value={
             "session_id": "session-1", "sub": "user1",
         }):
-            with patch('app.ws_client.get_session', return_value={
+            with patch('app.ws.ws_client.get_session', return_value={
                 "session_id": "session-1", "owner": "user1"
             }):
-                with patch('app.ws_client.is_agent_connected', return_value=False):
-                    with patch('app.ws_client.update_session_view_count', new_callable=AsyncMock):
-                        with patch('app.ws_client._broadcast_presence', new_callable=AsyncMock):
+                with patch('app.ws.ws_client.is_agent_connected', return_value=False):
+                    with patch('app.ws.ws_client.update_session_view_count', new_callable=AsyncMock):
+                        with patch('app.ws.ws_client._broadcast_presence', new_callable=AsyncMock):
                             try:
                                 await client_websocket_handler(
                                     mock_ws_mobile, "session-1",
@@ -561,7 +561,7 @@ class TestDirectKick:
 
     def test_no_conflict_futures_or_timeout(self):
         """确认 conflict_futures 和 CONFLICT_TIMEOUT 已被移除"""
-        import app.ws_client as ws_module
+        import app.ws.ws_client as ws_module
         assert not hasattr(ws_module, 'conflict_futures')
         assert not hasattr(ws_module, 'CONFLICT_TIMEOUT')
         assert not hasattr(ws_module, '_resolve_conflict')
@@ -589,15 +589,15 @@ class TestDirectKick:
         mock_ws_b.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "new-device-token"}))
         mock_ws_b.iter_text = MagicMock(return_value=cancelled_iter_text())
 
-        with patch('app.ws_client.async_verify_token', return_value={
+        with patch('app.ws.ws_client.async_verify_token', return_value={
             "session_id": "session-1", "sub": "user1",
         }):
-            with patch('app.ws_client.get_session', return_value={
+            with patch('app.ws.ws_client.get_session', return_value={
                 "session_id": "session-1", "owner": "user1"
             }):
-                with patch('app.ws_client.is_agent_connected', return_value=False):
-                    with patch('app.ws_client.update_session_view_count', new_callable=AsyncMock):
-                        with patch('app.ws_client._broadcast_presence', new_callable=AsyncMock):
+                with patch('app.ws.ws_client.is_agent_connected', return_value=False):
+                    with patch('app.ws.ws_client.update_session_view_count', new_callable=AsyncMock):
+                        with patch('app.ws.ws_client._broadcast_presence', new_callable=AsyncMock):
                             try:
                                 await client_websocket_handler(
                                     mock_ws_b, "session-1",
@@ -630,7 +630,7 @@ class TestConcurrentReconnect:
         async def old_device_connect():
             mock_ws_a = AsyncMock()
             mock_ws_a.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "ios-old-token"}))
-            with patch('app.ws_client.async_verify_token') as mock_verify:
+            with patch('app.ws.ws_client.async_verify_token') as mock_verify:
                 mock_verify.side_effect = TokenVerificationError(
                     status_code=401,
                     detail="Token 已在其他设备登录",

@@ -27,12 +27,12 @@ class TestRedisPasswordConfig:
     @pytest.mark.asyncio
     async def test_connection_pool_uses_password(self):
         """连接池创建时传入 password 参数"""
-        with patch("app.session.aioredis.ConnectionPool.from_url") as mock_pool, \
-             patch("app.session.aioredis.Redis") as mock_redis_cls:
+        with patch("app.store.session.aioredis.ConnectionPool.from_url") as mock_pool, \
+             patch("app.store.session.aioredis.Redis") as mock_redis_cls:
             mock_pool.return_value = MagicMock()
             mock_redis_cls.return_value = AsyncMock()
 
-            from app.session import RedisConnection
+            from app.store.session import RedisConnection
             conn = RedisConnection()
             # 强制重置以触发新连接
             conn._redis = None

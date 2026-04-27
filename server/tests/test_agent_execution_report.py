@@ -15,14 +15,14 @@ from datetime import datetime, timezone
 from unittest.mock import patch, AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 
-from app.auth import generate_token
-from app.agent_session_manager import (
+from app.infra.auth import generate_token
+from app.services.agent_session_manager import (
     AgentSession,
     AgentSessionManager,
     AgentSessionState,
     get_agent_session_manager,
 )
-from app.terminal_agent import AgentResult, CommandSequenceStep
+from app.services.terminal_agent import AgentResult, CommandSequenceStep
 
 
 # ---------------------------------------------------------------------------
@@ -43,7 +43,7 @@ SAMPLE_SESSION_ID = "agent-sess-001"
 @pytest.fixture(autouse=True)
 def _reset_global_manager():
     """每个测试前后重置全局 AgentSessionManager 单例。"""
-    import app.agent_session_manager as _mod
+    import app.services.agent_session_manager as _mod
     _mod._manager = None
     yield
     _mod._manager = None
@@ -72,8 +72,8 @@ def manager():
 def _auth_patches():
     """Mock auth 链路：get_token_version + get_session。"""
     return [
-        patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-        patch("app.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
+        patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
+        patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
     ]
 
 
@@ -129,9 +129,9 @@ class TestReportAgentExecution:
             m.start()
 
         try:
-            with patch("app.runtime_api.save_agent_execution_report", new_callable=AsyncMock) as mock_save, \
-                 patch("app.runtime_api.get_agent_execution_report", new_callable=AsyncMock, return_value=None), \
-                 patch("app.runtime_api._get_alias_store") as mock_alias_store_fn:
+            with patch("app.api.runtime_api.save_agent_execution_report", new_callable=AsyncMock) as mock_save, \
+                 patch("app.api.runtime_api.get_agent_execution_report", new_callable=AsyncMock, return_value=None), \
+                 patch("app.api.runtime_api._get_alias_store") as mock_alias_store_fn:
                 mock_save.return_value = True
                 mock_store = AsyncMock()
                 mock_alias_store_fn.return_value = mock_store
@@ -174,9 +174,9 @@ class TestReportAgentExecution:
             m.start()
 
         try:
-            with patch("app.runtime_api.save_agent_execution_report", new_callable=AsyncMock) as mock_save, \
-                 patch("app.runtime_api.get_agent_execution_report", new_callable=AsyncMock, return_value=None), \
-                 patch("app.runtime_api._get_alias_store") as mock_alias_store_fn:
+            with patch("app.api.runtime_api.save_agent_execution_report", new_callable=AsyncMock) as mock_save, \
+                 patch("app.api.runtime_api.get_agent_execution_report", new_callable=AsyncMock, return_value=None), \
+                 patch("app.api.runtime_api._get_alias_store") as mock_alias_store_fn:
                 mock_save.return_value = True
                 mock_store = AsyncMock()
                 mock_alias_store_fn.return_value = mock_store
@@ -213,11 +213,11 @@ class TestReportAgentExecution:
             m.start()
 
         try:
-            with patch("app.runtime_api.get_agent_execution_report", new_callable=AsyncMock) as mock_get:
+            with patch("app.api.runtime_api.get_agent_execution_report", new_callable=AsyncMock) as mock_get:
                 # 模拟已有 report 记录
                 mock_get.return_value = {"session_id": SAMPLE_SESSION_ID, "success": 1}
 
-                with patch("app.runtime_api.save_agent_execution_report") as mock_save:
+                with patch("app.api.runtime_api.save_agent_execution_report") as mock_save:
                     response = client.post(
                         f"/api/runtime/devices/{SAMPLE_DEVICE_ID}/assistant/agent/{SAMPLE_SESSION_ID}/report",
                         headers=auth_headers,
@@ -282,9 +282,9 @@ class TestReportAgentExecution:
             m.start()
 
         try:
-            with patch("app.runtime_api.save_agent_execution_report", new_callable=AsyncMock) as mock_save, \
-                 patch("app.runtime_api.get_agent_execution_report", new_callable=AsyncMock, return_value=None), \
-                 patch("app.runtime_api._get_alias_store") as mock_alias_store_fn:
+            with patch("app.api.runtime_api.save_agent_execution_report", new_callable=AsyncMock) as mock_save, \
+                 patch("app.api.runtime_api.get_agent_execution_report", new_callable=AsyncMock, return_value=None), \
+                 patch("app.api.runtime_api._get_alias_store") as mock_alias_store_fn:
                 mock_save.return_value = True
                 mock_store = AsyncMock()
                 mock_store.save_batch.side_effect = RuntimeError("DB error")
@@ -313,9 +313,9 @@ class TestReportAgentExecution:
             m.start()
 
         try:
-            with patch("app.runtime_api.save_agent_execution_report", new_callable=AsyncMock) as mock_save, \
-                 patch("app.runtime_api.get_agent_execution_report", new_callable=AsyncMock, return_value=None), \
-                 patch("app.runtime_api._get_alias_store") as mock_alias_store_fn:
+            with patch("app.api.runtime_api.save_agent_execution_report", new_callable=AsyncMock) as mock_save, \
+                 patch("app.api.runtime_api.get_agent_execution_report", new_callable=AsyncMock, return_value=None), \
+                 patch("app.api.runtime_api._get_alias_store") as mock_alias_store_fn:
                 mock_save.return_value = True
                 mock_store = AsyncMock()
                 mock_alias_store_fn.return_value = mock_store
@@ -344,7 +344,7 @@ class TestDatabaseAgentExecutionReport:
     @pytest.fixture
     def db(self, tmp_path):
         """创建临时数据库。"""
-        from app.database import Database
+        from app.store.database import Database
         import asyncio
         database = Database(str(tmp_path / "test.db"))
         asyncio.get_event_loop().run_until_complete(database.init_db())

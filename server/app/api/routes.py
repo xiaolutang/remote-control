@@ -3,13 +3,13 @@ API 路由定义
 """
 from fastapi import APIRouter, WebSocket, Query
 
-from app.ws_agent import agent_websocket_handler
-from app.ws_client import client_websocket_handler
-from app.history_api import router as history_router
-from app.user_api import router as user_router
-from app.log_api import router as log_router
-from app.runtime_api import router as runtime_router
-from app.feedback_api import router as feedback_router
+from app.ws.ws_agent import agent_websocket_handler
+from app.ws.ws_client import client_websocket_handler
+from app.api.history_api import router as history_router
+from app.api.user_api import router as user_router
+from app.api.log_api import router as log_router
+from app.api.runtime_api import router as runtime_router
+from app.api.feedback_api import router as feedback_router
 
 router = APIRouter()
 

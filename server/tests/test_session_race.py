@@ -9,7 +9,7 @@ import json
 import asyncio
 from unittest.mock import AsyncMock, patch
 
-from app.session import (
+from app.store.session import (
     create_session,
     update_session_status,
     update_session_agent_online,
@@ -24,7 +24,7 @@ from app.session import (
 
 def _make_session_data(session_id: str) -> dict:
     """构造一份标准的 session JSON 数据（模拟 Redis 已有记录）"""
-    from app.session import _default_device_state
+    from app.store.session import _default_device_state
     from datetime import datetime, timezone
 
     return {

@@ -26,7 +26,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.agent_session_manager import (
+from app.services.agent_session_manager import (
     AgentSession,
     AgentSessionCancelled,
     AgentSessionExpired,
@@ -40,14 +40,14 @@ from app.agent_session_manager import (
     _error_event_dict,
     get_agent_session_manager,
 )
-from app.command_validator import (
+from app.infra.command_validator import (
     validate_command,
     MAX_STDOUT_LEN,
     DEFAULT_COMMAND_TIMEOUT,
     ALLOWED_COMMANDS,
     SAFE_GIT_SUBCOMMANDS,
 )
-from app.terminal_agent import (
+from app.services.terminal_agent import (
     AgentDeps,
     AgentResult,
     CommandSequenceStep,
@@ -56,7 +56,7 @@ from app.terminal_agent import (
     run_agent,
     terminal_agent,
 )
-from app.ws_agent import ExecuteCommandResult
+from app.ws.ws_agent import ExecuteCommandResult
 
 
 # ---------------------------------------------------------------------------
@@ -155,7 +155,7 @@ class TestFullPipelineIntegration:
 
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="file.txt"))
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, return_value=expected_result):
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, return_value=expected_result):
             await manager.start_agent(session, execute_fn)
             await asyncio.sleep(0.1)
 
@@ -178,7 +178,7 @@ class TestFullPipelineIntegration:
         expected_result = _make_agent_result(summary="done")
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="output"))
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, return_value=expected_result):
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, return_value=expected_result):
             await manager.start_agent(session, execute_fn)
             await asyncio.sleep(0.2)
 
@@ -214,7 +214,7 @@ class TestFullPipelineIntegration:
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="projects"))
         ask_fn_override = AsyncMock(return_value="project-a")
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_mock_run_agent):
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_mock_run_agent):
             await manager.start_agent(session, execute_fn, ask_user_fn_override=ask_fn_override)
             await asyncio.sleep(0.2)
 
@@ -235,7 +235,7 @@ class TestFullPipelineIntegration:
         )
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="output"))
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, return_value=expected_result):
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, return_value=expected_result):
             await manager.start_agent(session, execute_fn)
             await asyncio.sleep(0.2)
 
@@ -265,7 +265,7 @@ class TestFullPipelineIntegration:
 
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="output"))
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_capture_run):
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_capture_run):
             await manager.start_agent(session, execute_fn)
             await asyncio.sleep(0.2)
 
@@ -286,7 +286,7 @@ class TestFullPipelineIntegration:
         expected_result = _make_agent_result(aliases={"proj": "/path"})
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="output"))
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, return_value=expected_result):
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, return_value=expected_result):
             await manager.start_agent(session, execute_fn)
             await asyncio.sleep(0.2)
 
@@ -482,7 +482,7 @@ class TestTimeoutIntegration:
         execute_fn = AsyncMock()
 
         # 模拟 Agent 循环中抛出 AgentSessionExpired
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=AgentSessionExpired()):
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=AgentSessionExpired()):
             await manager.start_agent(session, execute_fn)
             await asyncio.sleep(0.1)
 
@@ -658,7 +658,7 @@ class TestAliasIsolationIntegration:
         result_alice = _make_agent_result(aliases={"proj": "/alice/new-proj"})
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="output"))
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, return_value=result_alice):
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, return_value=result_alice):
             await manager.start_agent(session_alice, execute_fn)
             await asyncio.sleep(0.2)
 
@@ -679,7 +679,7 @@ class TestAliasIsolationIntegration:
         result_a = _make_agent_result(aliases={"app": "/path/a"})
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="output"))
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, return_value=result_a):
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, return_value=result_a):
             await manager.start_agent(session_a, execute_fn)
             await asyncio.sleep(0.2)
 
@@ -712,7 +712,7 @@ class TestAliasIsolationIntegration:
             captured_aliases.update(kwargs.get("project_aliases", {}))
             return result
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_capture_run):
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_capture_run):
             await manager.start_agent(session, execute_fn)
             await asyncio.sleep(0.2)
 
@@ -741,7 +741,7 @@ class TestAliasIsolationIntegration:
 
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="output"))
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_capture_run):
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_capture_run):
             await manager.start_agent(session, execute_fn)
             await asyncio.sleep(0.2)
 
@@ -832,7 +832,7 @@ class TestOutputBoundaryIntegration:
         )
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="output"))
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, return_value=large_result):
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, return_value=large_result):
             await manager.start_agent(session, execute_fn)
             await asyncio.sleep(0.2)
 
@@ -907,7 +907,7 @@ class TestMobileClientNotAffected:
         execute_fn = AsyncMock()
 
         # s1 出错
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=RuntimeError("LLM failed")):
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=RuntimeError("LLM failed")):
             await manager.start_agent(s1, execute_fn)
             await asyncio.sleep(0.1)
 

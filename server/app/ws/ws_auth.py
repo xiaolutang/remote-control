@@ -15,7 +15,7 @@ from typing import Tuple
 
 from fastapi import WebSocketDisconnect, HTTPException
 
-from app.auth import async_verify_token, TokenVerificationError
+from app.infra.auth import async_verify_token, TokenVerificationError
 import logging
 
 logger = logging.getLogger(__name__)

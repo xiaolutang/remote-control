@@ -23,7 +23,7 @@ from unittest.mock import patch, AsyncMock, MagicMock
 
 from fastapi.testclient import TestClient
 
-from app.auth import generate_token
+from app.infra.auth import generate_token
 
 
 # ---------------------------------------------------------------------------
@@ -95,9 +95,9 @@ class TestQualityMetricsHappy:
         """[happy] 基本查询返回 200 + 空列表"""
         mock_db = _make_mock_db()
         stop = _apply_patches([
-            patch("app.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
-            patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-            patch("app.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
+            patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
+            patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
+            patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
         ])
         try:
             resp = client.get("/api/eval/quality/metrics", headers=auth_headers)
@@ -126,9 +126,9 @@ class TestQualityMetricsHappy:
         mock_db.query_quality_metrics = AsyncMock(return_value=metrics)
 
         stop = _apply_patches([
-            patch("app.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
-            patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-            patch("app.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
+            patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
+            patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
+            patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
         ])
         try:
             resp = client.get("/api/eval/quality/metrics", headers=auth_headers)
@@ -149,9 +149,9 @@ class TestQualityMetricsFilters:
         """[filter] 按 metric_name 过滤"""
         mock_db = _make_mock_db()
         stop = _apply_patches([
-            patch("app.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
-            patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-            patch("app.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
+            patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
+            patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
+            patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
         ])
         try:
             resp = client.get(
@@ -170,9 +170,9 @@ class TestQualityMetricsFilters:
         """[filter] 按 user_id 过滤"""
         mock_db = _make_mock_db()
         stop = _apply_patches([
-            patch("app.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
-            patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-            patch("app.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
+            patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
+            patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
+            patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
         ])
         try:
             resp = client.get(
@@ -190,9 +190,9 @@ class TestQualityMetricsFilters:
         """[filter] 按 start_time/end_time 过滤"""
         mock_db = _make_mock_db()
         stop = _apply_patches([
-            patch("app.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
-            patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-            patch("app.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
+            patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
+            patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
+            patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
         ])
         try:
             resp = client.get(
@@ -214,9 +214,9 @@ class TestQualityMetricsFilters:
         """[filter] 按 session_id 过滤"""
         mock_db = _make_mock_db()
         stop = _apply_patches([
-            patch("app.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
-            patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-            patch("app.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
+            patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
+            patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
+            patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
         ])
         try:
             resp = client.get(
@@ -234,9 +234,9 @@ class TestQualityMetricsFilters:
         """[limit] limit 参数生效"""
         mock_db = _make_mock_db()
         stop = _apply_patches([
-            patch("app.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
-            patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-            patch("app.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
+            patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
+            patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
+            patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
         ])
         try:
             resp = client.get(
@@ -262,9 +262,9 @@ class TestQualitySummaryHappy:
         """[happy] 基本查询返回 200"""
         mock_db = _make_mock_db()
         stop = _apply_patches([
-            patch("app.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
-            patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-            patch("app.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
+            patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
+            patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
+            patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
         ])
         try:
             resp = client.get("/api/eval/quality/summary", headers=auth_headers)
@@ -290,9 +290,9 @@ class TestQualitySummaryHappy:
         mock_db.aggregate_quality_metrics = AsyncMock(return_value=agg_result)
 
         stop = _apply_patches([
-            patch("app.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
-            patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-            patch("app.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
+            patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
+            patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
+            patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
         ])
         try:
             resp = client.get("/api/eval/quality/summary", headers=auth_headers)
@@ -314,9 +314,9 @@ class TestQualitySummaryAggregation:
         """[agg] 按日聚合"""
         mock_db = _make_mock_db()
         stop = _apply_patches([
-            patch("app.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
-            patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-            patch("app.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
+            patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
+            patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
+            patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
         ])
         try:
             resp = client.get(
@@ -334,9 +334,9 @@ class TestQualitySummaryAggregation:
         """[agg] 按周聚合"""
         mock_db = _make_mock_db()
         stop = _apply_patches([
-            patch("app.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
-            patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-            patch("app.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
+            patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
+            patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
+            patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
         ])
         try:
             resp = client.get(
@@ -354,9 +354,9 @@ class TestQualitySummaryAggregation:
         """[agg] 按月聚合"""
         mock_db = _make_mock_db()
         stop = _apply_patches([
-            patch("app.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
-            patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-            patch("app.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
+            patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
+            patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
+            patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
         ])
         try:
             resp = client.get(
@@ -384,9 +384,9 @@ class TestQualityMetricsDbError:
         mock_db.query_quality_metrics = AsyncMock(side_effect=Exception("db connection failed"))
 
         stop = _apply_patches([
-            patch("app.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
-            patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-            patch("app.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
+            patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
+            patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
+            patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
         ])
         try:
             resp = client.get("/api/eval/quality/metrics", headers=auth_headers)
@@ -400,9 +400,9 @@ class TestQualityMetricsDbError:
         mock_db.aggregate_quality_metrics = AsyncMock(side_effect=Exception("db connection failed"))
 
         stop = _apply_patches([
-            patch("app.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
-            patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-            patch("app.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
+            patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
+            patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
+            patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
         ])
         try:
             resp = client.get("/api/eval/quality/summary", headers=auth_headers)

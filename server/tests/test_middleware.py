@@ -15,7 +15,7 @@ from unittest.mock import patch, MagicMock
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from app.auth import TokenVerificationError
+from app.infra.auth import TokenVerificationError
 
 
 @pytest.fixture
@@ -45,7 +45,7 @@ class TestRequestIDMiddleware:
 
     def test_context_var_set(self, client):
         """[happy] ContextVar 在请求中被设置"""
-        from app.middleware import request_id_ctx
+        from app.infra.middleware import request_id_ctx
 
         captured_rid = []
 
@@ -93,14 +93,14 @@ class TestErrorHandlerMiddleware:
     def test_unhandled_exception_returns_500_with_request_id(self, client):
         """[fail] 未处理异常返回含 request_id 的 JSON 错误响应"""
         # 通过一个会抛出异常的路由来测试
-        with patch("app.ws_agent._stale_agent_ttl_checker", side_effect=RuntimeError("test boom")):
+        with patch("app.ws.ws_agent._stale_agent_ttl_checker", side_effect=RuntimeError("test boom")):
             # /health 是正常端点，我们需要找一个能触发异常的方式
             # 使用 routes 中的一个端点来测试
             pass
 
         # 创建一个临时 app 来测试 ErrorHandler
         test_app = FastAPI()
-        from app.middleware import (
+        from app.infra.middleware import (
             RequestIDMiddleware,
             RequestLoggingMiddleware,
             ErrorHandlerMiddleware,
@@ -124,7 +124,7 @@ class TestErrorHandlerMiddleware:
     def test_unhandled_exception_logs_stacktrace(self, caplog):
         """[fail] 未处理异常记录完整堆栈（exc_info=True）"""
         test_app = FastAPI()
-        from app.middleware import (
+        from app.infra.middleware import (
             RequestIDMiddleware,
             RequestLoggingMiddleware,
             ErrorHandlerMiddleware,

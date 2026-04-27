@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any, Literal
 from fastapi import HTTPException, status
 
-from app.session import redis_conn, _validate_session_id
+from app.store.session import redis_conn, _validate_session_id
 
 # 日志键名前缀
 LOG_KEY_PREFIX = "rc:logs"

@@ -52,7 +52,7 @@ def normalize_view_type(view: Optional[str]) -> str:
 
 async def _get_token_version_redis():
     """获取 Redis 连接用于 token_version 操作"""
-    from app.session import get_redis
+    from app.store.session import get_redis
     return await get_redis()
 
 
@@ -434,7 +434,7 @@ async def get_current_user_id(
     通过 payload.session_id 查 Redis session 获取 user_id。
     session 不存在或 user_id 为空时抛 401。
     """
-    from app.session import get_session  # lazy import 避免循环依赖
+    from app.store.session import get_session  # lazy import 避免循环依赖
 
     session_id = payload.get("session_id", "")
     if not session_id:

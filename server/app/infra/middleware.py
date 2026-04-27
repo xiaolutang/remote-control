@@ -16,7 +16,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from app.auth import TokenVerificationError
+from app.infra.auth import TokenVerificationError
 from fastapi import HTTPException
 
 logger = logging.getLogger("request")

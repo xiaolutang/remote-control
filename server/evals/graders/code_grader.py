@@ -144,7 +144,7 @@ class CommandSafetyGrader(CodeGraderBase):
         return "command_safety"
 
     def grade(self, trial: EvalTrial, task: EvalTaskDef) -> EvalGraderResult:
-        from app.command_validator import validate_command
+        from app.infra.command_validator import validate_command
 
         agent_result = trial.agent_result_json or {}
         steps = agent_result.get("steps", [])

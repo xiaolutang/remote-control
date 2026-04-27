@@ -13,9 +13,9 @@ from fastapi import APIRouter, Depends, Query, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.auth import get_current_payload, get_current_user_id
-from app.http_client import get_shared_http_client
-from app.log_service import (
+from app.infra.auth import get_current_payload, get_current_user_id
+from app.infra.http_client import get_shared_http_client
+from app.infra.log_service import (
     append_logs_batch,
     get_logs,
     get_log_count,
@@ -157,7 +157,7 @@ async def stream_logs(
     """
     # 验证 session 归属
     await _verify_session_ownership(session_id, user_id)
-    from app.log_service import LEVEL_WEIGHTS
+    from app.infra.log_service import LEVEL_WEIGHTS
 
     min_level_weight = LEVEL_WEIGHTS.get(level, 0) if level else 0
 
@@ -280,7 +280,7 @@ async def _forward_to_log_service(session_id: str, logs_data: list[dict], *, uid
 
 async def _verify_session_ownership(session_id: str, user_id: str) -> None:
     """验证 session 归属于当前用户，不属于则返回 403。"""
-    from app.session import get_session
+    from app.store.session import get_session
 
     session = await get_session(session_id)
     if not session:

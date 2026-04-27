@@ -2,7 +2,7 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-28T01:44:15",
+  "updated_at": "2026-04-28T02:27:02",
   "active_requirement_cycle": {
     "id": "R047",
     "name": "agent-conversation-interaction-optimization",
@@ -622,7 +622,7 @@
         "B117",
         "B118"
       ],
-      "status": "pending",
+      "status": "completed",
       "priority": "high",
       "acceptance_criteria": [
         "目录结构：api/ services/ store/ ws/ infra/ 5 个子目录",
@@ -645,7 +645,13 @@
       "files": [
         "server/app/"
       ],
-      "planning_notes": "最基础的架构治理。不做文件内部拆分，只做目录分层和文件搬家。后续 B120-B123 在此基础上做文件内拆分。"
+      "planning_notes": "最基础的架构治理。不做文件内部拆分，只做目录分层和文件搬家。后续 B120-B123 在此基础上做文件内拆分。",
+      "started_at": "2026-04-28T02:27:02",
+      "completed_at": "2026-04-28T02:27:02",
+      "actual_minutes": 30,
+      "execution_notes": "24 文件按职责分层：api/(6) services/(4) store/(3) ws/(3) infra/(8)，更新所有 import/patch/logger 路径",
+      "evidence_file": ".dev-flow/evidence/B119.md",
+      "summary": "server/app/ 目录分层完成：api/services/store/ws/infra 5 层子目录，无回归"
     },
     {
       "id": "B120",
@@ -981,8 +987,8 @@
   "summary": {
     "total_tasks": 31,
     "by_status": {
-      "completed": 16,
-      "pending": 15
+      "completed": 17,
+      "pending": 14
     },
     "by_module": {
       "agent": 2,

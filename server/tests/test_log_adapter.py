@@ -10,7 +10,7 @@ import pytest
 @pytest.fixture(autouse=True)
 def _reset_adapter():
     """每个测试前重置适配层全局状态"""
-    import app.log_adapter as mod
+    import app.infra.log_adapter as mod
     mod._handler = None
     yield
     mod._handler = None
@@ -22,7 +22,7 @@ def test_init_logging_success():
     mock_setup = MagicMock(return_value=mock_handler)
 
     with patch.dict(sys.modules, {"log_service_sdk": MagicMock(setup_remote_logging=mock_setup)}):
-        import app.log_adapter as mod
+        import app.infra.log_adapter as mod
         importlib.reload(mod)
         result = mod.init_logging(component="server")
 
@@ -36,7 +36,7 @@ def test_init_logging_success():
 def test_init_logging_sdk_import_fails():
     """SDK import 失败 → 返回 None，不抛异常"""
     with patch.dict(sys.modules, {"log_service_sdk": None}):
-        import app.log_adapter as mod
+        import app.infra.log_adapter as mod
         importlib.reload(mod)
         result = mod.init_logging(component="server")
 
@@ -49,7 +49,7 @@ def test_init_logging_idempotent():
     mock_setup = MagicMock(return_value=mock_handler)
 
     with patch.dict(sys.modules, {"log_service_sdk": MagicMock(setup_remote_logging=mock_setup)}):
-        import app.log_adapter as mod
+        import app.infra.log_adapter as mod
         importlib.reload(mod)
         r1 = mod.init_logging(component="server")
         r2 = mod.init_logging(component="server")
@@ -64,7 +64,7 @@ def test_close_logging_clears_handler():
     mock_setup = MagicMock(return_value=mock_handler)
 
     with patch.dict(sys.modules, {"log_service_sdk": MagicMock(setup_remote_logging=mock_setup)}):
-        import app.log_adapter as mod
+        import app.infra.log_adapter as mod
         importlib.reload(mod)
         mod.init_logging(component="server")
         mod.close_logging()
@@ -75,7 +75,7 @@ def test_close_logging_clears_handler():
 
 def test_close_logging_without_init():
     """未初始化时调用 close_logging → 安全，不抛异常"""
-    import app.log_adapter as mod
+    import app.infra.log_adapter as mod
     mod.close_logging()  # 不应抛异常
     assert mod._handler is None
 
@@ -87,7 +87,7 @@ def test_env_vars_passed_to_sdk():
 
     with patch.dict(os.environ, {"LOG_SERVICE_URL": "http://test:1234", "LOG_LEVEL": "DEBUG"}):
         with patch.dict(sys.modules, {"log_service_sdk": MagicMock(setup_remote_logging=mock_setup)}):
-            import app.log_adapter as mod
+            import app.infra.log_adapter as mod
             importlib.reload(mod)
             mod.init_logging(component="server")
 
@@ -115,7 +115,7 @@ def test_lifespan_calls_adapter():
          patch("app.__init__._stale_agent_ttl_checker"), \
          patch("app.__init__.configure_database"), \
          patch("app.__init__.init_db", new_callable=AsyncMock), \
-         patch("app.http_client.close_shared_http_client", new_callable=lambda: AsyncMock()):
+         patch("app.infra.http_client.close_shared_http_client", new_callable=lambda: AsyncMock()):
         from app.__init__ import lifespan, app
         from fastapi.testclient import TestClient
         # 用 TestClient 触发 lifespan

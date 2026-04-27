@@ -8,8 +8,8 @@ from typing import Optional, List, Dict, Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from app.auth import get_current_user_id
-from app.feedback_service import (
+from app.infra.auth import get_current_user_id
+from app.services.feedback_service import (
     create_feedback,
     get_feedback,
 )

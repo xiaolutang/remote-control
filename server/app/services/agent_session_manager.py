@@ -24,8 +24,8 @@ from enum import Enum
 from typing import Any, Optional
 from uuid import uuid4
 
-from app.database import save_agent_usage
-from app.terminal_agent import AgentResult, AgentUserFacingError
+from app.store.database import save_agent_usage
+from app.services.terminal_agent import AgentResult, AgentUserFacingError
 
 logger = logging.getLogger(__name__)
 
@@ -442,7 +442,7 @@ class AgentSessionManager:
         if not session.terminal_id or not session.conversation_id:
             return None
         try:
-            from app.database import append_agent_conversation_event
+            from app.store.database import append_agent_conversation_event
 
             return await append_agent_conversation_event(
                 session.user_id,
@@ -486,7 +486,7 @@ class AgentSessionManager:
         # Notify conversation stream subscribers (e.g. mobile SSE)
         if event_record and session.terminal_id:
             try:
-                from app.runtime_api import _publish_conversation_stream_event
+                from app.api.runtime_api import _publish_conversation_stream_event
 
                 await _publish_conversation_stream_event(
                     session.user_id,
@@ -515,7 +515,7 @@ class AgentSessionManager:
         """运行 Agent 主循环，将事件推入 event_queue。"""
         try:
             # 延迟导入避免循环依赖
-            from app.terminal_agent import run_agent
+            from app.services.terminal_agent import run_agent
 
             async def _execute_command_callback(session_id, command, cwd=None):
                 """Agent 执行命令回调：推送 tool_step 事件。"""

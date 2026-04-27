@@ -19,7 +19,7 @@ from pydantic_ai.messages import (
     ToolCallPart, ToolReturnPart,
 )
 
-from app.assistant_planner import (
+from app.services.assistant_planner import (
     AssistantPlannerRateLimited,
     AssistantPlannerTimeout,
     AssistantPlannerUnavailable,
@@ -27,8 +27,8 @@ from app.assistant_planner import (
     plan_with_service_llm,
     planner_timeout_ms,
 )
-from app.auth import get_current_user_id
-from app.database import (
+from app.infra.auth import get_current_user_id
+from app.store.database import (
     AgentConversationConflict,
     append_agent_conversation_event,
     close_agent_conversation,
@@ -50,7 +50,7 @@ from app.database import (
     replace_pinned_projects,
     truncate_agent_conversation_events,
 )
-from app.session import (
+from app.store.session import (
     create_session_terminal,
     get_redis,
     get_session_by_device_id,
@@ -61,7 +61,7 @@ from app.session import (
     update_session_terminal_metadata,
     update_session_terminal_status,
 )
-from app.ws_agent import (
+from app.ws.ws_agent import (
     get_agent_connection,
     is_agent_connected,
     request_agent_close_terminal_with_ack,
@@ -70,15 +70,15 @@ from app.ws_agent import (
     send_lookup_knowledge,
     send_tool_call,
 )
-from app.ws_client import get_view_counts
-from app.agent_session_manager import (
+from app.ws.ws_client import get_view_counts
+from app.services.agent_session_manager import (
     AgentSessionManager,
     AgentSessionRateLimited,
     AgentSessionState,
     ErrorCode,
     get_agent_session_manager,
 )
-from app.project_alias_store import ProjectAliasStore
+from app.store.project_alias_store import ProjectAliasStore
 from evals.db import EvalDatabase
 from evals.feedback_loop import (
     analyze_feedback,
@@ -2776,7 +2776,7 @@ async def resume_agent_session(
 
 def _get_alias_store() -> ProjectAliasStore:
     """获取 ProjectAliasStore 实例（复用 database 路径）。"""
-    from app.database import _get_db
+    from app.store.database import _get_db
     db = _get_db()
     return ProjectAliasStore(db.db_path)
 

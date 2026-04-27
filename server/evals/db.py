@@ -41,22 +41,32 @@ class EvalConfigError(Exception):
 def get_eval_agent_config() -> Dict[str, str]:
     """获取评估 Agent 配置。
 
-    必须设置：
-      - EVAL_AGENT_MODEL
-      - EVAL_AGENT_BASE_URL
-      - EVAL_AGENT_API_KEY
+    优先使用 EVAL_AGENT_*，未设置时 fallback 到 LLM_*。
+    Judge 模型默认 gpt-5.4。
 
-    可选：
-      - EVAL_JUDGE_MODEL
-      - EVAL_JUDGE_BASE_URL（默认 EVAL_AGENT_BASE_URL）
-      - EVAL_JUDGE_API_KEY（默认 EVAL_AGENT_API_KEY）
-
-    缺失必填项时 raise EvalConfigError，不复用 ASSISTANT_LLM_* 或 LLM_MODEL。
-    不允许任何默认模型回退。
+    环境变量：
+      - EVAL_AGENT_MODEL（fallback LLM_MODEL）
+      - EVAL_AGENT_BASE_URL（fallback LLM_BASE_URL）
+      - EVAL_AGENT_API_KEY（fallback LLM_API_KEY）
+      - EVAL_JUDGE_MODEL（默认 gpt-5.4）
+      - EVAL_JUDGE_BASE_URL（fallback EVAL_AGENT_BASE_URL → LLM_BASE_URL）
+      - EVAL_JUDGE_API_KEY（fallback EVAL_AGENT_API_KEY → LLM_API_KEY）
     """
-    model = os.environ.get("EVAL_AGENT_MODEL")
-    base_url = os.environ.get("EVAL_AGENT_BASE_URL")
-    api_key = os.environ.get("EVAL_AGENT_API_KEY")
+    model = (
+        os.environ.get("EVAL_AGENT_MODEL")
+        or os.environ.get("LLM_MODEL")
+        or ""
+    )
+    base_url = (
+        os.environ.get("EVAL_AGENT_BASE_URL")
+        or os.environ.get("LLM_BASE_URL")
+        or ""
+    )
+    api_key = (
+        os.environ.get("EVAL_AGENT_API_KEY")
+        or os.environ.get("LLM_API_KEY")
+        or ""
+    )
 
     missing = []
     if not model:
@@ -69,8 +79,8 @@ def get_eval_agent_config() -> Dict[str, str]:
     if missing:
         raise EvalConfigError(
             f"评估 Agent 配置缺失: {', '.join(missing)}。"
-            f"请设置 EVAL_AGENT_MODEL / EVAL_AGENT_BASE_URL / EVAL_AGENT_API_KEY 环境变量。"
-            f"不可复用 ASSISTANT_LLM_* 或 LLM_MODEL 等业务变量。"
+            f"请设置 EVAL_AGENT_MODEL / EVAL_AGENT_BASE_URL / EVAL_AGENT_API_KEY "
+            f"或 LLM_MODEL / LLM_BASE_URL / LLM_API_KEY 环境变量。"
         )
 
     config: Dict[str, str] = {
@@ -79,10 +89,9 @@ def get_eval_agent_config() -> Dict[str, str]:
         "api_key": api_key,
     }
 
-    # Judge 配置（可选，有默认值）
-    judge_model = os.environ.get("EVAL_JUDGE_MODEL")
-    if judge_model:
-        config["judge_model"] = judge_model
+    # Judge 配置：默认 gpt-5.4，URL/KEY fallback 到 eval agent 配置
+    judge_model = os.environ.get("EVAL_JUDGE_MODEL", "gpt-5.4")
+    config["judge_model"] = judge_model
     config["judge_base_url"] = os.environ.get(
         "EVAL_JUDGE_BASE_URL", base_url
     )

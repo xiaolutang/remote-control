@@ -17,7 +17,7 @@ from unittest.mock import patch, AsyncMock, MagicMock
 
 from fastapi.testclient import TestClient
 
-from app.auth import generate_token
+from app.infra.auth import generate_token
 from evals.db import EvalDatabase
 from evals.models import CandidateStatus, EvalTaskCandidate
 
@@ -478,9 +478,9 @@ class TestCandidateAPIAuth:
 def _apply_auth_and_db(mock_db):
     """统一 patch 认证 + eval db"""
     return [
-        patch("app.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
-        patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-        patch("app.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
+        patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
+        patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
+        patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, return_value=mock_db),
     ]
 
 
@@ -532,9 +532,9 @@ class TestCandidateAPIHappy:
 
     def test_db_error_returns_500(self, client, auth_headers):
         patches = [
-            patch("app.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
-            patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-            patch("app.runtime_api._ensure_eval_db", new_callable=AsyncMock, side_effect=Exception("db error")),
+            patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
+            patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
+            patch("app.api.runtime_api._ensure_eval_db", new_callable=AsyncMock, side_effect=Exception("db error")),
         ]
         started = [p.start() for p in patches]
         try:

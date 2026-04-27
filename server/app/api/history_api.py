@@ -5,12 +5,12 @@ from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel
 from typing import List
 
-from app.session import (
+from app.store.session import (
     get_history,
     get_history_count,
     verify_session_ownership,
 )
-from app.auth import get_current_user_id
+from app.infra.auth import get_current_user_id
 
 router = APIRouter()
 

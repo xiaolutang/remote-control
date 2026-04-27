@@ -15,15 +15,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.command_validator import validate_command
-from app.ws_agent import ExecuteCommandResult
+from app.infra.command_validator import validate_command
+from app.ws.ws_agent import ExecuteCommandResult
 
 
 # ---------------------------------------------------------------------------
 # 由于 app 包的 __init__.py 会触发完整的 FastAPI 初始化链，
 # 我们需要在导入 terminal_agent 之前确保环境变量已设置（conftest.py 已处理）。
 # ---------------------------------------------------------------------------
-from app.terminal_agent import (
+from app.services.terminal_agent import (
     AgentDeps,
     AgentResult,
     AgentRunOutcome,

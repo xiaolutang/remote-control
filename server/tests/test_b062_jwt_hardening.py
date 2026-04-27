@@ -14,7 +14,7 @@ import pytest
 import os
 from unittest.mock import patch, AsyncMock
 
-from app.auth import (
+from app.infra.auth import (
     generate_token,
     verify_token,
     async_verify_token,
@@ -31,7 +31,7 @@ class TestJWTSecretRequired:
         result = subprocess.run(
             [sys.executable, "-c",
              "import os; os.environ.pop('JWT_SECRET', None); "
-             "os.environ.pop('JWT_SECRET_KEY', None); import app.auth"],
+             "os.environ.pop('JWT_SECRET_KEY', None); import app.infra.auth"],
             capture_output=True, text=True,
             cwd=os.path.join(os.path.dirname(__file__), '..'),
         )
@@ -40,7 +40,7 @@ class TestJWTSecretRequired:
 
     def test_secret_set_module_loads_ok(self):
         """JWT_SECRET 设置 → 模块正常加载"""
-        from app.auth import JWT_SECRET_KEY
+        from app.infra.auth import JWT_SECRET_KEY
         assert JWT_SECRET_KEY is not None
         assert len(JWT_SECRET_KEY) > 0
 
@@ -51,7 +51,7 @@ class TestOldTokenRejected:
     @pytest.mark.asyncio
     async def test_old_token_without_version_rejected(self):
         """无 token_version 的 JWT → 401 TOKEN_INVALID"""
-        from app.auth import TokenVerificationError
+        from app.infra.auth import TokenVerificationError
         token = generate_token("session-no-version")
         try:
             await async_verify_token(token)
@@ -63,7 +63,7 @@ class TestOldTokenRejected:
     @pytest.mark.asyncio
     async def test_old_token_without_view_type_rejected(self):
         """有 token_version 但无 view_type → 401 TOKEN_INVALID"""
-        from app.auth import TokenVerificationError
+        from app.infra.auth import TokenVerificationError
         token = generate_token("session-no-viewtype", token_version=1)
         try:
             await async_verify_token(token)
@@ -79,7 +79,7 @@ class TestTokenVersionMatch:
     async def test_version_matches_redis_passes(self):
         """token_version 匹配 Redis → 正常通过"""
         token = generate_token("session-match", token_version=2, view_type="mobile")
-        with patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=2):
+        with patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=2):
             result = await async_verify_token(token)
         assert result["session_id"] == "session-match"
         assert result["token_version"] == 2
@@ -87,9 +87,9 @@ class TestTokenVersionMatch:
     @pytest.mark.asyncio
     async def test_version_mismatch_returns_replaced(self):
         """token_version 不匹配 Redis → 401 TOKEN_REPLACED"""
-        from app.auth import TokenVerificationError
+        from app.infra.auth import TokenVerificationError
         token = generate_token("session-mismatch", token_version=1, view_type="mobile")
-        with patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=2):
+        with patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=2):
             try:
                 await async_verify_token(token)
                 assert False, "Expected TokenVerificationError"
@@ -100,9 +100,9 @@ class TestTokenVersionMatch:
     @pytest.mark.asyncio
     async def test_version_not_in_redis_returns_replaced(self):
         """Redis 中无版本记录 → TOKEN_REPLACED"""
-        from app.auth import TokenVerificationError
+        from app.infra.auth import TokenVerificationError
         token = generate_token("session-no-redis", token_version=1, view_type="mobile")
-        with patch("app.auth.get_token_version", new_callable=AsyncMock, return_value=None):
+        with patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=None):
             try:
                 await async_verify_token(token)
                 assert False, "Expected TokenVerificationError"
@@ -115,7 +115,7 @@ class TestErrorDesensitization:
 
     def test_invalid_signature_returns_generic_error(self):
         """伪造签名 token → 返回脱敏信息，不含异常详情"""
-        from app.auth import TokenVerificationError
+        from app.infra.auth import TokenVerificationError
         from jose import jwt as jose_jwt
         fake_token = jose_jwt.encode(
             {"sub": "fake", "exp": 9999999999},
@@ -132,7 +132,7 @@ class TestErrorDesensitization:
 
     def test_expired_token_returns_generic_error(self):
         """过期 token → 返回脱敏信息"""
-        from app.auth import TokenVerificationError
+        from app.infra.auth import TokenVerificationError
         token = generate_token("expired-session", expires_in_hours=-1)
         try:
             verify_token(token)
@@ -148,7 +148,7 @@ class TestNoFallback:
     def test_no_token_hex_fallback(self):
         """auth.py 不包含 secrets.token_hex 回退"""
         import inspect
-        from app import auth as auth_mod
+        from app.infra import auth as auth_mod
         source = inspect.getsource(auth_mod)
         assert "secrets.token_hex" not in source
         assert "token_hex(32)" not in source

@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.ws_agent import (
+from app.ws.ws_agent import (
     send_execute_command,
     _handle_execute_command_result,
     _cleanup_execute_command_futures,
@@ -20,7 +20,7 @@ from app.ws_agent import (
     active_agents,
     AgentConnection,
 )
-from app.command_validator import MAX_COMMAND_RATE_PER_MINUTE
+from app.infra.command_validator import MAX_COMMAND_RATE_PER_MINUTE
 
 
 @pytest.fixture(autouse=True)
@@ -430,7 +430,7 @@ class TestSessionIsolation:
 
     def test_cleanup_session_scoped_lookup_knowledge(self):
         """pending_lookup_knowledge 按 session 隔离清理。"""
-        from app.ws_agent import pending_lookup_knowledge, _cleanup_pending_futures_by_id
+        from app.ws.ws_agent import pending_lookup_knowledge, _cleanup_pending_futures_by_id
         loop = asyncio.new_event_loop()
         future_a = loop.create_future()
         future_b = loop.create_future()
@@ -446,7 +446,7 @@ class TestSessionIsolation:
 
     def test_cleanup_session_scoped_tool_calls(self):
         """pending_tool_calls 按 session 隔离清理。"""
-        from app.ws_agent import pending_tool_calls, _cleanup_pending_futures_by_id
+        from app.ws.ws_agent import pending_tool_calls, _cleanup_pending_futures_by_id
         loop = asyncio.new_event_loop()
         future_a = loop.create_future()
         future_b = loop.create_future()

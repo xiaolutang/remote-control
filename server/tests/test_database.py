@@ -14,7 +14,7 @@ TEST_DB = "/tmp/test_rc_users.db"
 @pytest.fixture(autouse=True)
 def _clean_db():
     """每个测试配置独立数据库并清理"""
-    from app.database import configure_database
+    from app.store.database import configure_database
 
     if os.path.exists(TEST_DB):
         os.remove(TEST_DB)
@@ -27,7 +27,7 @@ def _clean_db():
 @pytest_asyncio.fixture
 async def db_with_tables():
     """初始化表结构"""
-    from app.database import init_db
+    from app.store.database import init_db
     await init_db()
     return TEST_DB
 
@@ -83,7 +83,7 @@ async def test_init_db_creates_index(db_with_tables):
 @pytest.mark.asyncio
 async def test_save_and_get_user(db_with_tables):
     """save_user 写入，get_user 读取"""
-    from app.database import save_user, get_user
+    from app.store.database import save_user, get_user
 
     await save_user("alice", "hash123")
     user = await get_user("alice")
@@ -97,7 +97,7 @@ async def test_save_and_get_user(db_with_tables):
 @pytest.mark.asyncio
 async def test_get_user_not_found(db_with_tables):
     """get_user 查不存在的用户返回 None"""
-    from app.database import get_user
+    from app.store.database import get_user
 
     result = await get_user("nonexistent")
     assert result is None
@@ -106,7 +106,7 @@ async def test_get_user_not_found(db_with_tables):
 @pytest.mark.asyncio
 async def test_save_duplicate_user_raises(db_with_tables):
     """重复 username 抛出 IntegrityError"""
-    from app.database import save_user
+    from app.store.database import save_user
 
     await save_user("bob", "hash1")
     with pytest.raises(aiosqlite.IntegrityError):
@@ -116,7 +116,7 @@ async def test_save_duplicate_user_raises(db_with_tables):
 @pytest.mark.asyncio
 async def test_add_and_get_user_devices(db_with_tables):
     """add_user_device 写入，get_user_devices 读取"""
-    from app.database import save_user, add_user_device, get_user_devices
+    from app.store.database import save_user, add_user_device, get_user_devices
 
     await save_user("charlie", "hash")
     await add_user_device("charlie", {
@@ -140,7 +140,7 @@ async def test_add_and_get_user_devices(db_with_tables):
 @pytest.mark.asyncio
 async def test_get_user_devices_empty(db_with_tables):
     """无设备时返回空列表"""
-    from app.database import save_user, get_user_devices
+    from app.store.database import save_user, get_user_devices
 
     await save_user("dave", "hash")
     devices = await get_user_devices("dave")
@@ -150,7 +150,7 @@ async def test_get_user_devices_empty(db_with_tables):
 @pytest.mark.asyncio
 async def test_fk_prevents_device_without_user(db_with_tables):
     """外键约束：绑定设备到不存在的用户时抛出 IntegrityError"""
-    from app.database import add_user_device
+    from app.store.database import add_user_device
 
     with pytest.raises(aiosqlite.IntegrityError):
         await add_user_device("nonexistent_user", {
@@ -163,7 +163,7 @@ async def test_fk_prevents_device_without_user(db_with_tables):
 @pytest.mark.asyncio
 async def test_init_db_idempotent():
     """init_db 多次调用不报错"""
-    from app.database import init_db
+    from app.store.database import init_db
 
     await init_db()
     await init_db()  # 第二次不应抛异常
@@ -172,7 +172,7 @@ async def test_init_db_idempotent():
 @pytest.mark.asyncio
 async def test_init_db_creates_directory(tmp_path):
     """init_db 自动创建数据目录"""
-    from app.database import configure_database, init_db
+    from app.store.database import configure_database, init_db
 
     db_path = os.path.join(str(tmp_path), "subdir", "test.db")
     configure_database(db_path)
@@ -183,7 +183,7 @@ async def test_init_db_creates_directory(tmp_path):
 @pytest.mark.asyncio
 async def test_save_agent_usage_and_get_user_summary(db_with_tables):
     """usage 记录可写入并按用户聚合。"""
-    from app.database import get_usage_summary, save_agent_usage
+    from app.store.database import get_usage_summary, save_agent_usage
 
     assert await save_agent_usage(
         "sess-1",
@@ -220,7 +220,7 @@ async def test_save_agent_usage_and_get_user_summary(db_with_tables):
 @pytest.mark.asyncio
 async def test_get_usage_summary_can_filter_by_device(db_with_tables):
     """device scope 只汇总指定设备。"""
-    from app.database import get_usage_summary, save_agent_usage
+    from app.store.database import get_usage_summary, save_agent_usage
 
     await save_agent_usage("sess-1", "user-1", "device-a", total_tokens=15, model_name="model-a")
     await save_agent_usage("sess-2", "user-1", "device-a", total_tokens=5, requests=1, model_name="model-b")
@@ -240,7 +240,7 @@ async def test_get_usage_summary_can_filter_by_device(db_with_tables):
 @pytest.mark.asyncio
 async def test_get_usage_summary_returns_zero_defaults_without_records(db_with_tables):
     """无 usage 记录时返回零值汇总。"""
-    from app.database import get_usage_summary
+    from app.store.database import get_usage_summary
 
     summary = await get_usage_summary("user-404", "device-x")
     assert summary == {
@@ -256,7 +256,7 @@ async def test_get_usage_summary_returns_zero_defaults_without_records(db_with_t
 @pytest.mark.asyncio
 async def test_save_agent_usage_failure_returns_false(db_with_tables, monkeypatch):
     """写入失败时返回 False，不向上抛异常。"""
-    from app.database import _get_db, save_agent_usage
+    from app.store.database import _get_db, save_agent_usage
 
     db = _get_db()
 
@@ -274,7 +274,7 @@ async def test_save_agent_usage_failure_returns_false(db_with_tables, monkeypatc
 @pytest.mark.asyncio
 async def test_get_or_create_agent_conversation_is_terminal_scoped(db_with_tables):
     """同一 user/device/terminal 复用同一个 conversation，不同 terminal 隔离。"""
-    from app.database import get_or_create_agent_conversation
+    from app.store.database import get_or_create_agent_conversation
 
     first = await get_or_create_agent_conversation("user-1", "device-a", "term-1")
     again = await get_or_create_agent_conversation("user-1", "device-a", "term-1")
@@ -288,7 +288,7 @@ async def test_get_or_create_agent_conversation_is_terminal_scoped(db_with_table
 @pytest.mark.asyncio
 async def test_append_agent_conversation_event_assigns_sequential_indexes(db_with_tables):
     """事件 append 在同一 conversation 内分配连续 event_index。"""
-    from app.database import append_agent_conversation_event, list_agent_conversation_events
+    from app.store.database import append_agent_conversation_event, list_agent_conversation_events
 
     first = await append_agent_conversation_event(
         "user-1",
@@ -321,7 +321,7 @@ async def test_append_agent_conversation_event_assigns_sequential_indexes(db_wit
 @pytest.mark.asyncio
 async def test_append_agent_conversation_event_supports_after_index(db_with_tables):
     """事件列表支持 after_index 增量读取。"""
-    from app.database import append_agent_conversation_event, list_agent_conversation_events
+    from app.store.database import append_agent_conversation_event, list_agent_conversation_events
 
     for index in range(3):
         await append_agent_conversation_event(
@@ -346,7 +346,7 @@ async def test_append_agent_conversation_event_supports_after_index(db_with_tabl
 @pytest.mark.asyncio
 async def test_append_agent_conversation_event_is_idempotent_by_client_event_id(db_with_tables):
     """弱网重复提交同一 client_event_id 不新增事件。"""
-    from app.database import append_agent_conversation_event, list_agent_conversation_events
+    from app.store.database import append_agent_conversation_event, list_agent_conversation_events
 
     first = await append_agent_conversation_event(
         "user-1",
@@ -377,7 +377,7 @@ async def test_append_agent_conversation_event_is_idempotent_by_client_event_id(
 @pytest.mark.asyncio
 async def test_append_agent_conversation_event_rejects_second_answer_for_question(db_with_tables):
     """同一 question_id 只能有一个有效 answer。"""
-    from app.database import (
+    from app.store.database import (
         AgentConversationConflict,
         append_agent_conversation_event,
         list_agent_conversation_events,
@@ -414,7 +414,7 @@ async def test_append_agent_conversation_event_rejects_second_answer_for_questio
 @pytest.mark.asyncio
 async def test_agent_conversation_close_tombstone_hides_history_then_cleanup(db_with_tables):
     """close 后进入 tombstone，不返回历史；过期清理后物理删除。"""
-    from app.database import (
+    from app.store.database import (
         append_agent_conversation_event,
         cleanup_agent_conversation_tombstones,
         close_agent_conversation,
@@ -451,7 +451,7 @@ async def test_agent_conversation_close_tombstone_hides_history_then_cleanup(db_
 @pytest.mark.asyncio
 async def test_delete_agent_conversation_removes_events(db_with_tables):
     """物理删除 conversation 会级联删除 events。"""
-    from app.database import (
+    from app.store.database import (
         append_agent_conversation_event,
         delete_agent_conversation,
         get_or_create_agent_conversation,
@@ -481,7 +481,7 @@ async def test_delete_agent_conversation_removes_events(db_with_tables):
 @pytest.mark.asyncio
 async def test_agent_conversation_scope_prevents_cross_user_reads(db_with_tables):
     """按 user/device/terminal 查询，其他用户不能读到 conversation/events。"""
-    from app.database import (
+    from app.store.database import (
         append_agent_conversation_event,
         get_agent_conversation,
         list_agent_conversation_events,
@@ -503,7 +503,7 @@ async def test_agent_conversation_scope_prevents_cross_user_reads(db_with_tables
 @pytest.mark.asyncio
 async def test_configure_database_creates_instance():
     """configure_database 返回 Database 实例"""
-    from app.database import configure_database, Database
+    from app.store.database import configure_database, Database
 
     db = configure_database("/tmp/test_configure.db")
     assert isinstance(db, Database)
@@ -513,7 +513,7 @@ async def test_configure_database_creates_instance():
 @pytest.mark.asyncio
 async def test_replace_and_get_pinned_projects_are_device_scoped(db_with_tables):
     """固定项目只按 user + device 生效。"""
-    from app.database import (
+    from app.store.database import (
         get_pinned_projects,
         replace_pinned_projects,
         save_user,
@@ -549,7 +549,7 @@ async def test_replace_and_get_pinned_projects_are_device_scoped(db_with_tables)
 @pytest.mark.asyncio
 async def test_replace_and_get_scan_roots_persists_enabled_and_depth(db_with_tables):
     """扫描根目录配置支持 depth/enabled 持久化。"""
-    from app.database import (
+    from app.store.database import (
         get_approved_scan_roots,
         replace_approved_scan_roots,
         save_user,
@@ -576,7 +576,7 @@ async def test_replace_and_get_scan_roots_persists_enabled_and_depth(db_with_tab
 @pytest.mark.asyncio
 async def test_save_and_get_planner_config(db_with_tables):
     """planner 配置可按 user + device 持久化。"""
-    from app.database import (
+    from app.store.database import (
         get_planner_config,
         save_planner_config,
         save_user,
@@ -606,7 +606,7 @@ async def test_save_and_get_planner_config(db_with_tables):
 @pytest.mark.asyncio
 async def test_save_and_get_assistant_planner_run(db_with_tables):
     """智能规划记录可按 user + device + conversation/message 持久化。"""
-    from app.database import (
+    from app.store.database import (
         get_assistant_planner_run,
         save_assistant_planner_run,
         save_user,
@@ -657,7 +657,7 @@ async def test_save_and_get_assistant_planner_run(db_with_tables):
 @pytest.mark.asyncio
 async def test_report_assistant_execution_updates_memory_only_after_report(db_with_tables):
     """planner memory 只在收到执行结果回写后更新。"""
-    from app.database import (
+    from app.store.database import (
         list_assistant_planner_memory,
         report_assistant_execution,
         save_assistant_planner_run,
@@ -731,7 +731,7 @@ async def test_report_assistant_execution_updates_memory_only_after_report(db_wi
 @pytest.mark.asyncio
 async def test_report_assistant_execution_is_device_scoped_and_idempotent(db_with_tables):
     """重复回写不会重复写 memory，且不同 device 不会串用。"""
-    from app.database import (
+    from app.store.database import (
         list_assistant_planner_memory,
         report_assistant_execution,
         save_assistant_planner_run,

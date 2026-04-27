@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 async def _get_rate_limit_redis():
     """获取 Redis 连接"""
-    from app.session import get_redis
+    from app.store.session import get_redis
     return await get_redis()
 
 

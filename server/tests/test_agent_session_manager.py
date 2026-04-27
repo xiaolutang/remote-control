@@ -28,7 +28,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.agent_session_manager import (
+from app.services.agent_session_manager import (
     AgentSession,
     AgentSessionCancelled,
     AgentSessionExpired,
@@ -47,8 +47,8 @@ from app.agent_session_manager import (
     _tool_step_event,
     get_agent_session_manager,
 )
-from app.terminal_agent import AgentResult, AgentRunOutcome, CommandSequenceStep
-from app.ws_agent import ExecuteCommandResult
+from app.services.terminal_agent import AgentResult, AgentRunOutcome, CommandSequenceStep
+from app.ws.ws_agent import ExecuteCommandResult
 
 
 # ---------------------------------------------------------------------------
@@ -688,7 +688,7 @@ class TestAgentRunLoop:
 
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="file.txt"))
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, return_value=mock_outcome):
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, return_value=mock_outcome):
             await manager.start_agent(s, execute_fn)
             # 等待 Agent 完成
             await asyncio.sleep(0.1)
@@ -729,8 +729,8 @@ class TestAgentRunLoop:
 
         s.event_queue.put = _tracking_put  # type: ignore[assignment]
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, return_value=mock_outcome):
-            with patch("app.agent_session_manager.save_agent_usage", new_callable=AsyncMock, side_effect=_save_usage) as save_mock:
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, return_value=mock_outcome):
+            with patch("app.services.agent_session_manager.save_agent_usage", new_callable=AsyncMock, side_effect=_save_usage) as save_mock:
                 await manager.start_agent(s, execute_fn)
                 await asyncio.sleep(0.1)
 
@@ -753,7 +753,7 @@ class TestAgentRunLoop:
 
         execute_fn = AsyncMock()
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=RuntimeError("LLM failed")):
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=RuntimeError("LLM failed")):
             await manager.start_agent(s, execute_fn)
             await asyncio.sleep(0.1)
 
@@ -788,8 +788,8 @@ class TestAgentRunLoop:
             assert answer == "remote-control"
             return mock_outcome
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_run_with_callbacks):
-            with patch("app.database.append_agent_conversation_event", new_callable=AsyncMock) as append_event:
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_run_with_callbacks):
+            with patch("app.store.database.append_agent_conversation_event", new_callable=AsyncMock) as append_event:
                 await manager.start_agent(s, execute_fn)
 
                 question_event = None
@@ -845,7 +845,7 @@ class TestAgentRunLoop:
         async def _slow_run(**kwargs):
             await asyncio.sleep(60)
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_slow_run):
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_slow_run):
             await manager.start_agent(s, execute_fn)
             await asyncio.sleep(0.05)
 
@@ -866,7 +866,7 @@ class TestFallbackPath:
     @pytest.mark.asyncio
     async def test_fallback_stream_format(self):
         """降级流应包含 fallback 事件和 result 事件。"""
-        from app.agent_session_manager import _error_event_dict
+        from app.services.agent_session_manager import _error_event_dict
 
         # 降级流由 runtime_api 中的 _agent_fallback_stream 处理
         # 这里验证错误事件字典格式
@@ -923,7 +923,7 @@ class TestEventCacheLimit:
     @pytest.mark.asyncio
     async def test_cache_trims_at_max(self, manager):
         """缓存事件超过 MAX_CACHED_EVENTS 时应截断。"""
-        from app.agent_session_manager import MAX_CACHED_EVENTS
+        from app.services.agent_session_manager import MAX_CACHED_EVENTS
 
         s = await manager.create_session(
             intent="test", device_id="d", user_id="u", session_id="cache1",
@@ -1017,8 +1017,8 @@ class TestSSEResultEventType:
 
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="file.txt"))
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, return_value=mock_outcome):
-            with patch("app.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True):
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, return_value=mock_outcome):
+            with patch("app.services.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True):
                 await manager.start_agent(s, execute_fn)
                 await asyncio.sleep(0.1)
 
@@ -1058,8 +1058,8 @@ class TestSSEResultEventType:
 
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="file.txt"))
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, return_value=mock_outcome):
-            with patch("app.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True):
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, return_value=mock_outcome):
+            with patch("app.services.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True):
                 await manager.start_agent(s, execute_fn)
                 await asyncio.sleep(0.1)
 
@@ -1100,8 +1100,8 @@ class TestSSEResultEventType:
 
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="file.txt"))
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, return_value=mock_outcome):
-            with patch("app.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True):
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, return_value=mock_outcome):
+            with patch("app.services.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True):
                 await manager.start_agent(s, execute_fn)
                 await asyncio.sleep(0.1)
 
@@ -1149,8 +1149,8 @@ class TestStreamingTextSSE:
 
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="file.txt"))
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_mock_run_agent):
-            with patch("app.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True):
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_mock_run_agent):
+            with patch("app.services.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True):
                 await manager.start_agent(s, execute_fn)
                 await asyncio.sleep(0.1)
 
@@ -1207,8 +1207,8 @@ class TestStreamingTextSSE:
 
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="file.txt"))
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_mock_run_agent):
-            with patch("app.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True):
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_mock_run_agent):
+            with patch("app.services.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True):
                 await manager.start_agent(s, execute_fn)
                 await asyncio.sleep(0.1)
 
@@ -1253,8 +1253,8 @@ class TestStreamingTextFilter:
 
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="file.txt"))
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_mock_run_agent):
-            with patch("app.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True):
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_mock_run_agent):
+            with patch("app.services.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True):
                 await manager.start_agent(s, execute_fn)
                 await asyncio.sleep(0.1)
 
@@ -1287,8 +1287,8 @@ class TestStreamingTextFilter:
 
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="file.txt"))
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_mock_run_agent):
-            with patch("app.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True):
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_mock_run_agent):
+            with patch("app.services.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True):
                 await manager.start_agent(s, execute_fn)
                 await asyncio.sleep(0.1)
 
@@ -1346,8 +1346,8 @@ class TestResultUsageOrdering:
 
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="file.txt"))
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_mock_run_agent):
-            with patch("app.agent_session_manager.save_agent_usage", new_callable=AsyncMock, side_effect=_save_usage) as save_mock:
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_mock_run_agent):
+            with patch("app.services.agent_session_manager.save_agent_usage", new_callable=AsyncMock, side_effect=_save_usage) as save_mock:
                 await manager.start_agent(s, execute_fn)
                 await asyncio.sleep(0.1)
 
@@ -1383,8 +1383,8 @@ class TestFinallyBlock:
 
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="ok"))
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, return_value=mock_outcome):
-            with patch("app.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True):
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, return_value=mock_outcome):
+            with patch("app.services.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True):
                 await manager.start_agent(s, execute_fn)
                 await asyncio.sleep(0.1)
 
@@ -1403,7 +1403,7 @@ class TestFinallyBlock:
 
         execute_fn = AsyncMock()
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=RuntimeError("boom")):
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=RuntimeError("boom")):
             await manager.start_agent(s, execute_fn)
             await asyncio.sleep(0.1)
 
@@ -1424,7 +1424,7 @@ class TestFinallyBlock:
         async def _slow_run(**kwargs):
             await asyncio.sleep(60)
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_slow_run):
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_slow_run):
             await manager.start_agent(s, execute_fn)
             await asyncio.sleep(0.05)
             await manager.cancel("fin3")
@@ -1465,8 +1465,8 @@ class TestCancelTimeoutPreservation:
 
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="ok"))
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_mock_run_agent):
-            with patch("app.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True) as save_mock:
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_mock_run_agent):
+            with patch("app.services.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True) as save_mock:
                 await manager.start_agent(s, execute_fn)
                 await asyncio.sleep(0.1)
 
@@ -1514,9 +1514,9 @@ class TestConversationPersistence:
 
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="ok"))
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_mock_run_agent):
-            with patch("app.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True):
-                with patch("app.database.append_agent_conversation_event", new_callable=AsyncMock) as append_event:
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, side_effect=_mock_run_agent):
+            with patch("app.services.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True):
+                with patch("app.store.database.append_agent_conversation_event", new_callable=AsyncMock) as append_event:
                     await manager.start_agent(s, execute_fn)
                     await asyncio.sleep(0.1)
 
@@ -1631,8 +1631,8 @@ class TestErrorResponseType:
 
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="ok"))
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, return_value=mock_outcome):
-            with patch("app.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True):
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, return_value=mock_outcome):
+            with patch("app.services.agent_session_manager.save_agent_usage", new_callable=AsyncMock, return_value=True):
                 await manager.start_agent(s, execute_fn)
                 await asyncio.sleep(0.1)
 
@@ -1684,8 +1684,8 @@ class TestErrorResponseType:
 
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="ok"))
 
-        with patch("app.terminal_agent.run_agent", new_callable=AsyncMock, return_value=mock_outcome):
-            with patch("app.agent_session_manager.save_agent_usage", new_callable=AsyncMock, side_effect=_save_usage) as save_mock:
+        with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, return_value=mock_outcome):
+            with patch("app.services.agent_session_manager.save_agent_usage", new_callable=AsyncMock, side_effect=_save_usage) as save_mock:
                 await manager.start_agent(s, execute_fn)
                 await asyncio.sleep(0.1)
 

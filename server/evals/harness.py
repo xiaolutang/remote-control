@@ -47,7 +47,7 @@ def _get_production_system_prompt() -> str:
     """获取生产 SYSTEM_PROMPT，延迟导入避免循环依赖。"""
     global _PRODUCTION_SYSTEM_PROMPT
     if _PRODUCTION_SYSTEM_PROMPT is None:
-        from app.terminal_agent import SYSTEM_PROMPT
+        from app.services.terminal_agent import SYSTEM_PROMPT
         _PRODUCTION_SYSTEM_PROMPT = SYSTEM_PROMPT
     return _PRODUCTION_SYSTEM_PROMPT
 

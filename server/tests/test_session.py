@@ -8,7 +8,7 @@ from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, patch, MagicMock
 from concurrent.futures import ThreadPoolExecutor
 
-from app.session import (
+from app.store.session import (
     create_session,
     get_session,
     update_session_status,
@@ -1297,7 +1297,7 @@ class TestRedisConnectionFailure:
         redis_conn._pool = None
 
         # Mock 连接失败
-        with patch('app.session.aioredis.ConnectionPool.from_url') as mock_pool:
+        with patch('app.store.session.aioredis.ConnectionPool.from_url') as mock_pool:
             mock_pool.side_effect = Exception("Connection refused")
 
             with pytest.raises(HTTPException) as e:

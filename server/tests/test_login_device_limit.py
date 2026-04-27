@@ -12,8 +12,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from jose import jwt
 
-import app.auth as auth_module
-import app.user_api as user_api_module
+import app.infra.auth as auth_module
+import app.api.user_api as user_api_module
 
 
 # ─── 1. normalize_view_type ───
@@ -47,7 +47,7 @@ class TestTokenVersionRedis:
     async def test_increment_returns_1_on_first_call(self):
         mock_redis = AsyncMock()
         mock_redis.incr = AsyncMock(return_value=1)
-        with patch("app.auth._get_token_version_redis", return_value=mock_redis):
+        with patch("app.infra.auth._get_token_version_redis", return_value=mock_redis):
             result = await auth_module.increment_token_version("sess-1", "mobile")
         assert result == 1
         mock_redis.incr.assert_called_once_with("token_version:sess-1:mobile")
@@ -56,7 +56,7 @@ class TestTokenVersionRedis:
     async def test_increment_increments_existing(self):
         mock_redis = AsyncMock()
         mock_redis.incr = AsyncMock(return_value=3)
-        with patch("app.auth._get_token_version_redis", return_value=mock_redis):
+        with patch("app.infra.auth._get_token_version_redis", return_value=mock_redis):
             result = await auth_module.increment_token_version("sess-1", "desktop")
         assert result == 3
 
@@ -64,7 +64,7 @@ class TestTokenVersionRedis:
     async def test_get_returns_version(self):
         mock_redis = AsyncMock()
         mock_redis.get = AsyncMock(return_value="2")
-        with patch("app.auth._get_token_version_redis", return_value=mock_redis):
+        with patch("app.infra.auth._get_token_version_redis", return_value=mock_redis):
             result = await auth_module.get_token_version("sess-1", "mobile")
         assert result == 2
 
@@ -72,7 +72,7 @@ class TestTokenVersionRedis:
     async def test_get_returns_none_when_not_exists(self):
         mock_redis = AsyncMock()
         mock_redis.get = AsyncMock(return_value=None)
-        with patch("app.auth._get_token_version_redis", return_value=mock_redis):
+        with patch("app.infra.auth._get_token_version_redis", return_value=mock_redis):
             result = await auth_module.get_token_version("sess-1", "mobile")
         assert result is None
 
@@ -148,7 +148,7 @@ class TestAsyncVerifyToken:
     async def test_version_match_passes(self):
         """版本匹配 → 正常返回"""
         token = auth_module.generate_token("sess-1", token_version=2, view_type="mobile")
-        with patch("app.auth.get_token_version", return_value=2):
+        with patch("app.infra.auth.get_token_version", return_value=2):
             result = await auth_module.async_verify_token(token)
         assert result["session_id"] == "sess-1"
 
@@ -156,7 +156,7 @@ class TestAsyncVerifyToken:
     async def test_version_mismatch_raises_token_replaced(self):
         """版本不匹配 → 401 TOKEN_REPLACED"""
         token = auth_module.generate_token("sess-1", token_version=1, view_type="mobile")
-        with patch("app.auth.get_token_version", return_value=2):
+        with patch("app.infra.auth.get_token_version", return_value=2):
             with pytest.raises(auth_module.TokenVerificationError) as exc_info:
                 await auth_module.async_verify_token(token)
         assert exc_info.value.error_code == "TOKEN_REPLACED"
@@ -166,7 +166,7 @@ class TestAsyncVerifyToken:
     async def test_version_none_in_redis_raises_token_replaced(self):
         """Redis 无版本记录 → TOKEN_REPLACED（安全侧）"""
         token = auth_module.generate_token("sess-1", token_version=1, view_type="mobile")
-        with patch("app.auth.get_token_version", return_value=None):
+        with patch("app.infra.auth.get_token_version", return_value=None):
             with pytest.raises(auth_module.TokenVerificationError) as exc_info:
                 await auth_module.async_verify_token(token)
         assert exc_info.value.error_code == "TOKEN_REPLACED"
@@ -175,7 +175,7 @@ class TestAsyncVerifyToken:
     async def test_redis_get_failure_returns_503(self):
         """Redis GET 失败 → 503（fail-closed）"""
         token = auth_module.generate_token("sess-1", token_version=1, view_type="mobile")
-        with patch("app.auth.get_token_version", side_effect=Exception("Redis down")):
+        with patch("app.infra.auth.get_token_version", side_effect=Exception("Redis down")):
             with pytest.raises(Exception) as exc_info:
                 await auth_module.async_verify_token(token)
         assert exc_info.value.status_code == 503
@@ -185,7 +185,7 @@ class TestAsyncVerifyToken:
         """旧 token（无 token_version）即使 Redis 不可用也返回 401 TOKEN_INVALID"""
         token = auth_module.generate_token("sess-1")
         # Redis 不可用时也不影响对无版本 token 的拒绝
-        with patch("app.auth.get_token_version", side_effect=Exception("Redis down")):
+        with patch("app.infra.auth.get_token_version", side_effect=Exception("Redis down")):
             with pytest.raises(auth_module.TokenVerificationError) as exc_info:
                 await auth_module.async_verify_token(token)
         assert exc_info.value.error_code == "TOKEN_INVALID"
@@ -219,22 +219,22 @@ class TestLoginIntegration:
         UserLogin = user_api_module.UserLogin
 
         # Mock 用户存在
-        with patch("app.user_api.get_user", return_value={
+        with patch("app.api.user_api.get_user", return_value={
             "username": "testuser", "password_hash": "a"*64
         }):
-            with patch("app.user_api.verify_password", return_value=True):
-                with patch("app.user_api.is_legacy_hash", return_value=True):
-                    with patch("app.user_api.update_password_hash", new=AsyncMock()):
-                        with patch("app.user_api.get_session_by_name", return_value={
+            with patch("app.api.user_api.verify_password", return_value=True):
+                with patch("app.api.user_api.is_legacy_hash", return_value=True):
+                    with patch("app.api.user_api.update_password_hash", new=AsyncMock()):
+                        with patch("app.api.user_api.get_session_by_name", return_value={
                             "id": "sess-1", "name": "testuser_session"
                         }):
-                            with patch("app.user_api.create_token_with_session", return_value={
+                            with patch("app.api.user_api.create_token_with_session", return_value={
                                 "session_id": "sess-1", "token": "old-token",
                                 "expires_at": "2026-04-16T00:00:00Z"
                             }):
-                                with patch("app.user_api.increment_token_version", new=AsyncMock(side_effect=[1, 2])):
-                                    with patch("app.user_api.generate_refresh_token", return_value="rt-1"):
-                                        with patch("app.user_api.store_refresh_token", new=AsyncMock()):
+                                with patch("app.api.user_api.increment_token_version", new=AsyncMock(side_effect=[1, 2])):
+                                    with patch("app.api.user_api.generate_refresh_token", return_value="rt-1"):
+                                        with patch("app.api.user_api.store_refresh_token", new=AsyncMock()):
                                             # 第一次登录
                                             resp1 = await login(UserLogin(username="testuser", password="pass", view="mobile"))
                                             token1 = resp1.token
@@ -250,13 +250,13 @@ class TestLoginIntegration:
         assert payload2["token_version"] == 2
 
         # 模拟 Redis 当前版本为 2，token1 版本校验应失败
-        with patch("app.auth.get_token_version", return_value=2):
+        with patch("app.infra.auth.get_token_version", return_value=2):
             with pytest.raises(auth_module.TokenVerificationError) as exc_info:
                 await auth_module.async_verify_token(token1)
         assert exc_info.value.error_code == "TOKEN_REPLACED"
 
         # token2 版本校验应成功
-        with patch("app.auth.get_token_version", return_value=2):
+        with patch("app.infra.auth.get_token_version", return_value=2):
             result = await auth_module.async_verify_token(token2)
         assert result["session_id"] == "sess-1"
 
@@ -266,21 +266,21 @@ class TestLoginIntegration:
         login = user_api_module.login
         UserLogin = user_api_module.UserLogin
 
-        with patch("app.user_api.get_user", return_value={
+        with patch("app.api.user_api.get_user", return_value={
             "username": "testuser", "password_hash": "a"*64
         }):
-            with patch("app.user_api.verify_password", return_value=True):
-                with patch("app.user_api.is_legacy_hash", return_value=False):
-                    with patch("app.user_api.get_session_by_name", return_value={
+            with patch("app.api.user_api.verify_password", return_value=True):
+                with patch("app.api.user_api.is_legacy_hash", return_value=False):
+                    with patch("app.api.user_api.get_session_by_name", return_value={
                         "id": "sess-1", "name": "testuser_session"
                     }):
-                        with patch("app.user_api.create_token_with_session", return_value={
+                        with patch("app.api.user_api.create_token_with_session", return_value={
                             "session_id": "sess-1", "token": "old",
                             "expires_at": "2026-04-16T00:00:00Z"
                         }):
-                            with patch("app.user_api.increment_token_version", new=AsyncMock(return_value=1)):
-                                with patch("app.user_api.generate_refresh_token", return_value="rt"):
-                                    with patch("app.user_api.store_refresh_token", new=AsyncMock()):
+                            with patch("app.api.user_api.increment_token_version", new=AsyncMock(return_value=1)):
+                                with patch("app.api.user_api.generate_refresh_token", return_value="rt"):
+                                    with patch("app.api.user_api.store_refresh_token", new=AsyncMock()):
                                         mobile_resp = await login(UserLogin(username="testuser", password="pass", view="mobile"))
                                         desktop_resp = await login(UserLogin(username="testuser", password="pass", view="desktop"))
 
@@ -303,14 +303,14 @@ class TestLoginIntegration:
         rt = generate_refresh_token(session_id, view_type="mobile")
 
         # 模拟 Redis 中 mobile 版本为 3
-        with patch("app.user_api.verify_refresh_token", return_value={
+        with patch("app.api.user_api.verify_refresh_token", return_value={
             "session_id": session_id, "type": "refresh", "view_type": "mobile"
         }):
-            with patch("app.user_api.get_stored_refresh_token", return_value=rt):
-                with patch("app.user_api.delete_refresh_token", new=AsyncMock()):
-                    with patch("app.user_api.get_token_version", return_value=3):
-                        with patch("app.user_api.generate_refresh_token", return_value="new-rt"):
-                            with patch("app.user_api.store_refresh_token", new=AsyncMock()):
+            with patch("app.api.user_api.get_stored_refresh_token", return_value=rt):
+                with patch("app.api.user_api.delete_refresh_token", new=AsyncMock()):
+                    with patch("app.api.user_api.get_token_version", return_value=3):
+                        with patch("app.api.user_api.generate_refresh_token", return_value="new-rt"):
+                            with patch("app.api.user_api.store_refresh_token", new=AsyncMock()):
                                 resp = await user_api_module.refresh_token(
                                     RefreshRequest(refresh_token=rt)
                                 )
@@ -325,10 +325,10 @@ class TestLoginIntegration:
         register = user_api_module.register
         UserRegister = user_api_module.UserRegister
 
-        with patch("app.user_api.get_user", return_value=None):
-            with patch("app.user_api.save_user", new=AsyncMock()):
-                with patch("app.user_api.create_session", new=AsyncMock()):
-                    with patch("app.user_api.increment_token_version", new=AsyncMock(return_value=1)):
+        with patch("app.api.user_api.get_user", return_value=None):
+            with patch("app.api.user_api.save_user", new=AsyncMock()):
+                with patch("app.api.user_api.create_session", new=AsyncMock()):
+                    with patch("app.api.user_api.increment_token_version", new=AsyncMock(return_value=1)):
                         resp = await register(UserRegister(
                             username="newuser", password="pass123", view="desktop"
                         ))
@@ -343,17 +343,17 @@ class TestLoginIntegration:
         login = user_api_module.login
         UserLogin = user_api_module.UserLogin
 
-        with patch("app.user_api.get_user", return_value={
+        with patch("app.api.user_api.get_user", return_value={
             "username": "testuser", "password_hash": "a"*64
         }):
-            with patch("app.user_api.verify_password", return_value=True):
-                with patch("app.user_api.is_legacy_hash", return_value=True):
-                    with patch("app.user_api.update_password_hash", new=AsyncMock()):
-                        with patch("app.user_api.get_session_by_name", return_value=None):
-                            with patch("app.user_api.create_session", new=AsyncMock()):
-                                with patch("app.user_api.increment_token_version", new=AsyncMock(return_value=1)):
-                                    with patch("app.user_api.generate_refresh_token", return_value="rt"):
-                                        with patch("app.user_api.store_refresh_token", new=AsyncMock()):
+            with patch("app.api.user_api.verify_password", return_value=True):
+                with patch("app.api.user_api.is_legacy_hash", return_value=True):
+                    with patch("app.api.user_api.update_password_hash", new=AsyncMock()):
+                        with patch("app.api.user_api.get_session_by_name", return_value=None):
+                            with patch("app.api.user_api.create_session", new=AsyncMock()):
+                                with patch("app.api.user_api.increment_token_version", new=AsyncMock(return_value=1)):
+                                    with patch("app.api.user_api.generate_refresh_token", return_value="rt"):
+                                        with patch("app.api.user_api.store_refresh_token", new=AsyncMock()):
                                             resp = await login(UserLogin(username="testuser", password="pass", view="tablet"))
 
         payload = jwt.decode(resp.token, auth_module.JWT_SECRET_KEY, algorithms=[auth_module.JWT_ALGORITHM])
@@ -366,15 +366,15 @@ class TestLoginIntegration:
         UserLogin = user_api_module.UserLogin
         from fastapi import HTTPException
 
-        with patch("app.user_api.get_user", return_value={
+        with patch("app.api.user_api.get_user", return_value={
             "username": "testuser", "password_hash": "a"*64
         }):
-            with patch("app.user_api.verify_password", return_value=True):
-                with patch("app.user_api.is_legacy_hash", return_value=True):
-                    with patch("app.user_api.update_password_hash", new=AsyncMock()):
-                        with patch("app.user_api.get_session_by_name", return_value=None):
-                            with patch("app.user_api.create_session", new=AsyncMock()):
-                                with patch("app.user_api.increment_token_version", side_effect=Exception("Redis down")):
+            with patch("app.api.user_api.verify_password", return_value=True):
+                with patch("app.api.user_api.is_legacy_hash", return_value=True):
+                    with patch("app.api.user_api.update_password_hash", new=AsyncMock()):
+                        with patch("app.api.user_api.get_session_by_name", return_value=None):
+                            with patch("app.api.user_api.create_session", new=AsyncMock()):
+                                with patch("app.api.user_api.increment_token_version", side_effect=Exception("Redis down")):
                                     with pytest.raises(HTTPException) as exc_info:
                                         await login(UserLogin(username="testuser", password="pass"))
                                     assert exc_info.value.status_code == 503
@@ -389,12 +389,12 @@ class TestLoginIntegration:
         session_id = "sess-1"
         rt = generate_refresh_token(session_id, view_type="mobile")
 
-        with patch("app.user_api.verify_refresh_token", return_value={
+        with patch("app.api.user_api.verify_refresh_token", return_value={
             "session_id": session_id, "type": "refresh", "view_type": "mobile"
         }):
-            with patch("app.user_api.get_stored_refresh_token", return_value=rt):
-                with patch("app.user_api.delete_refresh_token", new=AsyncMock()):
-                    with patch("app.user_api.get_token_version", side_effect=Exception("Redis down")):
+            with patch("app.api.user_api.get_stored_refresh_token", return_value=rt):
+                with patch("app.api.user_api.delete_refresh_token", new=AsyncMock()):
+                    with patch("app.api.user_api.get_token_version", side_effect=Exception("Redis down")):
                         with pytest.raises(HTTPException) as exc_info:
                             await user_api_module.refresh_token(
                                 RefreshRequest(refresh_token=rt)
@@ -412,14 +412,14 @@ class TestLoginIntegration:
         rt = generate_refresh_token(session_id)
 
         # 旧 refresh token 的 payload 没有 view_type
-        with patch("app.user_api.verify_refresh_token", return_value={
+        with patch("app.api.user_api.verify_refresh_token", return_value={
             "session_id": session_id, "type": "refresh"
         }):
-            with patch("app.user_api.get_stored_refresh_token", return_value=rt):
-                with patch("app.user_api.delete_refresh_token", new=AsyncMock()):
-                    with patch("app.user_api.get_token_version", return_value=5):
-                        with patch("app.user_api.generate_refresh_token", return_value="new-rt"):
-                            with patch("app.user_api.store_refresh_token", new=AsyncMock()):
+            with patch("app.api.user_api.get_stored_refresh_token", return_value=rt):
+                with patch("app.api.user_api.delete_refresh_token", new=AsyncMock()):
+                    with patch("app.api.user_api.get_token_version", return_value=5):
+                        with patch("app.api.user_api.generate_refresh_token", return_value="new-rt"):
+                            with patch("app.api.user_api.store_refresh_token", new=AsyncMock()):
                                 resp = await user_api_module.refresh_token(
                                     RefreshRequest(refresh_token=rt)
                                 )
@@ -437,22 +437,22 @@ class TestLoginIntegration:
         # 模拟 INCR 返回递增值（1 和 2）
         incr_mock = AsyncMock(side_effect=[1, 2])
 
-        with patch("app.user_api.get_user", return_value={
+        with patch("app.api.user_api.get_user", return_value={
             "username": "testuser", "password_hash": "a"*64
         }):
-            with patch("app.user_api.verify_password", return_value=True):
-                with patch("app.user_api.is_legacy_hash", return_value=True):
-                    with patch("app.user_api.update_password_hash", new=AsyncMock()):
-                        with patch("app.user_api.get_session_by_name", return_value={
+            with patch("app.api.user_api.verify_password", return_value=True):
+                with patch("app.api.user_api.is_legacy_hash", return_value=True):
+                    with patch("app.api.user_api.update_password_hash", new=AsyncMock()):
+                        with patch("app.api.user_api.get_session_by_name", return_value={
                             "id": "sess-1", "name": "testuser_session"
                         }):
-                            with patch("app.user_api.create_token_with_session", return_value={
+                            with patch("app.api.user_api.create_token_with_session", return_value={
                                 "session_id": "sess-1", "token": "old",
                                 "expires_at": "2026-04-16T00:00:00Z"
                             }):
-                                with patch("app.user_api.increment_token_version", new=incr_mock):
-                                    with patch("app.user_api.generate_refresh_token", return_value="rt"):
-                                        with patch("app.user_api.store_refresh_token", new=AsyncMock()):
+                                with patch("app.api.user_api.increment_token_version", new=incr_mock):
+                                    with patch("app.api.user_api.generate_refresh_token", return_value="rt"):
+                                        with patch("app.api.user_api.store_refresh_token", new=AsyncMock()):
                                             # 两个并发登录
                                             import asyncio
                                             results = await asyncio.gather(
@@ -471,12 +471,12 @@ class TestLoginIntegration:
         assert payload2["token_version"] == 2
 
         # 版本 2 是最新的，token1 应失效
-        with patch("app.auth.get_token_version", return_value=2):
+        with patch("app.infra.auth.get_token_version", return_value=2):
             with pytest.raises(auth_module.TokenVerificationError):
                 await auth_module.async_verify_token(token1)
 
         # token2 应正常
-        with patch("app.auth.get_token_version", return_value=2):
+        with patch("app.infra.auth.get_token_version", return_value=2):
             result = await auth_module.async_verify_token(token2)
         assert result["session_id"] == "sess-1"
 
@@ -487,22 +487,22 @@ class TestLoginIntegration:
         UserLogin = user_api_module.UserLogin
 
         # 模拟登录两次（不需要 Agent 或 WS 连接）
-        with patch("app.user_api.get_user", return_value={
+        with patch("app.api.user_api.get_user", return_value={
             "username": "testuser", "password_hash": "a"*64
         }):
-            with patch("app.user_api.verify_password", return_value=True):
-                with patch("app.user_api.is_legacy_hash", return_value=True):
-                    with patch("app.user_api.update_password_hash", new=AsyncMock()):
-                        with patch("app.user_api.get_session_by_name", return_value={
+            with patch("app.api.user_api.verify_password", return_value=True):
+                with patch("app.api.user_api.is_legacy_hash", return_value=True):
+                    with patch("app.api.user_api.update_password_hash", new=AsyncMock()):
+                        with patch("app.api.user_api.get_session_by_name", return_value={
                             "id": "sess-1", "name": "testuser_session"
                         }):
-                            with patch("app.user_api.create_token_with_session", return_value={
+                            with patch("app.api.user_api.create_token_with_session", return_value={
                                 "session_id": "sess-1", "token": "old",
                                 "expires_at": "2026-04-16T00:00:00Z"
                             }):
-                                with patch("app.user_api.increment_token_version", new=AsyncMock(side_effect=[1, 2])):
-                                    with patch("app.user_api.generate_refresh_token", return_value="rt"):
-                                        with patch("app.user_api.store_refresh_token", new=AsyncMock()):
+                                with patch("app.api.user_api.increment_token_version", new=AsyncMock(side_effect=[1, 2])):
+                                    with patch("app.api.user_api.generate_refresh_token", return_value="rt"):
+                                        with patch("app.api.user_api.store_refresh_token", new=AsyncMock()):
                                             resp1 = await login(UserLogin(username="testuser", password="pass", view="mobile"))
                                             resp2 = await login(UserLogin(username="testuser", password="pass", view="mobile"))
 
@@ -513,7 +513,7 @@ class TestLoginIntegration:
         assert payload2["token_version"] == 2
 
         # 第一个 token 在版本 2 下应被 TOKEN_REPLACED
-        with patch("app.auth.get_token_version", return_value=2):
+        with patch("app.infra.auth.get_token_version", return_value=2):
             with pytest.raises(auth_module.TokenVerificationError) as exc_info:
                 await auth_module.async_verify_token(resp1.token)
         assert exc_info.value.error_code == "TOKEN_REPLACED"
@@ -545,7 +545,7 @@ class TestE2ETokenVersionEnforcement:
         headers_v1 = {"Authorization": f"Bearer {token_v1}"}
 
         # 模拟 Redis 中版本已递增到 2
-        with patch("app.auth.get_token_version", return_value=2):
+        with patch("app.infra.auth.get_token_version", return_value=2):
             response = self.client.get("/api/runtime/devices", headers=headers_v1)
 
         assert response.status_code == 401
@@ -559,9 +559,9 @@ class TestE2ETokenVersionEnforcement:
         token_v2 = auth.generate_token("e2e-session-2", token_version=2, view_type="mobile")
         headers_v2 = {"Authorization": f"Bearer {token_v2}"}
 
-        with patch("app.auth.get_token_version", return_value=2):
-            with patch("app.session.get_session", new=AsyncMock(return_value={"user_id": "user1", "owner": "user1"})):
-                with patch("app.runtime_api.list_sessions_for_user", new=AsyncMock(return_value=[])):
+        with patch("app.infra.auth.get_token_version", return_value=2):
+            with patch("app.store.session.get_session", new=AsyncMock(return_value={"user_id": "user1", "owner": "user1"})):
+                with patch("app.api.runtime_api.list_sessions_for_user", new=AsyncMock(return_value=[])):
                     response = self.client.get("/api/runtime/devices", headers=headers_v2)
 
         assert response.status_code == 200
@@ -573,7 +573,7 @@ class TestE2ETokenVersionEnforcement:
         token_v1 = auth.generate_token("e2e-session-3", token_version=1, view_type="mobile")
         headers_v1 = {"Authorization": f"Bearer {token_v1}"}
 
-        with patch("app.auth.get_token_version", return_value=2):
+        with patch("app.infra.auth.get_token_version", return_value=2):
             response = self.client.get("/api/sessions/e2e-session-3", headers=headers_v1)
 
         assert response.status_code == 401
@@ -586,7 +586,7 @@ class TestE2ETokenVersionEnforcement:
 
         token_v1 = auth.generate_token("e2e-session-4", token_version=1, view_type="mobile")
 
-        with patch("app.auth.get_token_version", return_value=2):
+        with patch("app.infra.auth.get_token_version", return_value=2):
             response = self.client.get(
                 "/api/logs?session_id=e2e-session-4",
                 headers={"Authorization": f"Bearer {token_v1}"},
@@ -609,7 +609,7 @@ class TestRouteLevelVerificationEnforcement:
 
     def test_runtime_api_uses_async_verify(self):
         """runtime_api 通过 Depends(get_current_user_id) 使用 async_verify_token"""
-        import app.runtime_api as mod
+        import app.api.runtime_api as mod
         import inspect
         source = inspect.getsource(mod.list_runtime_devices)
         # list_runtime_devices 通过 Depends(get_current_user_id) 鉴权
@@ -617,7 +617,7 @@ class TestRouteLevelVerificationEnforcement:
 
     def test_log_api_uses_async_verify(self):
         """log_api 通过 Depends(get_current_payload) 使用 async_verify_token"""
-        import app.log_api as mod
+        import app.api.log_api as mod
         import inspect
         source = inspect.getsource(mod.upload_logs)
         # upload_logs 通过 Depends(get_current_payload) 鉴权
@@ -625,7 +625,7 @@ class TestRouteLevelVerificationEnforcement:
 
     def test_user_api_session_state_uses_async_verify(self):
         """user_api.get_session_state 通过 Depends(get_current_user_id) 使用 async_verify_token"""
-        import app.user_api as mod
+        import app.api.user_api as mod
         import inspect
         source = inspect.getsource(mod.get_session_state)
         # get_session_state 通过 Depends(get_current_user_id) 鉴权
@@ -634,7 +634,7 @@ class TestRouteLevelVerificationEnforcement:
 
     def test_user_api_does_not_swallow_token_verification_error(self):
         """user_api.get_session_state 鉴权委托给 get_current_user_id（统一错误处理）"""
-        import app.user_api as mod
+        import app.api.user_api as mod
         import inspect
         source = inspect.getsource(mod.get_session_state)
         # 鉴权完全由 Depends(get_current_user_id) 处理，路由函数无需手动捕获异常
@@ -642,7 +642,7 @@ class TestRouteLevelVerificationEnforcement:
 
     def test_ws_client_uses_async_verify(self):
         """ws_client 必须使用 async_verify_token（通过 _wait_for_ws_auth）"""
-        import app.ws_client as mod
+        import app.ws.ws_client as mod
         import inspect
         handler_source = inspect.getsource(mod.client_websocket_handler)
         auth_source = inspect.getsource(mod._wait_for_ws_auth)
@@ -650,7 +650,7 @@ class TestRouteLevelVerificationEnforcement:
 
     def test_ws_agent_uses_async_verify(self):
         """ws_agent 必须使用 async_verify_token（通过 _wait_for_ws_auth）"""
-        import app.ws_agent as mod
+        import app.ws.ws_agent as mod
         import inspect
         handler_source = inspect.getsource(mod.agent_websocket_handler)
         auth_source = inspect.getsource(mod._wait_for_ws_auth)
@@ -658,7 +658,7 @@ class TestRouteLevelVerificationEnforcement:
 
     def test_history_api_uses_async_verify(self):
         """history_api 通过 Depends(get_current_user_id) 使用 async_verify_token"""
-        import app.history_api as mod
+        import app.api.history_api as mod
         import inspect
         source = inspect.getsource(mod.get_history_endpoint)
         # get_history_endpoint 通过 Depends(get_current_user_id) 鉴权

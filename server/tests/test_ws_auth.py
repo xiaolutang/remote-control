@@ -1,4 +1,4 @@
-from app.ws_auth import is_secure_websocket_transport
+from app.ws.ws_auth import is_secure_websocket_transport
 from tests.ws_test_helpers import trusted_proxy_headers, trusted_proxy_scope, websocket_stub
 
 

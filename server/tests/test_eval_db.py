@@ -107,7 +107,7 @@ class TestEvalConfig:
             # Judge 默认值
             assert config["judge_base_url"] == "http://localhost:8000"
             assert config["judge_api_key"] == "sk-test"
-            assert "judge_model" not in config
+            assert config["judge_model"] == "gpt-5.4"
 
     def test_judge_config_override(self):
         """Judge 配置覆盖"""
@@ -125,12 +125,15 @@ class TestEvalConfig:
             assert config["judge_api_key"] == "sk-judge"
 
     def test_error_message_mentions_no_business_vars(self):
-        """错误信息明确说明不复用业务变量"""
+        """错误信息提示设置正确的环境变量"""
         with pytest.MonkeyPatch.context() as m:
             m.delenv("EVAL_AGENT_MODEL", raising=False)
             m.delenv("EVAL_AGENT_BASE_URL", raising=False)
             m.delenv("EVAL_AGENT_API_KEY", raising=False)
-            with pytest.raises(EvalConfigError, match="ASSISTANT_LLM"):
+            m.delenv("LLM_MODEL", raising=False)
+            m.delenv("LLM_BASE_URL", raising=False)
+            m.delenv("LLM_API_KEY", raising=False)
+            with pytest.raises(EvalConfigError, match="LLM_MODEL"):
                 get_eval_agent_config()
 
 

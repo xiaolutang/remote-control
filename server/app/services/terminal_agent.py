@@ -34,8 +34,8 @@ import pydantic_ai.exceptions as pai_exc
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
-from app.command_validator import validate_command, SENSITIVE_PATH_DISPLAY
-from app.assistant_planner import (
+from app.infra.command_validator import validate_command, SENSITIVE_PATH_DISPLAY
+from app.services.assistant_planner import (
     planner_api_key,
     planner_base_url,
     planner_model,

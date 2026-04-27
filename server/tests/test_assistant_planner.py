@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app.assistant_planner import (
+from app.services.assistant_planner import (
     AssistantPlannerRateLimited,
     AssistantPlannerUnavailable,
     plan_with_service_llm,
@@ -112,10 +112,10 @@ async def test_plan_with_service_llm_uses_openai_compatible_direct_mode():
     with patch.dict(
         os.environ,
         {
-            "ASSISTANT_LLM_API_KEY": "test-key",
-            "ASSISTANT_LLM_BASE_URL": "https://example.test/v1",
-            "ASSISTANT_LLM_MODEL": "gpt-4.1-mini",
-            "ASSISTANT_LLM_PLANNER_URL": "",
+            "LLM_API_KEY": "test-key",
+            "LLM_BASE_URL": "https://example.test/v1",
+            "LLM_MODEL": "gpt-4.1-mini",
+            "LLM_PLANNER_URL": "",
         },
         clear=False,
     ):
@@ -160,8 +160,8 @@ async def test_plan_with_service_llm_maps_direct_rate_limit():
     with patch.dict(
         os.environ,
         {
-            "ASSISTANT_LLM_API_KEY": "test-key",
-            "ASSISTANT_LLM_PLANNER_URL": "",
+            "LLM_API_KEY": "test-key",
+            "LLM_BASE_URL": "https://example.test/v1",
         },
         clear=False,
     ):
@@ -186,13 +186,9 @@ async def test_plan_with_service_llm_requires_config_when_no_provider_available(
     with patch.dict(
         os.environ,
         {
-            "ASSISTANT_LLM_API_KEY": "",
-            "ASSISTANT_LLM_BASE_URL": "",
-            "ASSISTANT_LLM_PLANNER_URL": "",
             "LLM_API_KEY": "",
             "LLM_BASE_URL": "",
-            "OPENAI_API_KEY": "",
-            "OPENAI_BASE_URL": "",
+            "LLM_PLANNER_URL": "",
         },
         clear=False,
     ):

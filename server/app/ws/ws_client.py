@@ -11,8 +11,8 @@ from typing import Optional
 
 from fastapi import WebSocketDisconnect, HTTPException
 
-from app.crypto import get_crypto_manager, encrypt_message, decrypt_message, should_encrypt
-from app.session import (
+from app.infra.crypto import get_crypto_manager, encrypt_message, decrypt_message, should_encrypt
+from app.store.session import (
     get_session,
     get_session_by_device_id,
     get_session_terminal,
@@ -22,12 +22,12 @@ from app.session import (
     update_session_terminal_pty,
     update_session_terminal_views,
 )
-from app.ws_agent import (
+from app.ws.ws_agent import (
     get_agent_connection,
     is_agent_connected,
     request_agent_terminal_snapshot,
 )
-from app.ws_auth import (
+from app.ws.ws_auth import (
     wait_for_ws_auth,
     http_to_ws_code,
     MAX_WS_MESSAGE_SIZE,

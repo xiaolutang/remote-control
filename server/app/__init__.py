@@ -9,16 +9,16 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.routes import router
-from app.ws_agent import _stale_agent_ttl_checker
-from app.auth import TokenVerificationError
-from app.log_adapter import init_logging, close_logging
-from app.middleware import (
+from app.api.routes import router
+from app.ws.ws_agent import _stale_agent_ttl_checker
+from app.infra.auth import TokenVerificationError
+from app.infra.log_adapter import init_logging, close_logging
+from app.infra.middleware import (
     RequestIDMiddleware,
     RequestLoggingMiddleware,
     ErrorHandlerMiddleware,
 )
-from app.database import configure_database, init_db, DEFAULT_DB_PATH
+from app.store.database import configure_database, init_db, DEFAULT_DB_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +72,7 @@ async def lifespan(app: FastAPI):
             pass
         logger.info("Stale agent TTL checker stopped")
     # 关闭共享 httpx 异步客户端
-    from app.http_client import close_shared_http_client
+    from app.infra.http_client import close_shared_http_client
     await close_shared_http_client()
 
     # 关闭远程日志 handler

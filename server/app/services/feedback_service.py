@@ -11,7 +11,7 @@ from typing import Optional
 import httpx
 from fastapi import HTTPException, status
 
-from app.http_client import get_shared_http_client
+from app.infra.http_client import get_shared_http_client
 
 logger = logging.getLogger(__name__)
 
