@@ -85,3 +85,93 @@ class AgentConversationEventItem {
     );
   }
 }
+
+/// 单轮对话的阶段摘要信息
+///
+/// 从 phase_change / streaming_text / tool_step 事件中提取，
+/// 存储在 _AgentHistoryEntry 中用于历史恢复和展示。
+class TurnPhaseSummary {
+  const TurnPhaseSummary({
+    required this.phase,
+    this.description,
+    this.streamingText = '',
+    this.toolSteps = const [],
+  });
+
+  /// 最后一个阶段名称（如 THINKING, ACTING, RESPONDING）
+  final String phase;
+
+  /// 阶段描述
+  final String? description;
+
+  /// 累积的流式文本
+  final String streamingText;
+
+  /// 工具步骤列表
+  final List<TurnToolStep> toolSteps;
+
+  factory TurnPhaseSummary.fromJson(Map<String, dynamic> json) {
+    return TurnPhaseSummary(
+      phase: (json['phase'] as String? ?? '').trim(),
+      description: (json['description'] as String?)?.trim(),
+      streamingText: (json['streaming_text'] as String? ?? '').trim(),
+      toolSteps: (json['tool_steps'] as List<dynamic>? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map(TurnToolStep.fromJson)
+          .toList(growable: false),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'phase': phase,
+        if (description != null) 'description': description,
+        'streaming_text': streamingText,
+        'tool_steps': toolSteps.map((s) => s.toJson()).toList(),
+      };
+
+  /// 创建一份副本，更新部分字段
+  TurnPhaseSummary copyWith({
+    String? phase,
+    String? description,
+    String? streamingText,
+    List<TurnToolStep>? toolSteps,
+  }) {
+    return TurnPhaseSummary(
+      phase: phase ?? this.phase,
+      description: description ?? this.description,
+      streamingText: streamingText ?? this.streamingText,
+      toolSteps: toolSteps ?? this.toolSteps,
+    );
+  }
+}
+
+/// 单个工具步骤的快照
+class TurnToolStep {
+  const TurnToolStep({
+    required this.toolName,
+    required this.description,
+    required this.status,
+    this.resultSummary,
+  });
+
+  final String toolName;
+  final String description;
+  final String status;
+  final String? resultSummary;
+
+  factory TurnToolStep.fromJson(Map<String, dynamic> json) {
+    return TurnToolStep(
+      toolName: (json['tool_name'] as String? ?? '').trim(),
+      description: (json['description'] as String? ?? '').trim(),
+      status: (json['status'] as String? ?? 'running').trim(),
+      resultSummary: (json['result_summary'] as String?)?.trim(),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'tool_name': toolName,
+        'description': description,
+        'status': status,
+        if (resultSummary != null) 'result_summary': resultSummary,
+      };
+}

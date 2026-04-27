@@ -871,6 +871,34 @@ class _SmartTerminalSidePanelContentState
           }
         });
 
+      // --- F107 新事件类型：最小化处理，详细 UI 在 F108 ---
+      case PhaseChangeEvent():
+        // 阶段变更：暂不展示，仅保持 exploring 状态
+        setState(() {
+          if (_agentState == AgentPanelState.idle) {
+            _agentState = AgentPanelState.exploring;
+          }
+        });
+
+      case StreamingTextEvent():
+        // 流式文本：暂不展示，仅保持 exploring 状态
+        setState(() {
+          if (_agentState == AgentPanelState.idle) {
+            _agentState = AgentPanelState.exploring;
+          }
+        });
+
+      case ToolStepEvent():
+        // 工具步骤：暂不展示，仅保持 exploring 状态
+        setState(() {
+          if (_agentState == AgentPanelState.idle ||
+              _agentState == AgentPanelState.asking) {
+            _agentState = AgentPanelState.exploring;
+          }
+        });
+
+      // --- F107 新事件类型结束 ---
+
       case AgentTraceEvent trace:
         setState(() {
           _traces.add(trace);

@@ -459,16 +459,24 @@ class AgentSessionService {
       switch (eventType) {
         case 'session_created':
           return AgentSessionCreatedEvent.fromJson(json);
-        case 'trace':
-          return AgentTraceEvent.fromJson(json);
-        case 'assistant_message':
-          return AgentAssistantMessageEvent.fromJson(json);
+        // --- 新事件类型 ---
+        case 'phase_change':
+          return PhaseChangeEvent.fromJson(json);
+        case 'streaming_text':
+          return StreamingTextEvent.fromJson(json);
+        case 'tool_step':
+          return ToolStepEvent.fromJson(json);
+        // --- 保留事件 ---
         case 'question':
           return AgentQuestionEvent.fromJson(json);
         case 'result':
           return AgentResultEvent.fromJson(json);
         case 'error':
           return AgentErrorEvent.fromJson(json);
+        // --- 旧事件类型：兼容丢弃（不 crash） ---
+        case 'trace':
+        case 'assistant_message':
+          return null;
         default:
           return null;
       }
