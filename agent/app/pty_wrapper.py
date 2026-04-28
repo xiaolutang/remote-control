@@ -1,6 +1,5 @@
 """
 PTY (伪终端) 包装器
-
 """
 import asyncio
 import logging
@@ -15,33 +14,9 @@ import fcntl
 import termios
 from typing import Optional, Callable
 
+from app.transport.pty_types import PTYConfig, _create_exec_pipe
+
 logger = logging.getLogger(__name__)
-
-
-from dataclasses import dataclass, field
-
-
-def _create_exec_pipe():
-    """创建 exec 同步管道，write end 设为 CLOEXEC。优先用 pipe2 原子操作。"""
-    try:
-        r, w = os.pipe2(os.O_CLOEXEC)
-    except AttributeError:
-        # macOS 不支持 pipe2，fallback 到 pipe + fcntl
-        r, w = os.pipe()
-        flags = fcntl.fcntl(w, fcntl.F_GETFD)
-        fcntl.fcntl(w, fcntl.F_SETFD, flags | fcntl.FD_CLOEXEC)
-    return r, w
-
-
-@dataclass
-class PTYConfig:
-    """PTY 配置"""
-    rows: int = 24
-    cols: int = 80
-    env: Optional[dict] = None
-
-
-    cwd: Optional[str] = None
 
 
 class PTYWrapper:
