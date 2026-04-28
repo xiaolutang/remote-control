@@ -170,9 +170,14 @@ Future<void> _wsSend(WebSocketService s, String data) async {
   if (s._status != ConnectionStatus.connected || s._channel == null) {
     return;
   }
+  // Bracketed Paste Mode: 多行内容（如 AI prompt 注入）用 BPM 转义序列包裹，
+  // 防止终端将换行解释为多次输入导致截断。
+  final content = data.contains('\n')
+      ? '\x1b[200~$data\x1b[201~'
+      : data;
   final raw = {
     'type': 'data',
-    'payload': base64Encode(utf8.encode(data)),
+    'payload': base64Encode(utf8.encode(content)),
     'timestamp': DateTime.now().toUtc().toIso8601String(),
   };
   final message = s._encryptionEnabled && s._crypto.shouldEncrypt('data')
