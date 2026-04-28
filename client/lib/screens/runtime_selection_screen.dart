@@ -550,6 +550,7 @@ class _TerminalPanel extends StatelessWidget {
     RuntimeSelectionController controller,
     RuntimeDevice device,
   ) async {
+    final sessionManager = context.read<TerminalSessionManager>();
     TerminalLaunchPlan? createdPlan;
     CommandSequenceDraft? createdDraft;
     var launchSessionPrepared = false;
@@ -602,7 +603,7 @@ class _TerminalPanel extends StatelessWidget {
         );
         final prepared =
             await const TerminalLaunchSessionService().prepareConnectedSession(
-          sessionManager: context.read<TerminalSessionManager>(),
+          sessionManager: sessionManager,
           deviceId: controller.selectedDeviceId,
           terminalId: result.terminalId,
           serviceFactory: () => controller.buildTerminalService(result),

@@ -1016,8 +1016,16 @@ class EvalHarness:
             })
 
             if not tool_calls:
-                # 没有工具调用，LLM 认为已完成
-                # B108: 无工具调用且未调用 deliver_result → incomplete
+                # B117: 模型可以直接输出文本（response_type="message"），无需调用 deliver_result
+                if text_response and text_response.strip():
+                    deliver_result_captured = {
+                        "response_type": "message",
+                        "summary": text_response.strip(),
+                        "steps": [],
+                        "need_confirm": False,
+                    }
+                    break
+                # 无文本输出且无工具调用 → incomplete
                 incomplete = True
                 break
 

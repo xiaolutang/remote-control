@@ -180,6 +180,24 @@ class TestWebSocketHandler:
         mock_ws.send_json.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_agent_ping_storage_failure_still_replies_pong(self):
+        """心跳持久化失败时不应打断已建立的 Agent 连接。"""
+        from app.ws.ws_agent import active_agents, AgentConnection, _handle_agent_message
+
+        active_agents.clear()
+        mock_ws = AsyncMock()
+        active_agents["session-1"] = AgentConnection("session-1", mock_ws, "user1")
+
+        with patch(
+            "app.ws.ws_agent.update_session_device_heartbeat",
+            new=AsyncMock(side_effect=HTTPException(status_code=503, detail="Redis down")),
+        ):
+            await _handle_agent_message(mock_ws, "session-1", {"type": "ping"})
+
+        assert "session-1" in active_agents
+        mock_ws.send_json.assert_called_once_with({"type": "pong"})
+
+    @pytest.mark.asyncio
     async def test_terminal_attach_uses_live_agent_connection_not_session_flag(self):
         """terminal 级 attach 只看当前活跃 agent 连接，不看 Redis 历史标记。"""
         async def cancelled_iter_text():

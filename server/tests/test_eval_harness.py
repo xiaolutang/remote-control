@@ -1281,8 +1281,8 @@ class TestDeliverResultTool:
         assert trial["success"] is True
 
     @pytest.mark.asyncio
-    async def test_max_turns_without_deliver_result_marks_incomplete(self, db, valid_config):
-        """AC4: LLM 未调用 deliver_result 时 trial 标记为 incomplete"""
+    async def test_direct_text_output_treated_as_message(self, db, valid_config):
+        """B117: LLM 直接输出文本（不调用 deliver_result）视为 response_type=message 的有效结果"""
         harness = EvalHarness(db, config=valid_config, num_trials=1, max_rounds=2)
 
         task = EvalTaskDef(
@@ -1309,15 +1309,15 @@ class TestDeliverResultTool:
             result = await harness.run([task])
 
         trial = result["task_results"]["dr-003"]["trials"][0]
-        assert trial.get("incomplete") is True
-        # incomplete trial 应标记为失败
-        assert trial["success"] is False
+        # B117: 直接文本输出不再是 incomplete
+        assert trial.get("incomplete") is False
+        assert trial["success"] is True
 
-        # 验证数据库中 agent_result_json 标记了 error
+        # 验证数据库中 agent_result_json 为 message 类型
         trials = await db.list_trials_by_task("dr-003")
         assert len(trials) == 1
-        assert trials[0].agent_result_json["response_type"] == "error"
-        assert "未调用 deliver_result" in trials[0].agent_result_json["summary"]
+        assert trials[0].agent_result_json["response_type"] == "message"
+        assert trials[0].agent_result_json["summary"] == "这是一个纯文本回复，没有调用工具"
 
     @pytest.mark.asyncio
     async def test_execute_command_then_deliver_result(self, db, valid_config):
@@ -2171,10 +2171,13 @@ class TestRegressionYamls:
                 assert getattr(t.metadata, "single_turn", None) is None, f"{t.id} should not have single_turn"
 
     def test_multi_turn_tasks_have_sufficient_history(self):
-        """所有 multi_turn 任务至少 3 轮 history"""
+        """multi_turn 任务要么有足够 history，要么使用 integration turns[] 定义。"""
         tasks = load_yaml_tasks(Path("evals/tasks"))
         for t in tasks:
             if t.category.value == "multi_turn":
+                turns = getattr(t, "turns", []) or []
+                if turns:
+                    assert len(turns) >= 2, f"{t.id} has only {len(turns)} turns"
+                    continue
                 history = t.input.context.get("conversation_history", [])
                 assert len(history) >= 3, f"{t.id} has only {len(history)} history entries"
-

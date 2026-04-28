@@ -1,3 +1,5 @@
+// ignore_for_file: annotate_overrides
+
 part of 'smart_terminal_side_panel.dart';
 
 /// 输入区域 + 用户气泡 + 内联编辑 UI + 选项选择
@@ -80,11 +82,23 @@ mixin _PanelInputMixin on _PanelStateFields {
   Widget _buildCheckboxOption(String option, ColorScheme colorScheme) {
     final chosen = _multiSelectChosen.contains(option);
     return InkWell(onTap: _pendingReset ? null : () {
-      setState(() { if (chosen) _multiSelectChosen.remove(option); else _multiSelectChosen.add(option); });
+      setState(() {
+        if (chosen) {
+          _multiSelectChosen.remove(option);
+        } else {
+          _multiSelectChosen.add(option);
+        }
+      });
     }, child: Padding(padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(children: [
         SizedBox(width: 20, height: 20, child: Checkbox(value: chosen, onChanged: _pendingReset ? null : (v) {
-          setState(() { if (v == true) _multiSelectChosen.add(option); else _multiSelectChosen.remove(option); });
+          setState(() {
+            if (v == true) {
+              _multiSelectChosen.add(option);
+            } else {
+              _multiSelectChosen.remove(option);
+            }
+          });
         })),
         const SizedBox(width: 8), Expanded(child: Text(option, style: Theme.of(context).textTheme.bodySmall)),
       ])));

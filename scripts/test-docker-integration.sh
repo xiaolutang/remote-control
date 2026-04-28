@@ -63,12 +63,9 @@ if [[ "$SKIP_BUILD" == "false" ]]; then
 fi
 
 # ========================================
-# Phase 1: 启动
+# Phase 1: 启动基础服务
 # ========================================
 SERVICES="redis server"
-if [[ "$WITH_AGENT" == "true" ]]; then
-    SERVICES="redis server agent"
-fi
 
 echo -e "${YELLOW}>>> 启动服务 ($SERVICES)${NC}"
 cd "$PROJECT_ROOT"
@@ -116,6 +113,26 @@ TOKEN=$(echo "$LOGIN_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin)
 
 AUTH="Authorization: Bearer $TOKEN"
 
+# Agent 使用独立测试用户换取一次性 token，避免 token replacement 干扰 API 验证
+if [[ "$WITH_AGENT" == "true" ]]; then
+    TS=$(date +%s)
+    info "注册 Agent 专用测试用户..."
+    AGENT_USERNAME_VALUE="test_eval_agent_${TS}"
+    AGENT_REGISTER_BODY="{\"username\":\"${AGENT_USERNAME_VALUE}\",\"password\":\"AgentPass123456\"}"
+    AGENT_REGISTER_RESP=$(curl -s -X POST "$BASE/register" \
+        -H "Content-Type: application/json" -d "$AGENT_REGISTER_BODY")
+    AGENT_TOKEN=$(echo "$AGENT_REGISTER_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('access_token','') or d.get('token',''))" 2>/dev/null || echo "")
+    [[ -n "$AGENT_TOKEN" && "$AGENT_TOKEN" != "" ]] || { fail "Agent 专用用户注册失败: $AGENT_REGISTER_RESP"; exit 1; }
+    pass "POST /api/register (agent user) → 200"
+    AGENT_AUTH="Authorization: Bearer $AGENT_TOKEN"
+
+    echo -e "\n${YELLOW}>>> 启动 Agent（使用专用 token）${NC}"
+    AGENT_TOKEN="$AGENT_TOKEN" \
+    AGENT_USERNAME="" \
+    AGENT_PASSWORD="" \
+    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d agent 2>&1
+fi
+
 # ========================================
 # Phase 3: S129 目录重构验证 — 所有路由域
 # ========================================
@@ -160,7 +177,10 @@ if [[ "$WITH_AGENT" == "true" ]]; then
     AGENT_CONNECTED=false
     for i in $(seq 1 20); do
         DEVICES=$(curl -s "$BASE/runtime/devices" -H "$AUTH")
-        DEVICE_COUNT=$(echo "$DEVICES" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('devices',d) if isinstance(d,dict) else d)))" 2>/dev/null || echo "0")
+        if [[ -n "${AGENT_AUTH:-}" ]]; then
+            DEVICES=$(curl -s "$BASE/runtime/devices" -H "$AGENT_AUTH")
+        fi
+        DEVICE_COUNT=$(echo "$DEVICES" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('devices', d) if isinstance(d, dict) else d))" 2>/dev/null || echo "0")
         if [[ "$DEVICE_COUNT" -gt 0 ]]; then
             AGENT_CONNECTED=true
             pass "Agent 已连接，设备数: $DEVICE_COUNT"
@@ -183,9 +203,13 @@ print(devices[0]['device_id'] if devices else '')
 
         if [[ -n "$DEVICE_ID" ]]; then
             # 创建终端
+            TERM_REQUEST=$(cat <<JSON
+{"terminal_id":"eval-term-$(date +%s)","title":"eval-test-terminal","cwd":"/tmp","command":"/bin/bash"}
+JSON
+)
             TERM_RESP=$(curl -s -X POST "$BASE/runtime/devices/$DEVICE_ID/terminals" \
-                -H "$AUTH" -H "Content-Type: application/json" \
-                -d '{"name":"eval-test-terminal"}')
+                -H "${AGENT_AUTH:-$AUTH}" -H "Content-Type: application/json" \
+                -d "$TERM_REQUEST")
             TERM_ID=$(echo "$TERM_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('terminal_id',''))" 2>/dev/null || echo "")
 
             if [[ -n "$TERM_ID" ]]; then
@@ -197,7 +221,7 @@ print(devices[0]['device_id'] if devices else '')
 
                 info "发送 Agent 知识问答..."
                 CHAT_RESP=$(curl -s --max-time 60 -X POST "$AGENT_RUN_URL" \
-                    -H "$AUTH" -H "Content-Type: application/json" \
+                    -H "${AGENT_AUTH:-$AUTH}" -H "Content-Type: application/json" \
                     -d "{\"intent\":\"你好，请介绍你自己\",\"client_event_id\":\"$EVT_ID\"}")
 
                 CONTENT_LEN=$(echo "$CHAT_RESP" | python3 -c "
@@ -258,7 +282,11 @@ do
         ACTUAL=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$URL" \
             -H "$AUTH" -H "Content-Type: application/json" -d '{}' 2>/dev/null || echo "000")
     else
-        ACTUAL=$(curl -s -o /dev/null -w "%{http_code}" "$URL" -H "$AUTH" 2>/dev/null || echo "000")
+        HEADER="$AUTH"
+        if [[ "$URL" == "$BASE/runtime/devices" && -n "${AGENT_AUTH:-}" ]]; then
+            HEADER="$AGENT_AUTH"
+        fi
+        ACTUAL=$(curl -s -o /dev/null -w "%{http_code}" "$URL" -H "$HEADER" 2>/dev/null || echo "000")
     fi
     [[ "$ACTUAL" == "$EXPECTED" ]] && pass "$EP_NAME → $ACTUAL" || fail "$EP_NAME → $ACTUAL (expected $EXPECTED)"
 done

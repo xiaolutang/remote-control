@@ -1,0 +1,18 @@
+id: it_002_pwd_command
+mode: integration
+category: command_generation
+description: "真实 integration task：要求 Agent 给出查看当前工作目录的命令步骤。"
+input:
+  intent: "如果我想查看当前工作目录，你建议我运行什么命令？请直接给出命令步骤。"
+  context:
+    cwd: /tmp
+expected:
+  response_type: ["command"]
+  steps_contain: ["pwd"]
+  summary_min_length: 8
+graders: ["response_type_match", "contains_command", "summary_completeness", "sse_sequence"]
+metadata:
+  source: integration
+  difficulty: easy
+  tags: ["integration", "command", "pwd"]
+  reference_solution: "response_type=command，steps 至少包含 pwd。"

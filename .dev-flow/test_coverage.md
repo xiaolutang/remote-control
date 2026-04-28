@@ -1,8 +1,8 @@
 # 测试覆盖清单
 
 > 项目：remote-control
-> 更新时间：2026-04-27
-> 状态：R044 已归档；R045 已归档；`agent-prompt-strategy-upgrade`（R046）为当前活跃需求周期
+> 更新时间：2026-04-28
+> 状态：R047 已归档；`architecture-deep-cleanup`（R048）为当前活跃需求周期
 
 ## 测试统计
 
@@ -719,17 +719,17 @@
 
 ### Agent Prompt Strategy Upgrade（agent-prompt-strategy-upgrade phase, R046）
 
-> server + client + eval + docs | contract change: CONTRACT-047/048/049/050/051 | frontend impact: assistant_message + ai_prompt
+> server + client + eval + docs | contract change: CONTRACT-047/048/049/050/051 | frontend impact: streaming_text/tool_step + ai_prompt
 
 | Module | Task IDs | Test Type | Required Scenarios | Status |
 |--------|----------|-----------|--------------------|--------|
 | 文档基线验证 | S104 | verification | architecture.md + api_contracts.md + test_coverage.md + alignment_checklist.md 基线一致 | ✅ |
 | Agent 架构变更 | B105 | unit, integration | deliver_result 工具 + ResultDelivered 异常 + usage 累积回调 + 重试 usage 不重置 + 超时兜底 | ✅ 162/162 |
-| Agent 循环 + SSE | B106 | unit, integration | assistant_message 事件推送 + 服务端 CoT 过滤兜底 + ResultDelivered 后 usage 持久化顺序 + resume 回放 | ✅ 70/70 (23 新增) |
-| Client assistant_message | F107 | unit, widget, integration | 四通道 SSE/projection/resume/widget + assistant_message 气泡 vs message result 卡片区分 + ai_prompt 注入 + 移动端 stream 同步 | ✅ 102/102 |
+| Agent 循环 + SSE | B106 | unit, integration | streaming_text/tool_step 事件推送 + 服务端 CoT 过滤兜底 + ResultDelivered 后 usage 持久化顺序 + resume 回放 | ✅ 70/70 (23 新增) |
+| Client phase-driven SSE | F107 | unit, widget, integration | 四通道 SSE/projection/resume/widget + streaming_text 气泡 vs message result 卡片区分 + ai_prompt 注入 + 移动端 stream 同步 | ✅ 102/102 |
 | Eval harness 对齐 | B108 | unit, integration | deliver_result 工具注册 + 完成判定 + 负向测试（未调用 deliver_result = incomplete）+ tool_call_order 排除 | ✅ 191/191 |
 | 基线评估 + 优化 | S109 | eval | 基线记录 + 4 轮 SYSTEM_PROMPT 迭代 + ai_prompt 用例修复 + 最终通过率 73%（22/30） | ✅ |
-| Server+Client 测试 | S110 | unit, integration, widget | deliver_result + assistant_message + 重试 usage + 过滤兜底 + conversation 持久化 + resume 回放 + 移动端 stream 同步 | ✅ 232+66 |
+| Server+Client 测试 | S110 | unit, integration, widget | deliver_result + streaming_text/tool_step + 重试 usage + 过滤兜底 + conversation 持久化 + resume 回放 + 移动端 stream 同步 | ✅ 232+66 |
 | 文档事后校准 | S111 | docs | CONTRACT-047/048/049/050/051 最终校准 + R046 test_coverage section | ✅ |
 | SYSTEM_PROMPT 简化 + Eval 修正 | S112 | unit, eval | SYSTEM_PROMPT 简化 ask_user + 明确 response_type/execute_command 边界 + cg_003/ic_008 修正 + need_confirm 回归 | ✅ |
 
@@ -744,22 +744,23 @@
 - [ ] ai_prompt 类型 deliver_result 参数校验
 - [ ] 重试场景下 usage 累积不重置（retry 后仍保留之前累积的 token 用量）
 
-##### B106 assistant_message + 服务端过滤
-- [ ] assistant_message SSE 事件推送和格式
-- [ ] assistant_message 内容过滤兜底（含 CoT 标记的文本被截断或过滤）
+##### B106 phase-driven SSE + 服务端过滤
+- [ ] streaming_text SSE 事件推送和格式
+- [ ] tool_step running/done/error 事件推送和格式
+- [ ] streaming_text 内容过滤兜底（含 CoT 标记的文本被截断或过滤）
 - [ ] ResultDelivered 后 save_agent_usage 先于 result 推送
 - [ ] finally 块稳定结束 event_queue
 - [ ] 取消/超时不丢失已推送事件和 usage
-- [ ] conversation events 持久化包含 assistant_message
-- [ ] resume_stream 正确回放 assistant_message 缓存事件
+- [ ] resume_stream 正确回放 streaming_text / tool_step 缓存事件
+- [ ] 旧 assistant_message / trace 兼容输入被安全忽略，不影响现有 phase-driven 客户端
 
 ##### F107 客户端四通道 + ai_prompt
-- [ ] assistant_message live SSE 解析
-- [ ] assistant_message conversation projection 重建
-- [ ] assistant_message resume_stream 回放
-- [ ] assistant_message 侧滑面板气泡渲染
+- [ ] streaming_text live SSE 解析
+- [ ] tool_step / phase_change conversation projection 重建
+- [ ] streaming_text resume_stream 回放
+- [ ] streaming_text 侧滑面板气泡渲染
 - [ ] ai_prompt 注入端到端测试
-- [ ] assistant_message + ai_prompt 移动端 conversation stream 同步可见
+- [ ] streaming_text + ai_prompt 移动端 conversation stream 同步可见
 - [ ] flutter analyze 无 error
 
 ##### B108 Eval harness + 负向测试
@@ -770,6 +771,6 @@
 ##### S110 集成测试
 - [ ] SYSTEM_PROMPT 断言更新（预处理助手定位）
 - [ ] deliver_result 工具 + usage 累积 + 重试不重置
-- [ ] assistant_message 事件（live + resume）+ 内容过滤兜底
+- [ ] streaming_text/tool_step 事件（live + resume）+ 内容过滤兜底
 - [ ] ResultDelivered 后 usage 持久化顺序
-- [ ] client assistant_message 四通道（SSE/projection/resume/widget）+ 移动端 conversation stream 同步
+- [ ] client streaming_text/tool_step 四通道（SSE/projection/resume/widget）+ 移动端 conversation stream 同步

@@ -10,6 +10,8 @@ input:
       "cd web-app": ""
       "git status": "On branch main\nnothing to commit, working tree clean"
       "npm run build": "Build completed successfully in 12s"
+      "ls": "package.json\nsrc\npublic\nvercel.json\nREADME.md\n"
+      "cat": "{\n  \"name\": \"web-app\",\n  \"scripts\": {\n    \"build\": \"next build\",\n    \"deploy\": \"vercel --prod\"\n  }\n}\n"
     conversation_history:
       - role: user
         content: "列出所有项目"

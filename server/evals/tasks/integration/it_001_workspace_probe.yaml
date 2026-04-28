@@ -1,0 +1,17 @@
+id: it_001_workspace_probe
+mode: integration
+category: command_generation
+description: "真实 integration task：Agent 探测当前 terminal 工作目录并总结环境。"
+input:
+  intent: "请先查看当前工作目录和其中可见的前几项内容，然后用中文概括你看到了什么。"
+  context:
+    cwd: /tmp
+expected:
+  response_type: ["message"]
+  summary_min_length: 20
+graders: ["response_type_match", "summary_completeness", "sse_sequence"]
+metadata:
+  source: integration
+  difficulty: medium
+  tags: ["integration", "workspace", "exploration"]
+  reference_solution: "Agent 调用 pwd / ls 等只读命令后返回中文总结。"

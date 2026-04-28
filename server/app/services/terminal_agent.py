@@ -390,6 +390,20 @@ async def run_agent(
             # 模型直接输出文本 → message 类型响应
             text_output = run_result.output or ""
             if text_output.strip():
+                # 防护：模型探索了大量内容但只输出标题/极短文本 → 视为不完整，重试
+                if len(text_output.strip()) < 80 and attempt < max_attempts:
+                    logger.warning(
+                        "Agent output too short (%d chars, attempt %d), likely incomplete, retrying: %.50s",
+                        len(text_output.strip()), attempt, text_output.strip(),
+                    )
+                    _tracking_text_parts.clear()
+                    retry_hint = (
+                        "注意：你上次回复太短，只输出了一个标题或概要。"
+                        "你必须输出完整、有实质内容的回答（至少 3 段文字）。"
+                        "如果你已经探索了项目，请基于探索结果输出完整分析报告。"
+                    )
+                    continue
+
                 usage = run_result.usage()
                 return AgentRunOutcome(
                     result=AgentResult(
@@ -435,6 +449,24 @@ async def run_agent(
             )
         except ResultDelivered as rd:
             # deliver_result 工具成功交付，携带结构化结果 + usage
+            # 防护：message 类型的 summary 太短 → 视为不完整，重试
+            if (
+                rd.result.response_type == "message"
+                and len(rd.result.summary.strip()) < 80
+                and attempt < max_attempts
+            ):
+                logger.warning(
+                    "deliver_result with message type too short (%d chars, attempt %d), retrying: %.50s",
+                    len(rd.result.summary.strip()), attempt, rd.result.summary.strip(),
+                )
+                _tracking_text_parts.clear()
+                retry_hint = (
+                    "注意：你调用 deliver_result 时 summary 太短，只传了一个标题。"
+                    "对于纯文本分析回复，你应该直接输出完整的分析文字，不需要调用 deliver_result。"
+                    "如果一定要调用 deliver_result，summary 必须包含完整内容（至少 3 段文字）。"
+                )
+                continue
+
             usage = rd.usage if rd.usage is not None else usage_tracker
             return AgentRunOutcome(
                 result=rd.result,

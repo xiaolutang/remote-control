@@ -9,7 +9,7 @@ import '../utils/terminal_escape_utils.dart';
 
 part 'terminal_session_types.dart';
 part 'renderer_adapter.dart';
-part 'terminal_session_state.dart';
+part 'terminal_recovery_state.dart';
 
 class TerminalSessionManager extends ChangeNotifier
     with WidgetsBindingObserver {

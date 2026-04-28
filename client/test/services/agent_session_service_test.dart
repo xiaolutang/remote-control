@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use_from_same_package
+
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -27,14 +29,15 @@ void main() {
     }
 
     group('SSE 事件解析', () {
-      test('解析 trace 事件', () async {
+      test('解析 tool_step 事件', () async {
         final sseText = buildSSE([
           MapEntry(
-              'trace',
+              'tool_step',
               jsonEncode({
-                'tool': 'execute_command',
-                'input_summary': 'ls ~',
-                'output_summary': 'Desktop\nDocuments\n...',
+                'tool_name': 'execute_command',
+                'description': 'ls ~',
+                'status': 'done',
+                'result_summary': 'Desktop\nDocuments\n...',
               })),
         ]);
 
@@ -60,19 +63,20 @@ void main() {
             .toList();
 
         expect(events, hasLength(1));
-        expect(events[0], isA<AgentTraceEvent>());
-        final trace = events[0] as AgentTraceEvent;
-        expect(trace.tool, 'execute_command');
-        expect(trace.inputSummary, 'ls ~');
-        expect(trace.outputSummary, 'Desktop\nDocuments\n...');
+        expect(events[0], isA<ToolStepEvent>());
+        final step = events[0] as ToolStepEvent;
+        expect(step.toolName, 'execute_command');
+        expect(step.description, 'ls ~');
+        expect(step.status, 'done');
+        expect(step.resultSummary, 'Desktop\nDocuments\n...');
       });
 
-      test('解析 assistant_message 事件', () async {
+      test('解析 streaming_text 事件', () async {
         final sseText = buildSSE([
           MapEntry(
-              'assistant_message',
+              'streaming_text',
               jsonEncode({
-                'content': '我来帮你检查一下当前目录结构...',
+                'text_delta': '我来帮你检查一下当前目录结构...',
               })),
         ]);
 
@@ -97,24 +101,24 @@ void main() {
             )
             .toList();
 
-        // assistant_message 不关闭流，但流结束时会关闭 controller
         expect(events, hasLength(1));
-        expect(events[0], isA<AgentAssistantMessageEvent>());
-        final msg = events[0] as AgentAssistantMessageEvent;
-        expect(msg.content, '我来帮你检查一下当前目录结构...');
+        expect(events[0], isA<StreamingTextEvent>());
+        final text = events[0] as StreamingTextEvent;
+        expect(text.textDelta, '我来帮你检查一下当前目录结构...');
       });
 
-      test('assistant_message + trace + result 多事件不中断流', () async {
+      test('streaming_text + tool_step + result 多事件不中断流', () async {
         final sseText = buildSSE([
           MapEntry(
-              'assistant_message',
-              jsonEncode({'content': '正在分析...'})),
+              'streaming_text',
+              jsonEncode({'text_delta': '正在分析...'})),
           MapEntry(
-              'trace',
+              'tool_step',
               jsonEncode({
-                'tool': 'execute_command',
-                'input_summary': 'ls -la',
-                'output_summary': 'file1.txt\nfile2.txt',
+                'tool_name': 'execute_command',
+                'description': 'ls -la',
+                'status': 'done',
+                'result_summary': 'file1.txt\nfile2.txt',
               })),
           MapEntry(
               'result',
@@ -150,8 +154,8 @@ void main() {
             .toList();
 
         expect(events, hasLength(3));
-        expect(events[0], isA<AgentAssistantMessageEvent>());
-        expect(events[1], isA<AgentTraceEvent>());
+        expect(events[0], isA<StreamingTextEvent>());
+        expect(events[1], isA<ToolStepEvent>());
         expect(events[2], isA<AgentResultEvent>());
       });
 
@@ -286,21 +290,21 @@ void main() {
         expect(error.message, '设备不在线');
       });
 
-      test('完整会话流程：trace → question → result', () async {
+      test('完整会话流程：phase_change → tool_step → question → result', () async {
         final sseText = buildSSE([
           MapEntry(
-              'trace',
+              'phase_change',
               jsonEncode({
-                'tool': 'scan_projects',
-                'input_summary': '扫描项目',
-                'output_summary': '找到 2 个项目',
+                'phase': 'THINKING',
+                'description': '正在分析项目上下文',
               })),
           MapEntry(
-              'trace',
+              'tool_step',
               jsonEncode({
-                'tool': 'read_context',
-                'input_summary': '读取上下文',
-                'output_summary': '已获取项目列表',
+                'tool_name': 'read_context',
+                'description': '读取上下文',
+                'status': 'done',
+                'result_summary': '已获取项目列表',
               })),
           MapEntry(
               'question',
@@ -345,8 +349,8 @@ void main() {
             .toList();
 
         expect(events, hasLength(4));
-        expect(events[0], isA<AgentTraceEvent>());
-        expect(events[1], isA<AgentTraceEvent>());
+        expect(events[0], isA<PhaseChangeEvent>());
+        expect(events[1], isA<ToolStepEvent>());
         expect(events[2], isA<AgentQuestionEvent>());
         expect(events[3], isA<AgentResultEvent>());
       });
@@ -354,8 +358,8 @@ void main() {
 
     group('keepalive 注释帧', () {
       test('keepalive 注释帧不触发业务事件', () async {
-        final sseText = 'event: trace\n'
-            'data: {"tool":"scan","input_summary":"扫描","output_summary":"完成"}\n'
+        final sseText = 'event: tool_step\n'
+            'data: {"tool_name":"scan","description":"扫描","status":"done","result_summary":"完成"}\n'
             '\n'
             ': keepalive\n'
             '\n'
@@ -384,9 +388,9 @@ void main() {
             )
             .toList();
 
-        // 只有 trace 和 result，keepalive 不产生事件
+        // 只有 tool_step 和 result，keepalive 不产生事件
         expect(events, hasLength(2));
-        expect(events[0], isA<AgentTraceEvent>());
+        expect(events[0], isA<ToolStepEvent>());
         expect(events[1], isA<AgentResultEvent>());
       });
     });
@@ -871,7 +875,7 @@ void main() {
         expect(error.message, '会话已过期');
       });
 
-      test('resume 恢复 assistant_message 事件', () async {
+      test('resume 忽略旧版 assistant_message 事件', () async {
         final sseText = buildSSE([
           MapEntry('assistant_message', jsonEncode({
             'content': '我来分析一下这个问题',
@@ -899,10 +903,7 @@ void main() {
             )
             .toList();
 
-        expect(events, hasLength(1));
-        expect(events[0], isA<AgentAssistantMessageEvent>());
-        final msg = events[0] as AgentAssistantMessageEvent;
-        expect(msg.content, '我来分析一下这个问题');
+        expect(events, isEmpty);
       });
     });
 

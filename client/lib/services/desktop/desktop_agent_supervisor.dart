@@ -85,6 +85,8 @@ class DesktopAgentSupervisor {
   final SecureStorageService _secureStorage;
   final DesktopTerminationSnapshotService _terminationSnapshotService;
   final String? _homeDirectory;
+  Future<bool>? _pendingEnsureFuture;
+  String? _pendingEnsureKey;
 
   bool get supported => !Platform.isAndroid && !Platform.isIOS;
 
@@ -120,6 +122,29 @@ class DesktopAgentSupervisor {
   }
 
   Future<bool> ensureAgentOnline({
+    required String serverUrl,
+    required String token,
+    required String deviceId,
+    Duration timeout = const Duration(seconds: 12),
+    String? agentWorkdir,
+    String? agentConfigPath,
+  }) {
+    return _runEnsureSingleFlight(
+      serverUrl: serverUrl,
+      deviceId: deviceId,
+      agentWorkdir: agentWorkdir,
+      operation: () => _ensureAgentOnlineInternal(
+        serverUrl: serverUrl,
+        token: token,
+        deviceId: deviceId,
+        timeout: timeout,
+        agentWorkdir: agentWorkdir,
+        agentConfigPath: agentConfigPath,
+      ),
+    );
+  }
+
+  Future<bool> _ensureAgentOnlineInternal({
     required String serverUrl,
     required String token,
     required String deviceId,
@@ -256,24 +281,56 @@ class DesktopAgentSupervisor {
     required String deviceId,
     Duration timeout = const Duration(seconds: 12),
     String? agentWorkdir,
-  }) async {
-    _logDesktopAgent('syncAndEnsureOnline start device=$deviceId');
-    final configPath = await syncManagedAgentConfig(
+  }) {
+    return _runEnsureSingleFlight(
       serverUrl: serverUrl,
-      accessToken: accessToken,
       deviceId: deviceId,
-    );
-    _logDesktopAgent(
-      'syncAndEnsureOnline configPath=${configPath ?? ""}',
-    );
-    return ensureAgentOnline(
-      serverUrl: serverUrl,
-      token: accessToken,
-      deviceId: deviceId,
-      timeout: timeout,
       agentWorkdir: agentWorkdir,
-      agentConfigPath: configPath,
+      operation: () async {
+        _logDesktopAgent('syncAndEnsureOnline start device=$deviceId');
+        final configPath = await syncManagedAgentConfig(
+          serverUrl: serverUrl,
+          accessToken: accessToken,
+          deviceId: deviceId,
+        );
+        _logDesktopAgent(
+          'syncAndEnsureOnline configPath=${configPath ?? ""}',
+        );
+        return _ensureAgentOnlineInternal(
+          serverUrl: serverUrl,
+          token: accessToken,
+          deviceId: deviceId,
+          timeout: timeout,
+          agentWorkdir: agentWorkdir,
+          agentConfigPath: configPath,
+        );
+      },
     );
+  }
+
+  Future<bool> _runEnsureSingleFlight({
+    required String serverUrl,
+    required String deviceId,
+    required Future<bool> Function() operation,
+    String? agentWorkdir,
+  }) {
+    final key = '$serverUrl|$deviceId|${agentWorkdir ?? ''}';
+    final pending = _pendingEnsureFuture;
+    if (pending != null && _pendingEnsureKey == key) {
+      _logDesktopAgent('ensure single-flight join existing attempt key=$key');
+      return pending;
+    }
+
+    final future = operation();
+    _pendingEnsureFuture = future;
+    _pendingEnsureKey = key;
+    future.whenComplete(() {
+      if (identical(_pendingEnsureFuture, future)) {
+        _pendingEnsureFuture = null;
+        _pendingEnsureKey = null;
+      }
+    });
+    return future;
   }
 
   Future<bool> stopManagedAgent({
@@ -282,6 +339,10 @@ class DesktopAgentSupervisor {
     required String deviceId,
     Duration timeout = const Duration(seconds: 8),
   }) async {
+    // Explicit stop cancels any stale in-flight start bookkeeping.
+    _pendingEnsureFuture = null;
+    _pendingEnsureKey = null;
+
     if (!supported) {
       return false;
     }

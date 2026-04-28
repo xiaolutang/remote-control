@@ -61,7 +61,7 @@ class TestSessionAtomicity:
         async def mock_get(key):
             return redis_store.get(key)
 
-        async def mock_set(key, value):
+        async def mock_set(key, value, ex=None, **kwargs):
             redis_store[key] = value
 
         mock_redis = AsyncMock()
@@ -95,7 +95,7 @@ class TestSessionAtomicity:
         async def mock_get(key):
             return redis_store.get(key)
 
-        async def mock_set(key, value):
+        async def mock_set(key, value, ex=None, **kwargs):
             redis_store[key] = value
 
         mock_redis = AsyncMock()
@@ -132,7 +132,7 @@ class TestSessionAtomicity:
         async def mock_get(key):
             return redis_store.get(key)
 
-        async def mock_set(key, value):
+        async def mock_set(key, value, ex=None, **kwargs):
             redis_store[key] = value
 
         mock_redis = AsyncMock()
@@ -148,9 +148,9 @@ class TestSessionAtomicity:
             )
             session = await get_session(session_id)
 
-        # 心跳更新了 agent_online + last_heartbeat_at，status 更新了 status="offline"
+        # 心跳更新了 agent_online + last_heartbeat_at，status 更新了 status="offline_expired"
         # 加锁后两者串行执行，最终数据一致
-        assert session["status"] == "offline"
+        assert session["status"] == "offline_expired"
         assert session["device"]["last_heartbeat_at"] is not None
 
     @pytest.mark.asyncio
@@ -170,7 +170,7 @@ class TestSessionAtomicity:
         async def mock_get(key):
             return redis_store.get(key)
 
-        async def mock_set(key, value):
+        async def mock_set(key, value, ex=None, **kwargs):
             redis_store[key] = value
 
         mock_redis = AsyncMock()
@@ -185,7 +185,7 @@ class TestSessionAtomicity:
 
             session = await get_session(session_id)
 
-        assert session["status"] == "offline"
+        assert session["status"] == "offline_expired"
         assert session["agent_online"] is False
 
     @pytest.mark.asyncio
@@ -205,7 +205,7 @@ class TestSessionAtomicity:
         async def mock_get(key):
             return redis_store.get(key)
 
-        async def mock_set(key, value):
+        async def mock_set(key, value, ex=None, **kwargs):
             redis_store[key] = value
 
         mock_redis = AsyncMock()
@@ -239,7 +239,7 @@ class TestSessionAtomicity:
         async def mock_get(key):
             return redis_store.get(key)
 
-        async def mock_set(key, value):
+        async def mock_set(key, value, ex=None, **kwargs):
             redis_store[key] = value
 
         mock_redis = AsyncMock()
@@ -263,12 +263,12 @@ class TestSessionAtomicity:
                 await update_session_agent_online(session_id, False)
 
                 session = await get_session(session_id)
-                assert session["status"] == "offline"
+                assert session["status"] == "offline_expired"
                 assert session["agent_online"] is False
 
-        # 最终状态：offline
+        # 最终状态：offline_expired
         final_data = json.loads(redis_store[f"rc:session:{session_id}"])
-        assert final_data["status"] == "offline"
+        assert final_data["status"] == "offline_expired"
         assert final_data["agent_online"] is False
 
     @pytest.mark.asyncio
@@ -285,7 +285,7 @@ class TestSessionAtomicity:
         async def mock_get(key):
             return redis_store.get(key)
 
-        async def mock_set(key, value):
+        async def mock_set(key, value, ex=None, **kwargs):
             redis_store[key] = value
 
         mock_redis = AsyncMock()
@@ -307,7 +307,7 @@ class TestSessionAtomicity:
 
         assert session_a["status"] == "online"
         assert session_a["agent_online"] is True
-        assert session_b["status"] == "offline"
+        assert session_b["status"] == "offline_expired"
         assert session_b["agent_online"] is False
 
     @pytest.mark.asyncio
@@ -321,7 +321,7 @@ class TestSessionAtomicity:
         async def mock_get(key):
             return redis_store.get(key)
 
-        async def mock_set(key, value):
+        async def mock_set(key, value, ex=None, **kwargs):
             redis_store[key] = value
 
         mock_redis = AsyncMock()
@@ -363,7 +363,7 @@ class TestSessionAtomicity:
         async def mock_get(key):
             return redis_store.get(key)
 
-        async def mock_set(key, value):
+        async def mock_set(key, value, ex=None, **kwargs):
             redis_store[key] = value
 
         mock_redis = AsyncMock()
@@ -375,7 +375,7 @@ class TestSessionAtomicity:
         with patch.object(redis_conn, '_redis', mock_redis):
             result = await set_session_offline(session_id, reason="device_offline")
 
-        assert result["status"] == "offline"
+        assert result["status"] == "offline_expired"
         assert result["agent_online"] is False
         # 所有非 closed terminal 都应被关闭
         for terminal in result["terminals"]:

@@ -652,6 +652,73 @@ void main() {
       // 设备已在线 → 即使 sync 失败也返回 true
       expect(result, isTrue);
     });
+
+    test('并发 syncAndEnsureOnline 只触发一次实际启动', () async {
+      var processStarts = 0;
+      final supervisor = DesktopAgentSupervisor(
+        runtimeService: _FakeRuntimeDeviceService([
+          const [
+            RuntimeDevice(
+              deviceId: 'dev-1',
+              name: 'mac-phone',
+              owner: 'user',
+              agentOnline: false,
+              maxTerminals: 3,
+              activeTerminals: 0,
+            ),
+          ],
+          const [
+            RuntimeDevice(
+              deviceId: 'dev-1',
+              name: 'mac-phone',
+              owner: 'user',
+              agentOnline: true,
+              maxTerminals: 3,
+              activeTerminals: 0,
+            ),
+          ],
+        ]),
+        processStarter: (
+          String executable,
+          List<String> arguments, {
+          String? workingDirectory,
+          Map<String, String>? environment,
+          ProcessStartMode mode = ProcessStartMode.normal,
+        }) async {
+          processStarts += 1;
+          return Process.start(
+            'sleep',
+            const ['1'],
+            mode: ProcessStartMode.detached,
+          );
+        },
+        processRunner: (executable, arguments) async {
+          if (executable == 'pgrep') {
+            return ProcessResult(0, 1, '', '');
+          }
+          return ProcessResult(0, 0, 'python3 -m app.cli run', '');
+        },
+        homeDirectory: '/tmp/f041_singleflight_test',
+      );
+
+      final results = await Future.wait([
+        supervisor.syncAndEnsureOnline(
+          serverUrl: 'ws://localhost:8888',
+          accessToken: 'token',
+          deviceId: 'dev-1',
+          timeout: const Duration(seconds: 1),
+        ),
+        supervisor.syncAndEnsureOnline(
+          serverUrl: 'ws://localhost:8888',
+          accessToken: 'token',
+          deviceId: 'dev-1',
+          timeout: const Duration(seconds: 1),
+        ),
+      ]);
+
+      expect(results, everyElement(isTrue));
+      expect(processStarts, 1);
+    });
   });
 
   group('_isProcessRunning PID 校验', () {

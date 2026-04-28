@@ -1,0 +1,15 @@
+id: it_003_agent_identity
+mode: integration
+category: knowledge_retrieval
+description: "真实 integration task：纯文本回复，不依赖 mock_tool_responses。"
+input:
+  intent: "请简单介绍一下你自己能做什么，重点说你能帮我完成哪些终端和代码相关任务。"
+expected:
+  response_type: ["message"]
+  summary_min_length: 30
+graders: ["response_type_match", "summary_completeness", "sse_sequence"]
+metadata:
+  source: integration
+  difficulty: easy
+  tags: ["integration", "identity", "message_only"]
+  reference_solution: "返回一段非空中文说明，描述终端探索、命令建议、代码分析等能力。"

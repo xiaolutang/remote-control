@@ -1,3 +1,5 @@
+// ignore_for_file: annotate_overrides, deprecated_member_use_from_same_package, unused_element
+
 part of 'smart_terminal_side_panel.dart';
 
 /// Agent 面板 Phase 驱动状态

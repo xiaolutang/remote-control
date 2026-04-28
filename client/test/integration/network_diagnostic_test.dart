@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/io_client.dart';
 import 'package:http/http.dart' as http;
 
+import '../../test_support/integration_env.dart';
+
 /// 网络诊断集成测试 — 验证 S063 三环境模型的连通性
 ///
 /// 环境说明：
@@ -19,7 +21,12 @@ import 'package:http/http.dart' as http;
 ///
 /// 运行条件：设置环境变量 RC_TEST_SERVER_IP，需要能访问线上服务器
 void main() {
-  final serverIp = Platform.environment['RC_TEST_SERVER_IP'] ?? '';
+  final serverIp = integrationEnv(
+    'RC_TEST_SERVER_IP',
+    fallback: integrationEnv('RC_SERVER_IP', fallback: 'localhost'),
+  );
+  final username = integrationEnv('RC_TEST_USERNAME', fallback: 'test');
+  final password = integrationEnv('RC_TEST_PASSWORD', fallback: 'test123');
   const domainHost = 'rc.xiaolutang.top';
   const directPort = 8880;
 
@@ -76,8 +83,8 @@ void main() {
           Uri.parse('https://$domainHost/rc/api/login'),
           headers: {'Content-Type': 'application/json'},
           body: jsonEncode({
-            'username': 'prod_test',
-            'password': 'test123456',
+            'username': username,
+            'password': password,
             'view': 'mobile',
           }),
         );
@@ -92,11 +99,13 @@ void main() {
 
     // ─── IP + Host 头 HTTPS（当前唯一可用路径）───
 
-    test('4. IP HTTPS 无 Host 头 → 404（Traefik 不匹配）', () async {
+    test('4. IP HTTPS 无 Host 头 → localhost 本地部署返回 200，远端 IP 返回 404', () async {
       final r =
           await trustAllClient.get(Uri.parse('https://$serverIp/rc/health'));
       debugPrint('IP health (无Host头): ${r.statusCode} ${r.body}');
-      expect(r.statusCode, 404);
+      final expectsLocalRoute =
+          serverIp == 'localhost' || serverIp == '127.0.0.1';
+      expect(r.statusCode, expectsLocalRoute ? 200 : 404);
     });
 
     test('5. IP HTTPS + Host: rc.xiaolutang.top → health', () async {
@@ -116,8 +125,8 @@ void main() {
           'Host': domainHost,
         },
         body: jsonEncode({
-          'username': 'prod_test',
-          'password': 'test123456',
+          'username': username,
+          'password': password,
           'view': 'mobile',
         }),
       );
@@ -147,8 +156,8 @@ void main() {
           Uri.parse('http://$serverIp:$directPort/api/login'),
           headers: {'Content-Type': 'application/json'},
           body: jsonEncode({
-            'username': 'prod_test',
-            'password': 'test123456',
+            'username': username,
+            'password': password,
             'view': 'mobile',
           }),
         );

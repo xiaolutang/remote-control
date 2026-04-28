@@ -39,6 +39,9 @@ from evals.graders.code_grader import (
     ContextReferenceGrader,
     IntentCorrectionGrader,
     ContentQualityGrader,
+    SummaryCompletenessGrader,
+    TokenBudgetGrader,
+    SSESequenceGrader,
     get_grader,
 )
 from evals.graders.llm_judge import (
@@ -112,6 +115,9 @@ class TestGraderRegistry:
             "context_reference",
             "intent_correction",
             "content_quality",
+            "summary_completeness",
+            "token_budget",
+            "sse_sequence",
             "llm_judge",
         }
         assert expected == set(GRADER_REGISTRY.keys()), (
@@ -793,6 +799,9 @@ class TestGraderResultStructure:
         "steps_structure",
         "contains_command",
         "tool_call_order",
+        "summary_completeness",
+        "token_budget",
+        "sse_sequence",
     ])
     def test_output_is_eval_grader_result(self, grader_name):
         grader = get_grader(grader_name)
@@ -1855,6 +1864,122 @@ class TestContentQualityGrader:
         assert result.passed is False
 
 
+class TestSummaryCompletenessGrader:
+    def test_summary_min_length_threshold(self):
+        grader = SummaryCompletenessGrader()
+        task = _make_task(extra_expected={"summary_min_length": 200})
+
+        short_trial = _make_trial(agent_result={
+            "response_type": "message",
+            "summary": "a" * 199,
+        })
+        assert grader.grade(short_trial, task).passed is False
+
+        exact_trial = _make_trial(agent_result={
+            "response_type": "message",
+            "summary": "a" * 200,
+        })
+        assert grader.grade(exact_trial, task).passed is True
+
+    def test_message_without_summary_min_length_graceful_non_empty_check(self):
+        grader = SummaryCompletenessGrader()
+        task = _make_task(response_type=["message"])
+        trial = _make_trial(agent_result={
+            "response_type": "message",
+            "summary": "简短但非空",
+        })
+        assert grader.grade(trial, task).passed is True
+
+
+class TestTokenBudgetGrader:
+    def test_input_tokens_within_budget_passes(self):
+        grader = TokenBudgetGrader()
+        trial = _make_trial(agent_result={
+            "response_type": "message",
+            "summary": "ok",
+            "token_usage": {"input_tokens": 49999},
+        })
+        assert grader.grade(trial, _make_task()).passed is True
+
+    def test_input_tokens_exceed_budget_fails(self):
+        grader = TokenBudgetGrader()
+        trial = _make_trial(agent_result={
+            "response_type": "message",
+            "summary": "ok",
+            "token_usage": {"input_tokens": 50001},
+        })
+        assert grader.grade(trial, _make_task()).passed is False
+
+    def test_missing_token_usage_gracefully_passes(self):
+        grader = TokenBudgetGrader()
+        trial = _make_trial(agent_result={
+            "response_type": "message",
+            "summary": "ok",
+        })
+        assert grader.grade(trial, _make_task()).passed is True
+
+
+class TestSSESequenceGrader:
+    def test_valid_sequence_passes(self):
+        grader = SSESequenceGrader()
+        trial = _make_trial(agent_result={
+            "response_type": "message",
+            "summary": "ok",
+            "sse_events": [
+                {"event_type": "session_created", "payload": {"session_id": "s1"}},
+                {"event_type": "phase_change", "payload": {"phase": "THINKING"}},
+                {"event_type": "tool_step", "payload": {"tool_name": "execute_command", "status": "running"}},
+                {"event_type": "result", "payload": {"summary": "ok"}},
+            ],
+        })
+        assert grader.grade(trial, _make_task()).passed is True
+
+    def test_missing_session_created_fails(self):
+        grader = SSESequenceGrader()
+        trial = _make_trial(agent_result={
+            "response_type": "message",
+            "summary": "ok",
+            "sse_events": [
+                {"event_type": "tool_step", "payload": {"tool_name": "execute_command", "status": "running"}},
+                {"event_type": "result", "payload": {"summary": "ok"}},
+            ],
+        })
+        assert grader.grade(trial, _make_task()).passed is False
+
+    def test_missing_result_or_error_fails(self):
+        grader = SSESequenceGrader()
+        trial = _make_trial(agent_result={
+            "response_type": "message",
+            "summary": "ok",
+            "sse_events": [
+                {"event_type": "session_created", "payload": {"session_id": "s1"}},
+                {"event_type": "phase_change", "payload": {"phase": "THINKING"}},
+            ],
+        })
+        assert grader.grade(trial, _make_task()).passed is False
+
+    def test_event_after_result_fails(self):
+        grader = SSESequenceGrader()
+        trial = _make_trial(agent_result={
+            "response_type": "message",
+            "summary": "ok",
+            "sse_events": [
+                {"event_type": "session_created", "payload": {"session_id": "s1"}},
+                {"event_type": "result", "payload": {"summary": "ok"}},
+                {"event_type": "question", "payload": {"question_id": "q1"}},
+            ],
+        })
+        assert grader.grade(trial, _make_task()).passed is False
+
+    def test_missing_sse_events_gracefully_passes(self):
+        grader = SSESequenceGrader()
+        trial = _make_trial(agent_result={
+            "response_type": "message",
+            "summary": "ok",
+        })
+        assert grader.grade(trial, _make_task()).passed is True
+
+
 class TestYAMLGraderNameCoverage:
     """S126: 验证所有 YAML 配置中使用的 grader 名称都能正确加载"""
 
@@ -1870,6 +1995,8 @@ class TestYAMLGraderNameCoverage:
         "context_reference",
         "intent_correction",
         "content_quality",
+        "summary_completeness",
+        "sse_sequence",
         "tool_call_order",
         "command_safety",
         "llm_judge",

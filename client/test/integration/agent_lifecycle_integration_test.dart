@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:rc_client/models/config.dart';
 import 'package:rc_client/models/runtime_device.dart';
 import 'package:rc_client/services/desktop/desktop_agent_manager.dart';
+import 'package:rc_client/services/desktop/desktop_exit_policy_service.dart';
 import 'package:rc_client/services/desktop/desktop_agent_supervisor.dart';
 import 'package:rc_client/services/config_service.dart';
 import 'package:rc_client/services/runtime_device_service.dart';
@@ -47,6 +48,15 @@ class IntegrationMockConfigService implements ConfigService {
   Future<void> clearConfig() async {
     _config = const AppConfig();
   }
+}
+
+class _FakeExitPolicyService extends DesktopExitPolicyService {
+  _FakeExitPolicyService(this.keepRunning);
+
+  final bool keepRunning;
+
+  @override
+  Future<bool> keepAgentRunningInBackground() async => keepRunning;
 }
 
 void main() {
@@ -96,6 +106,7 @@ void main() {
                 ProcessResult(0, 0, 'python3 -m app.cli run', ''),
           ),
           configService: mockConfigService,
+          exitPolicyService: _FakeExitPolicyService(true),
         );
 
         await manager.onLogin(
@@ -173,6 +184,7 @@ void main() {
             },
           ),
           configService: mockConfigService,
+          exitPolicyService: _FakeExitPolicyService(true),
         );
 
         // 先登录
@@ -217,6 +229,7 @@ void main() {
                 ProcessResult(0, 0, 'python3 -m app.cli run', ''),
           ),
           configService: mockConfigService,
+          exitPolicyService: _FakeExitPolicyService(false),
         );
 
         await manager.onAppStart(
@@ -266,6 +279,7 @@ void main() {
                 ProcessResult(0, 0, 'python3 -m app.cli run', ''),
           ),
           configService: mockConfigService,
+          exitPolicyService: _FakeExitPolicyService(true),
         );
 
         await manager.onAppStart(
@@ -319,6 +333,7 @@ void main() {
                 ProcessResult(0, 0, 'python3 -m app.cli run', ''),
           ),
           configService: mockConfigService,
+          exitPolicyService: _FakeExitPolicyService(true),
         );
 
         // 先登录
@@ -348,6 +363,7 @@ void main() {
                 ProcessResult(0, 1, '', ''),
           ),
           configService: mockConfigService,
+          exitPolicyService: _FakeExitPolicyService(false),
         );
 
         await manager.onAppClose();
@@ -395,6 +411,7 @@ void main() {
             },
           ),
           configService: mockConfigService,
+          exitPolicyService: _FakeExitPolicyService(true),
         );
 
         // 1. 用户登录
@@ -440,6 +457,7 @@ void main() {
                 ProcessResult(0, 0, 'python3 -m app.cli run', ''),
           ),
           configService: mockConfigService,
+          exitPolicyService: _FakeExitPolicyService(true),
         );
 
         // 1. App 启动，恢复 Agent

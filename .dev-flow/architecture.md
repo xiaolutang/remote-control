@@ -434,8 +434,20 @@ Server 不是 terminal 内容真相，但必须是 **会话时序真相**；Agen
 
 - eval 框架在 `server/evals/` 独立包内，不侵入业务代码
 - eval 使用独立 `evals.db`，与主业务 `app.db` 隔离
-- eval 运行使用 mock transport，不连接真实设备
-- eval 真实调用 LLM（不 mock），这是测试智能行为的核心
+- unit 模式使用 mock transport，用于快速迭代（不能替代 integration 模式）
+- integration 模式使用真实 Agent 进程 + 真实命令执行 + 真实 LLM 调用，能发现真实使用问题
+
+### 评估模式分层
+
+- unit 模式：httpx → LLM API + MockTransport，快速验证 system prompt 遵循度
+- integration 模式：真实 Server + 真实 Agent + 真实命令执行，覆盖完整链路（HTTP API → session 管理 → Pydantic AI Agent → 工具执行 → SSE 流 → conversation 持久化 → token 统计）
+- 两种模式互补：unit 做快速回归，integration 做真实质量门
+
+### 真实性原则
+
+- integration eval 的核心价值是真实性：真实 LLM、真实工具执行、真实上下文累积
+- 不得为 integration eval 引入 mock transport 或截断工具输出
+- grader 必须能检测真实使用问题（回复截断、上下文爆炸、工具调用过多）
 
 ### 模型配置强制
 
@@ -448,8 +460,8 @@ Server 不是 terminal 内容真相，但必须是 **会话时序真相**；Agen
 
 ### 评估安全
 
-- eval task 中的命令不实际执行（mock transport）
-- eval 不读取真实用户对话内容、不访问真实设备
+- unit 模式不得执行真实命令，不访问真实设备（mock transport）
+- integration 模式可以执行真实命令并访问隔离的测试设备/容器，但不得读取真实用户对话内容
 - 质量指标提取只读 agent_conversation_events 元数据（event_type/tool_name/response_type/token_usage），不读对话文本内容
 - 反馈闭环只接收脱敏摘要（LLM 分析后的 intent/category 摘要），不直接存原始反馈文本到 evals.db
 - candidate task 中的 `source_feedback_id` 仅存引用 ID，不存原始反馈内容

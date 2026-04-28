@@ -1,3 +1,5 @@
+// ignore_for_file: annotate_overrides, deprecated_member_use_from_same_package
+
 part of 'smart_terminal_side_panel.dart';
 
 /// SSE 会话管理、Intent 提交、Agent 事件处理、取消/重试
@@ -295,7 +297,9 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
       _intentController.clear(); setState(() {}); _handleAgentRespond(text); return;
     }
     if (_executing || _currentPhase == AgentPhase.exploring || _currentPhase == AgentPhase.thinking ||
-        _currentPhase == AgentPhase.analyzing || _currentPhase == AgentPhase.responding) return;
+        _currentPhase == AgentPhase.analyzing || _currentPhase == AgentPhase.responding) {
+      return;
+    }
     _handleResolveIntent();
   }
 
@@ -452,8 +456,8 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
   Future<void> _submitAnswerEdit({int? historyIndex, required int answerIndex, required String newAnswer}) async {
     await _cancelAgentSessionSilent();
     final isLive = historyIndex == null;
-    final entry = isLive ? null : _agentHistory[historyIndex!];
-    final savedIntent = isLive ? _agentIntent : entry!.intent;
+    final entry = isLive ? null : _agentHistory[historyIndex];
+    final savedIntent = isLive ? _agentIntent : entry?.intent;
     setState(() {
       _truncateConversationEventsForAnswer(historyIndex, answerIndex);
       if (_serverConversationEvents.isNotEmpty) {
@@ -471,7 +475,11 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
         _turnEventOrder.removeRange(truncateAt, _turnEventOrder.length);
         var answerKeep = 0; var msgKeep = 0;
         for (final type in _turnEventOrder) {
-          if (type == _TurnEventType.answer) answerKeep++; else if (type == _TurnEventType.assistantMessage) msgKeep++;
+          if (type == _TurnEventType.answer) {
+            answerKeep++;
+          } else if (type == _TurnEventType.assistantMessage) {
+            msgKeep++;
+          }
         }
         if (answerKeep < _agentAnswers.length) _agentAnswers.removeRange(answerKeep, _agentAnswers.length);
         if (msgKeep < _assistantMessages.length) _assistantMessages.removeRange(msgKeep, _assistantMessages.length);

@@ -260,6 +260,7 @@ async def _cmd_run_integration(args: argparse.Namespace) -> int:
         run_integration_task,
         DockerBuildError,
         HealthCheckTimeout,
+        AgentStartupError,
     )
     from evals.harness import EvalHarness
     from evals.models import EvalTrial, EvalRun
@@ -299,16 +300,23 @@ async def _cmd_run_integration(args: argparse.Namespace) -> int:
         print("[integration] 等待服务就绪 ...")
         runner.wait_for_healthy()
 
-        # 3. 注册测试用户
-        await eval_client.setup()
+        # 3. 启动 integration Agent
+        agent_identity = await eval_client.provision_agent_identity()
+        eval_client.use_access_token(
+            agent_identity["access_token"],
+            agent_identity.get("user_id", ""),
+        )
+        print("[integration] 启动 Agent 进程 ...")
+        runner.start_agent(agent_token=agent_identity["access_token"])
 
-        # 4. 获取设备（需要 Agent WS 连接）
-        device_id = await eval_client.get_or_create_device()
-        terminal_id = ""
-        if device_id:
-            terminals = await eval_client.list_terminals(device_id)
-            if terminals:
-                terminal_id = terminals[0].get("terminal_id", "")
+        # 4. 等待 Agent 设备上线
+        print("[integration] 等待 Agent 设备上线 ...")
+        device_id = await runner.wait_agent_online(eval_client, timeout=60)
+        cleaned_terminals = await eval_client.cleanup_eval_terminals(device_id)
+        if cleaned_terminals:
+            print(
+                f"[integration] 已清理遗留 eval terminals: {', '.join(cleaned_terminals)}"
+            )
 
         # 5. 创建 EvalRun
         run_record = EvalRun(
@@ -337,7 +345,6 @@ async def _cmd_run_integration(args: argparse.Namespace) -> int:
                             task_def=task,
                             eval_client=eval_client,
                             device_id=device_id,
-                            terminal_id=terminal_id,
                         )
 
                         agent_result = integ_result["agent_result"]
@@ -354,7 +361,7 @@ async def _cmd_run_integration(args: argparse.Namespace) -> int:
                             transcript_json=integ_result["transcript"],
                             agent_result_json=agent_result,
                             duration_ms=duration_ms,
-                            token_usage_json={},
+                            token_usage_json=integ_result.get("token_usage", {}),
                         )
                         await db.save_trial(trial)
 
@@ -428,12 +435,15 @@ async def _cmd_run_integration(args: argparse.Namespace) -> int:
     except HealthCheckTimeout as e:
         print(f"\nERROR: {e}", file=sys.stderr)
         return 1
+    except AgentStartupError as e:
+        print(f"\nERROR: {e}", file=sys.stderr)
+        return 1
     except Exception as e:
         logger.error("[integration] 未预期的错误: %s", e, exc_info=True)
         print(f"\nERROR: {e}", file=sys.stderr)
         return 1
     finally:
-        # 确保 tear down
+        runner.stop_agent()
         runner.tear_down()
         await eval_client.close()
 

@@ -5,7 +5,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Optional
 
-from app.skill_registry import SkillManifest
+from app.tools.skill_registry import SkillManifest
 
 # 动态工具结果限制
 MAX_TOOL_RESULT_SIZE = 64 * 1024  # 64 KB

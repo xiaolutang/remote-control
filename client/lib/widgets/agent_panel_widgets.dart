@@ -1,3 +1,5 @@
+// ignore_for_file: annotate_overrides, deprecated_member_use_from_same_package
+
 part of 'smart_terminal_side_panel.dart';
 
 /// 共享子组件（气泡、光标、工具卡片、Trace 列表、Usage Toast 等）

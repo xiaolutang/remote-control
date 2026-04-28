@@ -9,13 +9,13 @@ import os
 import shlex
 from datetime import datetime, timezone
 
-from app.command_validator import (
+from app.security.command_validator import (
     validate_command,
     MAX_STDOUT_LEN,
     MAX_STDERR_LEN,
     DEFAULT_COMMAND_TIMEOUT,
 )
-from app.knowledge_tool import lookup_knowledge
+from app.tools.knowledge_tool import lookup_knowledge
 from app.transport.agent_protocol import TerminalSpec
 
 logger = logging.getLogger(__name__)

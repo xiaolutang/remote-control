@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/io_client.dart';
 import 'package:http/http.dart' as http;
 
+import '../../test_support/integration_env.dart';
+
 /// 生产环境集成测试 — 验证 S063 三环境模型下的登录/注册
 ///
 /// 三种访问路径：
@@ -18,7 +20,12 @@ import 'package:http/http.dart' as http;
 ///
 /// 运行条件：设置环境变量 RC_TEST_SERVER_IP，需要能访问线上服务器
 void main() {
-  final serverIp = Platform.environment['RC_TEST_SERVER_IP'] ?? '';
+  final serverIp = integrationEnv(
+    'RC_TEST_SERVER_IP',
+    fallback: integrationEnv('RC_SERVER_IP', fallback: 'localhost'),
+  );
+  final username = integrationEnv('RC_TEST_USERNAME', fallback: 'test');
+  final password = integrationEnv('RC_TEST_PASSWORD', fallback: 'test123');
   const domainHost = 'rc.xiaolutang.top';
   const directPort = 8880;
 
@@ -72,8 +79,8 @@ void main() {
           Uri.parse('$httpUrl/api/login'),
           headers: {'Content-Type': 'application/json'},
           body: jsonEncode({
-            'username': 'prod_test',
-            'password': 'test123456',
+            'username': username,
+            'password': password,
             'view': 'mobile',
           }),
         );
@@ -102,8 +109,8 @@ void main() {
           'Host': domainHost,
         },
         body: jsonEncode({
-          'username': 'prod_test',
-          'password': 'test123456',
+          'username': username,
+          'password': password,
           'view': 'mobile',
         }),
       );
@@ -157,8 +164,8 @@ void main() {
           Uri.parse('$httpUrl/api/login'),
           headers: {'Content-Type': 'application/json'},
           body: jsonEncode({
-            'username': 'prod_test',
-            'password': 'test123456',
+            'username': username,
+            'password': password,
             'view': 'mobile',
           }),
         );

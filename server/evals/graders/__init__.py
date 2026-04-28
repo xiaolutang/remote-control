@@ -20,6 +20,9 @@ S126: 新增 grader（注册表名与 YAML 配置一一对应）：
 12. context_reference   — 多轮上下文引用检查
 13. intent_correction   — 多轮意图修正检查
 14. content_quality     — summary 实质内容检查
+15. summary_completeness — integration summary 最小完整度检查
+16. token_budget        — integration input token 预算检查
+17. sse_sequence        — integration SSE 事件序列检查
 """
 from evals.graders.code_grader import (
     CodeGraderBase,
@@ -36,6 +39,9 @@ from evals.graders.code_grader import (
     ContextReferenceGrader,
     IntentCorrectionGrader,
     ContentQualityGrader,
+    SummaryCompletenessGrader,
+    TokenBudgetGrader,
+    SSESequenceGrader,
     GRADER_REGISTRY,
     GRADER_ALIASES,
     get_grader,
@@ -65,6 +71,9 @@ __all__ = [
     "ContextReferenceGrader",
     "IntentCorrectionGrader",
     "ContentQualityGrader",
+    "SummaryCompletenessGrader",
+    "TokenBudgetGrader",
+    "SSESequenceGrader",
     "LLMJudgeGrader",
     "CalibrationTool",
     "parse_judge_response",

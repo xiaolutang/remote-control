@@ -241,12 +241,13 @@ void main() {
     });
 
     test(
-        'source guard: _onOutput does not rebuild TerminalScreen with setState',
+        'source guard: _onLocalOutput does not rebuild terminal screen with setState',
         () async {
       final source =
-          await File('lib/screens/terminal_screen.dart').readAsString();
+          await File('lib/screens/terminal_screen_controller.dart')
+              .readAsString();
       final onOutputBody = RegExp(
-        r'void _onOutput\(String data\) \{([\s\S]*?)\n  \}',
+        r'void _onLocalOutput\(String data\) \{([\s\S]*?)\n  \}',
       ).firstMatch(source);
 
       expect(onOutputBody, isNotNull);
@@ -254,7 +255,7 @@ void main() {
         onOutputBody!.group(1),
         isNot(contains('setState(')),
         reason:
-            '终端输出重绘应由 xterm/RenderTerminal 和局部 notifier 驱动，不应重建整个 TerminalScreen subtree',
+            '终端输出重绘应由 xterm/RenderTerminal 和局部 notifier 驱动，不应因为输出而重建整个 TerminalScreen subtree',
       );
     });
 

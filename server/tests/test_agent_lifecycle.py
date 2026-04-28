@@ -48,6 +48,13 @@ def make_async_iter(json_msgs=None, *, exc=None):
     return _iter()
 
 
+def make_ws_auth_payload(session_id: str = "session-1", sub: str = "user1", token: str = "valid-token"):
+    return (
+        {"session_id": session_id, "sub": sub},
+        {"type": "auth", "token": token},
+    )
+
+
 # ─── 1. 服务端心跳超时验证 ───
 
 
@@ -66,6 +73,8 @@ class TestHeartbeatChecker:
 
         active_agents.clear()
         mock_ws = AsyncMock()
+        mock_ws.scope = {"scheme": "wss"}
+        mock_ws.headers = {}
         conn = AgentConnection("session-1", mock_ws)
 
         # 模拟心跳超时
@@ -101,6 +110,8 @@ class TestHeartbeatChecker:
 
         active_agents.clear()
         mock_ws = AsyncMock()
+        mock_ws.scope = {"scheme": "wss"}
+        mock_ws.headers = {}
         conn = AgentConnection("session-1", mock_ws)
         active_agents["session-1"] = conn
 
@@ -130,6 +141,8 @@ class TestHeartbeatChecker:
         active_agents.clear()
 
         mock_ws = AsyncMock()
+        mock_ws.scope = {"scheme": "wss"}
+        mock_ws.headers = {}
         # 不加入 active_agents，checker 应该 break
 
         with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
@@ -187,10 +200,12 @@ class TestStaleTTLStateMachine:
             raise asyncio.CancelledError
 
         mock_ws = AsyncMock()
+        mock_ws.scope = {"scheme": "wss"}
+        mock_ws.headers = {}
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
         mock_ws.iter_text = MagicMock(return_value=cancelled_iter_text())
 
-        with patch("app.ws.ws_agent.async_verify_token", return_value={"session_id": "session-1", "sub": "user1"}):
+        with patch("app.ws.ws_agent.wait_for_ws_auth", new=AsyncMock(return_value=make_ws_auth_payload())):
             with patch("app.ws.ws_agent.get_session", return_value={"session_id": "session-1", "owner": "user1"}):
                 with patch("app.ws.ws_agent.set_session_online", new_callable=AsyncMock):
                     with patch("app.ws.ws_agent.update_session_device_heartbeat", new_callable=AsyncMock):
@@ -263,10 +278,12 @@ class TestAgentHandlerExceptionPaths:
             raise WebSocketDisconnect(code=1000)
 
         mock_ws = AsyncMock()
+        mock_ws.scope = {"scheme": "wss"}
+        mock_ws.headers = {}
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
         mock_ws.iter_text = MagicMock(return_value=disconnect_iter_text())
 
-        with patch("app.ws.ws_agent.async_verify_token", return_value={"session_id": "session-1", "sub": "user1"}):
+        with patch("app.ws.ws_agent.wait_for_ws_auth", new=AsyncMock(return_value=make_ws_auth_payload())):
             with patch("app.ws.ws_agent.get_session", return_value={"session_id": "session-1", "owner": "user1"}):
                 with patch("app.ws.ws_agent.set_session_online", new_callable=AsyncMock):
                     with patch("app.ws.ws_agent.update_session_device_heartbeat", new_callable=AsyncMock):
@@ -292,10 +309,12 @@ class TestAgentHandlerExceptionPaths:
             raise RuntimeError("unexpected error")
 
         mock_ws = AsyncMock()
+        mock_ws.scope = {"scheme": "wss"}
+        mock_ws.headers = {}
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
         mock_ws.iter_text = MagicMock(return_value=error_iter_text())
 
-        with patch("app.ws.ws_agent.async_verify_token", return_value={"session_id": "session-1", "sub": "user1"}):
+        with patch("app.ws.ws_agent.wait_for_ws_auth", new=AsyncMock(return_value=make_ws_auth_payload())):
             with patch("app.ws.ws_agent.get_session", return_value={"session_id": "session-1", "owner": "user1"}):
                 with patch("app.ws.ws_agent.set_session_online", new_callable=AsyncMock):
                     with patch("app.ws.ws_agent.update_session_device_heartbeat", new_callable=AsyncMock):
@@ -331,11 +350,13 @@ class TestAgentHandlerExceptionPaths:
             raise WebSocketDisconnect(code=1000)
 
         mock_ws = AsyncMock()
+        mock_ws.scope = {"scheme": "wss"}
+        mock_ws.headers = {}
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
         mock_ws.send_json = mock_send_json
         mock_ws.iter_text = MagicMock(return_value=long_iter_text())
 
-        with patch("app.ws.ws_agent.async_verify_token", return_value={"session_id": "session-1", "sub": "user1"}):
+        with patch("app.ws.ws_agent.wait_for_ws_auth", new=AsyncMock(return_value=make_ws_auth_payload())):
             with patch("app.ws.ws_agent.get_session", return_value={"session_id": "session-1", "owner": "user1"}):
                 with patch("app.ws.ws_agent.set_session_online", new_callable=AsyncMock):
                     with patch("app.ws.ws_agent.update_session_device_heartbeat", new_callable=AsyncMock):
@@ -373,6 +394,8 @@ class TestAgentClientDisconnectBehavior:
         client._connected = True
 
         mock_ws = AsyncMock()
+        mock_ws.scope = {"scheme": "wss"}
+        mock_ws.headers = {}
         client.ws = mock_ws
 
         client.runtime_manager.close_all = MagicMock(return_value=[])
@@ -404,6 +427,8 @@ class TestAgentClientDisconnectBehavior:
         client.pty = mock_pty
 
         mock_ws = AsyncMock()
+        mock_ws.scope = {"scheme": "wss"}
+        mock_ws.headers = {}
         mock_ws.send = AsyncMock()
         client.ws = mock_ws
 
@@ -543,9 +568,11 @@ class TestServerCloseCodes:
         active_agents["session-1"] = existing_conn
 
         mock_ws = AsyncMock()
+        mock_ws.scope = {"scheme": "wss"}
+        mock_ws.headers = {}
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
 
-        with patch("app.ws.ws_agent.async_verify_token", return_value={"session_id": "session-1", "sub": "user1"}):
+        with patch("app.ws.ws_agent.wait_for_ws_auth", new=AsyncMock(return_value=make_ws_auth_payload())):
             from app.ws.ws_agent import agent_websocket_handler
             await agent_websocket_handler(mock_ws)
 
@@ -554,18 +581,15 @@ class TestServerCloseCodes:
     @pytest.mark.asyncio
     async def test_invalid_token_rejected_with_4001(self):
         """无效 token 应返回 4001"""
-        from fastapi import HTTPException
-
         mock_ws = AsyncMock()
+        mock_ws.scope = {"scheme": "wss"}
+        mock_ws.headers = {}
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "invalid-token"}))
 
-        with patch("app.ws.ws_agent.async_verify_token") as mock_verify:
-            mock_verify.side_effect = HTTPException(status_code=401, detail="Invalid token")
+        from app.ws.ws_agent import agent_websocket_handler
+        await agent_websocket_handler(mock_ws)
 
-            from app.ws.ws_agent import agent_websocket_handler
-            await agent_websocket_handler(mock_ws)
-
-        mock_ws.close.assert_called_once_with(code=4001, reason="Invalid token")
+        mock_ws.close.assert_called_once_with(code=4001, reason="TOKEN_INVALID")
 
     @pytest.mark.asyncio
     async def test_server_never_sends_close_1000(self):
@@ -611,10 +635,12 @@ class TestClientAgentStateInteraction:
             raise asyncio.CancelledError
 
         mock_ws = AsyncMock()
+        mock_ws.scope = {"scheme": "wss"}
+        mock_ws.headers = {}
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
         mock_ws.iter_text = MagicMock(return_value=cancelled_iter_text())
 
-        with patch("app.ws.ws_client.async_verify_token", return_value={"session_id": "session-1", "sub": "user1"}):
+        with patch("app.ws.ws_client.wait_for_ws_auth", new=AsyncMock(return_value=make_ws_auth_payload())):
             with patch("app.ws.ws_client.get_session_by_device_id", new=AsyncMock(return_value={
                 "session_id": "session-1",
                 "owner": "user1",
@@ -627,8 +653,13 @@ class TestClientAgentStateInteraction:
                 })):
                     with patch("app.ws.ws_client.is_agent_connected", return_value=False):
                         with patch("app.ws.ws_client.update_session_view_count", new_callable=AsyncMock):
-                            with patch("app.ws.ws_client._broadcast_presence", new_callable=AsyncMock):
-                                with patch("app.ws.ws_client.update_session_terminal_status", new_callable=AsyncMock):
+                            with patch("app.ws.ws_client.update_session_terminal_views", new=AsyncMock(return_value={
+                                "terminal_id": "term-1",
+                                "status": "live",
+                                "views": {"mobile": 0, "desktop": 0},
+                                "geometry_owner_view": None,
+                            })):
+                                with patch("app.ws.ws_client._broadcast_presence", new_callable=AsyncMock):
                                     from app.ws.ws_client import client_websocket_handler
                                     try:
                                         await client_websocket_handler(
@@ -657,10 +688,12 @@ class TestClientAgentStateInteraction:
             raise asyncio.CancelledError
 
         mock_ws = AsyncMock()
+        mock_ws.scope = {"scheme": "wss"}
+        mock_ws.headers = {}
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
         mock_ws.iter_text = MagicMock(return_value=cancelled_iter_text())
 
-        with patch("app.ws.ws_client.async_verify_token", return_value={"session_id": "session-1", "sub": "user1"}):
+        with patch("app.ws.ws_client.wait_for_ws_auth", new=AsyncMock(return_value=make_ws_auth_payload())):
             with patch("app.ws.ws_client.get_session", new=AsyncMock(return_value={
                 "session_id": "session-1",
                 "owner": "user1",
@@ -690,9 +723,11 @@ class TestClientAgentStateInteraction:
         active_clients.clear()
 
         mock_ws = AsyncMock()
+        mock_ws.scope = {"scheme": "wss"}
+        mock_ws.headers = {}
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
 
-        with patch("app.ws.ws_client.async_verify_token", return_value={"session_id": "session-1", "sub": "user1"}):
+        with patch("app.ws.ws_client.wait_for_ws_auth", new=AsyncMock(return_value=make_ws_auth_payload())):
             with patch("app.ws.ws_client.get_session_by_device_id", new=AsyncMock(return_value={
                 "session_id": "session-1",
                 "owner": "user1",
@@ -735,12 +770,14 @@ class TestCloseOriginDetection:
         active_agents.clear()
 
         mock_ws = AsyncMock()
+        mock_ws.scope = {"scheme": "wss"}
+        mock_ws.headers = {}
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
         mock_ws.iter_text = MagicMock(
             return_value=make_async_iter(exc=WebSocketDisconnect(code=1000))
         )
 
-        with patch("app.ws.ws_agent.async_verify_token", return_value={"session_id": "session-1", "sub": "user1"}):
+        with patch("app.ws.ws_agent.wait_for_ws_auth", new=AsyncMock(return_value=make_ws_auth_payload())):
             with patch("app.ws.ws_agent.get_session", return_value={"session_id": "session-1", "owner": "user1"}):
                 with patch("app.ws.ws_agent.set_session_online", new_callable=AsyncMock):
                     with patch("app.ws.ws_agent.update_session_device_heartbeat", new_callable=AsyncMock):
@@ -769,12 +806,14 @@ class TestCloseOriginDetection:
         active_agents.clear()
 
         mock_ws = AsyncMock()
+        mock_ws.scope = {"scheme": "wss"}
+        mock_ws.headers = {}
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
         mock_ws.iter_text = MagicMock(
             return_value=make_async_iter(exc=WebSocketDisconnect(code=1008))
         )
 
-        with patch("app.ws.ws_agent.async_verify_token", return_value={"session_id": "session-1", "sub": "user1"}):
+        with patch("app.ws.ws_agent.wait_for_ws_auth", new=AsyncMock(return_value=make_ws_auth_payload())):
             with patch("app.ws.ws_agent.get_session", return_value={"session_id": "session-1", "owner": "user1"}):
                 with patch("app.ws.ws_agent.set_session_online", new_callable=AsyncMock):
                     with patch("app.ws.ws_agent.update_session_device_heartbeat", new_callable=AsyncMock):
@@ -800,6 +839,8 @@ class TestPingPongLifecycle:
 
         active_agents.clear()
         mock_ws = AsyncMock()
+        mock_ws.scope = {"scheme": "wss"}
+        mock_ws.headers = {}
         conn = AgentConnection("session-1", mock_ws, "user1")
 
         # 模拟心跳超时
@@ -822,6 +863,8 @@ class TestPingPongLifecycle:
         from app.ws.ws_agent import AgentConnection, HEARTBEAT_TIMEOUT
 
         mock_ws = AsyncMock()
+        mock_ws.scope = {"scheme": "wss"}
+        mock_ws.headers = {}
         conn = AgentConnection("session-1", mock_ws)
 
         for i in range(5):
@@ -946,35 +989,40 @@ class TestPartialUpdateRisk:
         assert called
 
     @pytest.mark.asyncio
-    async def test_agent_connect_set_online_failure_cleans_up_active_agents(self):
+    async def test_agent_connect_set_online_storage_failure_keeps_connection_alive(self):
         """
-        Agent 连接时 set_session_online 抛异常，
-        active_agents 中已添加的 entry 应被清理，不会泄漏。
-        异常传播到调用方。
+        Agent 连接时 set_session_online 遇到底层存储故障，
+        连接应继续建立，不应因为在线状态持久化失败而直接断开。
         """
         from app.ws.ws_agent import active_agents
         from fastapi import HTTPException
 
         active_agents.clear()
 
+        messages_sent = []
+
         async def cancelled_iter_text():
             if False:
                 yield ""
 
         mock_ws = AsyncMock()
+        mock_ws.scope = {"scheme": "wss"}
+        mock_ws.headers = {}
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
+        mock_ws.send_json = messages_sent.append
         mock_ws.iter_text = MagicMock(return_value=cancelled_iter_text())
 
-        with patch("app.ws.ws_agent.async_verify_token", return_value={"session_id": "session-redis-fail", "sub": "user1"}):
+        with patch(
+            "app.ws.ws_agent.wait_for_ws_auth",
+            new=AsyncMock(return_value=make_ws_auth_payload(session_id="session-redis-fail")),
+        ):
             with patch("app.ws.ws_agent.get_session", return_value={"session_id": "session-redis-fail", "owner": "user1"}):
                 with patch("app.ws.ws_agent.set_session_online", new=AsyncMock(
-                    side_effect=HTTPException(status_code=500, detail="Redis down")
+                    side_effect=HTTPException(status_code=503, detail="Redis down")
                 )):
                     from app.ws.ws_agent import agent_websocket_handler
-                    with pytest.raises(HTTPException) as exc_info:
-                        await agent_websocket_handler(mock_ws)
+                    await agent_websocket_handler(mock_ws)
 
-                    assert exc_info.value.status_code == 500
-
-        # 关键验证：active_agents 不应泄漏
+        connected_msgs = [m for m in messages_sent if m.get("type") == "connected"]
+        assert len(connected_msgs) == 1
         assert "session-redis-fail" not in active_agents

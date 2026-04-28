@@ -1,4 +1,5 @@
-import 'dart:async';
+// ignore_for_file: unused_element
+
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -1147,7 +1148,7 @@ void main() {
       // 验证：检查代码中是否还存在 _onServiceStateChanged 相关逻辑
       // 这是一个静态验证，确保架构原则被遵守
       final sourceFile =
-          await File('lib/screens/terminal_workspace_screen.dart')
+          await File('lib/screens/desktop/terminal_workspace_screen.dart')
               .readAsString();
 
       // 验证：不应该存在 _onServiceStateChanged 监听器
@@ -1172,7 +1173,7 @@ void main() {
       //   但 _handleLogout 中从未传入，导致 Agent 关闭链路断裂。
       // 修复：抽取共享 performLogout() helper，统一 logout 编排
       final sourceFile =
-          await File('lib/screens/terminal_workspace_screen.dart')
+          await File('lib/screens/desktop/terminal_workspace_screen.dart')
               .readAsString();
 
       // 验证：_handleLogout 使用共享 logout helper
@@ -1194,26 +1195,27 @@ void main() {
     });
 
     test('all screen files use logoutAndNavigate for logout', () async {
-      // 架构原则：提供退出登录入口的 screen 必须通过共享 logoutAndNavigate 编排
-      // 账户信息页已收敛为纯资料页，不再承载 logout 入口
-      final screenFiles = [
-        'lib/screens/terminal_workspace_screen.dart',
-        'lib/screens/terminal_screen.dart',
-      ];
+      // 架构原则：退出登录必须复用共享编排，而不是各 screen 内联实现
+      // workspace screen 直接走 logoutAndNavigate；
+      // terminal screen 通过 handleAccountMenuAction 复用统一 logout 链路。
+      final workspaceSource =
+          await File('lib/screens/desktop/terminal_workspace_screen.dart')
+              .readAsString();
+      expect(workspaceSource.contains('logoutAndNavigate('), isTrue,
+          reason:
+              'workspace screen 必须调用 logoutAndNavigate 进行退出登录');
 
-      for (final path in screenFiles) {
-        final source = await File(path).readAsString();
-        final hasLogout = source.contains('logoutAndNavigate(');
-        expect(hasLogout, isTrue,
-            reason: '$path 必须调用 logoutAndNavigate 进行退出登录');
-      }
+      final terminalSource =
+          await File('lib/screens/terminal_screen.dart').readAsString();
+      expect(terminalSource.contains('handleAccountMenuAction('), isTrue,
+          reason: 'terminal_screen 必须通过 handleAccountMenuAction 复用共享退出链路');
     });
 
     test('no screen file contains inline _showThemePicker method', () async {
       // 架构原则：拥有主题入口的 screen 必须复用共享的 showThemePickerSheet
       // login_screen 已移除主题入口，不再参与该约束
       final screenFiles = [
-        'lib/screens/terminal_workspace_screen.dart',
+        'lib/screens/desktop/terminal_workspace_screen.dart',
         'lib/screens/terminal_screen.dart',
         'lib/screens/runtime_selection_screen.dart',
       ];
@@ -1230,7 +1232,7 @@ void main() {
       // 架构原则：refresh/stopLocalAgent 等主流程通过 _refreshDevicesAndSync 统一刷新
       // _refreshDevicesAndSync = loadDevices() + _refreshDesktopState()
       final source =
-          await File('lib/services/desktop_workspace_controller.dart')
+          await File('lib/services/desktop/desktop_workspace_controller.dart')
               .readAsString();
 
       // 验证：_refreshDevicesAndSync 方法存在

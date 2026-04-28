@@ -370,6 +370,174 @@ class ContainsCommandGrader(CodeGraderBase):
 
 
 @_register
+class SummaryCompletenessGrader(CodeGraderBase):
+    """integration 专用：检查 summary 是否达到任务要求的完整度。"""
+
+    @property
+    def grader_type(self) -> str:
+        return "summary_completeness"
+
+    def grade(self, trial: EvalTrial, task: EvalTaskDef) -> EvalGraderResult:
+        agent_result = trial.agent_result_json or {}
+        summary = str(agent_result.get("summary", "") or "").strip()
+        response_type = str(agent_result.get("response_type", "") or "")
+        min_length = getattr(task.expected, "summary_min_length", None)
+
+        issues: List[str] = []
+        if response_type == "error":
+            issues.append("response_type 为 error")
+        elif min_length is not None:
+            if len(summary) < int(min_length):
+                issues.append(
+                    f"summary 长度不足：{len(summary)} < {int(min_length)}"
+                )
+        elif not summary:
+            issues.append("summary 为空")
+
+        passed = len(issues) == 0
+        return EvalGraderResult(
+            trial_id=trial.trial_id,
+            grader_type=self.grader_type,
+            passed=passed,
+            score=1.0 if passed else 0.0,
+            details_json={
+                "response_type": response_type,
+                "summary_length": len(summary),
+                "summary_min_length": min_length,
+                "issues": issues,
+                "reason": (
+                    "summary 完整度达标"
+                    if passed
+                    else f"summary 完整度不足: {'; '.join(issues)}"
+                ),
+            },
+        )
+
+
+@_register
+class TokenBudgetGrader(CodeGraderBase):
+    """integration 专用：检查输入 token 预算是否失控。"""
+
+    MAX_INPUT_TOKENS = 50_000
+
+    @property
+    def grader_type(self) -> str:
+        return "token_budget"
+
+    def grade(self, trial: EvalTrial, task: EvalTaskDef) -> EvalGraderResult:
+        agent_result = trial.agent_result_json or {}
+        token_usage = agent_result.get("token_usage") or {}
+
+        # unit mode / 旧 trial 无 token_usage 时不阻塞
+        if not token_usage:
+            return EvalGraderResult(
+                trial_id=trial.trial_id,
+                grader_type=self.grader_type,
+                passed=True,
+                score=1.0,
+                details_json={
+                    "input_tokens": None,
+                    "limit": self.MAX_INPUT_TOKENS,
+                    "reason": "缺少 token_usage，按非 integration trial 降级通过",
+                },
+            )
+
+        input_tokens = int(token_usage.get("input_tokens", 0) or 0)
+        passed = input_tokens <= self.MAX_INPUT_TOKENS
+        return EvalGraderResult(
+            trial_id=trial.trial_id,
+            grader_type=self.grader_type,
+            passed=passed,
+            score=1.0 if passed else 0.0,
+            details_json={
+                "input_tokens": input_tokens,
+                "limit": self.MAX_INPUT_TOKENS,
+                "reason": (
+                    f"input_tokens={input_tokens} 在预算内"
+                    if passed
+                    else f"input_tokens={input_tokens} 超出预算 {self.MAX_INPUT_TOKENS}"
+                ),
+            },
+        )
+
+
+@_register
+class SSESequenceGrader(CodeGraderBase):
+    """integration 专用：校验 SSE 事件序列是否合法。"""
+
+    TERMINAL_EVENTS = {
+        "phase_change",
+        "streaming_text",
+        "tool_step",
+        "question",
+        "result",
+        "error",
+    }
+
+    @property
+    def grader_type(self) -> str:
+        return "sse_sequence"
+
+    def grade(self, trial: EvalTrial, task: EvalTaskDef) -> EvalGraderResult:
+        agent_result = trial.agent_result_json or {}
+        sse_events = agent_result.get("sse_events") or []
+
+        # unit mode / 旧 trial 无 SSE 时不阻塞
+        if not sse_events:
+            return EvalGraderResult(
+                trial_id=trial.trial_id,
+                grader_type=self.grader_type,
+                passed=True,
+                score=1.0,
+                details_json={
+                    "event_types": [],
+                    "reason": "缺少 sse_events，按非 integration trial 降级通过",
+                },
+            )
+
+        event_types = [
+            str(event.get("event_type", "") or event.get("type", ""))
+            for event in sse_events
+        ]
+        issues: List[str] = []
+
+        if "session_created" not in event_types:
+            issues.append("缺少 session_created")
+
+        final_indices = [idx for idx, name in enumerate(event_types) if name in ("result", "error")]
+        if not final_indices:
+            issues.append("缺少 result/error")
+        else:
+            final_idx = final_indices[-1]
+            if final_idx != len(event_types) - 1:
+                issues.append("result/error 之后仍有后续事件")
+
+        if event_types:
+            session_idx = event_types.index("session_created") if "session_created" in event_types else -1
+            for idx, name in enumerate(event_types):
+                if name in self.TERMINAL_EVENTS and session_idx >= 0 and idx < session_idx:
+                    issues.append(f"{name} 出现在 session_created 之前")
+                    break
+
+        passed = len(issues) == 0
+        return EvalGraderResult(
+            trial_id=trial.trial_id,
+            grader_type=self.grader_type,
+            passed=passed,
+            score=1.0 if passed else 0.0,
+            details_json={
+                "event_types": event_types,
+                "issues": issues,
+                "reason": (
+                    "SSE 事件序列合法"
+                    if passed
+                    else f"SSE 事件序列非法: {'; '.join(issues)}"
+                ),
+            },
+        )
+
+
+@_register
 class ToolCallOrderGrader(CodeGraderBase):
     """检查 transcript 中的工具调用序列是否符合期望。
 

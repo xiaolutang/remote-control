@@ -30,6 +30,7 @@ COPY --from=builder /app/.venv .venv
 
 # 复制应用代码
 COPY agent/app ./app
+COPY agent/local_server.py ./local_server.py
 
 # 内置知识文件（随分发包）
 # knowledge/ 已包含在 agent/app/ 中，无需额外 COPY

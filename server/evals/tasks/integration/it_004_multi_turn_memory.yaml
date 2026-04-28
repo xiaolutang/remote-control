@@ -1,0 +1,19 @@
+id: it_004_multi_turn_memory
+mode: integration
+category: multi_turn
+description: "真实 integration task：同一 terminal 上连续两轮对话，第二轮引用第一轮上下文。"
+input:
+  intent: "请记住短语 remote-control integration eval，并回复你已经记住了。"
+turns:
+  - intent: "请记住短语 remote-control integration eval，并回复你已经记住了。"
+  - intent: "我刚才让你记住的短语是什么？请原样回答。"
+expected:
+  response_type: ["message"]
+  steps_contain: ["remote-control integration eval"]
+  summary_min_length: 20
+graders: ["response_type_match", "context_reference", "summary_completeness", "sse_sequence"]
+metadata:
+  source: integration
+  difficulty: medium
+  tags: ["integration", "multi_turn", "memory"]
+  reference_solution: "第二轮回复中明确提到 remote-control integration eval。"

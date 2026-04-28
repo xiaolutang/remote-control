@@ -453,3 +453,40 @@
     - xlfoundry-risk: 审查 shared terminal 需求时，必须检查“后加入视图是否会抢占 geometry”
 - owner: xlfoundry-execute
 - status: open
+
+---
+
+## DF-20260428-01
+
+- issue_id: DF-20260428-01
+- source: real_use
+- related_task: S126, S127
+- symptom: >-
+    eval 30/30 通过但真实使用 Agent 只输出标题（"个人成长助手项目全面分析"），无实质内容。
+    103K input tokens 消耗（30+ execute_command 工具调用），仅 1060 output tokens。
+- escape_path: >-
+    1. eval unit 模式使用 httpx 直接调 LLM API，不走 Pydantic AI Agent 管线
+    2. MockTransport 返回预定义短文本（几十到几百字符），真实 execute_command 返回 2-8K 字符
+    3. 30 次工具调用 × 8K = 240K 字符上下文累积，eval mock 数据远不能复现
+    4. grader 只检查 response_type 枚举和 steps 子串匹配，不检查 summary 完整性
+    5. 27/30 eval task 对话历史 = 0 轮，无法发现多轮退化
+- fix_level: L2
+- root_cause_summary: >-
+    eval 体系测的是裸 LLM API + mock 短数据，不是真实 Agent 管线。
+    mock 数据脱离真实（几百字 vs 几千字），工具调用次数少（2-5 次 vs 30+ 次），
+    grader 不检查回复完整性。整个评估与真实使用完全脱节。
+- root_cause_analysis:
+    1. 根因：eval architecture 假设"LLM 调用正确 = Agent 行为正确"，跳过了 Agent 框架层
+    2. 同类问题：任何涉及 ReAct 循环 + 工具累积 + 上下文管理的系统，纯 LLM API 测试都无法覆盖
+    3. 统一模式：eval 必须走真实 Agent 管线（HTTP API → session 管理 → Pydantic AI Agent → 工具执行 → SSE 流）
+    4. 架构约束更新：R044 约束需从"mock transport"改为"integration 模式使用真实 Agent"
+- upstream_actions:
+    - 新增 Phase 13: B217-B220 + S221（eval 重构为真实环境评估）
+    - 更新 architecture.md R044 评估体系约束
+    - 保留 unit 模式做快速回归，integration 模式做真实质量门
+- rules_to_update:
+    - xlfoundry-plan: ReAct Agent 评估必须走真实管线，不能只测 LLM API + mock
+    - xlfoundry-plan: eval task 的 mock 数据必须接近真实长度，grader 必须检查回复完整性
+    - xlfoundry-risk: 审查 eval 体系时，必须验证"eval pass 的场景在真实使用中是否真的 pass"
+- owner: xlfoundry-plan
+- status: open

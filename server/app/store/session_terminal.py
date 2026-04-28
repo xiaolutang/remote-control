@@ -345,7 +345,6 @@ async def bulk_update_session_terminals(
                 _advance_recovery_epoch(terminal)
             terminal["updated_at"] = now
             changed += 1
-
         session_data["updated_at"] = now
         await _save_session(session_id, session_data)
         return {"changed": changed, "terminals": terminals}

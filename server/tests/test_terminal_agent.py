@@ -52,6 +52,12 @@ from pydantic_ai import RunContext
 # Fixtures
 # ---------------------------------------------------------------------------
 
+@pytest.fixture(autouse=True)
+def _mock_planner_api_key():
+    """run_agent tests focus on agent behavior, not env wiring."""
+    with patch("app.services.terminal_agent.planner_api_key", return_value="test-key"):
+        yield
+
 def _make_execute_result(
     exit_code: int = 0,
     stdout: str = "",
@@ -884,7 +890,7 @@ class TestS085RunAgentWithKnowledge:
                 input_tokens=0, output_tokens=0, total_tokens=0, requests=1,
             )
             mock_run.return_value = MagicMock(
-                output="已交付",
+                output="这是一个足够长的测试回复，用于避免短文本重试逻辑触发，并专注验证 dynamic tools 注册行为。",
                 usage=mock_usage,
             )
 
@@ -954,7 +960,11 @@ class TestRunAgentWithDynamicTools:
                 input_tokens=0, output_tokens=0, total_tokens=0, requests=1,
             )
             mock_run.return_value = MagicMock(
-                output="已交付",
+                output=(
+                    "这是一个足够长的测试回复，用于避免短文本重试逻辑触发，并专注验证 "
+                    "dynamic tools 注册行为是否正确，同时确保 run_agent 只调用一次模型。"
+                    "这里额外补充一句说明文字，确保输出长度稳定超过当前实现的最小阈值。"
+                ),
                 usage=mock_usage,
             )
 
@@ -971,7 +981,7 @@ class TestRunAgentWithDynamicTools:
                 )
 
             mock_run.assert_awaited()
-            assert mock_run.call_count == 1  # 模型输出文本直接返回，不重试
+            assert mock_run.call_count == 1
 
     @pytest.mark.asyncio
     async def test_run_agent_passes_tool_call_fn_to_deps(self):
@@ -1229,7 +1239,10 @@ class TestLookupKnowledgeGating:
         """include_lookup_knowledge=False 时不应注册 lookup_knowledge。"""
         with patch('pydantic_ai.Agent.run', new_callable=AsyncMock) as mock_run:
             mock_run.return_value = MagicMock(
-                output="已交付",
+                output=(
+                    "这是一个足够长的测试回复，用于避免短文本重试逻辑触发，并专注验证 "
+                    "lookup_knowledge 门控行为是否正确，同时确保 run_agent 只调用一次模型。"
+                ),
                 usage=MagicMock(input_tokens=0, output_tokens=0, total_tokens=0, requests=1),
             )
             await run_agent(
@@ -1240,7 +1253,7 @@ class TestLookupKnowledgeGating:
                     include_lookup_knowledge=False,
                 )
             mock_run.assert_awaited()
-            assert mock_run.call_count == 1  # 模型输出文本直接返回，不重试
+            assert mock_run.call_count == 1
 
 
 # ---------------------------------------------------------------------------

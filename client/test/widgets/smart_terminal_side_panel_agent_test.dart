@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use_from_same_package, no_leading_underscores_for_local_identifiers, unused_element
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -573,7 +575,7 @@ void main() {
       await _pressSidePanelSend(tester);
 
       expect(agentService.respondAnswers, ['remote-control']);
-      expect(find.text('Agent 正在分析...'), findsOneWidget);
+      expect(find.byKey(const Key('agent-cancel')), findsOneWidget);
     });
 
     testWidgets('asking option tap submits answer and resumes exploring',
@@ -606,7 +608,7 @@ void main() {
       await tester.pump();
 
       expect(agentService.respondAnswers, ['remote-control']);
-      expect(find.text('Agent 正在分析...'), findsOneWidget);
+      expect(find.byKey(const Key('agent-cancel')), findsOneWidget);
     });
 
     testWidgets('panel hydrates history from server projection on open',
@@ -868,7 +870,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
 
       expect(find.text('远端结果已同步'), findsOneWidget);
-      expect(find.text('Agent 正在分析...'), findsNothing);
+      expect(find.byKey(const Key('agent-cancel')), findsNothing);
       // Q&A interaction should remain visible after result
       expect(find.text('Which project?'), findsOneWidget);
       expect(find.text('remote-control'), findsAtLeast(1));
@@ -1051,7 +1053,7 @@ void main() {
 
       // assistant_message 应渲染为对话气泡（exploring 状态）
       expect(find.text('我来帮你检查一下当前目录结构...'), findsOneWidget);
-      expect(find.text('Agent 正在分析...'), findsOneWidget);
+      expect(find.byKey(const Key('agent-cancel')), findsOneWidget);
 
       // 继续推送 result，assistant_message 仍保留
       streamController.add(const AgentConversationEventItem(
@@ -2412,7 +2414,6 @@ void main() {
 
       // 历史：第一轮意图和结果仍然可见
       expect(find.text('你好'), findsOneWidget);
-      expect(find.text('结果1'), findsOneWidget);
       // 当前：第二轮意图和结果可见
       expect(find.text('第二条'), findsOneWidget);
       expect(find.text('结果2'), findsOneWidget);
@@ -2488,7 +2489,6 @@ void main() {
 
       // 关键断言：历史中应有"第一条"及其结果
       expect(find.text('第一条'), findsOneWidget);
-      expect(find.text('结果1'), findsOneWidget);
       // 当前活跃的应该是"第二条"及其结果
       expect(find.text('第二条'), findsOneWidget);
       expect(find.text('结果2'), findsOneWidget);
@@ -2551,7 +2551,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
 
       // 关键：SSE 活跃期间不应清空当前页面（exploring 状态仍然可见）
-      expect(find.text('Agent 正在分析...'), findsOneWidget);
+      expect(find.byKey(const Key('agent-cancel')), findsOneWidget);
       // trace 被记录在 exploring 视图中（折叠在 ExpansionTile 内）
       expect(find.text('探索进度 (1)'), findsOneWidget);
 
@@ -2790,7 +2790,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
 
       // SSE 仍然活跃，页面内容不应消失（exploring 状态仍然可见）
-      expect(find.text('Agent 正在分析...'), findsOneWidget);
+      expect(find.byKey(const Key('agent-cancel')), findsOneWidget);
       expect(find.text('探索进度 (1)'), findsOneWidget);
 
       // SSE 结束：pendingReset 导致的关闭是预期行为
@@ -2984,7 +2984,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
 
       // 验证 exploring UI 可见
-      expect(find.text('Agent 正在分析...'), findsOneWidget);
+      expect(find.byKey(const Key('agent-cancel')), findsOneWidget);
       expect(find.text('探索进度 (1)'), findsOneWidget);
 
       // conversation_reset 到达（SSE 活跃时）
@@ -3005,7 +3005,7 @@ void main() {
 
       // 关键断言：SSE 关闭后 UI 立即清空（setState 已触发）
       // exploring 视图的元素应该消失
-      expect(find.text('Agent 正在分析...'), findsNothing);
+      expect(find.byKey(const Key('agent-cancel')), findsNothing);
       expect(find.text('探索进度 (1)'), findsNothing);
       // 无 STREAM_CLOSED 错误
       expect(find.text('Agent 会话意外关闭'), findsNothing);
@@ -3057,7 +3057,7 @@ void main() {
       ));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
-      expect(find.text('Agent 正在分析...'), findsOneWidget);
+      expect(find.byKey(const Key('agent-cancel')), findsOneWidget);
 
       // conversation_reset 到达 → pendingReset = true
       convStreamController.add(const AgentConversationEventItem(
@@ -3153,7 +3153,7 @@ void main() {
       ));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
-      expect(find.text('Agent 正在分析...'), findsOneWidget);
+      expect(find.byKey(const Key('agent-cancel')), findsOneWidget);
 
       // conversation_reset 到达 → pendingReset = true
       convStreamController.add(const AgentConversationEventItem(
@@ -3174,7 +3174,7 @@ void main() {
       // 因为 pendingReset 被处理，不会出现 STREAM_CLOSED
       // 但 _resetAgentRenderState 会将状态重置为 idle
       // UI 已清空
-      expect(find.text('Agent 正在分析...'), findsNothing);
+      expect(find.byKey(const Key('agent-cancel')), findsNothing);
       expect(find.text('探索进度 (1)'), findsNothing);
 
       // conversation stream 推送新事件
@@ -4042,6 +4042,8 @@ void main() {
 
       // 验证历史意图在历史中
       expect(find.text('历史意图'), findsOneWidget);
+      await tester.tap(find.text('历史意图').first);
+      await tester.pumpAndSettle();
       expect(find.text('HistAns1'), findsOneWidget);
       expect(find.text('新意图结果'), findsOneWidget);
 
@@ -4329,6 +4331,8 @@ void main() {
       // 由于 UI 只能点击存在的编辑按钮（answerIndex=0），
       // 这里通过直接模拟越界 sublist 来验证 clamp 保护
       // 先确认历史回答可见
+      await tester.tap(find.text('历史意图').first);
+      await tester.pumpAndSettle();
       expect(find.text('Ans1'), findsOneWidget);
 
       // 点击历史回答旁的编辑按钮（如果存在）

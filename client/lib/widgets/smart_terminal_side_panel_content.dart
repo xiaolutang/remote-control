@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use_from_same_package
+
 part of 'smart_terminal_side_panel.dart';
 
 /// 侧滑面板内部内容：会话消息流 + 意图输入框。

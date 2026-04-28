@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use_from_same_package
+
 part of 'smart_terminal_side_panel.dart';
 
 /// 对话 UI 构建（历史对话、轮次编排、气泡布局）

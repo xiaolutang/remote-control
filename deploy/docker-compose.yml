@@ -10,7 +10,17 @@ services:
     restart: unless-stopped
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-changeme}
+    command:
+      - sh
+      - -lc
+      - >
+        redis-server
+        --appendonly ${REDIS_APPENDONLY:-no}
+        --appendfsync ${REDIS_APPENDFSYNC:-everysec}
+        --auto-aof-rewrite-percentage ${REDIS_AUTO_AOF_REWRITE_PERCENTAGE:-100}
+        --auto-aof-rewrite-min-size ${REDIS_AUTO_AOF_REWRITE_MIN_SIZE:-64mb}
+        --aof-use-rdb-preamble yes
+        --requirepass ${REDIS_PASSWORD:-changeme}
     networks:
       - rc-network
     healthcheck:

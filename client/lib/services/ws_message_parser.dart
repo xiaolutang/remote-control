@@ -1,35 +1,31 @@
 part of 'websocket_service.dart';
 
-// ============================================================
-// UTF-8 流式解码辅助类
-// ============================================================
-
 class _CollectingStringSink implements StringSink {
-  String _value = '';
+  StringBuffer _buffer = StringBuffer();
 
   @override
   void write(Object? obj) {
-    _value += '$obj';
+    _buffer.write(obj);
   }
 
   @override
   void writeAll(Iterable<dynamic> objects, [String separator = '']) {
-    _value += objects.join(separator);
+    _buffer.writeAll(objects, separator);
   }
 
   @override
   void writeCharCode(int charCode) {
-    _value += String.fromCharCode(charCode);
+    _buffer.writeCharCode(charCode);
   }
 
   @override
   void writeln([Object? obj = '']) {
-    _value += '$obj\n';
+    _buffer.writeln(obj);
   }
 
   String take() {
-    final value = _value;
-    _value = '';
+    final value = _buffer.toString();
+    _buffer = StringBuffer();
     return value;
   }
 }
@@ -67,10 +63,6 @@ class _StreamingUtf8Decoder {
   }
 }
 
-// ============================================================
-// 顶层辅助函数 — 同库可访问 WebSocketService 的私有成员
-// ============================================================
-
 void _wsResetTerminalDecoders(WebSocketService s) {
   s._liveUtf8Decoder.reset();
   s._snapshotUtf8Decoder.reset();
@@ -91,8 +83,11 @@ TerminalBufferKind? _wsParseActiveBuffer(dynamic raw) {
   }
 }
 
-void _wsApplyPtySize(WebSocketService s, Map<String, dynamic>? pty,
-    {bool notify = true}) {
+void _wsApplyPtySize(
+  WebSocketService s,
+  Map<String, dynamic>? pty, {
+  bool notify = true,
+}) {
   if (pty == null) {
     return;
   }
@@ -195,7 +190,6 @@ void _wsHandleMessage(WebSocketService s, String message) {
   try {
     var data = jsonDecode(message) as Map<String, dynamic>;
 
-    // 解密 AES 加密消息
     if (data['encrypted'] == true && s._encryptionEnabled) {
       try {
         data = s._crypto.decryptMessage(data);
@@ -206,7 +200,6 @@ void _wsHandleMessage(WebSocketService s, String message) {
     }
 
     final type = data['type'] as String?;
-
     switch (type) {
       case 'connected':
         _wsApplyConnectedMessage(s, data);
@@ -221,7 +214,6 @@ void _wsHandleMessage(WebSocketService s, String message) {
           final msgEpoch =
               msgAttachEpoch is num ? msgAttachEpoch.toInt() : null;
           final currentEpoch = s._attachEpoch;
-          // 旧 epoch 消息静默丢弃（不变量 #32）
           if (msgEpoch != null &&
               currentEpoch != null &&
               msgEpoch < currentEpoch) {
@@ -244,9 +236,10 @@ void _wsHandleMessage(WebSocketService s, String message) {
               s._lastSnapshotActiveBuffer = activeBuffer;
             }
             final bytes = base64.decode(payload);
-            final decoded =
-                (isSnapshotPayload ? s._snapshotUtf8Decoder : s._liveUtf8Decoder)
-                    .decode(bytes);
+            final decoded = (isSnapshotPayload
+                    ? s._snapshotUtf8Decoder
+                    : s._liveUtf8Decoder)
+                .decode(bytes);
             if (decoded.isEmpty) {
               break;
             }
@@ -269,7 +262,6 @@ void _wsHandleMessage(WebSocketService s, String message) {
           final msgEpoch =
               msgAttachEpoch is num ? msgAttachEpoch.toInt() : null;
           final currentEpoch = s._attachEpoch;
-          // 旧 epoch 消息静默丢弃（不变量 #32）
           if (msgEpoch != null &&
               currentEpoch != null &&
               msgEpoch < currentEpoch) {
@@ -330,7 +322,6 @@ void _wsHandleMessage(WebSocketService s, String message) {
         }
         break;
       case 'pong':
-        // 心跳响应，忽略
         break;
       case 'error':
         s._errorMessage = data['message'] as String?;
@@ -351,14 +342,16 @@ void _wsHandleMessage(WebSocketService s, String message) {
         unawaited(s.disconnect());
         break;
       case 'terminals_changed':
-        // 跨平台终端变化通知
         debugPrint(
-            '[WebSocketService] received terminals_changed: action=${data['action']} terminal_id=${data['terminal_id']}');
+          '[WebSocketService] received terminals_changed: '
+          'action=${data['action']} terminal_id=${data['terminal_id']}',
+        );
         s._terminalsChangedController.add(data);
         break;
       case 'device_kicked':
         debugPrint(
-            '[WebSocketService] received device_kicked: reason=${data['reason']}');
+          '[WebSocketService] received device_kicked: reason=${data['reason']}',
+        );
         s._deviceKickedController.add(null);
         break;
       default:
@@ -405,88 +398,4 @@ void _wsEmitTerminalPayload(
     ),
   );
   s._outputController.add(payload);
-}
-
-/// 处理断开连接
-void _wsHandleDisconnect(WebSocketService s) {
-  _wsResetTerminalDecoders(s);
-  _wsStopHeartbeat(s);
-
-  // 根据 close code 设置错误信息（无论当前连接状态）
-  if (s._lastCloseCode == 4001) {
-    // token 验证失败，通知 UI 层跳转登录页
-    s._errorMessage = '登录已失效';
-    s._allowReconnect = false;
-    s._tokenInvalidController.add(null);
-  } else if (s._lastCloseCode == 4011) {
-    // 被新设备替换，停止重连（旧 token 已失效，重连会被 4001 拒绝）
-    s._allowReconnect = false;
-  }
-
-  if (s._status == ConnectionStatus.connected) {
-    s._status = ConnectionStatus.disconnected;
-
-    s._notify();
-
-    // 日志埋点：连接断开
-    s._logger?.warn('WebSocket disconnected', metadata: {
-      'session_id': s.sessionId,
-      'auto_reconnect': s.autoReconnect,
-      'close_code': s._lastCloseCode,
-    });
-  } else if (s._status != ConnectionStatus.disconnected) {
-    // 连接尚未建立就被断开（如 WS 握手阶段被拒绝）
-    s._status = ConnectionStatus.disconnected;
-    s._notify();
-  }
-
-  if (s.autoReconnect && s._allowReconnect && s._retryCount < s.maxRetries) {
-    _wsScheduleReconnect(s);
-  }
-}
-
-/// 从 WebSocketChannel 捕获 close code
-void _wsCaptureCloseCode(WebSocketService s) {
-  try {
-    final closeCode = s._channel?.closeCode;
-    final closeReason = s._channel?.closeReason;
-    if (closeCode != null) {
-      s._lastCloseCode = closeCode;
-      s._lastCloseReason = closeReason;
-      debugPrint(
-          '[WebSocketService] WS closed: code=$closeCode reason=$closeReason');
-    }
-  } catch (e) {
-    debugPrint('[WebSocketService] error capturing close code: $e');
-  }
-}
-
-/// 开始心跳
-void _wsStartHeartbeat(WebSocketService s) {
-  _wsStopHeartbeat(s);
-  s._heartbeatTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-    if (s._status == ConnectionStatus.connected && s._channel != null) {
-      s._channel!.sink.add(jsonEncode({'type': 'ping'}));
-    }
-  });
-}
-
-/// 停止心跳
-void _wsStopHeartbeat(WebSocketService s) {
-  s._heartbeatTimer?.cancel();
-  s._heartbeatTimer = null;
-}
-
-/// 安排重连
-void _wsScheduleReconnect(WebSocketService s) {
-  s._status = ConnectionStatus.reconnecting;
-  s._notify();
-
-  final delay = s.reconnectDelay * (1 << s._retryCount).clamp(0, 6); // 上限 64 秒
-  s._retryCount++;
-
-  s._reconnectTimer?.cancel();
-  s._reconnectTimer = Timer(delay, () {
-    s.connect();
-  });
 }

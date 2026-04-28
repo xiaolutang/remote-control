@@ -344,6 +344,117 @@ async def test_append_agent_conversation_event_supports_after_index(db_with_tabl
 
 
 @pytest.mark.asyncio
+async def test_list_agent_conversation_events_supports_event_types_filter(db_with_tables):
+    """event_types 过滤只返回指定类型事件。"""
+    from app.store.database import append_agent_conversation_event, list_agent_conversation_events
+
+    await append_agent_conversation_event(
+        "user-1",
+        "device-a",
+        "term-1",
+        event_type="user_intent",
+        role="user",
+        payload={"text": "进入项目"},
+    )
+    await append_agent_conversation_event(
+        "user-1",
+        "device-a",
+        "term-1",
+        event_type="tool_step",
+        role="assistant",
+        payload={"tool_name": "execute_command", "status": "running"},
+    )
+    await append_agent_conversation_event(
+        "user-1",
+        "device-a",
+        "term-1",
+        event_type="result",
+        role="assistant",
+        payload={"summary": "done"},
+    )
+
+    events = await list_agent_conversation_events(
+        "user-1",
+        "device-a",
+        "term-1",
+        event_types=["user_intent", "result"],
+    )
+
+    assert [event["event_type"] for event in events] == ["user_intent", "result"]
+
+
+@pytest.mark.asyncio
+async def test_list_agent_conversation_events_empty_event_types_matches_unfiltered(db_with_tables):
+    """event_types=[] 等价于不过滤。"""
+    from app.store.database import append_agent_conversation_event, list_agent_conversation_events
+
+    for event_type in ("user_intent", "tool_step", "result"):
+        await append_agent_conversation_event(
+            "user-1",
+            "device-a",
+            "term-1",
+            event_type=event_type,
+            role="assistant" if event_type != "user_intent" else "user",
+            payload={"type": event_type},
+        )
+
+    unfiltered = await list_agent_conversation_events("user-1", "device-a", "term-1")
+    empty_filtered = await list_agent_conversation_events(
+        "user-1",
+        "device-a",
+        "term-1",
+        event_types=[],
+    )
+
+    assert [event["event_index"] for event in empty_filtered] == [
+        event["event_index"] for event in unfiltered
+    ]
+
+
+@pytest.mark.asyncio
+async def test_list_agent_conversation_events_supports_event_types_with_after_index(db_with_tables):
+    """event_types 与 after_index 可同时生效。"""
+    from app.store.database import append_agent_conversation_event, list_agent_conversation_events
+
+    await append_agent_conversation_event(
+        "user-1",
+        "device-a",
+        "term-1",
+        event_type="user_intent",
+        role="user",
+        payload={"text": "first"},
+    )
+    await append_agent_conversation_event(
+        "user-1",
+        "device-a",
+        "term-1",
+        event_type="tool_step",
+        role="assistant",
+        payload={"tool_name": "execute_command", "status": "running"},
+    )
+    await append_agent_conversation_event(
+        "user-1",
+        "device-a",
+        "term-1",
+        event_type="result",
+        role="assistant",
+        payload={"summary": "second"},
+    )
+
+    events = await list_agent_conversation_events(
+        "user-1",
+        "device-a",
+        "term-1",
+        after_index=0,
+        event_types=["result"],
+    )
+
+    assert len(events) == 1
+    assert events[0]["event_index"] == 2
+    assert events[0]["event_type"] == "result"
+
+
+@pytest.mark.asyncio
 async def test_append_agent_conversation_event_is_idempotent_by_client_event_id(db_with_tables):
     """弱网重复提交同一 client_event_id 不新增事件。"""
     from app.store.database import append_agent_conversation_event, list_agent_conversation_events

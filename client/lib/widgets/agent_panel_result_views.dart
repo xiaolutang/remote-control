@@ -1,3 +1,5 @@
+// ignore_for_file: annotate_overrides
+
 part of 'smart_terminal_side_panel.dart';
 
 /// 结果/进度/错误视图 UI
@@ -73,7 +75,12 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
   }
 
   Widget _buildMessageResultView(AgentResultEvent result, ColorScheme colorScheme) {
-    return _buildAssistantBubble(Text(result.summary, style: Theme.of(context).textTheme.bodyMedium));
+    // 优先使用 streaming 文本：模型可能先流式输出了完整内容，再调用 deliver_result 传入短 summary
+    // Phase 从 responding 切到 result 时 streaming 文本不再被渲染，这里回补
+    final streamingText = _streamingTextBuffer.toString();
+    final displayText = (streamingText.isNotEmpty && streamingText.length > result.summary.length)
+        ? streamingText : result.summary;
+    return _buildAssistantBubble(Text(displayText, style: Theme.of(context).textTheme.bodyMedium));
   }
 
   Widget _buildAiPromptResultView(AgentResultEvent result, ColorScheme colorScheme, bool connected) {

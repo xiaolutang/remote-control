@@ -9,6 +9,8 @@ input:
     mock_tool_responses:
       "npm run build": "Build successful in 8s"
       "npm run deploy": "Deployed to production: https://web-app.example.com"
+      "ls": "web-app\napi-server\nmobile-app\n"
+      "history": "cd /Users/demo/projects/web-app\nnpm run build\nnpm run deploy\n"
     conversation_history:
       - role: user
         content: "部署 web-app 到测试环境"
@@ -29,7 +31,7 @@ input:
       - role: user
         content: "结果怎么样"
       - role: assistant
-        content: "集成测试全部通过（42/42），可以部署到生产环境了。"
+        content: "集成测试全部通过（42/42），可以部署到生产环境了。下一步就在 web-app 目录执行 `npm run deploy`。"
       - role: user
         content: "继续执行上次的部署命令"
 expected:

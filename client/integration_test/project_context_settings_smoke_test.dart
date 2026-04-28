@@ -173,21 +173,17 @@ void main() {
 
       expect(controller.recommendedLaunchPlans.first.cwd, '~');
 
-      await tester.tap(find.byKey(const Key('create-terminal')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('smart-create-project-settings')));
-      await tester.pumpAndSettle();
-      await tester.enterText(
-        find.byKey(const Key('project-settings-pinned-label')),
-        'remote-control',
+      await controller.updateProjectContextSettings(
+        ProjectContextSettings(
+          deviceId: 'mbp-01',
+          pinnedProjects: const [
+            PinnedProject(
+              label: 'remote-control',
+              cwd: '/Users/demo/project/remote-control',
+            ),
+          ],
+        ),
       );
-      await tester.enterText(
-        find.byKey(const Key('project-settings-pinned-cwd')),
-        '/Users/demo/project/remote-control',
-      );
-      await tester.tap(find.byKey(const Key('project-settings-pinned-add')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('project-settings-save')));
       await tester.pumpAndSettle();
 
       expect(

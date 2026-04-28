@@ -22,10 +22,9 @@ class PreparedTerminalLaunchSession {
 
 class TerminalLaunchSessionService {
   const TerminalLaunchSessionService({
+    this.initialOutputObservationTimeout = const Duration(seconds: 1),
     Duration bootstrapInputDelay = const Duration(milliseconds: 250),
-    Duration initialOutputObservationTimeout = const Duration(seconds: 1),
-  })  : _bootstrapInputDelay = bootstrapInputDelay,
-        initialOutputObservationTimeout = initialOutputObservationTimeout;
+  }) : _bootstrapInputDelay = bootstrapInputDelay;
 
   final Duration _bootstrapInputDelay;
   final Duration initialOutputObservationTimeout;
@@ -111,7 +110,14 @@ class TerminalLaunchSessionService {
   }
 
   Future<String?> _observeFirstMeaningfulOutput(WebSocketService service) async {
-    await for (final chunk in service.outputStream) {
+    await for (final event in service.eventStream) {
+      if (event.kind != TerminalProtocolEventKind.output) {
+        continue;
+      }
+      final chunk = event.payload;
+      if (chunk == null) {
+        continue;
+      }
       final summary = _summarizeOutput(chunk);
       if (summary != null) {
         return summary;

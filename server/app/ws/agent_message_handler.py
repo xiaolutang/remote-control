@@ -52,7 +52,17 @@ async def _handle_agent_message(websocket, session_id: str, message: dict):
         agent_conn = active_agents.get(session_id)
         if agent_conn:
             agent_conn.update_heartbeat()
-            await _ws.update_session_device_heartbeat(session_id, online=True)
+            try:
+                await _ws.update_session_device_heartbeat(session_id, online=True)
+            except Exception as exc:
+                if not _ws._is_degradable_session_state_error(exc):
+                    raise
+                logger.warning(
+                    "Agent heartbeat persistence degraded: session_id=%s error=%s",
+                    session_id,
+                    exc,
+                    exc_info=True,
+                )
             await agent_conn.send({"type": "pong"})
 
     elif msg_type == "data":
@@ -204,14 +214,24 @@ async def _handle_agent_message(websocket, session_id: str, message: dict):
     elif msg_type == "agent_metadata":
         platform_name = (message.get("platform") or "").strip()
         hostname = (message.get("hostname") or "").strip()
-        session = await _ws.get_session(session_id)
-        current_name = (session.get("device", {}).get("name") or "").strip()
-        await _ws.update_session_device_metadata(
-            session_id,
-            platform=platform_name or None,
-            hostname=hostname or None,
-            name=hostname if hostname and not current_name else None,
-        )
+        try:
+            session = await _ws.get_session(session_id)
+            current_name = (session.get("device", {}).get("name") or "").strip()
+            await _ws.update_session_device_metadata(
+                session_id,
+                platform=platform_name or None,
+                hostname=hostname or None,
+                name=hostname if hostname and not current_name else None,
+            )
+        except Exception as exc:
+            if not _ws._is_degradable_session_state_error(exc):
+                raise
+            logger.warning(
+                "Agent metadata persistence degraded: session_id=%s error=%s",
+                session_id,
+                exc,
+                exc_info=True,
+            )
 
     else:
         # 未知消息类型

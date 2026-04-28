@@ -10,6 +10,7 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import WebSocketDisconnect, HTTPException
+from redis.exceptions import RedisError
 
 from app.infra.crypto import get_crypto_manager, decrypt_message
 
@@ -126,6 +127,28 @@ async def _heartbeat_checker(websocket, session_id: str):
     return None
 
 
+def _is_degradable_session_state_error(exc: Exception) -> bool:
+    """仅将底层存储类故障视为可降级，避免吞掉真实业务错误。"""
+    if isinstance(exc, HTTPException):
+        return exc.status_code >= 500
+    return isinstance(exc, (RedisError, OSError, ConnectionError, TimeoutError))
+
+
+async def _set_session_online_best_effort(session_id: str) -> None:
+    """在线状态写回失败时保持连接存活，避免已建立会话被存储异常打断。"""
+    try:
+        await set_session_online(session_id)
+    except Exception as exc:
+        if not _is_degradable_session_state_error(exc):
+            raise
+        logger.warning(
+            "Session online persistence degraded: session_id=%s error=%s",
+            session_id,
+            exc,
+            exc_info=True,
+        )
+
+
 # ---------------------------------------------------------------------------
 # WebSocket 入口处理器
 # ---------------------------------------------------------------------------
@@ -194,12 +217,8 @@ async def agent_websocket_handler(
         session_id, owner,
     )
 
-    # 原子更新：status=online + agent_online=True
-    try:
-        await set_session_online(session_id)
-    except Exception:
-        del active_agents[session_id]
-        raise
+    # 原子更新：status=online + agent_online=True。存储异常降级为告警，避免已建立连接被打断。
+    await _set_session_online_best_effort(session_id)
     heartbeat_task = None
 
     try:
