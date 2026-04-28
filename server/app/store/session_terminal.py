@@ -4,7 +4,7 @@ session 子模块 — terminal 关联操作。
 import json
 import logging
 from datetime import datetime, timezone, timedelta
-from typing import Optional, List
+from typing import Optional
 
 from fastapi import HTTPException, status
 
@@ -124,7 +124,7 @@ async def create_session_terminal(
         max_terminals = session_data["device"]["max_terminals"]
         if _active_terminal_count(terminals) >= max_terminals:
             raise HTTPException(
-                status=status.HTTP_409_CONFLICT,
+                status_code=status.HTTP_409_CONFLICT,
                 detail="terminal 数量已达上限",
             )
 

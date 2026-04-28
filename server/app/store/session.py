@@ -9,6 +9,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from fastapi import HTTPException, status
+import redis.asyncio as aioredis  # noqa: F401 — 兼容测试 patch("app.store.session.aioredis")
 
 # ─── 子模块 re-export ───
 
