@@ -12,68 +12,7 @@ import 'crypto_service.dart';
 
 export '../models/terminal_protocol.dart';
 
-class _CollectingStringSink implements StringSink {
-  String _value = '';
-
-  @override
-  void write(Object? obj) {
-    _value += '$obj';
-  }
-
-  @override
-  void writeAll(Iterable<dynamic> objects, [String separator = '']) {
-    _value += objects.join(separator);
-  }
-
-  @override
-  void writeCharCode(int charCode) {
-    _value += String.fromCharCode(charCode);
-  }
-
-  @override
-  void writeln([Object? obj = '']) {
-    _value += '$obj\n';
-  }
-
-  String take() {
-    final value = _value;
-    _value = '';
-    return value;
-  }
-}
-
-class _StreamingUtf8Decoder {
-  _StreamingUtf8Decoder() {
-    _resetDecoder();
-  }
-
-  final _sink = _CollectingStringSink();
-  late ByteConversionSink _decoder;
-
-  String decode(List<int> bytes, {bool endOfInput = false}) {
-    if (bytes.isNotEmpty) {
-      _decoder.add(bytes);
-    }
-    if (endOfInput) {
-      _decoder.close();
-      final output = _sink.take();
-      _resetDecoder();
-      return output;
-    }
-    return _sink.take();
-  }
-
-  void reset() {
-    _sink.take();
-    _resetDecoder();
-  }
-
-  void _resetDecoder() {
-    _decoder = const Utf8Decoder(
-      allowMalformed: true,
-    ).startChunkedConversion(StringConversionSink.fromStringSink(_sink));
-  }
-}
+part 'websocket_service_handlers.dart';
 
 /// WebSocket 服务
 class WebSocketService extends ChangeNotifier {
@@ -158,6 +97,8 @@ class WebSocketService extends ChangeNotifier {
         _publicKeyFetcher = publicKeyFetcher,
         _hasPublicKeyChecker = hasPublicKeyChecker;
 
+  // -- Public getters --
+
   ConnectionStatus get status => _status;
   String? get errorMessage => _errorMessage;
   @Deprecated('Use eventStream with TerminalProtocolEventKind.output instead')
@@ -211,6 +152,9 @@ class WebSocketService extends ChangeNotifier {
   bool get _hasPublicKey =>
       _hasPublicKeyChecker?.call() ?? _crypto.hasPublicKey;
 
+  /// 包装 notifyListeners 以允许 part 文件中的顶层函数调用
+  void _notify() => notifyListeners();
+
   Future<void> _ensurePublicKeyLoaded() async {
     if (_hasPublicKey) {
       return;
@@ -226,124 +170,19 @@ class WebSocketService extends ChangeNotifier {
   bool get debugRequiresApplicationLayerEncryption =>
       _requiresApplicationLayerEncryption;
 
-  void _resetTerminalDecoders() {
-    _liveUtf8Decoder.reset();
-    _snapshotUtf8Decoder.reset();
-    _lastSnapshotActiveBuffer = TerminalBufferKind.main;
-  }
+  // -- 委托到 part 文件中的顶层函数（connect 内部调用） --
 
-  TerminalBufferKind? _parseActiveBuffer(dynamic raw) {
-    if (raw is! String) {
-      return null;
-    }
-    switch (raw) {
-      case 'main':
-        return TerminalBufferKind.main;
-      case 'alt':
-        return TerminalBufferKind.alt;
-      default:
-        return null;
-    }
-  }
+  void _resetTerminalDecoders() => _wsResetTerminalDecoders(this);
 
-  void _applyPtySize(Map<String, dynamic>? pty, {bool notify = true}) {
-    if (pty == null) {
-      return;
-    }
-    final rows = pty['rows'];
-    final cols = pty['cols'];
-    if (rows is! num || cols is! num) {
-      return;
-    }
-    final normalizedRows = rows.toInt();
-    final normalizedCols = cols.toInt();
-    if (normalizedRows <= 0 || normalizedCols <= 0) {
-      return;
-    }
-    final changed = normalizedRows != _ptyRows || normalizedCols != _ptyCols;
-    _ptyRows = normalizedRows;
-    _ptyCols = normalizedCols;
-    if (!changed) {
-      return;
-    }
-    _ptySizeController.add(
-      TerminalPtySize(rows: normalizedRows, cols: normalizedCols),
-    );
-    if (notify) {
-      notifyListeners();
-    }
-  }
+  void _applyConnectedMessage(Map<String, dynamic> data) =>
+      _wsApplyConnectedMessage(this, data);
 
-  bool _applyTerminalMeta(Map<String, dynamic> data) {
-    var changed = false;
+  void _handleMessage(String message) => _wsHandleMessage(this, message);
 
-    final geometryOwnerView = data['geometry_owner_view'];
-    final nextGeometryOwnerView =
-        geometryOwnerView is String ? geometryOwnerView : null;
-    if (nextGeometryOwnerView != _geometryOwnerView) {
-      _geometryOwnerView = nextGeometryOwnerView;
-      changed = true;
-    }
+  @visibleForTesting
+  void debugHandleMessage(String message) => _handleMessage(message);
 
-    final viewsData = data['views'] as Map<String, dynamic>?;
-    if (viewsData != null) {
-      final nextViews = viewsData.map((k, v) => MapEntry(k, v as int));
-      if (!mapEquals(nextViews, _views)) {
-        _views = nextViews;
-        _presenceController.add(_views);
-        changed = true;
-      }
-    }
-
-    return changed;
-  }
-
-  void _applyConnectedMessage(Map<String, dynamic> data) {
-    _resetTerminalDecoders();
-    _status = ConnectionStatus.connected;
-    _retryCount = 0;
-    _agentOnline = data['agent_online'] ?? false;
-    _deviceOnline = data['device_online'] ?? _agentOnline;
-    _owner = data['owner'] ?? '';
-    _terminalStatus = data['terminal_status'] as String?;
-    final attachEpoch = data['attach_epoch'];
-    _attachEpoch = attachEpoch is num ? attachEpoch.toInt() : null;
-    final recoveryEpoch = data['recovery_epoch'];
-    _recoveryEpoch = recoveryEpoch is num ? recoveryEpoch.toInt() : null;
-    _applyTerminalMeta(data);
-    _applyPtySize(data['pty'] as Map<String, dynamic>?, notify: false);
-    _eventController.add(
-      TerminalProtocolEvent(
-        kind: TerminalProtocolEventKind.connected,
-        attachEpoch: _attachEpoch,
-        recoveryEpoch: _recoveryEpoch,
-        ptySize: _ptyRows != null && _ptyCols != null
-            ? TerminalPtySize(rows: _ptyRows!, cols: _ptyCols!)
-            : null,
-        views: _views,
-        geometryOwnerView: _geometryOwnerView,
-        terminalStatus: _terminalStatus,
-      ),
-    );
-    notifyListeners();
-    if ((terminalId ?? '').isNotEmpty) {
-      _terminalConnectedController.add(null);
-    }
-  }
-
-  void _applyPresenceMessage(Map<String, dynamic> data) {
-    if (_applyTerminalMeta(data)) {
-      _eventController.add(
-        TerminalProtocolEvent(
-          kind: TerminalProtocolEventKind.presence,
-          views: _views,
-          geometryOwnerView: _geometryOwnerView,
-          terminalStatus: _terminalStatus,
-        ),
-      );
-      notifyListeners();
-    }
-  }
+  Uint8List base64Decode(String source) => base64.decode(source);
 
   /// 连接到服务器
   Future<bool> connect() async {
@@ -449,7 +288,7 @@ class WebSocketService extends ChangeNotifier {
               if (data['type'] == 'connected') {
                 _encryptionEnabled = aesKeyExchanged;
                 _applyConnectedMessage(data);
-                _startHeartbeat();
+                _wsStartHeartbeat(this);
 
                 // 日志埋点：连接成功
                 _logger?.info('WebSocket connected', metadata: {
@@ -482,14 +321,14 @@ class WebSocketService extends ChangeNotifier {
             'retry_count': _retryCount,
           });
 
-          _handleDisconnect();
+          _wsHandleDisconnect(this);
           if (!completer.isCompleted) {
             completer.completeError(error);
           }
         },
         onDone: () {
-          _captureCloseCode();
-          _handleDisconnect();
+          _wsCaptureCloseCode(this);
+          _wsHandleDisconnect(this);
           if (!completer.isCompleted) {
             completer.completeError(Exception('Connection closed'));
           }
@@ -515,271 +354,10 @@ class WebSocketService extends ChangeNotifier {
       });
 
       if (autoReconnect && _allowReconnect && _retryCount < maxRetries) {
-        _scheduleReconnect();
+        _wsScheduleReconnect(this);
       }
 
       return false;
-    }
-  }
-
-  /// 处理消息
-  void _handleMessage(String message) {
-    try {
-      var data = jsonDecode(message) as Map<String, dynamic>;
-
-      // 解密 AES 加密消息
-      if (data['encrypted'] == true && _encryptionEnabled) {
-        try {
-          data = _crypto.decryptMessage(data);
-        } catch (e) {
-          debugPrint('[WebSocketService] Decrypt failed: $e');
-          return;
-        }
-      }
-
-      final type = data['type'] as String?;
-
-      switch (type) {
-        case 'connected':
-          _applyConnectedMessage(data);
-          break;
-        case 'snapshot':
-        case 'snapshot_start':
-        case 'snapshot_chunk':
-        case 'data':
-        case 'output':
-          {
-            final msgAttachEpoch = data['attach_epoch'];
-            final msgEpoch =
-                msgAttachEpoch is num ? msgAttachEpoch.toInt() : null;
-            final currentEpoch = _attachEpoch;
-            // 旧 epoch 消息静默丢弃（不变量 #32）
-            if (msgEpoch != null &&
-                currentEpoch != null &&
-                msgEpoch < currentEpoch) {
-              break;
-            }
-            if (type == 'snapshot_start') {
-              _snapshotUtf8Decoder.reset();
-              _lastSnapshotActiveBuffer = TerminalBufferKind.main;
-            }
-            final payload = data['payload'] as String?;
-            if (payload != null) {
-              final isSnapshotPayload = type == 'snapshot' ||
-                  type == 'snapshot_start' ||
-                  type == 'snapshot_chunk';
-              final activeBuffer = _parseActiveBuffer(data['active_buffer']);
-              if (type == 'snapshot' || type == 'snapshot_start') {
-                _snapshotUtf8Decoder.reset();
-              }
-              if (activeBuffer != null && isSnapshotPayload) {
-                _lastSnapshotActiveBuffer = activeBuffer;
-              }
-              final bytes = base64Decode(payload);
-              final decoded =
-                  (isSnapshotPayload ? _snapshotUtf8Decoder : _liveUtf8Decoder)
-                      .decode(bytes);
-              if (decoded.isEmpty) {
-                break;
-              }
-              final recoveryEpoch = data['recovery_epoch'];
-              _emitTerminalPayload(
-                type: type ?? 'output',
-                payload: decoded,
-                attachEpoch: msgEpoch,
-                recoveryEpoch:
-                    recoveryEpoch is num ? recoveryEpoch.toInt() : null,
-                activeBuffer: activeBuffer,
-              );
-            }
-            break;
-          }
-        case 'snapshot_complete':
-          {
-            final msgAttachEpoch = data['attach_epoch'];
-            final msgEpoch =
-                msgAttachEpoch is num ? msgAttachEpoch.toInt() : null;
-            final currentEpoch = _attachEpoch;
-            // 旧 epoch 消息静默丢弃（不变量 #32）
-            if (msgEpoch != null &&
-                currentEpoch != null &&
-                msgEpoch < currentEpoch) {
-              break;
-            }
-            final recoveryEpoch = data['recovery_epoch'] is num
-                ? (data['recovery_epoch'] as num).toInt()
-                : null;
-            final flushedSnapshot = _snapshotUtf8Decoder.decode(
-              const <int>[],
-              endOfInput: true,
-            );
-            if (flushedSnapshot.isNotEmpty) {
-              _emitTerminalPayload(
-                type: 'snapshot_chunk',
-                payload: flushedSnapshot,
-                attachEpoch: msgEpoch,
-                recoveryEpoch: recoveryEpoch,
-                activeBuffer: _lastSnapshotActiveBuffer,
-              );
-            }
-            _outputFrameController.add(
-              const TerminalOutputFrame(
-                kind: TerminalOutputKind.snapshotComplete,
-                payload: '',
-              ),
-            );
-            _eventController.add(
-              TerminalProtocolEvent(
-                kind: TerminalProtocolEventKind.snapshotComplete,
-                attachEpoch: msgEpoch,
-                recoveryEpoch: recoveryEpoch,
-              ),
-            );
-            break;
-          }
-        case 'presence':
-          _applyPresenceMessage(data);
-          break;
-        case 'resize':
-          final rows = data['rows'];
-          final cols = data['cols'];
-          _applyPtySize({
-            'rows': data['rows'],
-            'cols': data['cols'],
-          });
-          if (rows is num && cols is num) {
-            _eventController.add(
-              TerminalProtocolEvent(
-                kind: TerminalProtocolEventKind.resize,
-                ptySize: TerminalPtySize(
-                  rows: rows.toInt(),
-                  cols: cols.toInt(),
-                ),
-              ),
-            );
-          }
-          break;
-        case 'pong':
-          // 心跳响应，忽略
-          break;
-        case 'error':
-          _errorMessage = data['message'] as String?;
-          notifyListeners();
-          break;
-        case 'terminal_closed':
-          _terminalStatus = 'closed';
-          _errorMessage = 'terminal 已关闭';
-          _allowReconnect = false;
-          _status = ConnectionStatus.disconnected;
-          _eventController.add(
-            const TerminalProtocolEvent(
-              kind: TerminalProtocolEventKind.closed,
-              terminalStatus: 'closed',
-            ),
-          );
-          notifyListeners();
-          unawaited(disconnect());
-          break;
-        case 'terminals_changed':
-          // 跨平台终端变化通知
-          debugPrint(
-              '[WebSocketService] received terminals_changed: action=${data['action']} terminal_id=${data['terminal_id']}');
-          _terminalsChangedController.add(data);
-          break;
-        case 'device_kicked':
-          debugPrint(
-              '[WebSocketService] received device_kicked: reason=${data['reason']}');
-          _deviceKickedController.add(null);
-          break;
-        default:
-          debugPrint('[WebSocketService] unknown message type: $type');
-          break;
-      }
-    } catch (e) {
-      debugPrint('Error parsing message: $e');
-    }
-  }
-
-  @visibleForTesting
-  void debugHandleMessage(String message) {
-    _handleMessage(message);
-  }
-
-  void _emitTerminalPayload({
-    required String type,
-    required String payload,
-    required int? attachEpoch,
-    required int? recoveryEpoch,
-    required TerminalBufferKind? activeBuffer,
-  }) {
-    _outputFrameController.add(
-      TerminalOutputFrame(
-        kind: switch (type) {
-          'snapshot' => TerminalOutputKind.snapshot,
-          'snapshot_chunk' => TerminalOutputKind.snapshotChunk,
-          _ => TerminalOutputKind.data,
-        },
-        payload: payload,
-        attachEpoch: attachEpoch,
-        recoveryEpoch: recoveryEpoch,
-        activeBuffer: activeBuffer,
-      ),
-    );
-    _eventController.add(
-      TerminalProtocolEvent(
-        kind: switch (type) {
-          'snapshot' => TerminalProtocolEventKind.snapshot,
-          'snapshot_chunk' => TerminalProtocolEventKind.snapshotChunk,
-          _ => TerminalProtocolEventKind.output,
-        },
-        payload: payload,
-        attachEpoch: attachEpoch,
-        recoveryEpoch: recoveryEpoch,
-        activeBuffer: activeBuffer,
-      ),
-    );
-    _outputController.add(payload);
-  }
-
-  Uint8List base64Decode(String source) {
-    return base64.decode(source);
-  }
-
-  /// 处理断开连接
-  void _handleDisconnect() {
-    _resetTerminalDecoders();
-    _stopHeartbeat();
-
-    // 根据 close code 设置错误信息（无论当前连接状态）
-    if (_lastCloseCode == 4001) {
-      // token 验证失败，通知 UI 层跳转登录页
-      _errorMessage = '登录已失效';
-      _allowReconnect = false;
-      _tokenInvalidController.add(null);
-    } else if (_lastCloseCode == 4011) {
-      // 被新设备替换，停止重连（旧 token 已失效，重连会被 4001 拒绝）
-      _allowReconnect = false;
-    }
-
-    if (_status == ConnectionStatus.connected) {
-      _status = ConnectionStatus.disconnected;
-
-      notifyListeners();
-
-      // 日志埋点：连接断开
-      _logger?.warn('WebSocket disconnected', metadata: {
-        'session_id': sessionId,
-        'auto_reconnect': autoReconnect,
-        'close_code': _lastCloseCode,
-      });
-    } else if (_status != ConnectionStatus.disconnected) {
-      // 连接尚未建立就被断开（如 WS 握手阶段被拒绝）
-      _status = ConnectionStatus.disconnected;
-      notifyListeners();
-    }
-
-    if (autoReconnect && _allowReconnect && _retryCount < maxRetries) {
-      _scheduleReconnect();
     }
   }
 
@@ -815,22 +393,6 @@ class WebSocketService extends ChangeNotifier {
     send(key);
   }
 
-  /// 从 WebSocketChannel 捕获 close code
-  void _captureCloseCode() {
-    try {
-      final closeCode = _channel?.closeCode;
-      final closeReason = _channel?.closeReason;
-      if (closeCode != null) {
-        _lastCloseCode = closeCode;
-        _lastCloseReason = closeReason;
-        debugPrint(
-            '[WebSocketService] WS closed: code=$closeCode reason=$closeReason');
-      }
-    } catch (e) {
-      debugPrint('[WebSocketService] error capturing close code: $e');
-    }
-  }
-
   /// 调整终端大小
   void resize(int rows, int cols) {
     if (_status != ConnectionStatus.connected || _channel == null) {
@@ -850,43 +412,13 @@ class WebSocketService extends ChangeNotifier {
     _channel!.sink.add(message);
   }
 
-  /// 开始心跳
-  void _startHeartbeat() {
-    _stopHeartbeat();
-    _heartbeatTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (_status == ConnectionStatus.connected && _channel != null) {
-        _channel!.sink.add(jsonEncode({'type': 'ping'}));
-      }
-    });
-  }
-
-  /// 停止心跳
-  void _stopHeartbeat() {
-    _heartbeatTimer?.cancel();
-    _heartbeatTimer = null;
-  }
-
-  /// 安排重连
-  void _scheduleReconnect() {
-    _status = ConnectionStatus.reconnecting;
-    notifyListeners();
-
-    final delay = reconnectDelay * (1 << _retryCount).clamp(0, 6); // 上限 64 秒
-    _retryCount++;
-
-    _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(delay, () {
-      connect();
-    });
-  }
-
   /// 断开连接
   Future<void> disconnect({bool notify = true}) async {
     _allowReconnect = false;
     _encryptionEnabled = false;
     _crypto.clearAesKey();
     _resetTerminalDecoders();
-    _stopHeartbeat();
+    _wsStopHeartbeat(this);
     _reconnectTimer?.cancel();
     await _streamSubscription?.cancel();
     _streamSubscription = null;
