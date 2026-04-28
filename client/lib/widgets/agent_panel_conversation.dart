@@ -343,8 +343,6 @@ mixin _PanelConversationMixin on _PanelStateFields {
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           fontWeight: FontWeight.w600,
                         ),
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
@@ -357,8 +355,6 @@ mixin _PanelConversationMixin on _PanelStateFields {
                       fontFamily: 'monospace',
                       color: colorScheme.onSurfaceVariant,
                     ),
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
               ),
             ],
           ],
@@ -381,8 +377,6 @@ mixin _PanelConversationMixin on _PanelStateFields {
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
