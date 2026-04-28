@@ -33,7 +33,7 @@ def _make_mock_redis():
     async def mock_get(key):
         return store.get(key)
 
-    async def mock_set(key, value):
+    async def mock_set(key, value, ex=None, **kwargs):
         store[key] = value
 
     async def mock_exists(key):
