@@ -250,10 +250,10 @@ terminal_agent = Agent(
 )
 
 # 在全局 Agent 上注册所有内置工具
-terminal_agent.tool(_tool_execute_command)
-terminal_agent.tool(_tool_ask_user)
-terminal_agent.tool(_tool_lookup_knowledge)
-terminal_agent.tool(_tool_deliver_result)
+terminal_agent.tool(_tool_execute_command, name="execute_command")
+terminal_agent.tool(_tool_ask_user, name="ask_user")
+terminal_agent.tool(_tool_lookup_knowledge, name="lookup_knowledge")
+terminal_agent.tool(_tool_deliver_result, name="deliver_result")
 
 
 # 保留旧名称兼容（测试直接 import 这些函数名）

@@ -1056,15 +1056,15 @@ class TestSessionAgentFactory:
     def test_factory_creates_agent_with_builtins(self):
         agent = build_session_agent()
         names = self._tool_names(agent)
-        assert "_tool_execute_command" in names
-        assert "_tool_ask_user" in names
-        assert "_tool_lookup_knowledge" in names
-        assert "_tool_deliver_result" in names
+        assert "execute_command" in names
+        assert "ask_user" in names
+        assert "lookup_knowledge" in names
+        assert "deliver_result" in names
 
     def test_factory_without_lookup_knowledge(self):
         agent = build_session_agent(include_lookup_knowledge=False)
         names = self._tool_names(agent)
-        assert "_tool_lookup_knowledge" not in names
+        assert "lookup_knowledge" not in names
 
     def test_factory_registers_dynamic_tools(self):
         tools = [

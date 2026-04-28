@@ -161,14 +161,14 @@ async def _tool_deliver_result(
 
 def _register_builtin_tools(agent: Agent[AgentDeps, str]) -> None:
     """在 Agent 实例上注册内置工具。"""
-    agent.tool(_tool_execute_command)
-    agent.tool(_tool_ask_user)
-    agent.tool(_tool_deliver_result)
+    agent.tool(_tool_execute_command, name="execute_command")
+    agent.tool(_tool_ask_user, name="ask_user")
+    agent.tool(_tool_deliver_result, name="deliver_result")
 
 
 def _register_lookup_knowledge(agent: Agent[AgentDeps, str]) -> None:
     """条件注册 lookup_knowledge 工具（仅当 Agent 支持时）。"""
-    agent.tool(_tool_lookup_knowledge)
+    agent.tool(_tool_lookup_knowledge, name="lookup_knowledge")
 
 
 # ---------------------------------------------------------------------------
