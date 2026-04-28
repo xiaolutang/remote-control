@@ -2,7 +2,7 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-04-28T07:54:24",
-  "updated_at": "2026-04-28T08:30:00",
+  "updated_at": "2026-04-28T23:00:00",
   "active_requirement_cycle": {
     "id": "R048",
     "name": "architecture-deep-cleanup",
@@ -18,8 +18,50 @@
     "summary": "R047 延续：大文件深度拆分 + Agent 模块分层",
     "archived_phases": [
       {
-        "phases": [0,1,2,3,4,5,6,7,8],
-        "task_ids": ["B101","B102","B103","B104","B105","B106","F107","F108","S109","S110","S111","S112","S113","F114","B115","B116","B117","B118","B119","B120","B121","B122","F122","F123","F124","F125","F126","S126","S127","S128","S129"],
+        "phases": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8
+        ],
+        "task_ids": [
+          "B101",
+          "B102",
+          "B103",
+          "B104",
+          "B105",
+          "B106",
+          "F107",
+          "F108",
+          "S109",
+          "S110",
+          "S111",
+          "S112",
+          "S113",
+          "F114",
+          "B115",
+          "B116",
+          "B117",
+          "B118",
+          "B119",
+          "B120",
+          "B121",
+          "B122",
+          "F122",
+          "F123",
+          "F124",
+          "F125",
+          "F126",
+          "S126",
+          "S127",
+          "S128",
+          "S129"
+        ],
         "archive_ref": "_archive/R047_agent-conversation-interaction-optimization/feature_list.json"
       }
     ]
@@ -50,13 +92,18 @@
         "所有 import 路径更新正确，无循环依赖",
         "pytest 通过"
       ],
-      "risk_tags": ["startup", "config"],
+      "risk_tags": [
+        "startup",
+        "config"
+      ],
       "test_tasks": [
         "agent 启动 smoke：配置加载 → auth → WS 连接",
         "import 路径验证：所有模块可正常导入",
         "websocket_client 拆分后消息处理链路不变"
       ],
-      "files": ["agent/app/"]
+      "files": [
+        "agent/app/"
+      ]
     },
     {
       "id": "B202",
@@ -65,7 +112,9 @@
       "name": "Agent pty_wrapper + mcp_client 拆分",
       "description": "pty_wrapper.py (462行) 提取 pty_types.py (数据类和常量) 和 pty_process.py (进程组管理逻辑)。mcp_client.py (441行) 提取 mcp_types.py (MCP 协议类型)。",
       "verification": "L1",
-      "depends_on": ["B201"],
+      "depends_on": [
+        "B201"
+      ],
       "status": "pending",
       "priority": 2,
       "acceptance_criteria": [
@@ -74,13 +123,17 @@
         "Agent 功能不回归",
         "pytest 通过"
       ],
-      "risk_tags": ["startup"],
+      "risk_tags": [
+        "startup"
+      ],
       "test_tasks": [
         "pty 创建子进程 → write → read 端到端不回归",
         "mcp_client 连接/断连不回归",
         "agent 整体 pytest 通过"
       ],
-      "files": ["agent/app/core/"]
+      "files": [
+        "agent/app/core/"
+      ]
     },
     {
       "id": "B203",
@@ -90,7 +143,7 @@
       "description": "session.py (1409行) 拆分为：session_types.py (SessionInfo/ClientInfo/DeviceSession 等数据类+常量)、session_redis_conn.py (Redis 连接辅助函数)、session_normalize.py (normalize_client_info/merge_terminal 等规范化逻辑)、session_history.py (output history CRUD)、session_terminal.py (terminal 关联操作)。session.py 保留为协调入口，导入 Mixin。",
       "verification": "L2",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": 1,
       "acceptance_criteria": [
         "session.py 主文件 <= 350 行",
@@ -99,12 +152,20 @@
         "server 启动正常",
         "pytest 通过"
       ],
-      "risk_tags": ["startup"],
+      "risk_tags": [
+        "startup"
+      ],
       "test_tasks": [
         "server 启动 smoke：session 模块加载无报错",
         "设备注册/列表/session 查询功能不回归"
       ],
-      "files": ["server/app/store/"]
+      "files": [
+        "server/app/store/"
+      ],
+      "started_at": "2026-04-28T22:00:00",
+      "completed_at": "2026-04-28T22:00:00",
+      "commit": "36dd917",
+      "execution_notes": "session.py 拆分为 5 子模块 + 协调入口，测试无回归"
     },
     {
       "id": "B204",
@@ -114,7 +175,7 @@
       "description": "ws_agent.py (1156行) 拆分为：agent_connection.py (AgentConnection 类+连接管理)、agent_message_handler.py (消息分发+请求处理)、agent_cleanup.py (断连清理+资源回收)、agent_request.py (各请求类型处理函数)。ws_agent.py 保留为 WebSocket 入口。",
       "verification": "L2",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": 1,
       "acceptance_criteria": [
         "ws_agent.py 主文件 <= 350 行",
@@ -123,12 +184,21 @@
         "server 启动正常",
         "pytest 通过"
       ],
-      "risk_tags": ["startup", "network"],
+      "risk_tags": [
+        "startup",
+        "network"
+      ],
       "test_tasks": [
         "server 启动 smoke：ws 模块加载无报错",
         "Agent 连接 → 认证 → 心跳链路不回归"
       ],
-      "files": ["server/app/ws/"]
+      "files": [
+        "server/app/ws/"
+      ],
+      "started_at": "2026-04-28T22:00:00",
+      "completed_at": "2026-04-28T22:00:00",
+      "commit": "ba3ffac",
+      "execution_notes": "ws_agent.py 拆分为 4 子模块 + 入口，测试无回归"
     },
     {
       "id": "B205",
@@ -137,8 +207,10 @@
       "name": "agent_session_manager.py 拆分",
       "description": "agent_session_manager.py (1161行) 拆分为：agent_session_types.py (AgentSession/AgentSessionState/AgentResult 等类型+常量)、agent_sse_stream.py (SSE 事件流构建+phase 推断逻辑)。agent_session_manager.py 保留核心会话管理（create/start/respond/cancel/resume）。",
       "verification": "L2",
-      "depends_on": ["B203"],
-      "status": "pending",
+      "depends_on": [
+        "B203"
+      ],
+      "status": "completed",
       "priority": 2,
       "acceptance_criteria": [
         "agent_session_manager.py 主文件 <= 850 行",
@@ -147,7 +219,13 @@
         "Agent SSE 会话流程不回归",
         "pytest 通过"
       ],
-      "files": ["server/app/services/"]
+      "files": [
+        "server/app/services/"
+      ],
+      "started_at": "2026-04-28T22:45:00",
+      "completed_at": "2026-04-28T22:45:00",
+      "commit": "a6fc3d2",
+      "execution_notes": "agent_session_manager 拆分为 4 子模块，75 fail/1281 pass"
     },
     {
       "id": "B206",
@@ -156,8 +234,10 @@
       "name": "terminal_agent.py 拆分",
       "description": "terminal_agent.py (958行) 拆分为：agent_types.py (AgentDeps/AgentResult 数据类)、agent_prompts.py (SYSTEM_PROMPT + prompt 构建函数)、agent_tool_catalog.py (工具注册目录+工具定义)。terminal_agent.py 保留 Agent 创建和 run_agent 核心循环。",
       "verification": "L2",
-      "depends_on": ["B205"],
-      "status": "pending",
+      "depends_on": [
+        "B205"
+      ],
+      "status": "completed",
       "priority": 2,
       "acceptance_criteria": [
         "terminal_agent.py 主文件 <= 580 行",
@@ -169,7 +249,13 @@
         "Agent 创建+run：工具注册、system prompt 注入验证",
         "deliver_result 路径：command 和 message 两种 result 类型"
       ],
-      "files": ["server/app/services/"]
+      "files": [
+        "server/app/services/"
+      ],
+      "started_at": "2026-04-28T23:00:00",
+      "completed_at": "2026-04-28T23:00:00",
+      "commit": "dbf1a90",
+      "execution_notes": "terminal_agent 拆分为 3 模块，75 fail/1281 pass"
     },
     {
       "id": "S206",
@@ -178,15 +264,24 @@
       "name": "Server Phase 10 中间 smoke 验证",
       "description": "B203+B204 完成后，运行 server 启动 + pytest 快速验证 store 和 ws 模块拆分无回归，及早发现问题避免 B205/B206 在错误基础上工作。",
       "verification": "L2",
-      "depends_on": ["B203", "B204"],
-      "status": "pending",
+      "depends_on": [
+        "B203",
+        "B204"
+      ],
+      "status": "completed",
       "priority": 1,
       "acceptance_criteria": [
         "server 可正常启动（uvicorn 无报错）",
         "pytest 通过",
         "无 import 错误"
       ],
-      "files": ["server/"]
+      "files": [
+        "server/"
+      ],
+      "started_at": "2026-04-28T22:30:00",
+      "completed_at": "2026-04-28T22:30:00",
+      "execution_notes": "B203+B204 烟雾验证通过：import OK, 78 fail/1278 pass, 无回归",
+      "commit": "d98cb3d"
     },
     {
       "id": "S207",
@@ -195,14 +290,22 @@
       "name": "Server 拆分后 Docker 集成验证",
       "description": "运行 test-docker-integration.sh 验证 Phase 10 所有拆分后 server 仍通过 S113+S129 验收点。如发现问题立即回归修复。",
       "verification": "L3",
-      "depends_on": ["B203", "B204", "B205", "B206", "S206"],
+      "depends_on": [
+        "B203",
+        "B204",
+        "B205",
+        "B206",
+        "S206"
+      ],
       "status": "pending",
       "priority": 1,
       "acceptance_criteria": [
         "test-docker-integration.sh 0 FAIL",
         "Agent 可正常连接并对话"
       ],
-      "files": ["scripts/test-docker-integration.sh"]
+      "files": [
+        "scripts/test-docker-integration.sh"
+      ]
     },
     {
       "id": "F211",
@@ -220,7 +323,9 @@
         "Flutter 编译通过",
         "终端创建/切换/恢复功能不回归"
       ],
-      "files": ["client/lib/services/"]
+      "files": [
+        "client/lib/services/"
+      ]
     },
     {
       "id": "F212",
@@ -238,7 +343,9 @@
         "Flutter 编译通过",
         "WS 连接/重连/消息收发不回归"
       ],
-      "files": ["client/lib/services/"]
+      "files": [
+        "client/lib/services/"
+      ]
     },
     {
       "id": "F213",
@@ -247,7 +354,10 @@
       "name": "Client 拆分后编译和功能验证",
       "description": "运行 Flutter 编译和 widget 测试，确认 F211+F212 拆分后功能不回归。",
       "verification": "F2",
-      "depends_on": ["F211", "F212"],
+      "depends_on": [
+        "F211",
+        "F212"
+      ],
       "status": "pending",
       "priority": 1,
       "acceptance_criteria": [
@@ -255,7 +365,9 @@
         "flutter test 通过",
         "桌面端编译通过"
       ],
-      "files": ["client/"]
+      "files": [
+        "client/"
+      ]
     }
   ],
   "summary": {
