@@ -38,6 +38,8 @@ from app.api.agent_conversation_helpers import (
     _raise_agent_conversation_conflict,
     _session_matches_terminal,
     _close_terminal_agent_conversation,
+    HISTORY_EVENT_TYPES,
+    _truncate_events_by_token_budget,
 )
 
 logger = logging.getLogger(__name__)
@@ -226,10 +228,11 @@ async def run_terminal_agent_session(
             user_id, device_id, terminal_id, after_index=request.truncate_after_index,
         )
 
-    history_events = await _deps.list_agent_conversation_events(user_id, device_id, terminal_id)
-    MAX_HISTORY_EVENTS_FOR_AGENT = 20
-    if len(history_events) > MAX_HISTORY_EVENTS_FOR_AGENT:
-        history_events = history_events[-MAX_HISTORY_EVENTS_FOR_AGENT:]
+    history_events = await _deps.list_agent_conversation_events(
+        user_id, device_id, terminal_id,
+        event_types=list(HISTORY_EVENT_TYPES),
+    )
+    history_events = _truncate_events_by_token_budget(history_events)
     message_history = _build_agent_message_history_from_events(history_events)
 
     try:

@@ -183,8 +183,13 @@ class ConversationStoreMixin:
         terminal_id: str,
         *,
         after_index: Optional[int] = None,
+        event_types: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
-        """读取 conversation events。closed tombstone 不返回历史事件。"""
+        """读取 conversation events。closed tombstone 不返回历史事件。
+
+        Args:
+            event_types: 只返回指定事件类型。None 或空列表表示不过滤（返回全部）。
+        """
         conversation = await self.get_agent_conversation(user_id, device_id, terminal_id)
         if conversation is None:
             return []
@@ -196,6 +201,10 @@ class ConversationStoreMixin:
         if after_index is not None:
             where += " AND event_index > ?"
             params.append(int(after_index))
+        if event_types:
+            placeholders = ",".join("?" * len(event_types))
+            where += f" AND event_type IN ({placeholders})"
+            params.extend(event_types)
 
         async with self._connect() as db:
             cursor = await db.execute(

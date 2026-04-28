@@ -333,3 +333,41 @@ async def _agent_sse_response_wrapper(manager: AgentSessionManager, agent_sessio
                 "SSE client disconnected, session still active: session_id=%s state=%s",
                 agent_session.id, agent_session.state,
             )
+
+
+# ---------------------------------------------------------------------------
+# 对话历史 token 预算截断
+# ---------------------------------------------------------------------------
+
+# 参与历史构建的事件类型（单一来源）
+HISTORY_EVENT_TYPES = ("user_intent", "question", "answer", "tool_step", "result")
+
+# GLM-5.1 ≥128K 窗口，system prompt ~2K，输出 4096，历史预算 32K
+HISTORY_TOKEN_BUDGET = 32_000
+
+
+def _estimate_event_tokens(event: dict) -> int:
+    """粗略估算事件 token 数。中文约 1.5 token/字符，英文约 0.25，取加权 0.7。"""
+    return int(len(json.dumps(event, ensure_ascii=False)) * 0.7)
+
+
+def _truncate_events_by_token_budget(
+    events: list[dict],
+    budget: int = HISTORY_TOKEN_BUDGET,
+) -> list[dict]:
+    """从最新事件往前累加 token 估算，超出预算时截断旧事件。
+
+    保证至少保留最近一条事件（即使单条超预算）。
+    """
+    if not events:
+        return []
+
+    total = 0
+    cut = len(events) - 1  # 至少保留最后一条
+    for i in range(len(events) - 1, -1, -1):
+        estimated = _estimate_event_tokens(events[i])
+        if i < len(events) - 1 and total + estimated > budget:
+            break
+        total += estimated
+        cut = i
+    return events[cut:]

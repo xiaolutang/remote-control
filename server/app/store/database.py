@@ -302,12 +302,14 @@ async def list_agent_conversation_events(
     terminal_id: str,
     *,
     after_index: Optional[int] = None,
+    event_types: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
     return await _get_db().list_agent_conversation_events(
         user_id,
         device_id,
         terminal_id,
         after_index=after_index,
+        event_types=event_types,
     )
 
 

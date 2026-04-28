@@ -147,7 +147,7 @@ Docker Agent（辅助）：显式启用 profile 后与 Server 同一 docker-comp
 - ✗ ws:// 连接明文传输密码或终端数据（Client 和 Agent 均适用，必须经过 RSA+AES 加密）
 - ✗ Agent 重连耗尽后进程继续存活（local_server 仍监听视为僵尸进程）
 - ✗ LLM 调用未设置 max_tokens（依赖 API 默认值会导致截断）
-- ✗ 对话历史无长度限制直接传给 LLM（多轮后上下文溢出）
+- ✗ 对话历史未做 token 预算截断直接传给 LLM（多轮后上下文溢出）
 
 ## 数据流
 
@@ -426,7 +426,7 @@ Server 不是 terminal 内容真相，但必须是 **会话时序真相**；Agen
 - lookup_knowledge 结果裁剪：最多 3 个文件，每文件最多 2000 字符
 
 62. 所有 LLM 调用（Agent、Planner、Eval harness、LLM Judge）必须显式设置 max_tokens，不得依赖 API 默认值（glm-5.1 默认仅 1024，会导致回复截断）
-63. Agent 对话历史传给 LLM 前必须做窗口裁剪（最近 20 条事件），防止上下文溢出
+63. Agent 对话历史传给 LLM 前必须做 token 预算截断（32K tokens），只查询信号事件类型（user_intent, question, answer, tool_step, result），从后往前累加直到预算用尽，防止上下文溢出
 
 ## R044 Agent 评估体系约束
 

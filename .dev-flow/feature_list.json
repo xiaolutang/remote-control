@@ -2,7 +2,7 @@
   "version": "1.4",
   "project": "remote-control",
   "created_at": "2026-04-28T07:54:24",
-  "updated_at": "2026-04-28T23:00:00",
+  "updated_at": "2026-04-29T00:00:00",
   "active_requirement_cycle": {
     "id": "R048",
     "name": "architecture-deep-cleanup",
@@ -368,19 +368,110 @@
       "files": [
         "client/"
       ]
+    },
+    {
+      "id": "B214",
+      "phase": 12,
+      "module": "server-store",
+      "name": "conversation_store 增加 event_types 查询参数",
+      "description": "真实使用缺陷修复：Agent 多轮对话丢失上下文。根因：list_agent_conversation_events 返回全部事件（含 streaming_text/phase_change 噪声），20 条窗口被噪声挤满，有价值的 tool_step/result 被截断。修复第一步：DB 查询层增加 event_types 过滤参数，只返回指定类型的事件。",
+      "verification": "L2",
+      "depends_on": [],
+      "status": "pending",
+      "priority": 1,
+      "acceptance_criteria": [
+        "list_agent_conversation_events 支持 event_types: Optional[List[str]] 参数",
+        "不传 event_types 或传 None 时行为完全不变（向后兼容）",
+        "传 event_types=[] 空列表时等价于不传，返回所有事件",
+        "传 event_types=['user_intent','tool_step'] 时 SQL 增加 AND event_type IN (?,?) 条件（展开占位符）",
+        "database.py wrapper 透传 event_types 参数",
+        "现有 3 个调用方不受影响（不传参）",
+        "pytest 通过"
+      ],
+      "test_tasks": [
+        "不传 event_types：返回全部事件，行为与修改前一致",
+        "传指定类型 event_types=['user_intent','result']：只返回这 2 种事件",
+        "传空列表 event_types=[]：等价于不传，返回全部事件",
+        "与 after_index 联合：传 event_types + after_index 时两个条件同时生效"
+      ],
+      "files": [
+        "server/app/store/conversation_store.py",
+        "server/app/store/database.py"
+      ]
+    },
+    {
+      "id": "B215",
+      "phase": 12,
+      "module": "server-api",
+      "name": "对话历史 token 预算替代事件条数截断",
+      "description": "真实使用缺陷修复第二步：用 token 预算替代 20 条事件数截断。业界标准是按 token 预算管理上下文，不同事件 token 量差异巨大（tool_step 200-2000 tokens vs answer 30-100 tokens），事件条数无法保证上下文质量。GLM-5.1 ≥128K 窗口，分配 32K 给历史，留足余量。token 估算方法：len(json.dumps(event, ensure_ascii=False)) * 0.7 作为粗略估算（中文约 1.5 token/字符，英文约 0.25 token/字符，取加权 0.7）。",
+      "verification": "L2",
+      "depends_on": [
+        "B214"
+      ],
+      "status": "pending",
+      "priority": 1,
+      "acceptance_criteria": [
+        "删除 _EXCLUDED_HISTORY_TYPES 应用层过滤和 MAX_HISTORY_EVENTS_FOR_AGENT=20",
+        "新增 HISTORY_EVENT_TYPES 常量（user_intent, question, answer, tool_step, result 5 种）",
+        "新增 HISTORY_TOKEN_BUDGET = 32000 常量",
+        "_truncate_events_by_token_budget 函数放在 agent_conversation_helpers.py（与 _build_agent_message_history_from_events 同文件）",
+        "函数逻辑：从后往前累加 token 估算，超出预算时截断旧事件；单条事件超预算时仍保留该条（保证至少最近一条）",
+        "DB 查询传 event_types=list(HISTORY_EVENT_TYPES) 实现查询层过滤",
+        "3 个调用方均不受影响（agent_api.py 传 event_types，agent_conversation_helpers.py:173 和 :297 不传）",
+        "pytest 通过",
+        "更新 architecture.md 不变量 #63：从'最近 20 条事件'改为'token 预算截断'",
+        "更新 architecture.md 禁止模式最后一条：从'对话历史无长度限制直接传给 LLM'改为'对话历史未做 token 预算截断直接传给 LLM'"
+      ],
+      "test_tasks": [
+        "低于预算：10 条事件总计 ~5K tokens → 不截断，全部传入",
+        "超预算截断：50 条事件总计 ~60K tokens → 从后往前保留到 32K，丢弃最旧事件",
+        "空列表：0 条事件 → 返回空 message_history，不报错",
+        "单条事件超预算：1 条 tool_step 含 ~40K tokens → 仍保留该条（至少保留最近一条）",
+        "截断后集成验证：截断后的事件列表传入 _build_agent_message_history_from_events，产出合法 ModelMessage 列表"
+      ],
+      "files": [
+        "server/app/api/agent_api.py",
+        "server/app/api/agent_conversation_helpers.py",
+        ".dev-flow/architecture.md"
+      ]
+    },
+    {
+      "id": "S216",
+      "phase": 12,
+      "module": "server-test",
+      "name": "多轮对话历史 smoke 验证",
+      "description": "B214+B215 完成后，验证 token 预算截断逻辑正确：pytest 通过、eval 不回归、architecture.md 不变量已更新。",
+      "verification": "L2",
+      "depends_on": [
+        "B214",
+        "B215"
+      ],
+      "status": "pending",
+      "priority": 1,
+      "acceptance_criteria": [
+        "pytest 通过",
+        "architecture.md 不变量 #63 已更新为 token 预算描述",
+        "agent_api.py 无 _EXCLUDED_HISTORY_TYPES 和 MAX_HISTORY_EVENTS_FOR_AGENT 残留"
+      ],
+      "files": [
+        "server/"
+      ]
     }
   ],
   "summary": {
-    "total_tasks": 11,
+    "total_tasks": 14,
     "by_status": {
-      "pending": 11
+      "completed": 5,
+      "pending": 9
     },
     "by_module": {
       "agent": 2,
-      "server-store": 1,
+      "server-store": 2,
       "server-ws": 1,
       "server-services": 2,
-      "server-test": 2,
+      "server-test": 3,
+      "server-api": 1,
       "client-services": 2,
       "client-test": 1
     }
