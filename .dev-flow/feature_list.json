@@ -1,1084 +1,276 @@
 {
   "version": "1.4",
   "project": "remote-control",
-  "created_at": "2026-03-27T16:45:00Z",
-  "updated_at": "2026-04-28T07:45:37",
+  "created_at": "2026-04-28T07:54:24",
+  "updated_at": "2026-04-28T08:30:00",
   "active_requirement_cycle": {
-    "id": "R047",
-    "name": "agent-conversation-interaction-optimization",
-    "branch": "feat/R047-agent-conversation-interaction-optimization",
-    "started_at": "2026-04-27",
+    "id": "R048",
+    "name": "architecture-deep-cleanup",
+    "branch": "feat/R048-architecture-deep-cleanup",
+    "started_at": "2026-04-28T07:54:24",
     "workflow": {
       "mode": "B",
       "runtime": "skill_orchestrated",
       "review_provider": "codex_plugin",
       "audit_provider": "codex_plugin",
       "risk_provider": "codex_plugin"
-    }
+    },
+    "summary": "R047 延续：大文件深度拆分 + Agent 模块分层",
+    "archived_phases": [
+      {
+        "phases": [0,1,2,3,4,5,6,7,8],
+        "task_ids": ["B101","B102","B103","B104","B105","B106","F107","F108","S109","S110","S111","S112","S113","F114","B115","B116","B117","B118","B119","B120","B121","B122","F122","F123","F124","F125","F126","S126","S127","S128","S129"],
+        "archive_ref": "_archive/R047_agent-conversation-interaction-optimization/feature_list.json"
+      }
+    ]
   },
   "archived_cycles": [
     {
-      "id": "R046",
-      "name": "agent-prompt-strategy-upgrade",
-      "status": "completed",
-      "branch": "feat/R046-agent-prompt-strategy-upgrade",
-      "started_at": "2026-04-26",
-      "archived_at": "2026-04-27T21:50:00+0800",
-      "archive_path": "_archive/R046_agent-prompt-strategy-upgrade/",
-      "summary": "Agent 自由对话 + deliver_result 工具 + SYSTEM_PROMPT 三路互斥 + Eval 100% 通过。9 个任务全部完成。"
-    },
-    {
-      "id": "R045",
-      "name": "smart-panel-convergence",
-      "status": "completed",
-      "branch": "feat/R045-smart-panel-convergence",
-      "started_at": "2026-04-26",
-      "archived_at": "2026-04-26T13:30:00+0800",
-      "archive_path": "_archive/R045_smart-panel-convergence/",
-      "summary": "智能面板收敛：pendingReset + sessionId 投影 + 问答编辑测试 + Planner 死代码清理。18 个任务全部完成。"
-    },
-    {
-      "id": "R044",
-      "name": "agent-eval-system",
-      "status": "completed",
-      "branch": "feat/R044-agent-eval-system",
-      "started_at": "2026-04-25",
-      "archived_at": "2026-04-26T19:35:00+0800",
-      "archive_path": "_archive/R044_agent-eval-system/",
-      "summary": "Agent 评估体系：eval 框架 + 数据集 + grader + 质量监控 + 反馈闭环。13 个任务全部完成。"
-    },
-    {
-      "id": "R043",
-      "name": "agent-knowledge-skill-mcp",
-      "status": "completed",
-      "branch": "feat/R043-agent-knowledge-skill-mcp",
-      "started_at": "2026-04-24",
-      "archived_at": "2026-04-25T14:00:00+0800",
-      "archive_path": "_archive/R043_agent-knowledge-skill-mcp/",
-      "summary": "Agent 知识增强 + Skill/MCP 管理 + response_type 三类型。全部任务完成。"
-    },
-    {
-      "id": "R042",
-      "name": "opik-llm-observability",
-      "status": "completed",
-      "branch": "feat/R042-opik-llm-observability",
-      "archived_at": "2026-04-24T13:10:00+0800",
-      "archive_path": "_archive/R042_opik-llm-observability/",
-      "summary": "Opik LLM 可观测性集成 + Agent 错误体验修复 + SSE 重连/性能收敛。全部任务完成。"
-    },
-    {
-      "id": "R041",
-      "name": "react-terminal-agent",
-      "status": "verification_failed",
-      "branch": "feat/R041-react-terminal-agent",
-      "archived_at": "2026-04-23T22:00:00+0800",
-      "archive_path": "_archive/R041_react-terminal-agent/",
-      "summary": "ReAct Agent + SSE + 双端 conversation 同步 + Token 追踪。验收未通过：双端消息同步 bug（已修复未验证）+ 模型交互不可观测"
+      "id": "R047",
+      "topic": "agent-conversation-interaction-optimization",
+      "completed_at": "2026-04-28",
+      "archive_ref": "_archive/R047_agent-conversation-interaction-optimization/"
     }
   ],
   "features": [
     {
-      "id": "B101",
-      "phase": 0,
+      "id": "B201",
+      "phase": 9,
       "module": "agent",
-      "name": "PTY 循环写入修复",
-      "description": "PTYWrapper.write 不处理 os.write 返回值小于输入长度的情况。超长 prompt（>4KB PTY 缓冲区）可能只写入部分数据。改为循环写入 + 返回值校验。",
-      "verification": "L1",
-      "depends_on": [],
-      "status": "completed",
-      "priority": "high",
-      "acceptance_criteria": [
-        "PTYWrapper.write 对 >4KB 数据完整写入",
-        "os.write 返回值小于 len(data) 时循环继续写入剩余部分",
-        "agent/tests/test_pty.py 新增长数据写入测试通过"
-      ],
-      "risk_tags": [
-        "data_integrity"
-      ],
-      "started_at": "2026-04-27T23:10:00+0800",
-      "completed_at": "2026-04-27T23:20:00+0800",
-      "execution_notes": "循环写入 + 5 个新测试全部通过",
-      "evidence_file": ".dev-flow/evidence/B101.md",
-      "commit": "e2bf4d2",
-      "files": [
-        "agent/app/pty_wrapper.py",
-        "agent/tests/test_pty.py"
-      ]
-    },
-    {
-      "id": "B102",
-      "phase": 0,
-      "module": "client",
-      "name": "Client 异步发送竞态修复",
-      "description": "_injectAiPrompt 和 _executeAgentResult 中 service.send() 是 fire-and-forget，send 后立即归档/清空状态，消息可能未真正发出。添加发送确认机制或延迟归档。",
-      "verification": "F1",
-      "depends_on": [],
-      "status": "completed",
-      "priority": "high",
-      "acceptance_criteria": [
-        "_injectAiPrompt 在 send 完成后再归档/清空状态",
-        "_executeAgentResult 在 send 完成后再关闭面板",
-        "WebSocketService.send 返回 Future 或提供完成回调",
-        "单元测试：mock send 验证归档在 send 完成后执行",
-        "手动测试：长 prompt 注入不再截断"
-      ],
-      "started_at": "2026-04-27T23:20:00+0800",
-      "completed_at": "2026-04-27T23:30:00+0800",
-      "execution_notes": "send 改为 Future<void> + await ready；_injectAiPrompt/_executeAgentResult await send 后再归档",
-      "evidence_file": ".dev-flow/evidence/B102.md",
-      "commit": "de507f0",
-      "risk_tags": [
-        "network"
-      ],
-      "files": [
-        "client/lib/widgets/smart_terminal_side_panel_content.dart",
-        "client/lib/services/websocket_service.dart"
-      ]
-    },
-    {
-      "id": "B103",
-      "phase": 1,
-      "module": "server",
-      "name": "新 SSE 事件类型定义 + 旧事件移除",
-      "description": "定义新事件类型（phase_change, streaming_text, tool_step），移除旧事件类型（trace, assistant_message）。更新 _emit_session_event 和 sse_stream 方法。保留 session_created, question, result, error。",
-      "verification": "L2",
-      "depends_on": [],
-      "status": "completed",
-      "priority": "high",
-      "acceptance_criteria": [
-        "SSE 事件类型只有：session_created, phase_change, streaming_text, tool_step, question, result, error",
-        "session_created 事件保留（由 runtime_api.py SSE 端点产生）",
-        "trace 和 assistant_message 不再产生",
-        "Agent 正常运行后 SSE 流只包含新事件类型",
-        "runtime_api.py SSE 端点正确透传新事件类型",
-        "server/tests/test_agent_session_manager.py 通过"
-      ],
-      "risk_tags": [],
-      "started_at": "2026-04-27T23:30:00+0800",
-      "completed_at": "2026-04-27T23:55:00+0800",
-      "execution_notes": "7 种事件类型定义 + trace/assistant_message 移除 + runtime_api 适配",
-      "evidence_file": ".dev-flow/evidence/B103.md",
-      "commit": "ab7b07e",
-      "files": [
-        "server/app/agent_session_manager.py",
-        "server/app/runtime_api.py"
-      ]
-    },
-    {
-      "id": "B104",
-      "phase": 1,
-      "module": "server",
-      "name": "Phase 推断逻辑",
-      "description": "在 agent_session_manager 中实现 phase 自动推断：agent.run() 启动 → THINKING，ToolCallPart → EXPLORING，ToolReturn → ANALYZING，PartDelta(TextPart) → RESPONDING，deliver_result → RESULT。通过 _event_stream_handler 推断并 emit phase_change 事件。",
-      "verification": "L1",
-      "depends_on": [
-        "B103"
-      ],
-      "status": "completed",
-      "priority": "high",
-      "acceptance_criteria": [
-        "Agent 启动时 emit phase_change(THINKING)",
-        "工具调用时产生 THINKING→EXPLORING→ANALYZING 转换",
-        "文本输出时产生 RESPONDING 阶段",
-        "ask_user 工具调用时产生 CONFIRMING 阶段（question 事件同时 emit）",
-        "deliver_result 时产生 RESULT 阶段",
-        "无重复 phase_change（相同 phase 不重复 emit）"
-      ],
-      "risk_tags": [],
-      "started_at": "2026-04-28T00:00:00+0800",
-      "completed_at": "2026-04-28T00:15:00+0800",
-      "execution_notes": "6 阶段推断 + _current_phase 去重 + 7 个转换点",
-      "commit": "a9e3728",
-      "files": [
-        "server/app/agent_session_manager.py"
-      ]
-    },
-    {
-      "id": "B105",
-      "phase": 1,
-      "module": "server",
-      "name": "Token 级 streaming_text 推送",
-      "description": "修改 _event_stream_handler，在 PartDelta(TextPart) 时立即 emit streaming_text 事件（携带 text_delta），而非等 PartEnd 后推送完整 assistant_message。保留 CoT 过滤逻辑（不变量 #50）。",
-      "verification": "L1",
-      "depends_on": [
-        "B103"
-      ],
-      "status": "completed",
-      "priority": "high",
-      "acceptance_criteria": [
-        "PartDelta(TextPart) 每个增量立即 emit streaming_text",
-        "CoT 过滤逻辑仍生效（检测并截断 CoT 标记）",
-        "ToolCallPart 替换 TextPart 时不泄漏推理文本",
-        "Client 拼接所有 streaming_text delta 后得到完整文本",
-        "单次 Agent run 的 SSE 帧数不超过 2000 帧"
-      ],
-      "risk_tags": [
-        "performance"
-      ],
-      "started_at": "2026-04-28T00:15:00+0800",
-      "completed_at": "2026-04-28T00:30:00+0800",
-      "execution_notes": "PartDelta 逐 delta 推送 + CoT 增量过滤 + ToolCallPart 清除追踪",
-      "commit": "dac6d01",
-      "files": [
-        "server/app/agent_session_manager.py"
-      ]
-    },
-    {
-      "id": "B106",
-      "phase": 1,
-      "module": "server",
-      "name": "Tool step 事件 + description + 持久化",
-      "description": "1) 在 terminal_agent.py 工具定义中增加 description 字段（人类可读描述）。2) 工具调用产生 tool_step 事件（替代 trace × 2），包含 tool_name, description, status(running/done/error), result_summary。3) 更新 conversation event 持久化逻辑，新事件类型正确写入和重建。",
-      "verification": "L2",
-      "depends_on": [
-        "B103"
-      ],
-      "status": "completed",
-      "priority": "high",
-      "acceptance_criteria": [
-        "execute_command 工具携带 description 如 '查看项目目录结构'",
-        "lookup_knowledge 工具携带 description 如 '搜索知识库'",
-        "每次工具调用产生 1 个 tool_step（status=running → status=done/error），不再产生 trace × 2",
-        "新事件类型持久化到 conversation_events 表",
-        "runtime_api.py _event_text_for_message_history 支持新事件类型（tool_step→摘要, streaming_text→拼接文本, phase_change→跳过）",
-        "_build_agent_message_history_from_events 能从新事件重建完整 message_history"
-      ],
-      "risk_tags": [],
-      "started_at": "2026-04-28T00:30:00+0800",
-      "completed_at": "2026-04-28T00:45:00+0800",
-      "execution_notes": "description 改进 + ask_user tool_step 持久化确认",
-      "commit": "4955b71",
-      "files": [
-        "server/app/terminal_agent.py",
-        "server/app/agent_session_manager.py",
-        "server/app/runtime_api.py"
-      ]
-    },
-    {
-      "id": "F107",
-      "phase": 2,
-      "module": "client",
-      "name": "新事件类型 + SSE 解析适配",
-      "description": "在 agent_session_event.dart 中定义新 sealed class（PhaseChangeEvent, StreamingTextEvent, ToolStepEvent），移除旧事件（TraceEvent, AssistantMessageEvent）。更新 agent_session_service.dart SSE 解析逻辑。",
-      "verification": "F1",
-      "depends_on": [
-        "B103"
-      ],
-      "status": "completed",
-      "priority": "high",
-      "acceptance_criteria": [
-        "新 sealed class 编译通过，fromJson / toJson 正确",
-        "SSE 解析正确构造 PhaseChangeEvent / StreamingTextEvent / ToolStepEvent",
-        "旧 event_type trace/assistant_message 解析不 crash（兼容丢弃）",
-        "agent_conversation_projection.dart 投影模型适配新事件",
-        "投影模型能存储和恢复每轮的阶段摘要信息（phase list + tool step count）"
-      ],
-      "risk_tags": [],
-      "started_at": "2026-04-28T00:45:00+0800",
-      "completed_at": "2026-04-28T01:00:00+0800",
-      "execution_notes": "PhaseChangeEvent/StreamingTextEvent/ToolStepEvent + TurnPhaseSummary",
-      "commit": "b9a317a",
-      "files": [
-        "client/lib/models/agent_session_event.dart",
-        "client/lib/services/agent_session_service.dart",
-        "client/lib/models/agent_conversation_projection.dart"
-      ]
-    },
-    {
-      "id": "F108",
-      "phase": 2,
-      "module": "client",
-      "name": "Phase-driven 面板状态机重写",
-      "description": "用 phase 驱动的状态模型替换 AgentPanelState 枚举。面板状态由 phase_change 事件驱动（THINKING/EXPLORING/ANALYZING/RESPONDING/CONFIRMING/RESULT），而非手动维护 AgentPanelState。",
-      "verification": "F2",
-      "depends_on": [
-        "F107"
-      ],
-      "status": "completed",
-      "priority": "high",
-      "acceptance_criteria": [
-        "AgentPanelState 替换为 AgentPhase 枚举或等效结构",
-        "phase_change 事件自动驱动面板状态切换",
-        "THINKING/EXPLORING/ANALYZING → 显示进度指示器",
-        "RESPONDING → 显示流式文本区域",
-        "CONFIRMING → 显示 ask_user 选项",
-        "RESULT → 显示结果卡片",
-        "不再有手动 _agentState 赋值（全部由事件驱动）"
-      ],
-      "risk_tags": [],
-      "started_at": "2026-04-28T01:00:00+0800",
-      "completed_at": "2026-04-28T01:15:00+0800",
-      "execution_notes": "AgentPhase 8 状态 + 事件驱动 + 去重",
-      "commit": "c1ae15e",
-      "files": [
-        "client/lib/widgets/smart_terminal_side_panel_content.dart"
-      ]
-    },
-    {
-      "id": "F109",
-      "phase": 2,
-      "module": "client",
-      "name": "流式文本气泡 + 工具步骤卡片",
-      "description": "实现 streaming_text 的逐 token 渲染（打字机效果）和 tool_step 的步骤卡片组件。步骤卡片显示工具名称、description、状态图标和结果摘要。",
-      "verification": "F2",
-      "depends_on": [
-        "F108"
-      ],
-      "status": "completed",
-      "priority": "high",
-      "acceptance_criteria": [
-        "StreamingTextEvent 逐 token 追加到气泡，实现打字机效果",
-        "ToolStepEvent 渲染为带状态图标的步骤卡片",
-        "步骤卡片显示 description（如'查看项目目录结构'）和 result_summary",
-        "running 状态显示加载动画，done 显示勾号，error 显示叉号",
-        "自动滚动到最新内容"
-      ],
-      "risk_tags": [],
-      "started_at": "2026-04-28T01:15:00+0800",
-      "completed_at": "2026-04-28T01:30:00+0800",
-      "execution_notes": "闪烁光标 + _ToolStepCard + Phase 指示器",
-      "commit": "39c36d2",
-      "files": [
-        "client/lib/widgets/smart_terminal_side_panel_content.dart"
-      ]
-    },
-    {
-      "id": "F110",
-      "phase": 2,
-      "module": "client",
-      "name": "多轮对话节奏优化",
-      "description": "优化多轮对话的历史展示：turn 分组（每轮折叠为可展开组）、阶段标签（探索/分析/响应）、追问/修正的衔接提示。归档历史轮次时保留阶段摘要。",
-      "verification": "F2",
-      "depends_on": [
-        "F108"
-      ],
-      "status": "completed",
-      "priority": "medium",
-      "acceptance_criteria": [
-        "历史轮次折叠为紧凑摘要行（点击可展开查看详情）",
-        "每轮标注阶段标签（如'探索了 2 步 → 生成命令'）",
-        "当前轮次和历史轮次视觉上有明确分界",
-        "追问/修正时显示衔接提示（如'基于上轮结果继续'）"
-      ],
-      "risk_tags": [],
-      "files": [
-        "client/lib/widgets/smart_terminal_side_panel_content.dart"
-      ]
-    },
-    {
-      "id": "S111",
-      "phase": 3,
-      "module": "server",
-      "name": "Server 测试 + eval harness 更新",
-      "description": "更新 server/tests/ 下受影响测试的断言。更新 eval harness（evals/harness.py）适配新事件模型——harness 直接调用 run_agent() 获取 AgentRunOutcome，不消费 SSE，但需验证 outcome 仍正确。新增 SSE 事件序列集成测试。",
-      "verification": "L2",
-      "depends_on": [
-        "B104",
-        "B105",
-        "B106"
-      ],
-      "status": "completed",
-      "priority": "high",
-      "acceptance_criteria": [
-        "server/tests/test_terminal_agent.py 全部通过",
-        "server/tests/test_agent_session_manager.py 全部通过",
-        "eval harness 不依赖旧 trace/assistant_message 事件",
-        "新增 SSE 事件序列测试（验证 phase_change → tool_step → streaming_text → result 顺序）"
-      ],
-      "risk_tags": [],
-      "files": [
-        "server/tests/",
-        "server/evals/harness.py"
-      ],
-      "started_at": "2026-04-28T05:57:44",
-      "completed_at": "2026-04-28T05:57:44",
-      "actual_minutes": 5,
-      "execution_notes": "遗留验证任务，所有验收标准已满足：166 terminal_agent + 65 agent_session_manager + 371 总测试通过",
-      "evidence_file": ".dev-flow/evidence/S111.md",
-      "summary": "Server 测试 + eval harness 验证完成：371 passed，0 failed，无代码变更"
-    },
-    {
-      "id": "S112",
-      "phase": 3,
-      "module": "server",
-      "name": "Eval 100% + Docker 构建验证",
-      "description": "运行完整 eval 数据集，确认 30/30 通过。构建 Docker 镜像验证部署正常。",
+      "name": "Agent 模块目录分层",
+      "description": "将 agent/app/ 下 12 个平铺 Python 文件按职责分层到 core/、transport/、tools/、security/ 子目录，保留顶层 main.py 作为入口。websocket_client.py (1040行) 拆分为 websocket_client.py (连接管理+心跳+重连) + agent_message_handler.py (消息处理+分发+状态机) + agent_protocol.py (协议类型+常量)。",
       "verification": "L3",
-      "depends_on": [
-        "S111"
-      ],
-      "status": "completed",
-      "priority": "high",
-      "acceptance_criteria": [
-        "eval 30/30 (100%) 通过率",
-        "Docker 构建成功",
-        "Docker 部署后 SSE 事件序列正确（phase_change → tool_step → streaming_text → result）",
-        "Docker 部署后 SSE 流正常工作"
-      ],
-      "started_at": "2026-04-28T01:30:00+0800",
-      "completed_at": "2026-04-28T02:00:00+0800",
-      "execution_notes": "Eval 30/30 100% 通过 + Docker 构建成功。SSE 序列验证需完整部署环境。",
-      "commit": "7c8f3ed",
-      "risk_tags": [
-        "config"
-      ],
-      "files": []
-    },
-    {
-      "id": "S113",
-      "phase": 3,
-      "module": "integration",
-      "name": "手动验收",
-      "description": "本地 Docker 部署 + Mac Flutter 客户端手动验收。验收场景：1) 流式文本打字机效果 2) 工具步骤卡片展示 3) Phase 指示器切换 4) command 执行不截断 5) ai_prompt 注入不截断 6) 多轮对话折叠展示",
-      "verification": "L4",
-      "depends_on": [
-        "S112",
-        "F110"
-      ],
-      "status": "completed",
-      "priority": "high",
-      "acceptance_criteria": [
-        "流式文本逐字出现，无突然出现大段文字",
-        "工具执行过程显示为带状态的步骤卡片",
-        "Phase 指示器实时更新（思考→探索→分析→响应→结果）",
-        "长命令执行完整不截断",
-        "ai_prompt 注入完整不截断",
-        "多轮对话历史折叠展示，可展开查看"
-      ],
-      "risk_tags": [],
-      "files": [],
-      "started_at": "2026-04-28T07:45:37",
-      "completed_at": "2026-04-28T07:45:37",
-      "actual_minutes": 5,
-      "execution_notes": "Docker 集成测试 15 PASS 验证通过",
-      "evidence_file": ".dev-flow/evidence/S113_S129_docker_test.log",
-      "summary": "Docker 集成测试验证通过：15 PASS, 0 FAIL"
-    },
-    {
-      "id": "B114",
-      "phase": 4,
-      "module": "server",
-      "name": "LLM max_tokens 配置 + 对话历史窗口控制",
-      "description": "根因：glm-5.1 默认 max_tokens=1024 导致回复截断；对话历史无长度限制导致上下文溢出。\n修复：1) PydanticAI Agent 设置 model_settings max_tokens=4096；2) agent.run() 调用传入 model_settings；3) eval harness payload 补 max_tokens=4096；4) runtime_api 对话历史滑动窗口（最近 20 条事件）。",
-      "verification": "L1",
       "depends_on": [],
-      "status": "completed",
-      "priority": "high",
+      "status": "pending",
+      "priority": 1,
       "acceptance_criteria": [
-        "terminal_agent.py build_session_agent 设置 model_settings={\"max_tokens\": 4096}",
-        "terminal_agent.py run_agent 中 agent.run() 传入 model_settings",
-        "evals/harness.py _call_llm_once payload 包含 max_tokens=4096",
-        "runtime_api.py 对话历史超过 20 条时只取最近 20 条",
-        "server/tests/test_terminal_agent.py 全部通过",
-        "eval 30/30 通过率不下降"
+        "agent/app/ 下存在 core/、transport/、tools/、security/ 子目录",
+        "websocket_client.py 拆分为 3 个文件，主文件 <= 650 行",
+        "agent 可正常启动并连接 Server",
+        "所有 import 路径更新正确，无循环依赖",
+        "pytest 通过"
       ],
-      "risk_tags": [
-        "config"
-      ],
+      "risk_tags": ["startup", "config"],
       "test_tasks": [
-        "单轮对话：回复超过 1024 token 时不截断",
-        "多轮对话（5 轮）：最后一轮仍正确生成命令",
-        "长历史（30 条事件）：只传最近 20 条给 Agent"
+        "agent 启动 smoke：配置加载 → auth → WS 连接",
+        "import 路径验证：所有模块可正常导入",
+        "websocket_client 拆分后消息处理链路不变"
       ],
-      "files": [
-        "server/app/terminal_agent.py",
-        "server/evals/harness.py",
-        "server/app/runtime_api.py"
-      ],
-      "started_at": "2026-04-28T10:00:00+0800",
-      "completed_at": "2026-04-28T10:15:00+0800",
-      "execution_notes": "model_settings max_tokens=4096 × 3 处 + 历史窗口 MAX_HISTORY_EVENTS_FOR_AGENT=20",
-      "evidence_file": ".dev-flow/evidence/B114.md",
-      "commit": "2d80227"
+      "files": ["agent/app/"]
     },
     {
-      "id": "B115",
-      "phase": 4,
+      "id": "B202",
+      "phase": 9,
       "module": "agent",
-      "name": "命令输出截断阈值提升",
-      "description": "Agent 端 websocket_client.py 和 Server 端 command_validator.py 中 MAX_STDOUT_LEN=4096 导致命令输出被截断。提升到 8192 字符。",
+      "name": "Agent pty_wrapper + mcp_client 拆分",
+      "description": "pty_wrapper.py (462行) 提取 pty_types.py (数据类和常量) 和 pty_process.py (进程组管理逻辑)。mcp_client.py (441行) 提取 mcp_types.py (MCP 协议类型)。",
       "verification": "L1",
-      "depends_on": [],
-      "status": "completed",
-      "priority": "medium",
+      "depends_on": ["B201"],
+      "status": "pending",
+      "priority": 2,
       "acceptance_criteria": [
-        "agent/app/websocket_client.py MAX_STDOUT_LEN 提升到 8192",
-        "server/app/command_validator.py MAX_STDOUT_LEN 提升到 8192",
-        "输出超过 4096 但不超过 8192 字符时不再截断",
-        "超过 8192 字符时仍截断并标记 truncated=true"
+        "pty_wrapper.py 主文件 <= 350 行",
+        "mcp_client.py 主文件 <= 350 行",
+        "Agent 功能不回归",
+        "pytest 通过"
       ],
-      "risk_tags": [],
-      "files": [
-        "agent/app/websocket_client.py",
-        "server/app/command_validator.py"
+      "risk_tags": ["startup"],
+      "test_tasks": [
+        "pty 创建子进程 → write → read 端到端不回归",
+        "mcp_client 连接/断连不回归",
+        "agent 整体 pytest 通过"
       ],
-      "started_at": "2026-04-28T10:15:00+0800",
-      "completed_at": "2026-04-28T10:20:00+0800",
-      "execution_notes": "MAX_STDOUT_LEN 4096→8192 × 2 处 + 3 处测试断言同步",
-      "commit": "058378c"
+      "files": ["agent/app/core/"]
     },
     {
-      "id": "B116",
-      "phase": 4,
-      "module": "server",
-      "name": "长上下文 eval 任务 + 评估体系补强",
-      "description": "当前 30 个 eval 任务中 27 个对话历史=0 轮，完全无法发现长上下文截断问题。\n新增：1) mt_004 长上下文测试（8 轮对话历史）；2) 集成 LLM Judge 到 eval pipeline（当前手动运行）；3) LLM Judge rubric 已更新，验证新 rubric 下 30 个任务评分。",
-      "verification": "L2",
-      "depends_on": [
-        "B114"
-      ],
-      "status": "completed",
-      "priority": "medium",
-      "acceptance_criteria": [
-        "新增 mt_004_long_context.yaml（8 轮对话历史，验证多轮后仍生成正确命令）",
-        "新增 mt_005_history_truncation.yaml（30 条历史事件，验证窗口裁剪不影响结果）",
-        "eval 32/32 全量通过",
-        "LLM Judge 在 eval harness 中可选运行（配置 EVAL_JUDGE_MODEL 时自动触发）",
-        "LLM Judge 新 rubric 下 32 个任务平均分 >= 0.85"
-      ],
-      "risk_tags": [],
-      "files": [
-        "server/evals/tasks/multi_turn/mt_004_long_context.yaml",
-        "server/evals/tasks/multi_turn/mt_005_history_truncation.yaml",
-        "server/evals/harness.py"
-      ],
-      "started_at": "2026-04-28T10:20:00+0800",
-      "completed_at": "2026-04-28T10:40:00+0800",
-      "execution_notes": "mt_004（8轮）+ mt_005（14轮27条消息）均 pass@1=1.0，全量 eval 32/32 加载成功",
-      "commit": "f4d88e7"
-    },
-    {
-      "id": "B117",
-      "phase": 5,
-      "module": "server",
-      "name": "长对话 Agent 只输出标题 — SYSTEM_PROMPT + run_agent 修复",
-      "description": "核心问题：deliver_result 工具被强制用于所有响应类型，导致模型把 summary 当标签而非完整内容。修复方向：1) SYSTEM_PROMPT 允许纯文本直接输出（不调用工具）；2) run_agent() 将文本输出视为 message 而非协议违规重试；3) deliver_result 只用于 command 和 ai_prompt 类型。代码已改但未提交未实测。注意：message 类型直接文本输出后，agent_session_manager 仍会 emit result 事件（response_type=message），Client RESULT 阶段正常触发，无需 Client 侧改动。",
+      "id": "B203",
+      "phase": 10,
+      "module": "server-store",
+      "name": "session.py 深度拆分",
+      "description": "session.py (1409行) 拆分为：session_types.py (SessionInfo/ClientInfo/DeviceSession 等数据类+常量)、session_redis_conn.py (Redis 连接辅助函数)、session_normalize.py (normalize_client_info/merge_terminal 等规范化逻辑)、session_history.py (output history CRUD)、session_terminal.py (terminal 关联操作)。session.py 保留为协调入口，导入 Mixin。",
       "verification": "L2",
       "depends_on": [],
-      "status": "completed",
-      "priority": "high",
+      "status": "pending",
+      "priority": 1,
       "acceptance_criteria": [
-        "SYSTEM_PROMPT 明确区分：纯文本回复直接输出、命令回复调 deliver_result(command)、AI Prompt 回复调 deliver_result(ai_prompt)",
-        "run_agent() 收到文本输出时直接创建 response_type='message' 的 AgentResult，不再重试",
-        "deliver_result 工具的 SYSTEM_PROMPT 描述中移除 message 类型引导",
-        "message 类型仍产生 result SSE 事件（Client RESULT 阶段正常触发）",
-        "ai_prompt 路径不受影响",
-        "同步更新 architecture.md 不变量 #43：message 类型允许直接文本输出，deliver_result 只用于 command 和 ai_prompt",
-        "全量 pytest 通过"
+        "session.py 主文件 <= 350 行",
+        "拆出 5 个子模块，各 <= 350 行",
+        "store/ 模块所有 import 不变",
+        "server 启动正常",
+        "pytest 通过"
       ],
-      "risk_tags": [],
+      "risk_tags": ["startup"],
       "test_tasks": [
-        "正常：单轮知识问答返回 response_type=message 且 summary 有实质内容（>50字）",
-        "正常：多轮后混合回复（先 message 后 command）正确分类",
-        "正常：ai_prompt 路径不受影响，仍调 deliver_result",
-        "边界：run_agent() 收到空文本输出时重试而非直接返回空 message",
-        "边界：模型输出文本同时调了 deliver_result 时以 deliver_result 为准"
+        "server 启动 smoke：session 模块加载无报错",
+        "设备注册/列表/session 查询功能不回归"
       ],
-      "files": [
-        "server/app/terminal_agent.py"
-      ],
-      "planning_notes": "代码已在 working tree 中修改，需提交并手动验证",
-      "started_at": "2026-04-28T01:21:29",
-      "completed_at": "2026-04-28T01:21:29",
-      "actual_minutes": 15,
-      "execution_notes": "SYSTEM_PROMPT 双路径交付 + run_agent 文本输出处理 + architecture.md 不变量更新",
-      "evidence_file": ".dev-flow/evidence/B117.md",
-      "summary": "完成长对话标题截断修复：SYSTEM_PROMPT 允许纯文本直接输出，deliver_result 只用于 command/ai_prompt，run_agent() 文本输出视为 message"
+      "files": ["server/app/store/"]
     },
     {
-      "id": "B118",
-      "phase": 5,
-      "module": "server",
-      "name": "message_history 角色重建 — ToolCallPart/ToolReturnPart 结构恢复",
-      "description": "核心问题：_build_agent_message_history_from_events 将工具调用扁平化为纯文本，传给 LLM 的历史只有 user/assistant 两种角色，丢失 ToolCallPart/ToolReturnPart 结构，导致多轮对话后模型无法理解之前的工具交互。修复：正确重建工具调用结构，ask_user 用 ToolCallPart + answer 用 ToolReturnPart 配对。代码已改但未提交未实测。",
+      "id": "B204",
+      "phase": 10,
+      "module": "server-ws",
+      "name": "ws_agent.py 深度拆分",
+      "description": "ws_agent.py (1156行) 拆分为：agent_connection.py (AgentConnection 类+连接管理)、agent_message_handler.py (消息分发+请求处理)、agent_cleanup.py (断连清理+资源回收)、agent_request.py (各请求类型处理函数)。ws_agent.py 保留为 WebSocket 入口。",
       "verification": "L2",
       "depends_on": [],
-      "status": "completed",
-      "priority": "high",
+      "status": "pending",
+      "priority": 1,
       "acceptance_criteria": [
-        "tool_step(running) → ModelResponse(ToolCallPart)，tool_step(done) → ModelRequest(ToolReturnPart) 配对",
-        "question → ToolCallPart(ask_user)，answer → ToolReturnPart 配对",
-        "tool_call_id 正确配对（running→done，question→answer）",
-        "streaming_text/phase_change 等噪声事件跳过",
-        "ai_prompt 路径的 message_history 重建不受影响",
-        "全量 pytest 通过"
+        "ws_agent.py 主文件 <= 350 行",
+        "拆出 4 个子模块，各 <= 350 行",
+        "Agent WS 连接、认证、消息收发不回归",
+        "server 启动正常",
+        "pytest 通过"
       ],
-      "risk_tags": [],
+      "risk_tags": ["startup", "network"],
       "test_tasks": [
-        "正常：tool_step running/done 配对正确，tool_call_id 一致",
-        "正常：question/answer 配对正确，answer 产生 ToolReturnPart 而非 UserPromptPart",
-        "正常：5+ 轮混合事件（user_intent + tool_step + question + answer + result）重建后结构完整",
-        "边界：orphaned tool_call（running 后无 done）不崩溃",
-        "边界：answer 无配对 question 时退化为 UserPromptPart",
-        "边界：乱序事件（done 在 running 之前）不崩溃"
+        "server 启动 smoke：ws 模块加载无报错",
+        "Agent 连接 → 认证 → 心跳链路不回归"
       ],
-      "files": [
-        "server/app/runtime_api.py"
-      ],
-      "planning_notes": "代码已在 working tree 中修改，需提交并手动验证。包含 simplify 审查的 tool_call_id 配对 bug 修复",
-      "started_at": "2026-04-28T01:44:15",
-      "completed_at": "2026-04-28T01:44:15",
-      "actual_minutes": 20,
-      "execution_notes": "重写 _build_agent_message_history_from_events：ToolCallPart/ToolReturnPart 结构化重建 + 修复 tool_call_id 串扰 bug",
-      "evidence_file": ".dev-flow/evidence/B118.md",
-      "summary": "完成 message_history 角色重建：ToolCallPart/ToolReturnPart 配对，双变量追踪 pending_tool_step_id/pending_question_id 避免串扰"
+      "files": ["server/app/ws/"]
     },
     {
-      "id": "B119",
-      "phase": 6,
-      "module": "server",
-      "name": "server/app 目录分层 — api/ services/ store/ ws/ infra/",
-      "description": "server/app/ 26 个文件全平铺，无子目录。按职责分为 5 层：api/（路由）、services/（业务逻辑）、store/（数据持久化）、ws/（WebSocket通信）、infra/（基础设施）。先建目录骨架 + 移动文件 + 更新所有 import，再由后续任务做文件内部拆分。",
-      "verification": "L1",
-      "depends_on": [
-        "B117",
-        "B118"
-      ],
-      "status": "completed",
-      "priority": "high",
-      "acceptance_criteria": [
-        "目录结构：api/ services/ store/ ws/ infra/ 5 个子目录",
-        "文件归位：runtime_api → api/, agent_session_manager/terminal_agent/assistant_planner → services/, database/session/project_alias_store → store/, ws_agent/ws_client/ws_auth → ws/, auth/crypto/command_validator/rate_limit/middleware/http_client/log_service → infra/",
-        "所有 import 路径更新（含 tests/ 目录）",
-        "from app.xxx 能正确导入（无循环依赖）",
-        "全量 pytest 通过",
-        "uvicorn app.main:app 启动无错"
-      ],
-      "risk_tags": [
-        "startup",
-        "config"
-      ],
-      "test_tasks": [
-        "正常：全量 pytest 通过",
-        "边界：python -c 'from app.api.runtime_api import router'",
-        "异常：检测循环导入（python -c 'import app'）",
-        "首用：uvicorn 启动后 curl /health 200"
-      ],
-      "files": [
-        "server/app/"
-      ],
-      "planning_notes": "最基础的架构治理。不做文件内部拆分，只做目录分层和文件搬家。后续 B120-B123 在此基础上做文件内拆分。",
-      "started_at": "2026-04-28T02:27:02",
-      "completed_at": "2026-04-28T02:27:02",
-      "actual_minutes": 30,
-      "execution_notes": "24 文件按职责分层：api/(6) services/(4) store/(3) ws/(3) infra/(8)，更新所有 import/patch/logger 路径",
-      "evidence_file": ".dev-flow/evidence/B119.md",
-      "summary": "server/app/ 目录分层完成：api/services/store/ws/infra 5 层子目录，无回归"
-    },
-    {
-      "id": "B120",
-      "phase": 6,
-      "module": "server",
-      "name": "runtime_api.py 拆分 — 路由域 + schemas",
-      "description": "B119 已将 runtime_api.py 移入 api/ 目录。本任务做文件内部拆分：31 个 Pydantic Model → schemas.py，30 个路由按域拆为 6 个路由文件，runtime_api.py 只保留 router 聚合。",
+      "id": "B205",
+      "phase": 10,
+      "module": "server-services",
+      "name": "agent_session_manager.py 拆分",
+      "description": "agent_session_manager.py (1161行) 拆分为：agent_session_types.py (AgentSession/AgentSessionState/AgentResult 等类型+常量)、agent_sse_stream.py (SSE 事件流构建+phase 推断逻辑)。agent_session_manager.py 保留核心会话管理（create/start/respond/cancel/resume）。",
       "verification": "L2",
-      "depends_on": [
-        "B119"
-      ],
-      "status": "completed",
-      "priority": "high",
+      "depends_on": ["B203"],
+      "status": "pending",
+      "priority": 2,
       "acceptance_criteria": [
-        "31 个 Pydantic Model 移到 api/schemas.py",
-        "路由按域拆分：device_api / terminal_api / project_context_api / assistant_api / agent_api / eval_api",
-        "runtime_api.py 只保留 router 聚合 + 公共依赖",
-        "拆分后单个文件不超过 500 行",
-        "所有 API 端点功能不变，全量 pytest 通过",
-        "无循环导入"
+        "agent_session_manager.py 主文件 <= 850 行",
+        "agent_session_types.py <= 200 行",
+        "agent_sse_stream.py <= 250 行",
+        "Agent SSE 会话流程不回归",
+        "pytest 通过"
       ],
-      "risk_tags": [
-        "startup"
+      "files": ["server/app/services/"]
+    },
+    {
+      "id": "B206",
+      "phase": 10,
+      "module": "server-services",
+      "name": "terminal_agent.py 拆分",
+      "description": "terminal_agent.py (958行) 拆分为：agent_types.py (AgentDeps/AgentResult 数据类)、agent_prompts.py (SYSTEM_PROMPT + prompt 构建函数)、agent_tool_catalog.py (工具注册目录+工具定义)。terminal_agent.py 保留 Agent 创建和 run_agent 核心循环。",
+      "verification": "L2",
+      "depends_on": ["B205"],
+      "status": "pending",
+      "priority": 2,
+      "acceptance_criteria": [
+        "terminal_agent.py 主文件 <= 580 行",
+        "拆出 3 个子模块",
+        "Agent ReAct 循环功能不回归",
+        "pytest 通过"
       ],
       "test_tasks": [
-        "正常：全量 pytest 通过",
-        "正常：所有 API 端点按 schema 验证请求/响应不变",
-        "边界：python -c 'from app.api.runtime_api import router' 无循环导入",
-        "首用：uvicorn 启动后 curl /health 200 + curl /runtime/devices 200"
+        "Agent 创建+run：工具注册、system prompt 注入验证",
+        "deliver_result 路径：command 和 message 两种 result 类型"
       ],
-      "files": [
-        "server/app/api/runtime_api.py",
-        "server/app/api/"
-      ],
-      "planning_notes": "在目录分层（B119）完成后，做 runtime_api 文件内部拆分",
-      "started_at": "2026-04-28T03:36:31",
-      "completed_at": "2026-04-28T03:36:31",
-      "actual_minutes": 45,
-      "execution_notes": "runtime_api.py 3016行→14文件，schemas.py(270) + 6路由域 + 3辅助模块 + _deps/_helpers + 聚合入口(99行)。修复13个mock绑定问题",
-      "evidence_file": ".dev-flow/evidence/B120.md",
-      "summary": "runtime_api.py 拆分完成：31 Pydantic Model→schemas.py，30 路由按域拆为 6 个路由文件，每个文件≤500行，零回归"
+      "files": ["server/app/services/"]
     },
     {
-      "id": "B121",
-      "phase": 6,
-      "module": "server",
-      "name": "database.py 拆分 — 实体域 store",
-      "description": "B119 已将 database.py 移入 store/ 目录。本任务做文件内部拆分：Database 基类只保留连接管理 + init_db，按实体域拆为 6 个 store 模块。模块级便捷函数 API 不变。",
-      "verification": "L1",
-      "depends_on": [
-        "B120"
-      ],
-      "status": "completed",
-      "priority": "medium",
+      "id": "S206",
+      "phase": 10,
+      "module": "server-test",
+      "name": "Server Phase 10 中间 smoke 验证",
+      "description": "B203+B204 完成后，运行 server 启动 + pytest 快速验证 store 和 ws 模块拆分无回归，及早发现问题避免 B205/B206 在错误基础上工作。",
+      "verification": "L2",
+      "depends_on": ["B203", "B204"],
+      "status": "pending",
+      "priority": 1,
       "acceptance_criteria": [
-        "Database 基类只保留连接管理 + init_db",
-        "按实体拆分：user_store / project_store / planner_store / conversation_store / execution_store / usage_store",
-        "模块级便捷函数 API 不变（所有调用方无需改动）",
-        "拆分后单个文件不超过 400 行",
-        "全量 pytest 通过"
+        "server 可正常启动（uvicorn 无报错）",
+        "pytest 通过",
+        "无 import 错误"
       ],
-      "risk_tags": [
-        "startup"
-      ],
-      "files": [
-        "server/app/store/database.py",
-        "server/app/store/"
-      ],
-      "planning_notes": "在 runtime_api 拆分后进行，减少合并冲突",
-      "started_at": "2026-04-28T03:51:25",
-      "completed_at": "2026-04-28T03:51:25",
-      "actual_minutes": 25,
-      "execution_notes": "database.py 1590行→8文件，Mixin 模式：6 实体域 store + _schema(DDL) + 基类(382行)。调用方零改动",
-      "evidence_file": ".dev-flow/evidence/B121.md",
-      "summary": "database.py 拆分完成：Mixin 模式按 6 实体域拆分，每个文件≤400行，模块级便捷函数 API 不变"
+      "files": ["server/"]
     },
     {
-      "id": "B122",
-      "phase": 6,
-      "module": "server",
-      "name": "循环依赖解耦 + 次要 bug 修复",
-      "description": "1) agent_session_manager.py 延迟导入 runtime_api._publish_conversation_stream_event（底层 Manager 反向依赖 API 层私有函数），抽取 pub/sub 为独立模块。2) command_validator.py 缺管道符 | 拦截（`ls | grep secret` 可通过验证）。3) agent_session_manager payload 缺 command 字段（反向解析脆弱）。",
-      "verification": "L1",
-      "depends_on": [
-        "B120"
-      ],
-      "status": "completed",
-      "priority": "medium",
+      "id": "S207",
+      "phase": 10,
+      "module": "server-test",
+      "name": "Server 拆分后 Docker 集成验证",
+      "description": "运行 test-docker-integration.sh 验证 Phase 10 所有拆分后 server 仍通过 S113+S129 验收点。如发现问题立即回归修复。",
+      "verification": "L3",
+      "depends_on": ["B203", "B204", "B205", "B206", "S206"],
+      "status": "pending",
+      "priority": 1,
       "acceptance_criteria": [
-        "services/agent_session_manager.py 不再导入 api/ 层的任何函数",
-        "command_validator 增加 | 管道符拦截",
-        "tool_step event payload 包含完整 command 字段",
-        "全量 pytest 通过"
+        "test-docker-integration.sh 0 FAIL",
+        "Agent 可正常连接并对话"
       ],
-      "risk_tags": [],
-      "files": [
-        "server/app/services/agent_session_manager.py",
-        "server/app/infra/command_validator.py"
-      ],
-      "planning_notes": "将循环依赖解耦和两个次要 bug 合并处理，减少任务数",
-      "started_at": "2026-04-28T04:02:06",
-      "completed_at": "2026-04-28T04:02:06",
-      "actual_minutes": 20,
-      "execution_notes": "循环依赖解耦：event_bus pub/sub 模块；管道符拦截：_SHELL_META 加 |；command 字段：_tool_step_event 增加 command 参数",
-      "evidence_file": ".dev-flow/evidence/B122.md",
-      "summary": "循环依赖解耦 + 管道符拦截 + command 字段修复完成"
+      "files": ["scripts/test-docker-integration.sh"]
     },
     {
-      "id": "F122",
-      "phase": 7,
-      "module": "client",
-      "name": "smart_terminal_side_panel_content.dart 拆分",
-      "description": "3772 行，5 种职责混杂（状态管理/网络通信/UI渲染/子组件/数据模型），33 个 build 方法。参照 smart_terminal_create_dialog 的拆分模式，拆为 6 个 part 文件。",
-      "verification": "F1",
-      "depends_on": [],
-      "status": "completed",
-      "priority": "high",
-      "acceptance_criteria": [
-        "拆分为：agent_panel_state / agent_panel_handlers / agent_panel_conversation / agent_panel_result_views / agent_panel_input / agent_panel_widgets",
-        "主文件 content.dart 只保留 build() 框架 + 布局编排",
-        "拆分后主文件不超过 500 行，part 文件单文件不超过 500 行",
-        "功能完全不变",
-        "flutter analyze 无 error"
-      ],
-      "risk_tags": [],
-      "files": [
-        "client/lib/widgets/smart_terminal_side_panel_content.dart",
-        "client/lib/widgets/smart_terminal_side_panel/"
-      ],
-      "planning_notes": "前端最严重的架构问题。项目已有成功拆分先例（create_dialog 拆为 6 个 part）",
-      "started_at": "2026-04-28T04:33:51",
-      "completed_at": "2026-04-28T04:33:51",
-      "actual_minutes": 35,
-      "execution_notes": "3772行→7文件，mixin 模式：state(416) handlers(500) conversation(424) result_views(182) input(143) widgets(177) 主文件(418)",
-      "evidence_file": ".dev-flow/evidence/F122.md",
-      "summary": "smart_terminal_side_panel_content.dart 拆分完成：7 个文件，最大 500 行，flutter analyze 0 error"
-    },
-    {
-      "id": "F123",
-      "phase": 7,
-      "module": "client",
-      "name": "共享组件提取 — StatusPill / ChatBubble / ScrollMixin / EscapeUtils",
-      "description": "4 组重复代码：StatusPill 3处独立实现、ChatBubble 2处、_scheduleScrollToLatest 2处、终端转义序列处理 2处。提取为共享组件/工具。",
-      "verification": "F1",
-      "depends_on": [],
-      "status": "completed",
-      "priority": "medium",
-      "acceptance_criteria": [
-        "StatusPill 提取为 widgets/shared/status_pill.dart",
-        "ChatBubble 提取为 widgets/shared/chat_bubble.dart",
-        "_scheduleScrollToLatest 提取为 mixin 或 utility",
-        "终端转义序列提取为 utils/terminal_escape_utils.dart",
-        "原文件改用共享组件，功能不变",
-        "flutter analyze 无 error"
-      ],
-      "risk_tags": [],
-      "files": [
-        "client/lib/widgets/shared/",
-        "client/lib/utils/terminal_escape_utils.dart",
-        "client/lib/widgets/smart_terminal_side_panel_content.dart",
-        "client/lib/screens/terminal_screen.dart"
-      ],
-      "started_at": "2026-04-28T04:41:23",
-      "completed_at": "2026-04-28T04:41:23",
-      "actual_minutes": 20,
-      "execution_notes": "4 组重复代码提取：StatusPill/ChatBubble/ScrollToLatestMixin/EscapeUtils",
-      "evidence_file": ".dev-flow/evidence/F123.md",
-      "summary": "共享组件提取完成：StatusPill/ChatBubble/ScrollMixin/EscapeUtils 4 组去重"
-    },
-    {
-      "id": "F124",
-      "phase": 7,
-      "module": "client",
-      "name": "terminal_screen.dart 重构 — Controller 提取 + 去重",
-      "description": "1738 行，UI + WS绑定 + 协议处理混合。与 terminal_session_manager.dart 有重复代码（终端转义序列正则）。提取 TerminalScreenController，消除重复。",
+      "id": "F211",
+      "phase": 11,
+      "module": "client-services",
+      "name": "terminal_session_manager.dart 拆分",
+      "description": "terminal_session_manager.dart (1105行) 提取：renderer_adapter.dart (RendererAdapter 类+平台适配) 和 terminal_recovery_state.dart (恢复状态机+状态定义)。主文件保留 session 管理和 coordinator 逻辑。",
       "verification": "F2",
-      "depends_on": [
-        "F123"
-      ],
-      "status": "completed",
-      "priority": "medium",
-      "acceptance_criteria": [
-        "WS 绑定/协议事件处理逻辑下沉到 Controller 或 Manager",
-        "terminal_screen.dart 只做 UI 渲染",
-        "与 terminal_session_manager.dart 的重复代码消除",
-        "拆分后 terminal_screen.dart 不超过 800 行",
-        "flutter analyze 无 error"
-      ],
-      "risk_tags": [],
-      "files": [
-        "client/lib/screens/terminal_screen.dart",
-        "client/lib/services/terminal_session_manager.dart"
-      ],
-      "started_at": "2026-04-28T04:56:34",
-      "completed_at": "2026-04-28T04:56:34",
-      "actual_minutes": 25,
-      "execution_notes": "1716→660行，Controller(494)+ShortcutMenuWidgets(522)提取，EscapeUtils去重40行",
-      "evidence_file": ".dev-flow/evidence/F124.md",
-      "summary": "terminal_screen.dart 重构完成：Controller+UI分离，660行，flutter analyze 0 error"
-    },
-    {
-      "id": "F125",
-      "phase": 7,
-      "module": "client",
-      "name": "websocket_service.dart 协议模型提取",
-      "description": "1013 行，前 170 行是纯数据模型定义（ConnectionStatus、TerminalProtocolEvent 等）与连接逻辑耦合。将协议模型移至 models/terminal_protocol.dart。",
-      "verification": "F1",
       "depends_on": [],
-      "status": "completed",
-      "priority": "low",
+      "status": "pending",
+      "priority": 1,
       "acceptance_criteria": [
-        "TerminalProtocolEvent 等 170 行模型定义移到 models/terminal_protocol.dart",
-        "websocket_service.dart 只保留连接/重连/心跳逻辑",
-        "flutter analyze 无 error"
+        "terminal_session_manager.dart 主文件 <= 583 行",
+        "renderer_adapter.dart + terminal_recovery_state.dart 各有明确职责",
+        "Flutter 编译通过",
+        "终端创建/切换/恢复功能不回归"
       ],
-      "risk_tags": [],
-      "files": [
-        "client/lib/services/websocket_service.dart",
-        "client/lib/models/terminal_protocol.dart"
-      ],
-      "started_at": "2026-04-28T04:59:21",
-      "completed_at": "2026-04-28T04:59:21",
-      "actual_minutes": 10,
-      "execution_notes": "5 enum + 3 class 提取到 models/terminal_protocol.dart(93行)，websocket_service 通过 export 保持下游零改动",
-      "evidence_file": ".dev-flow/evidence/F125.md",
-      "summary": "websocket_service.dart 协议模型提取完成：1013→922行，下游零改动"
+      "files": ["client/lib/services/"]
     },
     {
-      "id": "F126",
-      "phase": 7,
-      "module": "client",
-      "name": "client 目录分层 — 桌面端/移动端代码分离",
-      "description": "当前 client/lib/services/ 有 9 个 desktop_* 文件散落在通用目录，移动端也编译了这些桌面专属代码。terminal_screen.dart 内部 12 处 _isMobilePlatform if-else 处理平台差异。治理：1) 桌面专属 service 移入 services/desktop/ 子目录；2) 桌面专属 screen 和移动端 screen 分目录；3) 平台差异用策略模式或 platform delegate 替代散落的 if-else。",
+      "id": "F212",
+      "phase": 11,
+      "module": "client-services",
+      "name": "websocket_service.dart 拆分",
+      "description": "websocket_service.dart (922行) 提取：ws_message_parser.dart (消息解析+协议类型定义) 和 ws_connection_manager.dart (连接生命周期+重连+心跳)。websocket_service.dart 保留消息分发和业务接口。",
       "verification": "F2",
-      "depends_on": [
-        "F122",
-        "F123"
-      ],
-      "status": "completed",
-      "priority": "high",
+      "depends_on": [],
+      "status": "pending",
+      "priority": 1,
       "acceptance_criteria": [
-        "桌面专属 service（desktop_agent_manager/supervisor/http_client/bootstrap 等 9 个）移入 services/desktop/",
-        "screens/ 按 desktop/ 和 shared/ 分目录：terminal_workspace_screen → screens/desktop/, terminal_screen → screens/shared/",
-        "terminal_screen.dart 中的 _isMobilePlatform if-else 用 PlatformDelegate 或条件 import 替代",
-        "移动端编译产物不包含 desktop 专属代码（或通过条件编译排除）",
-        "flutter analyze 无 error",
-        "桌面端和移动端功能不变"
+        "websocket_service.dart 主文件 <= 430 行",
+        "拆出 2 个子模块各有明确职责",
+        "Flutter 编译通过",
+        "WS 连接/重连/消息收发不回归"
       ],
-      "risk_tags": [],
-      "files": [
-        "client/lib/services/desktop/",
-        "client/lib/screens/desktop/",
-        "client/lib/screens/shared/"
-      ],
-      "planning_notes": "Flutter 条件编译方案选择需 brainstorm 确认：条件 import vs PlatformDelegate vs 子目录+barrel file",
-      "started_at": "2026-04-28T05:07:40",
-      "completed_at": "2026-04-28T05:07:40",
-      "actual_minutes": 30,
-      "execution_notes": "9个desktop service→services/desktop/，TerminalViewConfig 替代12处 if-else，terminal_workspace_screen→screens/desktop/",
-      "evidence_file": ".dev-flow/evidence/F126.md",
-      "summary": "client 目录分层完成：desktop service 分离 + PlatformDelegate 替代 if-else"
+      "files": ["client/lib/services/"]
     },
     {
-      "id": "S126",
-      "phase": 8,
-      "module": "server",
-      "name": "eval Grader 修复 — 注册表映射 + content_quality grader",
-      "description": "根因修复第一步：1) Grader 注册表名与 YAML 配置名不匹配（YAML 写 steps_contain_match，注册表叫 contains_command），精心设计的 grader 根本没生效；2) _evaluate_trial 评分标准极低，只检查 response_type 枚举 + steps 子串匹配。修复注册表映射 + 新增 content_quality grader 检查 summary 有实质内容。",
-      "verification": "L1",
-      "depends_on": [
-        "B118"
-      ],
-      "status": "completed",
-      "priority": "high",
+      "id": "F213",
+      "phase": 11,
+      "module": "client-test",
+      "name": "Client 拆分后编译和功能验证",
+      "description": "运行 Flutter 编译和 widget 测试，确认 F211+F212 拆分后功能不回归。",
+      "verification": "F2",
+      "depends_on": ["F211", "F212"],
+      "status": "pending",
+      "priority": 1,
       "acceptance_criteria": [
-        "Grader 注册表名与 YAML 配置名一一对应，所有配置的 grader 都能正确加载",
-        "content_quality grader 检查 summary 长度 > 10 字符且有实质内容（不只是标题）",
-        "eval --mode unit 全量通过（现有行为不变）"
+        "flutter build apk --debug 通过",
+        "flutter test 通过",
+        "桌面端编译通过"
       ],
-      "risk_tags": [
-        "config"
-      ],
-      "test_tasks": [
-        "正常：eval --mode unit 全量通过，所有 YAML 中配置的 grader 名称都能被加载",
-        "边界：content_quality grader 拒绝 summary 只有一个标题的输出"
-      ],
-      "files": [
-        "server/evals/graders/code_grader.py"
-      ],
-      "planning_notes": "快速见效：修复现有 grader 使其真正生效",
-      "started_at": "2026-04-28T05:22:39",
-      "completed_at": "2026-04-28T05:22:39",
-      "actual_minutes": 25,
-      "execution_notes": "8 个新 grader + 别名映射 + harness 改用注册表，143 grader 测试 + 73 harness 测试通过",
-      "evidence_file": ".dev-flow/evidence/S126.md",
-      "summary": "eval Grader 修复完成：注册表映射 + content_quality grader + harness 改用注册表"
-    },
-    {
-      "id": "S127",
-      "phase": 8,
-      "module": "server",
-      "name": "eval Docker 集成测试框架",
-      "description": "根因修复第二步：eval 增加 mode='integration'，本地 Docker 构建部署真实服务，eval 通过 HTTP API 打真实接口，覆盖完整链路（Agent 框架 + message_history 重建 + SSE 流式 + 数据库）。保留现有 unit mode 用于快速迭代。",
-      "verification": "L4",
-      "depends_on": [
-        "S126"
-      ],
-      "status": "completed",
-      "priority": "high",
-      "acceptance_criteria": [
-        "eval --mode integration 自动执行：deploy/build.sh → docker-compose up → health check → eval 打真实 API → tear down",
-        "integration 模式通过真实 HTTP API 调用 Agent session",
-        "Docker 构建失败时 graceful 报错",
-        "现有 unit mode 保持不变"
-      ],
-      "risk_tags": [
-        "config",
-        "startup"
-      ],
-      "test_tasks": [
-        "正常：eval --mode unit 全量通过（不变）",
-        "正常：eval --mode integration 能自动构建部署并跑通",
-        "边界：Docker 构建失败时 graceful 报错",
-        "首用：integration 模式能发现 unit 模式无法发现的问题"
-      ],
-      "files": [
-        "server/evals/harness.py",
-        "server/evals/integration.py"
-      ],
-      "planning_notes": "Docker 集成测试是解决根因 #1（只测大脑不测神经系统）和 #5（Mock 太理想化）的最直接方案",
-      "started_at": "2026-04-28T05:35:34",
-      "completed_at": "2026-04-28T05:35:34",
-      "actual_minutes": 30,
-      "execution_notes": "IntegrationRunner + IntegrationEvalClient，CLI 增加 --mode integration，33 个新测试通过",
-      "evidence_file": ".dev-flow/evidence/S127.md",
-      "summary": "eval Docker 集成测试框架完成：--mode integration 支持，graceful 报错，unit mode 不变"
-    },
-    {
-      "id": "S128",
-      "phase": 8,
-      "module": "server",
-      "name": "eval 回归 case 补充 + 任务覆盖度增强",
-      "description": "根因修复第三步：1) 新增从真实使用问题提取的回归 case；2) 增加 ai_prompt 类型任务；3) 多轮任务使用数据库事件格式模拟 history 重建；4) Mock 降级。当前 84% 任务 0 轮，0 个 ai_prompt 任务。",
-      "verification": "L2",
-      "depends_on": [
-        "S127"
-      ],
-      "status": "completed",
-      "priority": "medium",
-      "acceptance_criteria": [
-        "新增至少 3 个从真实使用问题提取的回归测试（标题截断、角色丢失、多轮退化）",
-        "新增至少 2 个 ai_prompt 类型任务",
-        "单轮任务显式标注 single_turn: true，其余任务至少 3 轮 history",
-        "MockTransport 对不在白名单中的命令返回非零 exit_code",
-        "ask_user 支持多种回复模式（正面/模糊/拒绝）",
-        "eval unit + integration 全量通过"
-      ],
-      "risk_tags": [
-        "config"
-      ],
-      "files": [
-        "server/evals/tasks/",
-        "server/evals/harness.py"
-      ],
-      "planning_notes": "在 S126 grader 修复 + S127 Docker 框架就绪后，补充任务覆盖度",
-      "started_at": "2026-04-28T05:48:12",
-      "completed_at": "2026-04-28T05:48:12",
-      "actual_minutes": 25,
-      "execution_notes": "3个回归case + 2个ai_prompt任务 + 29个单轮标注 + MockTransport降级 + ask_user多回复，399测试通过",
-      "evidence_file": ".dev-flow/evidence/S128.md",
-      "summary": "eval 回归 case 补充完成：5新任务 + 31增强 + Mock降级"
-    },
-    {
-      "id": "S129",
-      "phase": 8,
-      "module": "integration",
-      "name": "Phase 5-8 手动验收",
-      "description": "S113 只覆盖 Phase 0-4，需新增验收覆盖 Phase 5-8：1) 多轮对话后 Agent 输出完整内容（不截断为标题）；2) message_history 重建后 5+ 轮对话 Agent 仍正确理解上下文；3) 目录重构后所有 API 正常；4) Client 拆分后桌面端/移动端功能不变；5) eval integration 模式能发现 unit 模式无法发现的问题。",
-      "verification": "L4",
-      "depends_on": [
-        "S128",
-        "F126",
-        "B122"
-      ],
-      "status": "completed",
-      "priority": "high",
-      "acceptance_criteria": [
-        "多轮对话后 Agent 输出完整分析内容（不再只有标题）",
-        "5+ 轮对话后 Agent 仍能正确引用前几轮上下文",
-        "目录重构后 curl /health 200 + curl /runtime/devices 200",
-        "桌面端创建终端 + Agent 对话 + 命令确认流程正常",
-        "移动端远程终端 + Agent 对话流程正常"
-      ],
-      "risk_tags": [],
-      "files": [],
-      "planning_notes": "S113 只覆盖 Phase 0-4，此任务覆盖 Phase 5-8 新增功能",
-      "started_at": "2026-04-28T07:45:37",
-      "completed_at": "2026-04-28T07:45:37",
-      "actual_minutes": 5,
-      "execution_notes": "Docker 集成测试 15 PASS 验证通过",
-      "evidence_file": ".dev-flow/evidence/S113_S129_docker_test.log",
-      "summary": "Docker 集成测试验证通过：15 PASS, 0 FAIL"
+      "files": ["client/"]
     }
   ],
   "summary": {
-    "total_tasks": 31,
+    "total_tasks": 11,
     "by_status": {
-      "completed": 31,
-      "pending": 0
+      "pending": 11
     },
     "by_module": {
       "agent": 2,
-      "client": 10,
-      "server": 17,
-      "integration": 2
+      "server-store": 1,
+      "server-ws": 1,
+      "server-services": 2,
+      "server-test": 2,
+      "client-services": 2,
+      "client-test": 1
     }
   }
 }

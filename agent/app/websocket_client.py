@@ -1,5 +1,5 @@
 """
-WebSocket 客户端
+WebSocket 客户端 — 连接管理、心跳、重连、PTY 双向转发。
 """
 import asyncio
 import base64
@@ -9,105 +9,46 @@ import os
 import platform
 import socket
 import sys
-import time
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
-
-import shlex
 
 import websockets
 from websockets import ClientConnection
 
-from app.command_validator import (
-    validate_command,
-    MAX_STDOUT_LEN,
-    MAX_STDERR_LEN,
-    DEFAULT_COMMAND_TIMEOUT,
-)
+from app.config import Config, ssl_context_for_websockets
+from app.crypto import agent_crypto
 from app.knowledge_tool import (
-    lookup_knowledge,
     ensure_user_knowledge_dir,
     get_knowledge_catalog_entry,
 )
 from app.mcp_client import MCPClientManager
 from app.pty_wrapper import PTYWrapper, PTYConfig
-
-
-from app.config import Config, ssl_context_for_websockets
-from app.crypto import agent_crypto
+from app.transport.agent_protocol import (
+    TerminalSpec,
+    TerminalSnapshotState,
+    NON_RECOVERABLE_CODES,
+)
+from app.transport.agent_message_handler import AgentMessageHandler, _validate_terminal_input
 
 logger = logging.getLogger(__name__)
 
 
-def _validate_terminal_input(command, cwd, env) -> Optional[str]:
-    """B068: 校验 terminal 创建参数。返回 None 表示通过，否则返回错误描述。"""
-    # command 必须为字符串且非空
-    if not isinstance(command, str):
-        return f"command must be string, got {type(command).__name__}"
-    if not command.strip():
-        return "command must not be empty"
-    # cwd 如果提供，展开 ~ 后必须为绝对路径
-    if cwd is not None:
-        if not isinstance(cwd, str):
-            return f"cwd must be string, got {type(cwd).__name__}"
-        import os.path
-        expanded = os.path.expanduser(cwd)
-        if not os.path.isabs(expanded):
-            return f"cwd must be absolute path, got '{cwd}'"
-    # env 值必须为字符串
-    if not isinstance(env, dict):
-        return f"env must be dict, got {type(env).__name__}"
-    for k, v in env.items():
-        if not isinstance(v, str):
-            return f"env['{k}'] must be string, got {type(v).__name__}"
-    return None
-
-
 def _log(message: str) -> None:
-    """Agent 日志输出到 stderr + logging（SDK handler 自动上报到 log-service）"""
+    """Agent 日志输出到 stderr + logging"""
     if os.environ.get("FLUTTER_TEST"):
         return
     print(f"[Agent] {message}", file=sys.stderr, flush=True)
     logger.info(message)
 
 
-@dataclass
-class TerminalSpec:
-    """终端运行参数。"""
-    terminal_id: str
-    command: str
-    args: list[str] = field(default_factory=list)
-    cwd: Optional[str] = None
-    env: dict = field(default_factory=dict)
-    title: str = ""
-    rows: int = 24
-    cols: int = 80
-
-
-@dataclass
-class TerminalSnapshotState:
-    """单个 terminal 的可恢复 snapshot 状态。"""
-
-    terminal_id: str
-    rows: int
-    cols: int
-    active_buffer: str = "main"
-    payload: bytearray = field(default_factory=bytearray)
-
-
 class AgentSnapshotManager:
     """维护 terminal 的权威恢复快照。"""
 
     _ALT_BUFFER_ENABLE_MARKERS = (
-        b"\x1b[?1049h",
-        b"\x1b[?1047h",
-        b"\x1b[?47h",
+        b"\x1b[?1049h", b"\x1b[?1047h", b"\x1b[?47h",
     )
     _ALT_BUFFER_DISABLE_MARKERS = (
-        b"\x1b[?1049l",
-        b"\x1b[?1047l",
-        b"\x1b[?47l",
+        b"\x1b[?1049l", b"\x1b[?1047l", b"\x1b[?47l",
     )
 
     def __init__(self, snapshot_limit_bytes: int = 128 * 1024):
@@ -116,9 +57,7 @@ class AgentSnapshotManager:
 
     def create_terminal(self, spec: TerminalSpec) -> None:
         self._states[spec.terminal_id] = TerminalSnapshotState(
-            terminal_id=spec.terminal_id,
-            rows=spec.rows,
-            cols=spec.cols,
+            terminal_id=spec.terminal_id, rows=spec.rows, cols=spec.cols,
         )
 
     def close_terminal(self, terminal_id: str) -> None:
@@ -154,13 +93,7 @@ class AgentSnapshotManager:
         state = self._states.get(terminal_id)
         if state is None:
             return None
-        return {
-            "pty": {
-                "rows": state.rows,
-                "cols": state.cols,
-            },
-            "active_buffer": state.active_buffer,
-        }
+        return {"pty": {"rows": state.rows, "cols": state.cols}, "active_buffer": state.active_buffer}
 
     def build_snapshot_data(self, terminal_id: str) -> Optional[dict]:
         state = self._states.get(terminal_id)
@@ -170,10 +103,7 @@ class AgentSnapshotManager:
         return {
             "terminal_id": terminal_id,
             "payload": payload or "",
-            "pty": {
-                "rows": state.rows,
-                "cols": state.cols,
-            },
+            "pty": {"rows": state.rows, "cols": state.cols},
             "active_buffer": state.active_buffer,
         }
 
@@ -204,23 +134,15 @@ class TerminalRuntimeManager:
     def create_terminal(self, spec: TerminalSpec) -> PTYWrapper:
         if spec.terminal_id in self._runtimes:
             raise ValueError(f"terminal {spec.terminal_id} already exists")
-
         runtime = self._pty_factory(
-            spec.command,
-            args=spec.args,
-            config=PTYConfig(
-                rows=spec.rows,
-                cols=spec.cols,
-                env=spec.env,
-                cwd=spec.cwd,
-            ),
+            spec.command, args=spec.args,
+            config=PTYConfig(rows=spec.rows, cols=spec.cols, env=spec.env, cwd=spec.cwd),
         )
         if not runtime.start():
             err_msg = f"failed to start terminal {spec.terminal_id}"
             if runtime.start_error:
                 err_msg += f": {runtime.start_error}"
             raise RuntimeError(err_msg)
-
         self._runtimes[spec.terminal_id] = (spec, runtime)
         return runtime
 
@@ -235,7 +157,6 @@ class TerminalRuntimeManager:
         entry = self._runtimes.pop(terminal_id, None)
         if not entry:
             raise KeyError(terminal_id)
-
         spec, runtime = entry
         runtime.stop()
         return self.build_terminal_closed_event(terminal_id, reason)
@@ -253,7 +174,6 @@ class TerminalRuntimeManager:
         entry = self._runtimes.get(terminal_id)
         if not entry:
             raise KeyError(terminal_id)
-
         spec, _ = entry
         return {
             "type": "terminal_created",
@@ -284,19 +204,6 @@ class WebSocketClient:
         retry_delay: float = 1.0,
         local_display: bool = False,
     ):
-        """
-        初始化 WebSocket 客户端
-
-        Args:
-            server_url: 服务器 WebSocket URL (wss://...)
-            token: 认证 Token
-            command: 要执行的命令
-            shell_mode: 是否启动交互式 shell
-            auto_reconnect: 是否自动重连
-            max_retries: 最大重试次数
-            retry_delay: 初始重连延迟（秒）
-            local_display: 是否在本地终端显示 PTY 输出
-        """
         self.server_url = server_url
         self.token = token
         self.command = command
@@ -318,40 +225,32 @@ class WebSocketClient:
         self.snapshot_manager = AgentSnapshotManager()
         self._runtime_tasks: dict[str, asyncio.Task] = {}
         self._send_lock = asyncio.Lock()
-        # B092: MCP Client 管理器
         self.mcp_manager = MCPClientManager()
-        # 本地 HTTP Server（用于 Flutter UI 控制）
         self._local_server = None
         self._local_port: Optional[int] = None
+        self._message_handler = AgentMessageHandler(self)
 
     @property
     def is_connected(self) -> bool:
-        """是否已连接"""
         return self._connected
 
     @property
     def session_id(self) -> Optional[str]:
-        """当前会话 ID"""
         return self._session_id
-
-    # 不可恢复的 WebSocket close code（服务器主动拒绝，重连无意义）
-    _NON_RECOVERABLE_CODES = {4001, 4004, 4009}
 
     async def run(self):
         """主运行循环"""
         self._running = True
         _should_exit = False
 
-        # 启动本地 HTTP Server（用于 Flutter UI 控制）
         await self._start_local_server()
 
         while self._running:
             try:
                 await self._connect_and_run()
             except websockets.exceptions.ConnectionClosedError as e:
-                # 结构化检查 WebSocket close code
                 close_code = e.rcvd.code if e.rcvd else None
-                if close_code in self._NON_RECOVERABLE_CODES:
+                if close_code in NON_RECOVERABLE_CODES:
                     _log(f"不可恢复错误 (code={close_code})，停止重连: {e}")
                     await self._cleanup()
                     self._running = False
@@ -373,31 +272,25 @@ class WebSocketClient:
                 _log(f"连接错误: {e}")
                 if not self.auto_reconnect or not self._running:
                     break
-
                 if self._retry_count >= self.max_retries:
                     _log(f"超过最大重试次数 ({self.max_retries})，停止重连")
                     await self._cleanup()
                     _should_exit = True
                     break
-                # 指数退避，上限 60 秒
                 delay = min(self.retry_delay * (2 ** self._retry_count), 60.0)
                 _log(f"将在 {delay} 秒后重连 (第 {self._retry_count + 1} 次)")
                 await asyncio.sleep(delay)
                 self._retry_count += 1
 
-        # while 循环退出后：如果因 retry 耗尽或不可恢复错误退出，则强制进程退出
         if _should_exit:
             _log("Agent 进程即将退出 (sys.exit)")
             sys.exit(1)
 
     async def _connect_and_run(self):
         """连接服务器并运行主循环"""
-        # B068: token 不再通过 URL query 参数传递
         ws_url = f"{self.server_url}/ws/agent"
-
         _log(f"正在连接服务器: {self.server_url}")
 
-        # ws:// 连接需要应用层加密，预先获取公钥
         if self.server_url.startswith("ws://") and not agent_crypto.has_public_key:
             http_base = self.server_url.replace("ws://", "http://")
             try:
@@ -406,15 +299,13 @@ class WebSocketClient:
                 logger.error("ws:// 公钥获取失败: %s", e)
                 raise
 
-        # 禁用代理 - 设置 NO_PROXY 环境变量
-        import os
         original_no_proxy = os.environ.get('NO_PROXY', '')
         os.environ['NO_PROXY'] = 'localhost,127.0.0.1,host.docker.internal'
 
         try:
             async with websockets.connect(
                 ws_url,
-                ping_interval=None,  # 禁用协议级 ping，使用应用级心跳（30s）
+                ping_interval=None,
                 ssl=ssl_context_for_websockets() if ws_url.startswith("wss://") else None,
             ) as ws:
                 self.ws = ws
@@ -422,11 +313,8 @@ class WebSocketClient:
                 _log("已连接到服务器")
 
                 try:
-                    # B068: 发送 auth 消息进行鉴权（携带加密的 AES 密钥）
-                    auth_msg = {
-                        "type": "auth",
-                        "token": self.token,
-                    }
+                    # auth 消息
+                    auth_msg = {"type": "auth", "token": self.token}
                     ws_needs_encryption = self.server_url.startswith("ws://")
 
                     if ws_needs_encryption and not agent_crypto.has_public_key:
@@ -445,13 +333,11 @@ class WebSocketClient:
 
                     await ws.send(json.dumps(auth_msg))
 
-                    # 等待连接确认消息
-                    # 等待连接确认消息
                     message = await asyncio.wait_for(ws.recv(), timeout=30)
                     data = json.loads(message)
                     if data.get("type") == "connected":
                         self._session_id = data.get("session_id")
-                        self._retry_count = 0  # 仅在握手成功后重置重试计数
+                        self._retry_count = 0
                         _log(f"会话已建立: {self._session_id}")
                     else:
                         raise Exception(f"意外的消息类型: {data.get('type')}")
@@ -463,13 +349,9 @@ class WebSocketClient:
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     })
 
-                    # B091: 初始化 user_knowledge 目录 + 发送 tool_catalog_snapshot
                     ensure_user_knowledge_dir()
-
-                    # B092: 启动 MCP Servers
                     await self.mcp_manager.start_all()
 
-                    # 合并 built-in + dynamic 工具到 catalog snapshot
                     catalog_tools = [get_knowledge_catalog_entry()]
                     catalog_tools.extend(self.mcp_manager.build_tool_catalog())
                     await self._send_ws_message({
@@ -478,29 +360,23 @@ class WebSocketClient:
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     })
 
-                    # 启动 PTY
                     self.pty = PTYWrapper(self.command)
                     if not self.pty.start():
                         raise Exception("无法启动 PTY")
-
                     _log(f"PTY 已启动: {self.command}")
 
                     if self.local_display:
                         _log("本地终端显示已启用（本地键盘可直接操作）")
                         _log("-" * 40)
 
-                    # 启动双向转发任务
                     self._tasks = [
                         asyncio.create_task(self._pty_to_websocket()),
                         asyncio.create_task(self._websocket_to_pty()),
                         asyncio.create_task(self._heartbeat_loop()),
                     ]
-
-                    # 添加本地输入任务
                     if self.local_display:
                         self._tasks.append(asyncio.create_task(self._local_stdin_to_pty()))
 
-                    # 等待所有任务完成
                     await asyncio.gather(*self._tasks)
 
                 except asyncio.CancelledError:
@@ -511,44 +387,33 @@ class WebSocketClient:
                 finally:
                     await self._cleanup()
         finally:
-            # 恢复 NO_PROXY 设置
             if original_no_proxy:
                 os.environ['NO_PROXY'] = original_no_proxy
             else:
                 os.environ.pop('NO_PROXY', None)
 
     async def _pty_to_websocket(self):
-        """PTY 输出转发到 WebSocket（同时显示在本地终端）"""
+        """PTY 输出转发到 WebSocket"""
         while self._running and self._connected:
             try:
                 data = await self.pty.read()
                 if data is None:
                     await asyncio.sleep(0.01)
                     continue
-
-                # 本地显示
                 if self.local_display:
                     try:
                         sys.stdout.buffer.write(data)
                         sys.stdout.buffer.flush()
                     except Exception:
                         pass
-
-                # Base64 编码
                 payload = base64.b64encode(data).decode("utf-8")
-
-                message = {
-                    "type": "data",
-                    "payload": payload,
+                await self._send_ws_message({
+                    "type": "data", "payload": payload,
                     "direction": "output",
                     "timestamp": datetime.now(timezone.utc).isoformat(),
-                }
-
-                await self._send_ws_message(message)
-
+                })
             except Exception as e:
                 _log(f"PTY 读取错误: {e}")
-                # WS 发送失败属于连接断开，传播退出信号；PTY 本地错误不影响连接
                 if isinstance(e, (websockets.exceptions.ConnectionClosedError,
                                   websockets.exceptions.ConnectionClosedOK)):
                     self._connected = False
@@ -564,14 +429,11 @@ class WebSocketClient:
                         break
                     await asyncio.sleep(0.01)
                     continue
-
                 payload = base64.b64encode(data).decode("utf-8")
                 self.snapshot_manager.append_output(terminal_id, data)
                 await self._send_ws_message({
-                    "type": "data",
-                    "terminal_id": terminal_id,
-                    "payload": payload,
-                    "direction": "output",
+                    "type": "data", "terminal_id": terminal_id,
+                    "payload": payload, "direction": "output",
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 })
         finally:
@@ -584,13 +446,12 @@ class WebSocketClient:
             self._runtime_tasks.pop(terminal_id, None)
 
     async def _websocket_to_pty(self):
-        """WebSocket 消息转发到 PTY（同时显示在本地终端）"""
+        """WebSocket 消息接收循环 — 委派给 AgentMessageHandler"""
         while self._running and self._connected:
             try:
                 message = await asyncio.wait_for(self.ws.recv(), timeout=1)
                 data = json.loads(message)
 
-                # 解密 AES 加密消息
                 if data.get("encrypted") and agent_crypto.has_public_key:
                     try:
                         data = agent_crypto.decrypt_message(data)
@@ -598,147 +459,7 @@ class WebSocketClient:
                         logger.warning("Decrypt failed: %s", e)
                         continue
 
-                msg_type = data.get("type")
-                _log(f"收到消息 type={msg_type} data={json.dumps(data, ensure_ascii=False)[:200]}")
-
-                if msg_type == "data":
-                    # 解码 Base64 数据
-                    payload = data.get("payload", "")
-                    try:
-                        decoded = base64.b64decode(payload)
-                    except Exception:
-                        decoded = payload.encode("utf-8")
-
-                    try:
-                        terminal_id = data.get("terminal_id")
-                        target = self.runtime_manager.get_terminal(terminal_id) if terminal_id else self.pty
-                        if target:
-                            target.write(decoded)
-                    except Exception as e:
-                        _log(f"数据写入失败: {e}")
-
-                elif msg_type == "resize":
-                    # 终端大小变化
-                    try:
-                        rows = data.get("rows", 24)
-                        cols = data.get("cols", 80)
-                        terminal_id = data.get("terminal_id")
-                        target = self.runtime_manager.get_terminal(terminal_id) if terminal_id else self.pty
-                        if target:
-                            target.resize(rows, cols)
-                            if terminal_id:
-                                self.snapshot_manager.update_terminal_pty(
-                                    terminal_id,
-                                    int(rows),
-                                    int(cols),
-                                )
-                    except Exception as e:
-                        _log(f"终端大小调整失败: {e}")
-
-                elif msg_type == "create_terminal":
-                    terminal_id = data.get("terminal_id")
-                    if not terminal_id:
-                        continue
-                    # B068: 命令执行校验
-                    command = data.get("command", self.command)
-                    cwd = data.get("cwd")
-                    env = data.get("env", {}) or {}
-                    validation_error = _validate_terminal_input(command, cwd, env)
-                    if validation_error:
-                        _log(f"Terminal {terminal_id} 输入校验失败: {validation_error}")
-                        await self._send_ws_message(
-                            self.runtime_manager.build_terminal_closed_event(
-                                terminal_id, reason=f"validation_failed: {validation_error}"
-                            )
-                        )
-                        continue
-                    try:
-                        spec = TerminalSpec(
-                            terminal_id=terminal_id,
-                            title=data.get("title", terminal_id),
-                            cwd=cwd,
-                            command=command,
-                            env=env,
-                            rows=int(data.get("rows", 24) or 24),
-                            cols=int(data.get("cols", 80) or 80),
-                        )
-                        runtime = self.runtime_manager.create_terminal(spec)
-                        self.snapshot_manager.create_terminal(spec)
-                        self._runtime_tasks[terminal_id] = asyncio.create_task(
-                            self._runtime_pty_to_websocket(terminal_id, runtime)
-                        )
-                        await self._send_ws_message(
-                            self.runtime_manager.build_terminal_created_event(terminal_id)
-                        )
-                    except Exception as e:
-                        # 终端创建失败不应断开 Agent 连接
-                        _log(f"Terminal {terminal_id} 创建失败: {e}")
-                        try:
-                            await self._send_ws_message(
-                                self.runtime_manager.build_terminal_closed_event(
-                                    terminal_id, reason="create_failed"
-                                )
-                            )
-                        except Exception:
-                            pass  # WS 本身也断了，无法通知，静默忽略
-                        continue
-
-                elif msg_type == "close_terminal":
-                    terminal_id = data.get("terminal_id")
-                    try:
-                        if terminal_id and self.runtime_manager.get_terminal(terminal_id):
-                            event = self.runtime_manager.close_terminal(
-                                terminal_id,
-                                reason=data.get("reason", "terminal_exit"),
-                            )
-                            self.snapshot_manager.close_terminal(terminal_id)
-                            task = self._runtime_tasks.pop(terminal_id, None)
-                            if task:
-                                task.cancel()
-                            await self._send_ws_message(event)
-                    except Exception as e:
-                        _log(f"Terminal {terminal_id} 关闭失败: {e}")
-                        continue
-
-                elif msg_type == "snapshot_request":
-                    terminal_id = data.get("terminal_id")
-                    request_id = data.get("request_id")
-                    if not terminal_id or not request_id:
-                        continue
-                    snapshot = self.snapshot_manager.build_snapshot_data(terminal_id)
-                    await self._send_ws_message({
-                        "type": "snapshot_data",
-                        "terminal_id": terminal_id,
-                        "request_id": request_id,
-                        "payload": (snapshot or {}).get("payload", ""),
-                        "pty": (snapshot or {}).get("pty"),
-                        "active_buffer": (snapshot or {}).get("active_buffer", "main"),
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                    })
-
-                elif msg_type == "execute_command":
-                    asyncio.create_task(
-                        self._handle_execute_command(data)
-                    )
-
-                elif msg_type == "lookup_knowledge":
-                    asyncio.create_task(
-                        self._handle_lookup_knowledge(data)
-                    )
-
-                elif msg_type == "tool_call":
-                    asyncio.create_task(
-                        self._handle_tool_call(data)
-                    )
-
-                elif msg_type == "pong":
-                    # 心跳响应，忽略
-                    pass
-
-                elif msg_type == "error":
-                    _log(f"服务器错误: {data.get('message')}")
-                    # 非致命错误，继续运行（如未知消息类型等）
-                    continue
+                await self._message_handler.dispatch(data)
 
             except asyncio.TimeoutError:
                 continue
@@ -747,169 +468,15 @@ class WebSocketClient:
                 self._connected = False
                 break
 
-    async def _handle_execute_command(self, data: dict):
-        """B078: 处理 execute_command 消息，执行只读命令并返回结果。"""
-        request_id = data.get("request_id", "")
-        command = data.get("command", "")
-        timeout = int(data.get("timeout") or DEFAULT_COMMAND_TIMEOUT)
-        cwd = data.get("cwd") or None
-        if cwd:
-            cwd = os.path.expanduser(cwd)
-
-        # Agent 端双重白名单验证
-        valid, reason = validate_command(command)
-        if not valid:
-            _log(f"execute_command 拒绝: {reason} command={command[:100]}")
-            await self._send_ws_message({
-                "type": "execute_command_result",
-                "request_id": request_id,
-                "exit_code": -1,
-                "stdout": "",
-                "stderr": reason,
-                "truncated": False,
-                "timed_out": False,
-            })
-            return
-
-        try:
-            parts = shlex.split(command)
-        except ValueError:
-            await self._send_ws_message({
-                "type": "execute_command_result",
-                "request_id": request_id,
-                "exit_code": -1,
-                "stdout": "",
-                "stderr": "命令格式无效",
-                "truncated": False,
-                "timed_out": False,
-            })
-            return
-
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *parts,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=cwd,
-            )
-            try:
-                stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                    proc.communicate(),
-                    timeout=timeout,
-                )
-                timed_out = False
-            except asyncio.TimeoutError:
-                proc.kill()
-                await proc.wait()
-                stdout_bytes = b""
-                stderr_bytes = b"command timed out"
-                timed_out = True
-
-            stdout_str = stdout_bytes.decode("utf-8", errors="replace")
-            stderr_str = stderr_bytes.decode("utf-8", errors="replace")
-
-            truncated = len(stdout_str) > MAX_STDOUT_LEN or len(stderr_str) > MAX_STDERR_LEN
-            stdout_str = stdout_str[:MAX_STDOUT_LEN]
-            stderr_str = stderr_str[:MAX_STDERR_LEN]
-
-            await self._send_ws_message({
-                "type": "execute_command_result",
-                "request_id": request_id,
-                "exit_code": proc.returncode if proc.returncode is not None else -1,
-                "stdout": stdout_str,
-                "stderr": stderr_str,
-                "truncated": truncated,
-                "timed_out": timed_out,
-            })
-        except Exception as e:
-            _log(f"execute_command 执行异常: {e}")
-            await self._send_ws_message({
-                "type": "execute_command_result",
-                "request_id": request_id,
-                "exit_code": -1,
-                "stdout": "",
-                "stderr": str(e),
-                "truncated": False,
-                "timed_out": False,
-            })
-
-    async def _handle_lookup_knowledge(self, data: dict):
-        """B091: 处理 lookup_knowledge 消息，检索知识文件并返回结果。"""
-        request_id = data.get("request_id", "")
-        query = data.get("query", "")
-
-        try:
-            result = lookup_knowledge(query)
-            await self._send_ws_message({
-                "type": "lookup_knowledge_result",
-                "request_id": request_id,
-                "result": result,
-            })
-        except Exception as e:
-            _log(f"lookup_knowledge 检索异常: {e}")
-            await self._send_ws_message({
-                "type": "lookup_knowledge_result",
-                "request_id": request_id,
-                "result": "",
-                "error": str(e),
-            })
-
-    async def _handle_tool_call(self, data: dict):
-        """B092: 处理动态 MCP 工具调用。"""
-        call_id = data.get("call_id", "")
-        tool_name = data.get("tool_name", "")
-        arguments = data.get("arguments", {})
-
-        # 内置工具名称空间保护：built-in 工具不应走 tool_call 路径
-        built_in_tools = {"execute_command", "ask_user", "lookup_knowledge"}
-        if tool_name in built_in_tools:
-            await self._send_ws_message({
-                "type": "tool_result",
-                "call_id": call_id,
-                "status": "error",
-                "error": f"built-in tool {tool_name} should use dedicated handler",
-            })
-            return
-
-        try:
-            result = await self.mcp_manager.call_tool(tool_name, arguments)
-            response = {
-                "type": "tool_result",
-                "call_id": call_id,
-                "status": result.get("status", "error"),
-            }
-            if "result" in result:
-                response["result"] = result["result"]
-            if "error" in result:
-                response["error"] = result["error"]
-            if result.get("truncated"):
-                response["truncated"] = True
-                response["original_size"] = result.get("original_size", 0)
-            if result.get("fallback_hint"):
-                response["fallback_hint"] = result["fallback_hint"]
-            await self._send_ws_message(response)
-        except Exception as e:
-            _log(f"tool_call 异常: {e}")
-            await self._send_ws_message({
-                "type": "tool_result",
-                "call_id": call_id,
-                "status": "error",
-                "error": str(e),
-            })
-
     async def _send_ws_message(self, message: dict):
-        """发送消息到 WebSocket（自动加密）。
-
-        使用 asyncio.Lock 确保 ws.send() 不被并发调用。
-        json.dumps 在 Lock 外完成，避免不必要地延长 Lock 持有时间。
-        """
+        """发送消息到 WebSocket（自动加密）。"""
         if self.ws and self._connected:
             msg_type = message.get("type", "")
             if agent_crypto.has_public_key and agent_crypto.should_encrypt(msg_type):
                 try:
                     message = agent_crypto.encrypt_message(message)
                 except Exception as e:
-                    logger.error("Encrypt failed, dropping message (not sending plaintext): %s", e)
+                    logger.error("Encrypt failed, dropping message: %s", e)
                     return
             text = json.dumps(message)
             async with self._send_lock:
@@ -919,9 +486,7 @@ class WebSocketClient:
         """本地标准输入转发到 PTY"""
         if not self.local_display:
             return
-
         try:
-            # 设置 stdin 为非阻塞模式
             loop = asyncio.get_event_loop()
             reader = asyncio.StreamReader()
             protocol = asyncio.StreamReaderProtocol(reader)
@@ -945,17 +510,16 @@ class WebSocketClient:
         while self._running and self._connected:
             try:
                 await self._send_ws_message({"type": "ping"})
-                await asyncio.sleep(30)  # 30 秒心跳间隔
+                await asyncio.sleep(30)
             except Exception as e:
                 _log(f"心跳发送错误: {e}")
                 self._connected = False
                 break
 
     async def _start_local_server(self):
-        """启动本地 HTTP Server（用于 Flutter UI 控制）"""
+        """启动本地 HTTP Server"""
         try:
             from local_server import LocalServer
-
             self._local_server = LocalServer(self)
             success = await self._local_server.start()
             if success:
@@ -968,7 +532,6 @@ class WebSocketClient:
             self._local_server = None
 
     async def _stop_local_server(self):
-        """停止本地 HTTP Server"""
         if self._local_server:
             await self._local_server.stop()
             self._local_server = None
@@ -977,15 +540,12 @@ class WebSocketClient:
     async def _cleanup(self):
         """清理资源"""
         if not self._connected and not self._tasks:
-            return  # 避免重复清理
+            return
 
         self._connected = False
         agent_crypto.clear_aes_key()
-
-        # B092: 清理 MCP Servers
         await self.mcp_manager.stop_all()
 
-        # 记录各任务状态，用于排查断连原因
         task_states = []
         for task in self._tasks:
             status = "done" if task.done() else "pending"
@@ -999,17 +559,14 @@ class WebSocketClient:
             task_states.append(f"{task.get_name()}={status}")
         _log(f"断连原因排查 — 任务状态: {', '.join(task_states)}")
 
-        # 取消所有任务
         for task in self._tasks:
             task.cancel()
-
         self._tasks = []
 
         for task in self._runtime_tasks.values():
             task.cancel()
         self._runtime_tasks = {}
 
-        # 关闭所有 terminal 并发送关闭事件
         close_events = self.runtime_manager.close_all()
         self.snapshot_manager.close_all()
         if self.ws and close_events:
@@ -1017,19 +574,16 @@ class WebSocketClient:
                 try:
                     await self._send_ws_message(event)
                 except Exception:
-                    pass  # 忽略发送失败
+                    pass
 
-        # 停止 PTY
         if self.pty:
             self.pty.stop()
             self.pty = None
 
-        # 关闭 WebSocket
         if self.ws:
             await self.ws.close()
             self.ws = None
 
-        # 停止本地 HTTP Server（如果不需要后台运行）
         if self._local_server and not self._local_server.keep_running_in_background:
             await self._stop_local_server()
 
