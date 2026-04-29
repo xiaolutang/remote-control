@@ -839,3 +839,165 @@ class TestEndToEnd:
         assert len(accuracy_metrics) == 3
         for m in accuracy_metrics:
             assert m.metric_name == METRIC_RESPONSE_TYPE_ACCURACY
+
+
+# ── B052 新增测试: 新字段 source / result_event_id / terminal_id ─────────────
+
+
+class TestQualityMetricNewFields:
+    """B052: QualityMetric 新字段测试"""
+
+    @pytest_asyncio.fixture
+    async def eval_db(self, tmp_path):
+        db_path = str(tmp_path / "test_evals.db")
+        db = EvalDatabase(db_path)
+        await db.init_db()
+        return db
+
+    @pytest.mark.asyncio
+    async def test_source_field_persisted(self, eval_db):
+        """source 字段正确持久化"""
+        events = [
+            _make_tool_step_event("execute_command"),
+            _make_result_event(response_type="command_sequence", total_tokens=300),
+        ]
+        metrics = await extract_and_store_metrics(
+            eval_db,
+            events,
+            session_id="s-source-1",
+            source="production",
+        )
+        for m in metrics:
+            assert m.source == "production"
+
+        # 从数据库读取验证
+        stored = await eval_db.get_quality_metrics_by_session("s-source-1")
+        for m in stored:
+            assert m.source == "production"
+
+    @pytest.mark.asyncio
+    async def test_terminal_id_field_persisted(self, eval_db):
+        """terminal_id 字段正确持久化"""
+        events = [
+            _make_tool_step_event("execute_command"),
+            _make_result_event(total_tokens=500),
+        ]
+        metrics = await extract_and_store_metrics(
+            eval_db,
+            events,
+            session_id="s-term-1",
+            terminal_id="term-abc123",
+        )
+        for m in metrics:
+            assert m.terminal_id == "term-abc123"
+
+        stored = await eval_db.get_quality_metrics_by_session("s-term-1")
+        for m in stored:
+            assert m.terminal_id == "term-abc123"
+
+    @pytest.mark.asyncio
+    async def test_result_event_id_field_persisted(self, eval_db):
+        """result_event_id 字段正确持久化"""
+        events = [
+            _make_result_event(total_tokens=200),
+        ]
+        metrics = await extract_and_store_metrics(
+            eval_db,
+            events,
+            session_id="s-revid-1",
+            result_event_id="evt-xyz789",
+        )
+        for m in metrics:
+            assert m.result_event_id == "evt-xyz789"
+
+        stored = await eval_db.get_quality_metrics_by_session("s-revid-1")
+        for m in stored:
+            assert m.result_event_id == "evt-xyz789"
+
+    @pytest.mark.asyncio
+    async def test_default_values(self, eval_db):
+        """不传新字段时使用默认值"""
+        events = [_make_result_event(total_tokens=100)]
+        metrics = await extract_and_store_metrics(
+            eval_db,
+            events,
+            session_id="s-default-1",
+        )
+        for m in metrics:
+            assert m.source == "production"
+            assert m.result_event_id == ""
+            assert m.terminal_id == ""
+
+    @pytest.mark.asyncio
+    async def test_integration_source(self, eval_db):
+        """source='integration' 场景"""
+        events = [_make_result_event(total_tokens=100)]
+        metrics = await extract_and_store_metrics(
+            eval_db,
+            events,
+            session_id="s-integ-1",
+            source="integration",
+        )
+        for m in metrics:
+            assert m.source == "integration"
+
+
+class TestQualityMonitorAutoTrigger:
+    """B052: quality_monitor 自动触发测试"""
+
+    def test_trigger_function_exists(self):
+        """_trigger_quality_monitor 函数存在"""
+        from app.services.agent_session_runner import _trigger_quality_monitor
+        assert callable(_trigger_quality_monitor)
+
+    def test_trigger_handles_empty_events(self):
+        """空事件列表不触发提取"""
+        from datetime import datetime, timezone
+        from app.services.agent_session_runner import _trigger_quality_monitor
+        from app.services.agent_session_manager import AgentSessionManager
+        from app.services.agent_session import AgentSession
+        from app.services.agent_session_types import AgentSessionState
+
+        manager = AgentSessionManager()
+        now = datetime.now(timezone.utc)
+        session = AgentSession(
+            id="test-session",
+            intent="test",
+            device_id="device-1",
+            user_id="user-1",
+            state=AgentSessionState.COMPLETED,
+            created_at=now,
+            last_active_at=now,
+            terminal_id="term-1",
+        )
+        # _last_events 为空 → 不应触发
+        _trigger_quality_monitor(manager, session)
+        # 无异常即通过
+
+    def test_trigger_handles_events(self):
+        """有事件时触发异步提取（不抛异常）"""
+        from datetime import datetime, timezone
+        from app.services.agent_session_runner import _trigger_quality_monitor
+        from app.services.agent_session_manager import AgentSessionManager
+        from app.services.agent_session import AgentSession
+        from app.services.agent_session_types import AgentSessionState
+
+        manager = AgentSessionManager()
+        now = datetime.now(timezone.utc)
+        session = AgentSession(
+            id="test-session-2",
+            intent="test intent",
+            device_id="device-1",
+            user_id="user-1",
+            state=AgentSessionState.COMPLETED,
+            created_at=now,
+            last_active_at=now,
+            terminal_id="term-2",
+        )
+        # 模拟 cached events
+        session._last_events = [
+            ("tool_step", {"tool_name": "execute_command", "status": "done"}),
+            ("result", {"response_type": "command_sequence", "usage": {"total_tokens": 500}}),
+        ]
+        _trigger_quality_monitor(manager, session)
+        # 无异常即通过（实际写入可能因目录不存在而失败，但不应抛出）

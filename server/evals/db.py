@@ -216,7 +216,10 @@ class EvalDatabase:
                     device_id TEXT NOT NULL DEFAULT '',
                     metric_name TEXT NOT NULL,
                     value REAL NOT NULL,
-                    computed_at TEXT NOT NULL
+                    computed_at TEXT NOT NULL,
+                    source TEXT NOT NULL DEFAULT 'production',
+                    result_event_id TEXT NOT NULL DEFAULT '',
+                    terminal_id TEXT NOT NULL DEFAULT ''
                 )
             """)
             await db.execute("""
@@ -570,8 +573,9 @@ class EvalDatabase:
             await db.execute(
                 """
                 INSERT OR REPLACE INTO quality_metrics
-                    (metric_id, session_id, user_id, device_id, metric_name, value, computed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (metric_id, session_id, user_id, device_id, metric_name, value,
+                     computed_at, source, result_event_id, terminal_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     data["metric_id"],
@@ -581,6 +585,9 @@ class EvalDatabase:
                     data["metric_name"],
                     data["value"],
                     data["computed_at"],
+                    data["source"],
+                    data["result_event_id"],
+                    data["terminal_id"],
                 ),
             )
             await db.commit()

@@ -344,7 +344,13 @@ def compute_token_efficiency(data: SessionEventData) -> float:
 # ── 指标计算入口 ────────────────────────────────────────────────────────────
 
 
-def compute_all_metrics(data: SessionEventData) -> List[QualityMetric]:
+def compute_all_metrics(
+    data: SessionEventData,
+    *,
+    source: str = "production",
+    result_event_id: str = "",
+    terminal_id: str = "",
+) -> List[QualityMetric]:
     """计算全部 5 类指标，返回 QualityMetric 列表。"""
     now = datetime.now(timezone.utc).isoformat()
 
@@ -366,6 +372,9 @@ def compute_all_metrics(data: SessionEventData) -> List[QualityMetric]:
             metric_name=name,
             value=round(value, 4),
             computed_at=now,
+            source=source,
+            result_event_id=result_event_id,
+            terminal_id=terminal_id,
         ))
     return metrics
 
@@ -381,6 +390,9 @@ async def extract_and_store_metrics(
     user_id: str = "",
     device_id: str = "",
     intent: str = "",
+    source: str = "production",
+    result_event_id: str = "",
+    terminal_id: str = "",
 ) -> List[QualityMetric]:
     """从 events 提取指标并持久化到 evals.db。
 
@@ -391,6 +403,9 @@ async def extract_and_store_metrics(
         user_id: 用户 ID
         device_id: 设备 ID
         intent: 用户意图
+        source: 来源（production/integration）
+        result_event_id: 关联的 result 事件 ID
+        terminal_id: 关联的 terminal ID
 
     Returns:
         计算并持久化的 QualityMetric 列表
@@ -402,7 +417,12 @@ async def extract_and_store_metrics(
         device_id=device_id,
         intent=intent,
     )
-    metrics = compute_all_metrics(data)
+    metrics = compute_all_metrics(
+        data,
+        source=source,
+        result_event_id=result_event_id,
+        terminal_id=terminal_id,
+    )
 
     for metric in metrics:
         await eval_db.save_quality_metric(metric)

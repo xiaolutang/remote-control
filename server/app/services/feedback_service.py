@@ -78,6 +78,9 @@ async def create_feedback(
     description: str,
     platform: Optional[str] = None,
     app_version: Optional[str] = None,
+    terminal_id: Optional[str] = None,
+    result_event_id: Optional[str] = None,
+    feedback_type: Optional[str] = None,
 ) -> dict:
     """
     创建反馈 —— 调用 log-service POST /api/issues 持久化。
@@ -89,6 +92,12 @@ async def create_feedback(
     - session_id → request_id
     - platform + app_version → environment
     - description + related_logs → description
+
+    B052 新增:
+    - terminal_id → environment 中追加
+    - result_event_id → 透传到 log-service
+    - feedback_type → 透传到 log-service
+    - 创建后异步调用 analyze_feedback()
     """
     _validate_description(description)
 
@@ -140,6 +149,13 @@ async def create_feedback(
         "component": f"feedback:{category}",
         "environment": environment,
     }
+    # B052: 透传新字段
+    if terminal_id:
+        issue_payload["terminal_id"] = terminal_id
+    if result_event_id:
+        issue_payload["result_event_id"] = result_event_id
+    if feedback_type:
+        issue_payload["feedback_type"] = feedback_type
 
     response = await _call_log_service(
         "post",
@@ -153,14 +169,49 @@ async def create_feedback(
     created_at = issue.get("created_at", datetime.now(timezone.utc).isoformat())
 
     logger.info(
-        "Feedback created via log-service: issue_id=%s user_id=%s category=%s",
-        issue_id, user_id, category,
+        "Feedback created via log-service: issue_id=%s user_id=%s category=%s terminal_id=%s",
+        issue_id, user_id, category, terminal_id,
     )
+
+    # B052: 异步触发 analyze_feedback（best-effort，不阻塞响应）
+    try:
+        from evals.feedback_loop import analyze_feedback
+        from evals.db import EvalDatabase
+
+        eval_db_path = os.environ.get("EVAL_DB_PATH", "/data/evals.db")
+        eval_db = EvalDatabase(eval_db_path)
+
+        # 不 await —— 分析失败不影响反馈提交
+        import asyncio
+        asyncio.ensure_future(_run_analyze_feedback(
+            eval_db, issue_id, category, description,
+        ))
+    except Exception as e:
+        logger.info("analyze_feedback 触发跳过: %s", e)
 
     return {
         "feedback_id": issue_id,
         "created_at": created_at,
     }
+
+
+async def _run_analyze_feedback(
+    eval_db, feedback_id: str, category: str, description: str,
+) -> None:
+    """包装 analyze_feedback 调用，捕获所有异常。"""
+    try:
+        await eval_db.init_db()
+        from evals.feedback_loop import analyze_feedback
+        candidate_id = await analyze_feedback(
+            eval_db,
+            feedback_id=feedback_id,
+            category=category,
+            description=description,
+        )
+        if candidate_id:
+            logger.info("Feedback→Candidate: feedback_id=%s candidate_id=%s", feedback_id, candidate_id)
+    except Exception as e:
+        logger.warning("analyze_feedback 执行失败（best-effort）: feedback_id=%s error=%s", feedback_id, e)
 
 
 async def get_feedback(feedback_id: str, user_id: str) -> Optional[dict]:

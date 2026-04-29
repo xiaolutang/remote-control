@@ -31,6 +31,58 @@ from app.services.agent_session import AgentSession
 logger = logging.getLogger(__name__)
 
 
+def _trigger_quality_monitor(manager, session: AgentSession) -> None:
+    """B052: result 事件后异步触发 quality_monitor 指标提取（best-effort）。
+
+    不阻塞主流程，异常仅记录日志。
+    """
+    try:
+        import asyncio
+        import os
+        from evals.db import EvalDatabase
+        from evals.quality_monitor import extract_and_store_metrics
+
+        eval_db_path = os.environ.get("EVAL_DB_PATH", "/data/evals.db")
+        eval_db = EvalDatabase(eval_db_path)
+
+        # 收集当前 session 的 cached events 用于指标计算
+        events = []
+        for event in session._last_events:
+            if event is None:
+                continue
+            event_type, event_data = event
+            events.append({
+                "event_type": event_type,
+                "payload": event_data,
+            })
+
+        if not events:
+            return
+
+        async def _do_extract():
+            try:
+                await eval_db.init_db()
+                await extract_and_store_metrics(
+                    eval_db,
+                    events,
+                    session_id=session.id,
+                    user_id=session.user_id,
+                    device_id=session.device_id,
+                    intent=session.intent,
+                    source="production",
+                    terminal_id=session.terminal_id or "",
+                )
+            except Exception as e:
+                logger.warning(
+                    "Quality monitor extraction failed (best-effort): session_id=%s error=%s",
+                    session.id, e,
+                )
+
+        asyncio.ensure_future(_do_extract())
+    except Exception as e:
+        logger.info("Quality monitor trigger skipped: session_id=%s error=%s", session.id, e)
+
+
 def _get_save_agent_usage():
     """延迟获取 save_agent_usage，确保测试 patch 目标正确。
 
@@ -446,6 +498,9 @@ async def run_agent_loop(
                     "usage": usage_payload,
                 },
             )
+
+            # B052: result 事件后异步触发 quality_monitor（best-effort）
+            _trigger_quality_monitor(manager, session)
 
     except AgentSessionExpired:
         session.state = AgentSessionState.EXPIRED
