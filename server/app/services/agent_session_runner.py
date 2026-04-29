@@ -40,8 +40,9 @@ def _trigger_quality_monitor(
 ) -> None:
     """B052: result 事件后异步触发 quality_monitor 指标提取（best-effort）。
 
-    不依赖 session._last_events（该列表仅在 SSE 消费者 drain event_queue 后填充，
-    无 SSE 消费者时为空）。直接从 result 事件数据构造 events。
+    从数据库查询该 session 的全部真实事件（phase_change、tool_step、
+    streaming_text 等），使 extract_session_data 能计算准确的 B055 指标。
+    无 terminal_id / conversation_id 时 fallback 为合成 result 事件。
 
     不阻塞主流程，异常仅记录日志。
     """
@@ -54,15 +55,35 @@ def _trigger_quality_monitor(
         eval_db_path = os.environ.get("EVAL_DB_PATH", "/data/evals.db")
         eval_db = EvalDatabase(eval_db_path)
 
-        # 直接从 result 事件数据构造 events（不依赖 _last_events）
-        events = [{
-            "event_type": "result",
-            "payload": result_event_data,
-        }]
+        terminal_id = session.terminal_id or ""
 
         async def _do_extract():
             try:
                 await eval_db.init_db()
+
+                # 优先从数据库查询真实事件（含 phase_change、tool_step 等）
+                events = []
+                if terminal_id and session.conversation_id:
+                    try:
+                        from app.store.database import list_agent_conversation_events
+                        events = await list_agent_conversation_events(
+                            session.user_id,
+                            session.device_id,
+                            terminal_id,
+                        )
+                    except Exception as e:
+                        logger.debug(
+                            "Quality monitor: DB query failed, using fallback: %s", e,
+                        )
+                        events = []
+
+                # Fallback: 合成 result 事件（无 terminal_id 或查询失败时）
+                if not events:
+                    events = [{
+                        "event_type": "result",
+                        "payload": result_event_data,
+                    }]
+
                 await extract_and_store_metrics(
                     eval_db,
                     events,
@@ -71,7 +92,7 @@ def _trigger_quality_monitor(
                     device_id=session.device_id,
                     intent=session.intent,
                     source="production",
-                    terminal_id=session.terminal_id or "",
+                    terminal_id=terminal_id,
                     result_event_id=result_event_id,
                 )
             except Exception as e:

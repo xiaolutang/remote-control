@@ -335,12 +335,13 @@ async def _build_agent_conversation_projection(
 
 async def _agent_sse_response_wrapper(manager: AgentSessionManager, agent_session):
     """包装 SSE 流，在结束时清理会话。"""
-    created_payload = {"session_id": agent_session.id}
-    if agent_session.conversation_id:
-        created_payload["conversation_id"] = agent_session.conversation_id
-    if agent_session.terminal_id:
-        created_payload["terminal_id"] = agent_session.terminal_id
-    yield f"event: session_created\ndata: {json.dumps(created_payload, ensure_ascii=False)}\n\n"
+    if agent_session.is_first_run:
+        created_payload = {"session_id": agent_session.id}
+        if agent_session.conversation_id:
+            created_payload["conversation_id"] = agent_session.conversation_id
+        if agent_session.terminal_id:
+            created_payload["terminal_id"] = agent_session.terminal_id
+        yield f"event: session_created\ndata: {json.dumps(created_payload, ensure_ascii=False)}\n\n"
     try:
         async for chunk in manager.sse_stream(agent_session):
             yield chunk

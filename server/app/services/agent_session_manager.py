@@ -472,10 +472,14 @@ class AgentSessionManager:
             return existing
 
         # 无现有 session → 创建新 session
+        session_id = None
+        if terminal_id:
+            session_id = generate_terminal_session_id(terminal_id)
         return await self.create_session(
             intent=intent,
             device_id=device_id,
             user_id=user_id,
+            session_id=session_id,
             terminal_id=terminal_id,
             terminal_cwd=terminal_cwd,
             conversation_id=conversation_id,
