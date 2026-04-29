@@ -153,14 +153,14 @@
 | **R046 测试** | **Server+Client 测试更新** | **CONTRACT-047..051** | **completed** | **not_applicable** | **completed** | **S110: 全部 11 个 AC 已被 B105/B106/F107 覆盖。Server 232 passed + Client 66 passed** |
 | **R046 文档** | **事后精细校准** | **CONTRACT-047..051** | **not_applicable** | **not_applicable** | **completed** | **S111: CONTRACT-047/048/049/050/051 校准完成。architecture.md 不变量/模块职责与代码一致；api_contracts.md 五契约与代码行为一致；S109 状态同步为 73% 通过率** |
 | **R046 迭代** | **SYSTEM_PROMPT 简化 + Eval 修正** | **CONTRACT-047, CONTRACT-048, CONTRACT-050** | **completed** | **not_applicable** | **completed** | **S112: SYSTEM_PROMPT 简化 ask_user 确认流程 + 明确 execute_command vs deliver_result 边界 + 收窄 ai_prompt + cg_003 改 message + ic_008 补 mock_tool_responses + need_confirm 回归** |
-| **评估体系补全 R051** | **配套产物刷新** | — | not_applicable | not_applicable | pending | S052: alignment_checklist.md + test_coverage.md 更新为 R051 |
-| **评估体系补全 R051** | **Session 生命周期 per-terminal** | CONTRACT-048, CONTRACT-049 | pending | not_applicable | pending | B051: session 懒创建 + usage API terminal scope + result_event_id |
-| **评估体系补全 R051** | **客户端 token 展示适配** | CONTRACT-048 | not_applicable | pending | pending | F053: 移除客户端累加，改为服务端 API |
-| **评估体系补全 R051** | **Feedback→Eval 闭环 + Quality Monitor** | CONTRACT-051, CONTRACT-052, CONTRACT-053 | pending | not_applicable | pending | B052: 反馈闭环 + 自动触发 + source=production |
-| **评估体系补全 R051** | **Agent 面板反馈按钮** | CONTRACT-053 | not_applicable | pending | pending | F054: 反馈按钮 + feedback_status 恢复 |
-| **评估体系补全 R051** | **Eval HTML 报告生成器** | CONTRACT-051 | pending | not_applicable | pending | B053: 静态 HTML 报告 + 脱敏 transcript |
-| **评估体系补全 R051** | **不变量 Grader + 多轮状态一致性** | CONTRACT-051 | pending | not_applicable | pending | B054: InvariantGrader + 多轮 YAML task |
-| **评估体系补全 R051** | **效率指标补全** | CONTRACT-052 | pending | not_applicable | pending | B055: 5 类效率指标 + source=integration |
-| **评估体系补全 R051** | **Balanced Problem Sets + Production Path** | CONTRACT-051, CONTRACT-052 | pending | pending | pending | B056: 反向测试 + SSE 管道验证 |
-| **评估体系补全 R051** | **死代码清理 + 信号处理 + evals.db cleanup** | — | pending | pending | pending | S051: ConnectScreen 删除 + SIGINT/SIGTERM + cleanup CLI |
-| **评估体系补全 R051** | **Eval CLI 文档补全** | — | not_applicable | not_applicable | pending | S053: CLAUDE.md eval 文档 |
+| **评估体系补全 R051** | **配套产物刷新** | — | not_applicable | not_applicable | completed | S052: alignment_checklist.md + test_coverage.md 更新为 R051 |
+| **评估体系补全 R051** | **Session 生命周期 per-terminal** | CONTRACT-048, CONTRACT-049 | completed | not_applicable | completed | B051: session 懒创建 + usage API terminal scope + result_event_id |
+| **评估体系补全 R051** | **客户端 token 展示适配** | CONTRACT-048 | not_applicable | completed | completed | F053: 移除客户端累加，改为服务端 API |
+| **评估体系补全 R051** | **Feedback→Eval 闭环 + Quality Monitor** | CONTRACT-051, CONTRACT-052, CONTRACT-053 | completed | not_applicable | completed | B052: 反馈闭环 + 自动触发 + source=production |
+| **评估体系补全 R051** | **Agent 面板反馈按钮** | CONTRACT-053 | not_applicable | completed | completed | F054: 反馈按钮 + feedback_status 恢复 |
+| **评估体系补全 R051** | **Eval HTML 报告生成器** | CONTRACT-051 | completed | not_applicable | completed | B053: 静态 HTML 报告 + 脱敏 transcript |
+| **评估体系补全 R051** | **不变量 Grader + 多轮状态一致性** | CONTRACT-051 | completed | not_applicable | completed | B054: InvariantGrader + 多轮 YAML task |
+| **评估体系补全 R051** | **效率指标补全** | CONTRACT-052 | completed | not_applicable | completed | B055: 5 类效率指标 + source=integration |
+| **评估体系补全 R051** | **Balanced Problem Sets + Production Path** | CONTRACT-051, CONTRACT-052 | completed | completed | completed | B056: 反向测试 + SSE 管道验证 |
+| **评估体系补全 R051** | **死代码清理 + 信号处理 + evals.db cleanup** | — | completed | completed | completed | S051: ConnectScreen 删除 + SIGINT/SIGTERM + cleanup CLI |
+| **评估体系补全 R051** | **Eval CLI 文档补全** | — | not_applicable | not_applicable | completed | S053: CLAUDE.md eval 文档 |

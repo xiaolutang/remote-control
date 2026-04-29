@@ -96,11 +96,11 @@ async def _call_log_service(method: str, url: str, **kwargs):
 
 
 async def _fetch_feedback_issues(
-    user_id: str, max_pages: int = 10, page_size: int = 50,
+    user_id: str, max_pages: int = 3, page_size: int = 50,
 ) -> list[dict]:
     """查询 log-service 中该用户的所有 feedback issues（分页遍历）。
 
-    逐页获取直到取完或达到 max_pages 上限（默认最多 500 条）。
+    逐页获取直到取完或达到 max_pages 上限（默认最多 150 条）。
     Best-effort: 查询失败返回已获取的部分。
     """
     log_service_url = os.environ.get("LOG_SERVICE_URL", "http://localhost:8001")

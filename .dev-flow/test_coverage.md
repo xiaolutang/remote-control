@@ -553,17 +553,17 @@
 
 | Module | Task IDs | Test Type | Required Scenarios | Status |
 |--------|----------|-----------|--------------------|--------|
-| 配套产物刷新 | S052 | verification | alignment_checklist.md + test_coverage.md 更新为 R051 | ⬜ |
-| Session 生命周期 per-terminal | B051 | unit, integration, smoke | session 复用; terminal 隔离; 删除清理; inactive/reactivate; SSE session_created 一次; usage API terminal scope; result_event_id 跨模块; write-before-push | ⬜ |
-| 客户端 token 展示适配 | F053 | unit, widget, smoke | usage 从服务端 API; 多次增长; 终端切换; 零值; 重开刷新; API 失败降级; 无 stale 数据 | ⬜ |
-| Feedback→Eval 闭环 + Quality Monitor | B052 | unit, integration, smoke | 反馈→candidate 闭环; 新 payload; 幂等去重; 权限隔离; 无 session 反馈; quality 自动触发; source=production; feedback_status projection | ⬜ |
-| Agent 面板反馈按钮 | F054 | widget, smoke | 按钮显示; 提交互互; 状态恢复(投影); 失败重试; error 视图反馈; 终端切换恢复 | ⬜ |
-| Eval HTML 报告生成器 | B053 | unit | HTML 生成; 空数据; 对比; 退化; HTML 转义; 脱敏验证; 无效 run_id | ⬜ |
-| 不变量 Grader + 多轮状态一致性 | B054 | unit, integration | InvariantGrader 三规则 pass/fail; 多轮 YAML task; malformed 规则稳定失败 | ⬜ |
-| 效率指标补全 | B055 | unit, integration | 5 类指标计算; 边界场景; API 新指标聚合; source 隔离; metadata-only 计算 | ⬜ |
-| Balanced Problem Sets + Production Path | B056 | unit, integration, smoke | 5 类反向测试; SSE 管道验证; 反馈 E2E smoke | ⬜ |
-| 死代码清理 + 信号处理 + evals.db cleanup | S051 | unit, integration, smoke | SIGINT/SIGTERM 信号处理; cleanup CLI; ConnectScreen 删除; 活跃 run 保护 | ⬜ |
-| Eval CLI 文档补全 | S053 | verification | CLAUDE.md eval CLI + 环境变量说明 | ⬜ |
+| 配套产物刷新 | S052 | verification | alignment_checklist.md + test_coverage.md 更新为 R051 | ✅ |
+| Session 生命周期 per-terminal | B051 | unit, integration, smoke | session 复用; terminal 隔离; 删除清理; inactive/reactivate; SSE session_created 一次; usage API terminal scope; result_event_id 跨模块; write-before-push | ✅ |
+| 客户端 token 展示适配 | F053 | unit, widget, smoke | usage 从服务端 API; 多次增长; 终端切换; 零值; 重开刷新; API 失败降级; 无 stale 数据 | ✅ |
+| Feedback→Eval 闭环 + Quality Monitor | B052 | unit, integration, smoke | 反馈→candidate 闭环; 新 payload; 幂等去重; 权限隔离; 无 session 反馈; quality 自动触发; source=production; feedback_status projection | ✅ |
+| Agent 面板反馈按钮 | F054 | widget, smoke | 按钮显示; 提交互互; 状态恢复(投影); 失败重试; error 视图反馈; 终端切换恢复 | ✅ |
+| Eval HTML 报告生成器 | B053 | unit | HTML 生成; 空数据; 对比; 退化; HTML 转义; 脱敏验证; 无效 run_id | ✅ |
+| 不变量 Grader + 多轮状态一致性 | B054 | unit, integration | InvariantGrader 三规则 pass/fail; 多轮 YAML task; malformed 规则稳定失败 | ✅ |
+| 效率指标补全 | B055 | unit, integration | 5 类指标计算; 边界场景; API 新指标聚合; source 隔离; metadata-only 计算 | ✅ |
+| Balanced Problem Sets + Production Path | B056 | unit, integration, smoke | 5 类反向测试; SSE 管道验证; 反馈 E2E smoke | ✅ |
+| 死代码清理 + 信号处理 + evals.db cleanup | S051 | unit, integration, smoke | SIGINT/SIGTERM 信号处理; cleanup CLI; ConnectScreen 删除; 活跃 run 保护 | ✅ |
+| Eval CLI 文档补全 | S053 | verification | CLAUDE.md eval CLI + 环境变量说明 | ✅ |
 
 #### 评估体系补全 R051 关键测试场景
 
