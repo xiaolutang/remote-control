@@ -1428,3 +1428,255 @@ class TestSourceFilter:
         for m in integ:
             assert m.source == "integration"
             assert "integ" in m.session_id
+
+
+# ── Run 边界过滤回归测试 ───────────────────────────────────────────────────
+
+
+class TestQualityMonitorRunBoundary:
+    """验证 quality monitor 按 run 边界过滤事件，不同 run 事件互不干扰。"""
+
+    def _make_session(self, terminal_id="term-1", conversation_id="conv-1",
+                      _run_start_event_index=5):
+        """构造 mock AgentSession。"""
+        from datetime import datetime, timezone
+        from app.services.agent_session import AgentSession
+        from app.services.agent_session_types import AgentSessionState
+
+        now = datetime.now(timezone.utc)
+        return AgentSession(
+            id="test-session-boundary",
+            intent="test intent",
+            device_id="device-1",
+            user_id="user-1",
+            state=AgentSessionState.COMPLETED,
+            created_at=now,
+            last_active_at=now,
+            terminal_id=terminal_id,
+            conversation_id=conversation_id,
+            _run_start_event_index=_run_start_event_index,
+        )
+
+    def _make_mock_eval_db(self):
+        """构造 mock EvalDatabase 实例，init_db 可 await。"""
+        from unittest.mock import MagicMock, AsyncMock
+        mock_db = MagicMock()
+        mock_db.init_db = AsyncMock()
+        return mock_db
+
+    def _make_mock_list_events(self, all_events):
+        """构造 mock list_agent_conversation_events，模拟 DB 层 after_index 过滤。
+
+        真实 DB 查询会根据 after_index 过滤 event_index > after_index 的事件。
+        """
+        from unittest.mock import AsyncMock
+
+        async def _list_events(user_id, device_id, terminal_id, *, after_index=None,
+                               event_types=None):
+            if after_index is not None:
+                return [e for e in all_events if e.get("event_index", -1) > after_index]
+            return list(all_events)
+
+        return AsyncMock(side_effect=_list_events)
+
+    def test_consecutive_runs_isolated_events(self):
+        """同一 terminal 连续两次 run，第二次 run 的 extraction 不包含第一次 run 的事件。
+
+        模拟场景：
+        - 第一次 run: event_index 0~4（共 5 个事件）
+        - 第二次 run: event_index 5~9（共 5 个事件）
+
+        验证：
+        - _run_start_event_index=5 只取 index>5 的事件（DB 层过滤）
+        - result_event_index=9 只取 index<=9 的事件（代码层过滤）
+        - 最终 extract_and_store_metrics 收到的只有 run2 的事件（index 6~9）
+        """
+        from unittest.mock import patch
+        from app.services.agent_session_manager import AgentSessionManager
+        from app.services.agent_session_runner import _trigger_quality_monitor
+
+        manager = AgentSessionManager()
+        session = self._make_session(_run_start_event_index=5)
+
+        # 构造两次 run 的全部事件（index 0~9）
+        all_events = []
+        for i in range(10):
+            all_events.append({
+                "event_index": i,
+                "event_type": "tool_step" if i % 2 == 0 else "result",
+                "created_at": f"2025-01-01T10:00:{i:02d}+00:00",
+                "payload": {
+                    "tool_name": "execute_command" if i % 2 == 0 else None,
+                    "response_type": "command_sequence" if i % 2 != 0 else None,
+                    "usage": {"total_tokens": 100} if i % 2 != 0 else {},
+                },
+            })
+
+        captured_events = []
+
+        async def _fake_extract_and_store(eval_db, events, **kwargs):
+            captured_events.extend(events)
+            return []
+
+        mock_eval_db = self._make_mock_eval_db()
+        mock_list_events = self._make_mock_list_events(all_events)
+
+        with patch("evals.db.EvalDatabase", return_value=mock_eval_db), \
+             patch("evals.quality_monitor.extract_and_store_metrics",
+                   side_effect=_fake_extract_and_store), \
+             patch("app.store.database.list_agent_conversation_events",
+                   mock_list_events), \
+             patch("asyncio.ensure_future", side_effect=lambda coro: asyncio.run(coro)):
+
+            _trigger_quality_monitor(
+                manager,
+                session,
+                result_event_data={
+                    "response_type": "command_sequence",
+                    "usage": {"total_tokens": 500},
+                },
+                result_event_id="evt-run2-result",
+                result_event_index=9,
+            )
+
+        # DB 层 after_index=5 → 返回 index 6~9（4 个）
+        # 代码层 result_event_index=9 → 保留 index<=9（不变，4 个）
+        assert len(captured_events) == 4, \
+            f"Expected 4 events (run2 only, index 6-9), got {len(captured_events)}"
+        for event in captured_events:
+            idx = event.get("event_index", -1)
+            assert 6 <= idx <= 9, \
+                f"Event index {idx} should be in range [6, 9] (run2 only)"
+
+    def test_first_run_does_not_include_later_events(self):
+        """第一次 run 的 extraction 不包含后续 run 的事件。
+
+        模拟场景：
+        - 第一次 run: event_index 0~4
+        - 第二次 run: event_index 5~9（不应出现在第一次 run 的 extraction 中）
+
+        验证：
+        - _run_start_event_index=-1（第一次 run，无 after_index 过滤）
+        - result_event_index=4 只取 index<=4 的事件
+        """
+        from unittest.mock import patch
+        from app.services.agent_session_manager import AgentSessionManager
+        from app.services.agent_session_runner import _trigger_quality_monitor
+
+        manager = AgentSessionManager()
+        # 第一次 run：_run_start_event_index=-1（默认值，表示无下限过滤）
+        session = self._make_session(_run_start_event_index=-1)
+
+        # 构造两次 run 的全部事件（index 0~9）
+        all_events = []
+        for i in range(10):
+            all_events.append({
+                "event_index": i,
+                "event_type": "result" if i in (4, 9) else "tool_step",
+                "created_at": f"2025-01-01T10:00:{i:02d}+00:00",
+                "payload": {
+                    "tool_name": "execute_command" if i not in (4, 9) else None,
+                    "response_type": "command_sequence" if i in (4, 9) else None,
+                    "usage": {"total_tokens": 200} if i in (4, 9) else {},
+                },
+            })
+
+        captured_events = []
+
+        async def _fake_extract_and_store(eval_db, events, **kwargs):
+            captured_events.extend(events)
+            return []
+
+        mock_eval_db = self._make_mock_eval_db()
+        mock_list_events = self._make_mock_list_events(all_events)
+
+        with patch("evals.db.EvalDatabase", return_value=mock_eval_db), \
+             patch("evals.quality_monitor.extract_and_store_metrics",
+                   side_effect=_fake_extract_and_store), \
+             patch("app.store.database.list_agent_conversation_events",
+                   mock_list_events), \
+             patch("asyncio.ensure_future", side_effect=lambda coro: asyncio.run(coro)):
+
+            _trigger_quality_monitor(
+                manager,
+                session,
+                result_event_data={
+                    "response_type": "command_sequence",
+                    "usage": {"total_tokens": 200},
+                },
+                result_event_id="evt-run1-result",
+                result_event_index=4,
+            )
+
+        # _run_start_event_index=-1 → after_index=None → DB 返回全部 10 个
+        # 代码层 result_event_index=4 → 只保留 index<=4 → 5 个事件
+        assert len(captured_events) == 5, \
+            f"Expected 5 events (run1 only), got {len(captured_events)}"
+        for event in captured_events:
+            idx = event.get("event_index", -1)
+            assert 0 <= idx <= 4, \
+                f"Event index {idx} should be in range [0, 4] (run1 only)"
+
+    def test_run_start_event_index_filters_lower_bound(self):
+        """验证 _run_start_event_index 正确传递给 list_agent_conversation_events。
+
+        模拟三次 run 的场景，取第三次 run（_run_start_event_index=6），
+        验证 after_index 参数正确传递。
+        """
+        from unittest.mock import patch, AsyncMock
+        from app.services.agent_session_manager import AgentSessionManager
+        from app.services.agent_session_runner import _trigger_quality_monitor
+
+        manager = AgentSessionManager()
+        session = self._make_session(_run_start_event_index=6)
+
+        # 构造全部事件
+        all_events = []
+        for i in range(9):
+            all_events.append({
+                "event_index": i,
+                "event_type": "tool_step",
+                "created_at": f"2025-01-01T10:00:{i:02d}+00:00",
+                "payload": {"tool_name": "execute_command"},
+            })
+
+        captured_events = []
+
+        async def _fake_extract_and_store(eval_db, events, **kwargs):
+            captured_events.extend(events)
+            return []
+
+        mock_eval_db = self._make_mock_eval_db()
+        mock_list_events = self._make_mock_list_events(all_events)
+
+        with patch("evals.db.EvalDatabase", return_value=mock_eval_db), \
+             patch("evals.quality_monitor.extract_and_store_metrics",
+                   side_effect=_fake_extract_and_store), \
+             patch("app.store.database.list_agent_conversation_events",
+                   mock_list_events), \
+             patch("asyncio.ensure_future", side_effect=lambda coro: asyncio.run(coro)):
+
+            _trigger_quality_monitor(
+                manager,
+                session,
+                result_event_data={
+                    "response_type": "command_sequence",
+                    "usage": {"total_tokens": 300},
+                },
+                result_event_id="evt-run3-result",
+                result_event_index=8,
+            )
+
+        # 验证 list_agent_conversation_events 被正确调用，after_index=6
+        mock_list_events.assert_called_once()
+        call_kwargs = mock_list_events.call_args
+        assert call_kwargs.kwargs.get("after_index") == 6, \
+            f"Expected after_index=6, got {call_kwargs.kwargs.get('after_index')}"
+
+        # DB 层 after_index=6 → 返回 index 7~8（2 个）
+        # 代码层 result_event_index=8 → 保留 index<=8（不变，2 个）
+        assert len(captured_events) == 2
+        for event in captured_events:
+            idx = event.get("event_index", -1)
+            assert 7 <= idx <= 8, \
+                f"Event index {idx} should be in range [7, 8] (run3 only)"
