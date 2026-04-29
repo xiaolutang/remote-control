@@ -19,6 +19,8 @@ class MockWebSocketService extends ChangeNotifier implements WebSocketService {
 
   /// 控制 connect() 是否抛异常
   bool connectThrows = false;
+  bool sendThrows = false;
+  String sendErrorMessage = '终端连接不可写';
   final StreamController<String> _outputController =
       StreamController<String>.broadcast();
   final StreamController<TerminalOutputFrame> _outputFrameController =
@@ -54,6 +56,7 @@ class MockWebSocketService extends ChangeNotifier implements WebSocketService {
   int? _ptyCols;
   int? _attachEpoch;
   int? _recoveryEpoch;
+  bool _bracketedPasteModeEnabled = false;
 
   @override
   final String serverUrl = 'ws://localhost:8765';
@@ -163,6 +166,12 @@ class MockWebSocketService extends ChangeNotifier implements WebSocketService {
   int? get recoveryEpoch => _recoveryEpoch;
 
   @override
+  bool get bracketedPasteModeEnabled => _bracketedPasteModeEnabled;
+
+  @override
+  bool get canSend => _status == ConnectionStatus.connected;
+
+  @override
   bool get isAuthFailed => _lastCloseCode == 4001 || _lastCloseCode == 4011;
 
   @override
@@ -173,6 +182,9 @@ class MockWebSocketService extends ChangeNotifier implements WebSocketService {
 
   @override
   bool get debugRequiresApplicationLayerEncryption => true;
+
+  @override
+  String debugEncodeDataMessage(String data) => data;
 
   /// 模拟连接成功
   void simulateConnect({bool agentOnline = true}) {
@@ -350,6 +362,11 @@ class MockWebSocketService extends ChangeNotifier implements WebSocketService {
     notifyListeners();
   }
 
+  void simulateBracketedPasteMode(bool enabled) {
+    _bracketedPasteModeEnabled = enabled;
+    notifyListeners();
+  }
+
   /// 获取已发送的消息列表
   List<String> getSentMessages() => List.unmodifiable(sentMessages);
 
@@ -386,6 +403,14 @@ class MockWebSocketService extends ChangeNotifier implements WebSocketService {
 
   @override
   Future<void> send(String data) async {
+    sentMessages.add(data);
+  }
+
+  @override
+  Future<void> sendOrThrow(String data) async {
+    if (sendThrows || !canSend) {
+      throw StateError(sendErrorMessage);
+    }
     sentMessages.add(data);
   }
 

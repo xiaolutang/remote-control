@@ -23,6 +23,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../mocks/mock_websocket_service.dart';
 
+String _largeAiPromptFixture() => List<String>.generate(
+      240,
+      (index) =>
+          'line $index: generated prompt content for multiline injection',
+    ).join('\n');
+
 /// Fake controller that can simulate Agent events
 class _AgentFakeController extends RuntimeSelectionController {
   _AgentFakeController({
@@ -473,8 +479,7 @@ void main() {
       expect(find.byKey(const Key('side-panel-intent-input')), findsOneWidget);
     });
 
-    testWidgets(
-        'exploring state shows assistant_message bubble from live SSE',
+    testWidgets('exploring state shows assistant_message bubble from live SSE',
         (tester) async {
       final controller = _AgentFakeController();
       final agentService = _FakeAgentSessionService(
@@ -884,8 +889,7 @@ void main() {
       final streamController = StreamController<AgentConversationEventItem>();
       final agentService = _FakeAgentSessionService(
         events: const [],
-        onFetchConversation: (_, __) async =>
-            const AgentConversationProjection(
+        onFetchConversation: (_, __) async => const AgentConversationProjection(
           conversationId: 'conv-sync-msg',
           deviceId: 'device-1',
           terminalId: 'term-1',
@@ -932,13 +936,11 @@ void main() {
       expect(find.text('查一下部署状态'), findsOneWidget);
       expect(find.text('所有服务运行正常，无异常日志。'), findsOneWidget);
       // message 类型不再显示折叠卡片和"已回复"标签
-      expect(
-          find.byKey(const Key('side-panel-message-replied-tag')),
+      expect(find.byKey(const Key('side-panel-message-replied-tag')),
           findsNothing);
       // message 类型无执行按钮、无注入按钮
       expect(find.byKey(const Key('side-panel-execute')), findsNothing);
-      expect(
-          find.byKey(const Key('side-panel-inject-prompt')), findsNothing);
+      expect(find.byKey(const Key('side-panel-inject-prompt')), findsNothing);
       unawaited(streamController.close());
     });
 
@@ -949,8 +951,7 @@ void main() {
       final streamController = StreamController<AgentConversationEventItem>();
       final agentService = _FakeAgentSessionService(
         events: const [],
-        onFetchConversation: (_, __) async =>
-            const AgentConversationProjection(
+        onFetchConversation: (_, __) async => const AgentConversationProjection(
           conversationId: 'conv-sync-prompt',
           deviceId: 'device-1',
           terminalId: 'term-1',
@@ -1002,8 +1003,7 @@ void main() {
       // 活跃结果无执行按钮
       expect(find.byKey(const Key('side-panel-execute')), findsNothing);
       // 活跃 ai_prompt 结果有注入按钮（跨端同步后可注入）
-      expect(
-          find.byKey(const Key('side-panel-inject-prompt')), findsOneWidget);
+      expect(find.byKey(const Key('side-panel-inject-prompt')), findsOneWidget);
       unawaited(streamController.close());
     });
 
@@ -1014,8 +1014,7 @@ void main() {
       final streamController = StreamController<AgentConversationEventItem>();
       final agentService = _FakeAgentSessionService(
         events: const [],
-        onFetchConversation: (_, __) async =>
-            const AgentConversationProjection(
+        onFetchConversation: (_, __) async => const AgentConversationProjection(
           conversationId: 'conv-sync-assistant-msg',
           deviceId: 'device-1',
           terminalId: 'term-1',
@@ -1123,16 +1122,15 @@ void main() {
 
       final agentService = _FakeAgentSessionService(
         events: const [],
-        onFetchConversation: (_, __) async =>
-            const AgentConversationProjection(
-              conversationId: 'conv-sync',
-              deviceId: 'device-1',
-              terminalId: 'term-1',
-              status: 'active',
-              nextEventIndex: 0,
-              activeSessionId: null,
-              events: [],
-            ),
+        onFetchConversation: (_, __) async => const AgentConversationProjection(
+          conversationId: 'conv-sync',
+          deviceId: 'device-1',
+          terminalId: 'term-1',
+          status: 'active',
+          nextEventIndex: 0,
+          activeSessionId: null,
+          events: [],
+        ),
         onStreamConversation: (_) => convStreamController.stream,
         onRunSession: _runSession,
       );
@@ -1822,7 +1820,8 @@ void main() {
   });
 
   group('F088: response_type branching', () {
-    testWidgets('responseType=message shows summary card without execute button',
+    testWidgets(
+        'responseType=message shows summary card without execute button',
         (tester) async {
       final controller = _AgentFakeController();
       final ws = MockWebSocketService()..simulateConnect();
@@ -2071,6 +2070,241 @@ void main() {
       expect(ws.sentMessages, isNotEmpty);
       expect(ws.sentMessages.last, 'echo injected\r');
     });
+
+    testWidgets('ai_prompt inject wraps multiline prompt with BPM',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final ws = MockWebSocketService()..simulateConnect();
+      final agentService = _FakeAgentSessionService(
+        events: [
+          const AgentSessionCreatedEvent(sessionId: 'session-inject-multiline'),
+          AgentResultEvent(
+            summary: '注入多行 prompt',
+            steps: const [],
+            provider: 'agent',
+            source: 'recommended',
+            needConfirm: false,
+            aliases: const {},
+            responseType: 'ai_prompt',
+            aiPrompt: 'cd /tmp/project\ncodex',
+          ),
+        ],
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        wsService: ws,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+
+      await _openSidePanel(tester);
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '注入多行',
+      );
+      await tester.tap(find.byKey(const Key('side-panel-send')));
+      await tester.pumpAndSettle(const Duration(seconds: 5));
+
+      ws.simulateBracketedPasteMode(true);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('side-panel-inject-prompt')));
+      await tester.pumpAndSettle();
+
+      expect(ws.sentMessages, isNotEmpty);
+      expect(
+        ws.sentMessages.last,
+        '\x1b[200~cd /tmp/project\ncodex\x1b[201~\r',
+      );
+    });
+
+    testWidgets('ai_prompt inject closes panel after large prompt is sent',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final ws = MockWebSocketService()..simulateConnect();
+      final largePrompt = _largeAiPromptFixture();
+      final agentService = _FakeAgentSessionService(
+        events: [
+          const AgentSessionCreatedEvent(sessionId: 'session-inject-large'),
+          AgentResultEvent(
+            summary: '注入大段 prompt',
+            steps: const [],
+            provider: 'agent',
+            source: 'recommended',
+            needConfirm: false,
+            aliases: const {},
+            responseType: 'ai_prompt',
+            aiPrompt: largePrompt,
+          ),
+        ],
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        wsService: ws,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+
+      await _openSidePanel(tester);
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '注入大段 prompt',
+      );
+      await tester.tap(find.byKey(const Key('side-panel-send')));
+      await tester.pumpAndSettle(const Duration(seconds: 5));
+
+      ws.simulateBracketedPasteMode(true);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('side-panel-inject-prompt')));
+      await tester.pumpAndSettle();
+
+      expect(ws.sentMessages, isNotEmpty);
+      expect(ws.sentMessages.last, '\x1b[200~$largePrompt\x1b[201~\r');
+      expect(find.byKey(const Key('smart-terminal-fab')), findsOneWidget);
+      expect(find.byKey(const Key('side-panel-inject-prompt')), findsNothing);
+    });
+
+    testWidgets(
+        'ai_prompt inject keeps panel open when transport is unwritable',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final ws = MockWebSocketService()
+        ..simulateConnect()
+        ..sendThrows = true
+        ..sendErrorMessage = '终端连接不可写';
+      final agentService = _FakeAgentSessionService(
+        events: [
+          const AgentSessionCreatedEvent(sessionId: 'session-inject-error'),
+          AgentResultEvent(
+            summary: '注入失败测试',
+            steps: const [],
+            provider: 'agent',
+            source: 'recommended',
+            needConfirm: false,
+            aliases: const {},
+            responseType: 'ai_prompt',
+            aiPrompt: 'echo injected',
+          ),
+        ],
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        wsService: ws,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+
+      await _openSidePanel(tester);
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '注入失败',
+      );
+      await tester.tap(find.byKey(const Key('side-panel-send')));
+      await tester.pumpAndSettle(const Duration(seconds: 5));
+
+      await tester.tap(find.byKey(const Key('side-panel-inject-prompt')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('smart-terminal-fab')), findsNothing);
+      expect(find.textContaining('Prompt 注入失败：终端连接不可写'), findsOneWidget);
+      expect(find.byKey(const Key('agent-retry')), findsOneWidget);
+    });
+
+    testWidgets('ai_prompt inject failure allows retry result to inject again',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final ws = MockWebSocketService()
+        ..simulateConnect()
+        ..sendThrows = true
+        ..sendErrorMessage = '终端连接不可写';
+      var runCount = 0;
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onRunSession: (_) {
+          runCount += 1;
+          return Stream<AgentSessionEvent>.fromIterable([
+            AgentSessionCreatedEvent(
+                sessionId: 'session-inject-error-$runCount'),
+            AgentResultEvent(
+              summary: '注入失败测试',
+              steps: const [],
+              provider: 'agent',
+              source: 'recommended',
+              needConfirm: false,
+              aliases: const {},
+              responseType: 'ai_prompt',
+              aiPrompt: 'echo injected',
+            ),
+          ]);
+        },
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        wsService: ws,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+
+      await _openSidePanel(tester);
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '注入失败',
+      );
+      await tester.tap(find.byKey(const Key('side-panel-send')));
+      await tester.pumpAndSettle(const Duration(seconds: 5));
+
+      await tester.tap(find.byKey(const Key('side-panel-inject-prompt')));
+      await tester.pumpAndSettle();
+
+      ws.sendThrows = false;
+      await tester.tap(find.byKey(const Key('agent-retry')));
+      await tester.pumpAndSettle(const Duration(seconds: 5));
+
+      final button = tester.widget<FilledButton>(
+        find.byKey(const Key('side-panel-inject-prompt')),
+      );
+      expect(button.onPressed, isNotNull);
+      expect(runCount, 2);
+    });
+
+    testWidgets('multiline ai_prompt waits for bracketed paste mode',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final ws = MockWebSocketService()..simulateConnect();
+      final agentService = _FakeAgentSessionService(
+        events: [
+          const AgentSessionCreatedEvent(sessionId: 'session-inject-blocked'),
+          AgentResultEvent(
+            summary: '注入多行 prompt',
+            steps: const [],
+            provider: 'agent',
+            source: 'recommended',
+            needConfirm: false,
+            aliases: const {},
+            responseType: 'ai_prompt',
+            aiPrompt: 'line1\nline2',
+          ),
+        ],
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        wsService: ws,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+
+      await _openSidePanel(tester);
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        '注入多行',
+      );
+      await tester.tap(find.byKey(const Key('side-panel-send')));
+      await tester.pumpAndSettle(const Duration(seconds: 5));
+
+      expect(
+          find.byKey(const Key('side-panel-inject-warning')), findsOneWidget);
+      final button = tester.widget<FilledButton>(
+        find.byKey(const Key('side-panel-inject-prompt')),
+      );
+      expect(button.onPressed, isNull);
+      expect(ws.sentMessages, isEmpty);
+    });
   });
 
   group('Fix: asking state preserves Q&A history', () {
@@ -2112,8 +2346,7 @@ void main() {
       final streamController = StreamController<AgentConversationEventItem>();
       final agentService = _FakeAgentSessionService(
         events: const [],
-        onFetchConversation: (_, __) async =>
-            const AgentConversationProjection(
+        onFetchConversation: (_, __) async => const AgentConversationProjection(
           conversationId: 'conv-qa',
           deviceId: 'device-1',
           terminalId: 'term-1',
@@ -2203,8 +2436,7 @@ void main() {
       final streamController = StreamController<AgentConversationEventItem>();
       final agentService = _FakeAgentSessionService(
         events: const [],
-        onFetchConversation: (_, __) async =>
-            const AgentConversationProjection(
+        onFetchConversation: (_, __) async => const AgentConversationProjection(
           conversationId: 'conv-session',
           deviceId: 'device-1',
           terminalId: 'term-1',
@@ -2347,8 +2579,7 @@ void main() {
   });
 
   group('Fix: conversation_reset during active SSE does not clear page', () {
-    testWidgets(
-        'sending new intent preserves previous turns in history',
+    testWidgets('sending new intent preserves previous turns in history',
         (tester) async {
       final controller = _AgentFakeController();
 
@@ -2685,8 +2916,8 @@ void main() {
     });
 
     // 测试 3: 无 reset 时 SSE 结束不触发额外清理
-    testWidgets(
-        'does not reset state on SSE done when no pendingReset', (tester) async {
+    testWidgets('does not reset state on SSE done when no pendingReset',
+        (tester) async {
       final controller = _AgentFakeController();
       final agentService = _FakeAgentSessionService(
         events: const [],
@@ -3014,8 +3245,8 @@ void main() {
     });
 
     // 测试 7: pendingReset 后走 cancel/restart，不会污染下一轮 session
-    testWidgets(
-        'cancel during pendingReset does not leak to next session', (tester) async {
+    testWidgets('cancel during pendingReset does not leak to next session',
+        (tester) async {
       final controller = _AgentFakeController();
       final sseController1 = StreamController<AgentSessionEvent>();
       final sseController2 = StreamController<AgentSessionEvent>();
@@ -3308,8 +3539,8 @@ void main() {
     // 测试 1: 投影有 activeSessionId 时优先使用（而非事件遍历）
     // projection.activeSessionId='session-from-projection'，
     // 事件 sessionId='session-old'，respond 应使用 projection 的值
-    testWidgets(
-        'uses projection.activeSessionId over local traversal', (tester) async {
+    testWidgets('uses projection.activeSessionId over local traversal',
+        (tester) async {
       final controller = _AgentFakeController();
       final convStreamController =
           StreamController<AgentConversationEventItem>.broadcast();
@@ -3537,8 +3768,7 @@ void main() {
     });
 
     // 测试 4: 投影和事件都没有 sessionId 时，respond 被静默拒绝
-    testWidgets(
-        'no crash when both projection and events have no sessionId',
+    testWidgets('no crash when both projection and events have no sessionId',
         (tester) async {
       final controller = _AgentFakeController();
       final convStreamController =
@@ -3692,7 +3922,8 @@ void main() {
     Future<void> _setupMultiRoundQA(
       WidgetTester tester, {
       required _FakeAgentSessionService agentService,
-      required StreamController<AgentConversationEventItem> convStreamController,
+      required StreamController<AgentConversationEventItem>
+          convStreamController,
       required List<String> answers,
       required String intent,
     }) async {
@@ -3794,8 +4025,7 @@ void main() {
       var runCount = 0;
       final agentService = _FakeAgentSessionService(
         events: const [],
-        onFetchConversation: (_, __) async =>
-            const AgentConversationProjection(
+        onFetchConversation: (_, __) async => const AgentConversationProjection(
           conversationId: 'conv-f095-1',
           deviceId: 'device-1',
           terminalId: 'term-1',
@@ -3865,8 +4095,7 @@ void main() {
       var runCount = 0;
       final agentService = _FakeAgentSessionService(
         events: const [],
-        onFetchConversation: (_, __) async =>
-            const AgentConversationProjection(
+        onFetchConversation: (_, __) async => const AgentConversationProjection(
           conversationId: 'conv-f095-2',
           deviceId: 'device-1',
           terminalId: 'term-1',
@@ -3932,8 +4161,7 @@ void main() {
       var runCount = 0;
       final agentService = _FakeAgentSessionService(
         events: const [],
-        onFetchConversation: (_, __) async =>
-            const AgentConversationProjection(
+        onFetchConversation: (_, __) async => const AgentConversationProjection(
           conversationId: 'conv-f095-3',
           deviceId: 'device-1',
           terminalId: 'term-1',
@@ -4067,13 +4295,13 @@ void main() {
     });
 
     // 场景 4: 单轮问答编辑（truncates all Q&A and reruns）
-    testWidgets('single answer edit truncates all Q&A and reruns', (tester) async {
+    testWidgets('single answer edit truncates all Q&A and reruns',
+        (tester) async {
       final convStreamController =
           StreamController<AgentConversationEventItem>.broadcast();
       final agentService = _FakeAgentSessionService(
         events: const [],
-        onFetchConversation: (_, __) async =>
-            const AgentConversationProjection(
+        onFetchConversation: (_, __) async => const AgentConversationProjection(
           conversationId: 'conv-f095-4',
           deviceId: 'device-1',
           terminalId: 'term-1',
@@ -4137,8 +4365,7 @@ void main() {
       var runCount = 0;
       final agentService = _FakeAgentSessionService(
         events: const [],
-        onFetchConversation: (_, __) async =>
-            const AgentConversationProjection(
+        onFetchConversation: (_, __) async => const AgentConversationProjection(
           conversationId: 'conv-f095-5',
           deviceId: 'device-1',
           terminalId: 'term-1',
@@ -4227,7 +4454,8 @@ void main() {
       );
       await tester.tap(sendBtn);
       // 编辑会触发新的 runSession，sseController2 提供 result
-      sseController2.add(const AgentSessionCreatedEvent(sessionId: 's-empty-2'));
+      sseController2
+          .add(const AgentSessionCreatedEvent(sessionId: 's-empty-2'));
       sseController2.add(AgentResultEvent(
         summary: '空事件编辑结果',
         steps: [],
@@ -4354,8 +4582,7 @@ void main() {
       var runCount = 0;
       final agentService = _FakeAgentSessionService(
         events: const [],
-        onFetchConversation: (_, __) async =>
-            const AgentConversationProjection(
+        onFetchConversation: (_, __) async => const AgentConversationProjection(
           conversationId: 'conv-f107-edit',
           deviceId: 'device-1',
           terminalId: 'term-1',

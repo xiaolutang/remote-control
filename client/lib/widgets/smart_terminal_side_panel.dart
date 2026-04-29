@@ -38,12 +38,14 @@ class SmartTerminalSidePanel extends StatefulWidget {
   const SmartTerminalSidePanel({
     super.key,
     required this.child,
+    this.onPanelClosed,
     this.agentSessionServiceBuilder,
     this.usageSummaryServiceBuilder,
   });
 
   /// 底层终端内容
   final Widget child;
+  final VoidCallback? onPanelClosed;
   final AgentSessionServiceFactory? agentSessionServiceBuilder;
   final UsageSummaryServiceFactory? usageSummaryServiceBuilder;
 
@@ -112,6 +114,10 @@ class _SmartTerminalSidePanelState extends State<SmartTerminalSidePanel> {
 
   void _closePanel() {
     setState(() => _panelOpen = false);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      widget.onPanelClosed?.call();
+    });
   }
 
   Rect _fabBounds(Size size, EdgeInsets padding) {
@@ -224,8 +230,8 @@ class _SmartTerminalSidePanelState extends State<SmartTerminalSidePanel> {
                         heroTag: 'smart_terminal_fab',
                         onPressed: _openPanel,
                         backgroundColor: colorScheme.primary,
-                        child:
-                            Icon(Icons.auto_awesome, color: colorScheme.onPrimary),
+                        child: Icon(Icons.auto_awesome,
+                            color: colorScheme.onPrimary),
                       ),
                     ],
                   ),

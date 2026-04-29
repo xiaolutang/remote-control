@@ -153,6 +153,99 @@ void main() {
       expect(service.debugRequiresApplicationLayerEncryption, isFalse);
       service.dispose();
     });
+
+    test('debugEncodeDataMessage preserves multiline input without BPM', () {
+      final service = WebSocketService(
+        serverUrl: 'ws://localhost:8888',
+        token: 'test-token',
+        sessionId: 'session-1',
+      );
+
+      final encoded = service.debugEncodeDataMessage(
+        'set -e\ncd /tmp/project\ncodex\n',
+      );
+      final payload = jsonDecode(encoded) as Map<String, dynamic>;
+      final decoded = utf8.decode(base64Decode(payload['payload'] as String));
+
+      expect(payload['type'], 'data');
+      expect(decoded, 'set -e\ncd /tmp/project\ncodex\n');
+      expect(decoded, isNot(contains('\x1b[200~')));
+      expect(decoded, isNot(contains('\x1b[201~')));
+
+      service.dispose();
+    });
+
+    test('sendOrThrow fails loudly when websocket is not writable', () async {
+      final service = WebSocketService(
+        serverUrl: 'ws://localhost:8888',
+        token: 'test-token',
+        sessionId: 'session-1',
+      );
+
+      await expectLater(
+        service.sendOrThrow('echo test'),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message.toString(),
+            'message',
+            contains('终端连接不可写'),
+          ),
+        ),
+      );
+
+      service.dispose();
+    });
+
+    test('tracks bracketed paste mode from terminal output', () async {
+      final service = WebSocketService(
+        serverUrl: 'ws://localhost:8888',
+        token: 'test-token',
+        sessionId: 'session-1',
+      );
+
+      expect(service.bracketedPasteModeEnabled, isFalse);
+
+      service.debugHandleMessage(jsonEncode({
+        'type': 'data',
+        'payload': base64Encode(utf8.encode('\x1b[?2004hClaude Code> ')),
+      }));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(service.bracketedPasteModeEnabled, isTrue);
+
+      service.debugHandleMessage(jsonEncode({
+        'type': 'data',
+        'payload': base64Encode(utf8.encode('\x1b[?2004l')),
+      }));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(service.bracketedPasteModeEnabled, isFalse);
+
+      service.dispose();
+    });
+
+    test('tracks bracketed paste mode when control sequence spans frames',
+        () async {
+      final service = WebSocketService(
+        serverUrl: 'ws://localhost:8888',
+        token: 'test-token',
+        sessionId: 'session-1',
+      );
+
+      service.debugHandleMessage(jsonEncode({
+        'type': 'data',
+        'payload': base64Encode(utf8.encode('\x1b[?20')),
+      }));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(service.bracketedPasteModeEnabled, isFalse);
+
+      service.debugHandleMessage(jsonEncode({
+        'type': 'data',
+        'payload': base64Encode(utf8.encode('04h')),
+      }));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(service.bracketedPasteModeEnabled, isTrue);
+
+      service.dispose();
+    });
   });
 
   group('WebSocketService terminalsChangedStream', () {

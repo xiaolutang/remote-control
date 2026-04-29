@@ -67,6 +67,54 @@ void _wsResetTerminalDecoders(WebSocketService s) {
   s._liveUtf8Decoder.reset();
   s._snapshotUtf8Decoder.reset();
   s._lastSnapshotActiveBuffer = TerminalBufferKind.main;
+  s._bracketedPasteModeEnabled = false;
+  s._terminalModeTail = '';
+}
+
+const String _kBracketedPasteEnableSequence = '\x1b[?2004h';
+const String _kBracketedPasteDisableSequence = '\x1b[?2004l';
+const int _kTerminalModeTailLength = 32;
+
+void _wsTrackTerminalModes(WebSocketService s, String payload) {
+  if (payload.isEmpty) {
+    return;
+  }
+
+  final combined = s._terminalModeTail + payload;
+  var nextBracketedPasteMode = s._bracketedPasteModeEnabled;
+  var cursor = 0;
+
+  while (cursor < combined.length) {
+    final enableIndex =
+        combined.indexOf(_kBracketedPasteEnableSequence, cursor);
+    final disableIndex =
+        combined.indexOf(_kBracketedPasteDisableSequence, cursor);
+    if (enableIndex < 0 && disableIndex < 0) {
+      break;
+    }
+
+    final shouldEnable =
+        disableIndex < 0 || (enableIndex >= 0 && enableIndex < disableIndex);
+    if (shouldEnable) {
+      nextBracketedPasteMode = true;
+      cursor = enableIndex + _kBracketedPasteEnableSequence.length;
+    } else {
+      nextBracketedPasteMode = false;
+      cursor = disableIndex + _kBracketedPasteDisableSequence.length;
+    }
+  }
+
+  if (combined.length <= _kTerminalModeTailLength) {
+    s._terminalModeTail = combined;
+  } else {
+    s._terminalModeTail =
+        combined.substring(combined.length - _kTerminalModeTailLength);
+  }
+
+  if (nextBracketedPasteMode != s._bracketedPasteModeEnabled) {
+    s._bracketedPasteModeEnabled = nextBracketedPasteMode;
+    s._notify();
+  }
 }
 
 TerminalBufferKind? _wsParseActiveBuffer(dynamic raw) {
@@ -371,6 +419,7 @@ void _wsEmitTerminalPayload(
   required int? recoveryEpoch,
   required TerminalBufferKind? activeBuffer,
 }) {
+  _wsTrackTerminalModes(s, payload);
   s._outputFrameController.add(
     TerminalOutputFrame(
       kind: switch (type) {

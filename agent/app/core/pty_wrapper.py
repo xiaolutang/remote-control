@@ -11,6 +11,7 @@ import struct
 import sys
 import fcntl
 import termios
+import time
 from typing import Optional, Callable
 
 from app.core.pty_process import cleanup_wrapper, configure_child_process, wait_for_termination
@@ -21,6 +22,9 @@ logger = logging.getLogger(__name__)
 
 class PTYWrapper:
     """PTY 包装器，用于创建和管理伪终端"""
+
+    WRITE_RETRY_TIMEOUT = 1.0
+    WRITE_WAIT_INTERVAL = 0.05
 
     def __init__(self, command: str, args: Optional[list] = None, config: Optional[PTYConfig] = None):
         """
@@ -213,12 +217,28 @@ class PTYWrapper:
         try:
             written = 0
             total = len(data)
+            deadline = time.monotonic() + self.WRITE_RETRY_TIMEOUT
             while written < total:
-                n = os.write(self.master_fd, data[written:])
-                if n == 0:
-                    # os.write 返回 0 表示无法写入（不应发生，但防御性处理）
-                    return False
-                written += n
+                try:
+                    n = os.write(self.master_fd, data[written:])
+                    if n == 0:
+                        # os.write 返回 0 表示无法写入（不应发生，但防御性处理）
+                        return False
+                    written += n
+                    continue
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        return False
+                    _, writable, _ = select.select(
+                        [],
+                        [self.master_fd],
+                        [],
+                        self.WRITE_WAIT_INTERVAL,
+                    )
+                    if not writable:
+                        continue
+                except InterruptedError:
+                    continue
             return True
         except Exception:
             return False

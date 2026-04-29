@@ -99,7 +99,17 @@ class AgentMessageHandler:
             terminal_id = data.get("terminal_id")
             target = self._client.runtime_manager.get_terminal(terminal_id) if terminal_id else self._client.pty
             if target:
-                target.write(decoded)
+                write_ok = target.write(decoded)
+                if not write_ok:
+                    _log(
+                        f"终端输入写入失败: terminal_id={terminal_id or 'session'} "
+                        f"bytes={len(decoded)}"
+                    )
+                elif len(decoded) >= 1024:
+                    _log(
+                        f"终端输入已写入: terminal_id={terminal_id or 'session'} "
+                        f"bytes={len(decoded)}"
+                    )
         except Exception as e:
             _log(f"数据写入失败: {e}")
 

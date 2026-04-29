@@ -58,6 +58,8 @@ class WebSocketService extends ChangeNotifier {
   int? _ptyCols;
   int? _attachEpoch;
   int? _recoveryEpoch;
+  bool _bracketedPasteModeEnabled = false;
+  String _terminalModeTail = '';
   final _liveUtf8Decoder = _StreamingUtf8Decoder();
   final _snapshotUtf8Decoder = _StreamingUtf8Decoder();
   TerminalBufferKind _lastSnapshotActiveBuffer = TerminalBufferKind.main;
@@ -135,6 +137,8 @@ class WebSocketService extends ChangeNotifier {
   int? get ptyCols => _ptyCols;
   int? get attachEpoch => _attachEpoch;
   int? get recoveryEpoch => _recoveryEpoch;
+  bool get bracketedPasteModeEnabled => _bracketedPasteModeEnabled;
+  bool get canSend => _status == ConnectionStatus.connected && _channel != null;
 
   /// 是否因认证失败而永久断开（close code 4001 或 4011），
   /// 此类服务不可复用，应丢弃重建。
@@ -183,6 +187,10 @@ class WebSocketService extends ChangeNotifier {
   @visibleForTesting
   void debugHandleMessage(String message) => _handleMessage(message);
 
+  @visibleForTesting
+  String debugEncodeDataMessage(String data) =>
+      _wsEncodeDataMessage(this, data);
+
   Uint8List base64Decode(String source) => base64.decode(source);
 
   /// 连接到服务器
@@ -190,6 +198,9 @@ class WebSocketService extends ChangeNotifier {
 
   /// 发送数据并等待消息 flush 到网络（不变量 #61）
   Future<void> send(String data) => _wsSend(this, data);
+
+  /// 用于必须成功送达用户输入的场景；连接不可写时显式抛错。
+  Future<void> sendOrThrow(String data) => _wsSendOrThrow(this, data);
 
   void sendLine(String data) {
     send('$data\r');

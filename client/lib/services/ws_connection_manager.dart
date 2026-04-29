@@ -170,23 +170,52 @@ Future<void> _wsSend(WebSocketService s, String data) async {
   if (s._status != ConnectionStatus.connected || s._channel == null) {
     return;
   }
-  // Bracketed Paste Mode: 多行内容（如 AI prompt 注入）用 BPM 转义序列包裹，
-  // 防止终端将换行解释为多次输入导致截断。
-  final content = data.contains('\n')
-      ? '\x1b[200~$data\x1b[201~'
-      : data;
-  final raw = {
-    'type': 'data',
-    'payload': base64Encode(utf8.encode(content)),
-    'timestamp': DateTime.now().toUtc().toIso8601String(),
-  };
-  final message = s._encryptionEnabled && s._crypto.shouldEncrypt('data')
-      ? jsonEncode(s._crypto.encryptMessage(raw))
-      : jsonEncode(raw);
+  await _wsSendEncodedMessage(s, data);
+}
+
+Future<void> _wsSendOrThrow(WebSocketService s, String data) async {
+  if (s._status != ConnectionStatus.connected) {
+    throw StateError(_wsBuildSendUnavailableMessage(s));
+  }
+  if (s._channel == null) {
+    throw StateError(_wsBuildSendUnavailableMessage(s));
+  }
+  await _wsSendEncodedMessage(s, data);
+}
+
+Future<void> _wsSendEncodedMessage(WebSocketService s, String data) async {
+  final message = _wsEncodeDataMessage(s, data);
   s._channel!.sink.add(message);
   if (s._channel is IOWebSocketChannel) {
     await (s._channel as IOWebSocketChannel).ready;
   }
+}
+
+String _wsBuildSendUnavailableMessage(WebSocketService s) {
+  final closeCode = s._lastCloseCode?.toString() ?? '-';
+  final closeReason =
+      (s._lastCloseReason ?? '').isEmpty ? '-' : s._lastCloseReason!;
+  final terminalStatus = s._terminalStatus ?? '-';
+  final owner = s._owner.isEmpty ? '-' : s._owner;
+  final geometryOwner = s._geometryOwnerView ?? '-';
+  return '终端连接不可写：'
+      'status=${s._status.name}, '
+      'terminalStatus=$terminalStatus, '
+      'owner=$owner, '
+      'geometryOwner=$geometryOwner, '
+      'closeCode=$closeCode, '
+      'closeReason=$closeReason';
+}
+
+String _wsEncodeDataMessage(WebSocketService s, String data) {
+  final raw = {
+    'type': 'data',
+    'payload': base64Encode(utf8.encode(data)),
+    'timestamp': DateTime.now().toUtc().toIso8601String(),
+  };
+  return s._encryptionEnabled && s._crypto.shouldEncrypt('data')
+      ? jsonEncode(s._crypto.encryptMessage(raw))
+      : jsonEncode(raw);
 }
 
 void _wsResize(WebSocketService s, int rows, int cols) {

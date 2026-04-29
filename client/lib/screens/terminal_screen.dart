@@ -169,7 +169,8 @@ class _TerminalScreenState extends State<TerminalScreen> {
 
             Future<void> toggleItem(ShortcutItem item, bool enabled) async {
               await applyItems(editableItems
-                  .map((c) => c.id == item.id ? c.copyWith(enabled: enabled) : c)
+                  .map(
+                      (c) => c.id == item.id ? c.copyWith(enabled: enabled) : c)
                   .toList(growable: false));
             }
 
@@ -195,7 +196,8 @@ class _TerminalScreenState extends State<TerminalScreen> {
                   scope: ShortcutItemScope.project,
                 );
               }).toList(growable: false);
-              await scs.saveProjectShortcutItems(_ctrl.defaultProjectId, normalized);
+              await scs.saveProjectShortcutItems(
+                  _ctrl.defaultProjectId, normalized);
               projectItems = normalized;
               if (!mounted) return;
               await _ctrl.loadShortcutItems();
@@ -217,7 +219,8 @@ class _TerminalScreenState extends State<TerminalScreen> {
 
             Future<void> editProjectItem([ShortcutItem? initial]) async {
               final edited = await ShortcutMenuWidgets.showProjectCommandEditor(
-                context, initialItem: initial,
+                context,
+                initialItem: initial,
               );
               if (edited == null) return;
               final updated = List<ShortcutItem>.from(projectItems);
@@ -275,7 +278,8 @@ class _TerminalScreenState extends State<TerminalScreen> {
                       const SizedBox(height: 4),
                       Text('支持显示/隐藏、顺序调整，以及当前项目命令的维护。',
                           style: theme.textTheme.bodySmall?.copyWith(
-                              color: colorScheme.onSurfaceVariant, height: 1.35)),
+                              color: colorScheme.onSurfaceVariant,
+                              height: 1.35)),
                       const SizedBox(height: 12),
                       Align(
                         alignment: Alignment.centerLeft,
@@ -298,10 +302,12 @@ class _TerminalScreenState extends State<TerminalScreen> {
                         child: ListView.separated(
                           shrinkWrap: true,
                           itemCount: editableItems.length + 1,
-                          separatorBuilder: (_, __) => const SizedBox(height: 10),
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 10),
                           itemBuilder: (context, index) {
                             if (index == editableItems.length) {
-                              return ShortcutMenuWidgets.buildProjectCommandsSection(
+                              return ShortcutMenuWidgets
+                                  .buildProjectCommandsSection(
                                 context: context,
                                 projectItems: projectItems,
                                 editProjectItem: editProjectItem,
@@ -417,18 +423,19 @@ class _TerminalScreenState extends State<TerminalScreen> {
     final service = _ctrl.webSocketService;
     final vc = _viewConfig;
 
-    final terminalShellColor =
-        theme.brightness == Brightness.dark ? Colors.black : const Color(0xFFF3F6FB);
+    final terminalShellColor = theme.brightness == Brightness.dark
+        ? Colors.black
+        : const Color(0xFFF3F6FB);
     final terminalPanelColor = theme.brightness == Brightness.dark
         ? const Color(0xFF0C1117)
         : Colors.white;
-    final terminalBorderColor =
-        theme.brightness == Brightness.dark ? Colors.white10 : colorScheme.outlineVariant;
+    final terminalBorderColor = theme.brightness == Brightness.dark
+        ? Colors.white10
+        : colorScheme.outlineVariant;
 
     final content = Column(
       children: [
-        if (_ctrl.showErrorBanner)
-          _buildErrorBanner(colorScheme),
+        if (_ctrl.showErrorBanner) _buildErrorBanner(colorScheme),
         Expanded(
           child: Container(
             color: terminalShellColor,
@@ -468,7 +475,8 @@ class _TerminalScreenState extends State<TerminalScreen> {
                           controller: _ctrl.terminalController,
                           focusNode: _terminalFocusNode,
                           autofocus: vc.autofocus,
-                          autoResize: service != null && _ctrl.shouldAutoResize(service),
+                          autoResize: service != null &&
+                              _ctrl.shouldAutoResize(service),
                           theme: terminalTheme,
                           padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
                           backgroundOpacity: 1,
@@ -476,7 +484,8 @@ class _TerminalScreenState extends State<TerminalScreen> {
                           keyboardType: TextInputType.text,
                           inputAction: vc.inputAction,
                           enableSuggestions: vc.enableSuggestions,
-                          enableIMEPersonalizedLearning: vc.enableIMEPersonalizedLearning,
+                          enableIMEPersonalizedLearning:
+                              vc.enableIMEPersonalizedLearning,
                           autocorrect: false,
                           textStyle: vc.textStyle,
                         ),
@@ -542,7 +551,8 @@ class _TerminalScreenState extends State<TerminalScreen> {
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(children: [
-            Icon(Icons.error_outline, color: colorScheme.onErrorContainer, size: 20),
+            Icon(Icons.error_outline,
+                color: colorScheme.onErrorContainer, size: 20),
             const SizedBox(width: 12),
             Expanded(
               child: Consumer<WebSocketService>(
@@ -580,7 +590,10 @@ class _TerminalScreenState extends State<TerminalScreen> {
     try {
       final controller = context.read<RuntimeSelectionController>();
       if (controller.selectedDeviceId != null) {
-        return SmartTerminalSidePanel(child: content);
+        return SmartTerminalSidePanel(
+          onPanelClosed: _requestFocus,
+          child: content,
+        );
       }
     } on ProviderNotFoundException {
       // standalone 模式无 RuntimeSelectionController
@@ -613,7 +626,8 @@ class _TerminalScreenState extends State<TerminalScreen> {
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(
-          width: 8, height: 8,
+          width: 8,
+          height: 8,
           decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
         const SizedBox(width: 8),

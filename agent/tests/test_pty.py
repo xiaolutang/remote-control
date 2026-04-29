@@ -602,6 +602,39 @@ class TestPTYWriteIntegrity:
 
         pty.stop()
 
+    def test_write_retries_on_blocking_io_error(self):
+        """非阻塞 PTY 遇到 EAGAIN 时应等待可写后重试，而不是静默丢输入。"""
+        from unittest.mock import patch
+
+        payload = b"B" * 4096
+
+        pty = PTYWrapper("/bin/cat")
+        assert pty.start()
+
+        original_fd = pty.master_fd
+        real_os_write = os.write
+        attempts = 0
+
+        def mock_os_write(fd, data):
+            nonlocal attempts
+            if fd == original_fd:
+                attempts += 1
+                if attempts == 1:
+                    raise BlockingIOError()
+            return real_os_write(fd, data)
+
+        with patch("os.write", side_effect=mock_os_write), patch(
+            "select.select",
+            return_value=([], [original_fd], []),
+        ) as mock_select:
+            result = pty.write(payload)
+
+        assert result is True
+        assert attempts >= 2
+        mock_select.assert_called()
+
+        pty.stop()
+
     def test_write_not_running_returns_false(self):
         """PTY 未运行时 write 返回 False"""
         pty = PTYWrapper("/bin/cat")
