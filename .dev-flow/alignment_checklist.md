@@ -139,17 +139,11 @@
 | **R043 增量: response_type** | **测试覆盖 + 产物更新** | **CONTRACT-047, CONTRACT-050** | **done** | **done** | **done** | **S088: Server + Client 三类型测试 + alignment/test_coverage 更新** |
 | **R043 增量: skill 配置** | **Agent HTTP Skill/Knowledge 管理 API** | **CONTRACT-024, CONTRACT-050** | **done** | **not_applicable** | **done** | **B095: GET/POST /skills + /knowledge 端点 + toggle** |
 | **R043 增量: skill 配置** | **Desktop 客户端 Skill 配置面板** | **CONTRACT-024, CONTRACT-050** | **not_applicable** | **done** | **done** | **F089: 桌面端菜单入口 + SkillConfigScreen + 开关 + 重启提示** |
-| **Agent 评估体系** | **Eval 数据模型 + SQLite schema** | **CONTRACT-051** | **done** | **not_applicable** | **done** | **B096: 6 张表 + Pydantic 模型 + 配置检查，56 测试通过** |
-| **Agent 评估体系** | **Eval Harness + Code Graders** | **CONTRACT-051** | **done** | **not_applicable** | **done** | **B097-B098: harness + 5 种 code grader，105 测试通过** |
-| **Agent 评估体系** | **初始 Task 数据集 + LLM-as-Judge** | **CONTRACT-051** | **done** | **not_applicable** | **done** | **B099-B100: 30 个 eval task + Judge grader，83 测试通过** |
-| **Agent 评估体系** | **在线质量指标提取与 API** | **CONTRACT-052** | **done** | **not_applicable** | **done** | **B101-B102: 质量指标持久化 + REST API，72 测试通过** |
-| **Agent 评估体系** | **反馈闭环 + 回归测试** | **CONTRACT-053** | **done** | **not_applicable** | **done** | **B103-B104: 反馈→eval task + 回归运行器，62 测试通过** |
 | **智能面板收敛 R045** | **conversation_reset pendingReset** | **—** | **not_applicable** | **completed** | **completed** | **F093: SSE 活跃时 pendingReset 机制，client-only, no contract change** |
 | **智能面板收敛 R045** | **_activeSessionId 服务端投影** | **—** | **not_applicable** | **passed** | **passed** | **F094: 从 projection.activeSessionId 恢复，client-only, no contract change** |
 | **智能面板收敛 R045** | **问答回答编辑测试** | **—** | **not_applicable** | **passed** | **passed** | **F095: _submitAnswerEdit 测试覆盖 + sublist clamp 保护，client-only, no contract change** |
 | **智能面板收敛 R045** | **Planner 降级路径清理** | **—** | **not_applicable** | **completed** | **completed** | **F096: 废弃 planner 降级，移除 _resolveViaPlanner/_buildPlannerBody/_buildPreviewCard 等 ~250 行死代码，architecture.md 三层→两层** |
 | **智能面板收敛 R045** | **配套产物更新** | **—** | **not_applicable** | **not_applicable** | **pending** | **S093: test_coverage + alignment 更新** |
-| **Agent 评估体系** | **评估体系测试覆盖** | **CONTRACT-051..053** | **done** | **not_applicable** | **done** | **S089-S092: 框架/Grader/质量/反馈测试，355 总测试通过** |
 | **R046 文档基线** | **文档基线验证** | **CONTRACT-047..051** | **not_applicable** | **not_applicable** | **completed** | **S104: architecture.md/api_contracts.md/test_coverage.md/alignment_checklist.md 基线已验证一致（8 条 acceptance criteria 全部 pass + 7 轮 review 修复）** |
 | **R046 Agent 架构** | **自由对话+deliver_result 工具** | **CONTRACT-047, CONTRACT-048** | **completed** | **not_applicable** | **completed** | **B105: output_type=str + deliver_result 工具 + ResultDelivered 异常 + usage 累积回调。162 测试全通过** |
 | **R046 Agent 循环** | **phase-driven SSE 事件** | **CONTRACT-047, CONTRACT-048, CONTRACT-049** | **completed** | **not_applicable** | **completed** | **B106: streaming_text/tool_step SSE + CoT 过滤兜底 + ResultDelivered 路径 + planner 代码移除。70 测试全通过（23 新增）** |
@@ -159,3 +153,14 @@
 | **R046 测试** | **Server+Client 测试更新** | **CONTRACT-047..051** | **completed** | **not_applicable** | **completed** | **S110: 全部 11 个 AC 已被 B105/B106/F107 覆盖。Server 232 passed + Client 66 passed** |
 | **R046 文档** | **事后精细校准** | **CONTRACT-047..051** | **not_applicable** | **not_applicable** | **completed** | **S111: CONTRACT-047/048/049/050/051 校准完成。architecture.md 不变量/模块职责与代码一致；api_contracts.md 五契约与代码行为一致；S109 状态同步为 73% 通过率** |
 | **R046 迭代** | **SYSTEM_PROMPT 简化 + Eval 修正** | **CONTRACT-047, CONTRACT-048, CONTRACT-050** | **completed** | **not_applicable** | **completed** | **S112: SYSTEM_PROMPT 简化 ask_user 确认流程 + 明确 execute_command vs deliver_result 边界 + 收窄 ai_prompt + cg_003 改 message + ic_008 补 mock_tool_responses + need_confirm 回归** |
+| **评估体系补全 R051** | **配套产物刷新** | — | not_applicable | not_applicable | pending | S052: alignment_checklist.md + test_coverage.md 更新为 R051 |
+| **评估体系补全 R051** | **Session 生命周期 per-terminal** | CONTRACT-048, CONTRACT-049 | pending | not_applicable | pending | B051: session 懒创建 + usage API terminal scope + result_event_id |
+| **评估体系补全 R051** | **客户端 token 展示适配** | CONTRACT-048 | not_applicable | pending | pending | F053: 移除客户端累加，改为服务端 API |
+| **评估体系补全 R051** | **Feedback→Eval 闭环 + Quality Monitor** | CONTRACT-051, CONTRACT-052, CONTRACT-053 | pending | not_applicable | pending | B052: 反馈闭环 + 自动触发 + source=production |
+| **评估体系补全 R051** | **Agent 面板反馈按钮** | CONTRACT-053 | not_applicable | pending | pending | F054: 反馈按钮 + feedback_status 恢复 |
+| **评估体系补全 R051** | **Eval HTML 报告生成器** | CONTRACT-051 | pending | not_applicable | pending | B053: 静态 HTML 报告 + 脱敏 transcript |
+| **评估体系补全 R051** | **不变量 Grader + 多轮状态一致性** | CONTRACT-051 | pending | not_applicable | pending | B054: InvariantGrader + 多轮 YAML task |
+| **评估体系补全 R051** | **效率指标补全** | CONTRACT-052 | pending | not_applicable | pending | B055: 5 类效率指标 + source=integration |
+| **评估体系补全 R051** | **Balanced Problem Sets + Production Path** | CONTRACT-051, CONTRACT-052 | pending | pending | pending | B056: 反向测试 + SSE 管道验证 |
+| **评估体系补全 R051** | **死代码清理 + 信号处理 + evals.db cleanup** | — | pending | pending | pending | S051: ConnectScreen 删除 + SIGINT/SIGTERM + cleanup CLI |
+| **评估体系补全 R051** | **Eval CLI 文档补全** | — | not_applicable | not_applicable | pending | S053: CLAUDE.md eval 文档 |

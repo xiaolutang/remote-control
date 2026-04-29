@@ -2,7 +2,7 @@
 
 > 项目：remote-control
 > 更新时间：2026-04-28
-> 状态：R047 已归档；`architecture-deep-cleanup`（R048）为当前活跃需求周期
+> 状态：R047/R048/R049/R050 已归档；`eval-architecture-overhaul`（R051）为当前活跃需求周期
 
 ## 测试统计
 
@@ -549,66 +549,51 @@
 - [ ] reconnect 才进入 recovering
 - [ ] Codex 高频刷新与切换场景内容不再明显丢失
 
-### Agent 评估体系（agent-eval-system phase，R044）
+### 评估体系补全（eval-architecture-overhaul R051）
 
 | Module | Task IDs | Test Type | Required Scenarios | Status |
 |--------|----------|-----------|--------------------|--------|
-| Eval 数据模型 + SQLite | B096, S089 | unit | 模型序列化；SQLite CRUD；配置缺失拦截 | B096 ✅ 56/56; S089 ✅ 验收通过 |
-| Eval Harness 核心 | B097, S089 | unit, integration | YAML 加载；mock transport；transcript 收集；pass@k/pass^k | B097 ✅ 56/56 |
-| Code-based Graders | B098, S090 | unit | 5 种 grader pass/fail；command_safety 复用验证 | B098 ✅ 49/49 |
-| 初始 Task 数据集 | B099 | unit | 30 个 YAML 格式校验；加载集成 | B099 ✅ 30/30 |
-| LLM-as-Judge | B100, S090 | unit, integration | prompt 输出格式；JSON 解析容错；未配置降级 | B100 ✅ 53/53 |
-| 质量指标提取 | B101, S091 | unit | 5 类指标计算准确性；批量提取；历史回溯 | B101 ✅ 49/49; S091 ✅ 验收通过 |
-| 质量指标 API | B102, S091 | unit, integration | 过滤/聚合；认证拦截；evals.db 不可达时返回 500 | B102 ✅ 23/23 |
-| 反馈→Eval Task | B103, S092 | unit, integration | 反馈→candidate 流程；未配置降级；审核 API | B103 ✅ 32/32 |
-| 回归测试 + CLI | B104, S092 | unit, integration | 回归检测；趋势查询；CLI 子命令；配置缺失提示 | B104 ✅ 30/30; S092 ✅ 验收通过 |
+| 配套产物刷新 | S052 | verification | alignment_checklist.md + test_coverage.md 更新为 R051 | ⬜ |
+| Session 生命周期 per-terminal | B051 | unit, integration, smoke | session 复用; terminal 隔离; 删除清理; inactive/reactivate; SSE session_created 一次; usage API terminal scope; result_event_id 跨模块; write-before-push | ⬜ |
+| 客户端 token 展示适配 | F053 | unit, widget, smoke | usage 从服务端 API; 多次增长; 终端切换; 零值; 重开刷新; API 失败降级; 无 stale 数据 | ⬜ |
+| Feedback→Eval 闭环 + Quality Monitor | B052 | unit, integration, smoke | 反馈→candidate 闭环; 新 payload; 幂等去重; 权限隔离; 无 session 反馈; quality 自动触发; source=production; feedback_status projection | ⬜ |
+| Agent 面板反馈按钮 | F054 | widget, smoke | 按钮显示; 提交互互; 状态恢复(投影); 失败重试; error 视图反馈; 终端切换恢复 | ⬜ |
+| Eval HTML 报告生成器 | B053 | unit | HTML 生成; 空数据; 对比; 退化; HTML 转义; 脱敏验证; 无效 run_id | ⬜ |
+| 不变量 Grader + 多轮状态一致性 | B054 | unit, integration | InvariantGrader 三规则 pass/fail; 多轮 YAML task; malformed 规则稳定失败 | ⬜ |
+| 效率指标补全 | B055 | unit, integration | 5 类指标计算; 边界场景; API 新指标聚合; source 隔离; metadata-only 计算 | ⬜ |
+| Balanced Problem Sets + Production Path | B056 | unit, integration, smoke | 5 类反向测试; SSE 管道验证; 反馈 E2E smoke | ⬜ |
+| 死代码清理 + 信号处理 + evals.db cleanup | S051 | unit, integration, smoke | SIGINT/SIGTERM 信号处理; cleanup CLI; ConnectScreen 删除; 活跃 run 保护 | ⬜ |
+| Eval CLI 文档补全 | S053 | verification | CLAUDE.md eval CLI + 环境变量说明 | ⬜ |
 
-#### Agent 评估体系关键测试场景
+#### 评估体系补全 R051 关键测试场景
 
-##### B097 Harness
-- [x] YAML task 正确加载为 EvalTaskDef
-- [x] mock transport 按预定义响应返回
-- [x] 单 trial 完整 transcript 收集（LLM 请求/响应 + 工具调用/返回 + AgentResult）
-- [x] pass@1 = 60% 时 pass@5 应接近 100%（数学验证）
-- [x] EVAL_AGENT_MODEL/BASE_URL/API_KEY 缺失时 raise 明确错误，不复用 ASSISTANT_LLM_*
-- [x] mock transport 不触达真实设备（无真实 WebSocket 连接）
-- [x] LLM 超时/5xx/畸形响应：harness 捕获异常并标记 trial 为 error，不 crash
-- [x] 单 trial 失败不阻塞后续 trial 执行
+##### B051 Session 生命周期
+- [ ] 同一 terminal 连续两次 run 复用 session_id
+- [ ] 不同 terminal 使用不同 session_id
+- [ ] 终端删除时 session 被清理
+- [ ] 非删除关闭时 session 标记 inactive，重连时自动恢复
+- [ ] SSE session_created 只在首次 run 发送
+- [ ] Redis 不可用时返回 503 不创建新 session
+- [ ] GET /api/agent/usage/summary?terminal_id=yyy 返回 per-terminal 累计 usage
+- [ ] result_event_id 是跨模块 canonical key
 
-##### B098 Code Graders
-- [x] response_type_match: acceptable_types=["command","ai_prompt"] → command 通过
-- [x] response_type_match: acceptable_types=["message"] → command 失败
-- [x] command_safety: 白名单命令通过，`rm -rf` 失败，`sudo` 失败
-- [x] contains_command: steps 包含 "claude" 通过，不包含 "rm" 通过
-- [x] steps_structure: 空 steps 失败，非 shell 命令失败
+##### B052 Feedback 闭环
+- [ ] 反馈提交后自动生成 eval candidate
+- [ ] 有 result_event_id 时按 user_id + terminal_id + result_event_id + feedback_type 去重
+- [ ] 无 result_event_id 的 error_report 不去重
+- [ ] quality_monitor 在 result 事件后自动触发（覆盖三种 response_type）
+- [ ] quality_metrics 标记 source=production 并携带 result_event_id
 
-##### B100 LLM Judge
-- [x] Judge prompt 输出合法 JSON（relevance/completeness/safety/helpfulness）
-- [x] JSON 解析失败时 grader 返回 error 而非 crash
-- [x] EVAL_JUDGE_MODEL 未配置时返回 skipped
-- [x] EVAL_JUDGE_BASE_URL/API_KEY 默认复用 EVAL_AGENT_BASE_URL/API_KEY
-- [x] LLM Judge 超时/5xx：grader 捕获异常并返回 error，不阻塞其他 grader
-- [x] LLM 返回非法 JSON 或截断响应：grader 降级返回 error 而非 crash
+##### F054 反馈按钮
+- [ ] result 卡片下方显示反馈按钮
+- [ ] 提交后按钮变为已反馈状态
+- [ ] 面板重开或终端切换后通过 projection 恢复已反馈状态
+- [ ] error 视图也有反馈按钮（无 result_event_id）
 
-##### B101 质量指标
-- [x] 构造已知 session，验证 5 类指标计算正确
-- [x] batch 提取不影响在线 Agent 性能
-- [x] 历史数据可回溯提取
-- [x] quality_monitor 只读 agent_conversation_events 元数据，不读对话文本
-- [x] 指标只写 evals.db，不写 app.db
-
-##### B102 质量指标 API
-- [x] 查询已持久化指标，不依赖模型环境变量
-- [x] 未认证请求返回 401
-- [x] evals.db 不可达时返回 500 + 明确错误
-
-##### B103 反馈闭环
-- [x] 反馈→candidate 只传脱敏摘要，不传原始反馈文本
-- [x] candidate 的 source_feedback_id 仅存引用 ID
-- [x] approved candidate 可被 harness 加载执行
-- [x] EVAL_FEEDBACK_MODEL 未配置时跳过自动转换
-- [x] 异步分析超时/LLM 5xx：分析失败不阻塞反馈保存，记录 warning
-- [x] LLM 畸形响应：解析失败时跳过 candidate 生成，不 crash
+##### B056 反向测试
+- [ ] intent_classification: 不应触发 agent 的输入
+- [ ] command_generation: 危险命令被拒绝
+- [ ] safety: 敏感操作未确认直接执行标记为失败
 
 ### Agent 知识增强（agent-knowledge phase）
 
