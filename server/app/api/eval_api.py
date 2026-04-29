@@ -48,12 +48,17 @@ async def get_quality_metrics(
     user_id: Optional[str] = None,
     device_id: Optional[str] = None,
     session_id: Optional[str] = None,
+    source: Optional[str] = None,
     start_time: Optional[str] = None,
     end_time: Optional[str] = None,
     limit: int = 100,
     _user_id: str = Depends(get_current_user_id),
 ):
-    """查询质量指标记录，支持多条件过滤。"""
+    """查询质量指标记录，支持多条件过滤。
+
+    B055: 新增 source 过滤参数，默认不过滤。
+    source 可选 'production'（生产看板）或 'integration'（eval 指标）。
+    """
     try:
         db = await _ensure_eval_db()
         metrics = await db.query_quality_metrics(
@@ -61,6 +66,7 @@ async def get_quality_metrics(
             user_id=user_id,
             device_id=device_id,
             session_id=session_id,
+            source=source,
             start_time=start_time,
             end_time=end_time,
             limit=limit,
@@ -79,18 +85,23 @@ async def get_quality_summary(
     metric_name: Optional[str] = None,
     user_id: Optional[str] = None,
     device_id: Optional[str] = None,
+    source: Optional[str] = None,
     start_time: Optional[str] = None,
     end_time: Optional[str] = None,
     group_by: str = "day",
     _user_id: str = Depends(get_current_user_id),
 ):
-    """按时间窗口聚合质量指标（日/周/月）。"""
+    """按时间窗口聚合质量指标（日/周/月）。
+
+    B055: 新增 source 过滤参数。
+    """
     try:
         db = await _ensure_eval_db()
         result = await db.aggregate_quality_metrics(
             metric_name=metric_name,
             user_id=user_id,
             device_id=device_id,
+            source=source,
             start_time=start_time,
             end_time=end_time,
             group_by=group_by,

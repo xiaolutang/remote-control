@@ -976,6 +976,10 @@ class EvalHarness:
         total_token_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
         tools = _build_tools_schema()
 
+        # B055: 采集效率指标用的事件列表（模拟 conversation_events 格式）
+        integration_events: List[Dict[str, Any]] = []
+        trial_start_iso = datetime.now(timezone.utc).isoformat()
+
         # B108: deliver_result 捕获的结果
         deliver_result_captured: Optional[Dict[str, Any]] = None
         incomplete = False
@@ -1005,8 +1009,24 @@ class EvalHarness:
             # 提取工具调用
             tool_calls = _extract_tool_calls(response)
 
+            # B055: 记录 phase_change(thinking) 事件
+            integration_events.append({
+                "event_type": "phase_change",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "payload": {"phase": "THINKING", "description": f"round {round_idx}"},
+            })
+
             # 记录到 transcript
             text_response = _extract_text_response(response)
+
+            # B055: 如果有文本输出，记录 streaming_text 事件
+            if text_response and text_response.strip():
+                integration_events.append({
+                    "event_type": "streaming_text",
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "payload": {"text_delta": text_response[:200]},
+                })
+
             transcript.append({
                 "role": "assistant",
                 "round": round_idx,
@@ -1075,6 +1095,18 @@ class EvalHarness:
                     # Mock transport 执行
                     result = await transport.execute_command("eval-session", command, cwd)
 
+                    # B055: 记录 tool_step 事件
+                    integration_events.append({
+                        "event_type": "tool_step",
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "payload": {
+                            "tool_name": "execute_command",
+                            "description": command[:100],
+                            "status": "done",
+                            "result_summary": (result.get("stdout", "") or "")[:100],
+                        },
+                    })
+
                     tool_call_history.append({
                         "tool_call": {
                             "role": "assistant",
@@ -1108,6 +1140,17 @@ class EvalHarness:
                         _ask_user_reply_idx += 1
                     else:
                         mock_reply = "是的，继续"
+
+                    # B055: 记录 tool_step 事件
+                    integration_events.append({
+                        "event_type": "tool_step",
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "payload": {
+                            "tool_name": "ask_user",
+                            "description": tc["arguments"].get("question", "")[:100],
+                            "status": "done",
+                        },
+                    })
                     tool_call_history.append({
                         "tool_call": {
                             "role": "assistant",
@@ -1136,6 +1179,17 @@ class EvalHarness:
                 elif tc["name"] == "lookup_knowledge":
                     # Mock lookup_knowledge: 返回空（知识库不可用降级）
                     mock_result = "未找到相关知识"
+
+                    # B055: 记录 tool_step 事件
+                    integration_events.append({
+                        "event_type": "tool_step",
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "payload": {
+                            "tool_name": "lookup_knowledge",
+                            "description": tc["arguments"].get("query", "")[:100],
+                            "status": "done",
+                        },
+                    })
                     tool_call_history.append({
                         "tool_call": {
                             "role": "assistant",
@@ -1215,6 +1269,41 @@ class EvalHarness:
             token_usage_json=total_token_usage,
         )
         await self.db.save_trial(trial)
+
+        # B055: 采集效率指标（integration 模式）
+        # 添加 result/error 事件
+        result_event_time = datetime.now(timezone.utc).isoformat()
+        if agent_result.get("response_type") == "error":
+            integration_events.append({
+                "event_type": "error",
+                "created_at": result_event_time,
+                "payload": {"code": "AGENT_ERROR", "message": agent_result.get("summary", "")},
+            })
+        else:
+            integration_events.append({
+                "event_type": "result",
+                "created_at": result_event_time,
+                "payload": {
+                    "response_type": agent_result.get("response_type", ""),
+                    "usage": {
+                        "total_tokens": total_token_usage.get("total_tokens", 0),
+                        "completion_tokens": total_token_usage.get("output_tokens", 0),
+                        "output_tokens": total_token_usage.get("output_tokens", 0),
+                    },
+                },
+            })
+
+        try:
+            from evals.quality_monitor import extract_and_store_metrics
+            await extract_and_store_metrics(
+                self.db,
+                integration_events,
+                session_id=f"eval-{trial.trial_id}",
+                intent=task.input.intent,
+                source="integration",
+            )
+        except Exception as e:
+            logger.warning("B055: 效率指标采集失败 trial=%s: %s", trial.trial_id, e)
 
         return {
             "trial_id": trial.trial_id,

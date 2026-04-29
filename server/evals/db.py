@@ -619,7 +619,7 @@ class EvalDatabase:
     @staticmethod
     def _build_metric_conditions(
         metric_name=None, user_id=None, device_id=None,
-        start_time=None, end_time=None,
+        start_time=None, end_time=None, source=None,
     ) -> tuple:
         """构建 quality_metrics 查询的共享 WHERE 条件。"""
         conditions: List[str] = []
@@ -639,6 +639,10 @@ class EvalDatabase:
         if end_time is not None:
             conditions.append("computed_at <= ?")
             params.append(end_time)
+        # B055: source 过滤
+        if source is not None:
+            conditions.append("source = ?")
+            params.append(source)
         return conditions, params
 
     async def query_quality_metrics(
@@ -648,6 +652,7 @@ class EvalDatabase:
         user_id: Optional[str] = None,
         device_id: Optional[str] = None,
         session_id: Optional[str] = None,
+        source: Optional[str] = None,
         start_time: Optional[str] = None,
         end_time: Optional[str] = None,
         limit: int = 100,
@@ -656,9 +661,10 @@ class EvalDatabase:
 
         动态构建 WHERE 子句，只添加有值的过滤条件。
         ORDER BY computed_at DESC, LIMIT 防止大查询。
+        B055: 新增 source 参数用于区分 production/integration 来源。
         """
         conditions, params = self._build_metric_conditions(
-            metric_name, user_id, device_id, start_time, end_time
+            metric_name, user_id, device_id, start_time, end_time, source
         )
 
         if session_id is not None:
@@ -682,6 +688,7 @@ class EvalDatabase:
         metric_name: Optional[str] = None,
         user_id: Optional[str] = None,
         device_id: Optional[str] = None,
+        source: Optional[str] = None,
         start_time: Optional[str] = None,
         end_time: Optional[str] = None,
         group_by: str = "day",
@@ -690,6 +697,7 @@ class EvalDatabase:
 
         group_by: "day" / "week" / "month"
         返回 group_key, metric_name, count, avg_value, min_value, max_value。
+        B055: 新增 source 参数用于区分 production/integration 来源。
         """
         if group_by == "day":
             group_expr = "strftime('%Y-%m-%d', computed_at)"
@@ -701,7 +709,7 @@ class EvalDatabase:
             group_expr = "strftime('%Y-%m-%d', computed_at)"
 
         conditions, params = self._build_metric_conditions(
-            metric_name, user_id, device_id, start_time, end_time
+            metric_name, user_id, device_id, start_time, end_time, source
         )
 
         query = (

@@ -1,5 +1,5 @@
 """
-B101: quality_monitor 测试 — 验证 5 类质量指标计算正确。
+B101: quality_monitor 测试 — 验证 5 类质量指标 + B055 效率指标计算正确。
 
 使用 mock 数据库（内存 evals.db），构造已知 session 验证指标计算。
 不依赖真实 app.db。
@@ -22,6 +22,12 @@ from evals.quality_monitor import (
     METRIC_RESPONSE_TYPE_ACCURACY,
     METRIC_TOKEN_EFFICIENCY,
     METRIC_TOOL_USAGE_EFFICIENCY,
+    # B055: 效率指标
+    METRIC_N_TURNS,
+    METRIC_N_TOOLCALLS,
+    METRIC_TIME_TO_FIRST_TOKEN,
+    METRIC_OUTPUT_TOKENS_PER_SEC,
+    METRIC_TIME_TO_LAST_TOKEN,
     SessionEventData,
     batch_extract_metrics,
     compute_all_metrics,
@@ -30,6 +36,12 @@ from evals.quality_monitor import (
     compute_response_type_accuracy,
     compute_token_efficiency,
     compute_tool_usage_efficiency,
+    # B055: 效率指标计算函数
+    compute_n_turns,
+    compute_n_toolcalls,
+    compute_time_to_first_token,
+    compute_output_tokens_per_sec,
+    compute_time_to_last_token,
     extract_and_store_metrics,
     extract_session_data,
 )
@@ -502,10 +514,10 @@ class TestComputeAllMetrics:
     """测试完整 5 类指标计算。"""
 
     def test_five_metrics_returned(self):
-        """始终返回 5 个指标。"""
+        """始终返回 10 个指标（5 原有 + 5 效率 B055）。"""
         data = SessionEventData(session_id="s1", intent="install nginx")
         metrics = compute_all_metrics(data)
-        assert len(metrics) == 5
+        assert len(metrics) == 10
 
         metric_names = {m.metric_name for m in metrics}
         assert metric_names == set(ALL_METRIC_NAMES)
@@ -571,11 +583,11 @@ class TestExtractAndStoreMetrics:
             device_id="d1",
             intent="install nginx",
         )
-        assert len(metrics) == 5
+        assert len(metrics) == 10
 
         # 验证持久化
         stored = await eval_db.get_quality_metrics_by_session("s-store-1")
-        assert len(stored) == 5
+        assert len(stored) == 10
 
         names = {m.metric_name for m in stored}
         assert names == set(ALL_METRIC_NAMES)
@@ -698,7 +710,7 @@ class TestBatchExtractMetrics:
             session_ids=["batch-1"],
         )
         assert "batch-1" in results
-        assert len(results["batch-1"]) == 5
+        assert len(results["batch-1"]) == 10
 
     @pytest.mark.asyncio
     async def test_batch_extract_all(self, eval_db, app_db):
@@ -726,7 +738,7 @@ class TestBatchExtractMetrics:
             session_ids=["batch-1"],
         )
         stored = await eval_db.get_quality_metrics_by_session("batch-1")
-        assert len(stored) == 5
+        assert len(stored) == 10
 
     @pytest.mark.asyncio
     async def test_batch_user_device_propagated(self, eval_db, app_db):
@@ -1001,3 +1013,411 @@ class TestQualityMonitorAutoTrigger:
         ]
         _trigger_quality_monitor(manager, session)
         # 无异常即通过（实际写入可能因目录不存在而失败，但不应抛出）
+
+
+# ── B055: 效率指标测试 ─────────────────────────────────────────────────────
+
+
+def _make_phase_change_event(phase: str, created_at: str = "", **extra) -> dict:
+    """构造 phase_change 事件。"""
+    payload = {"phase": phase, "description": "test"}
+    payload.update(extra)
+    event = {"event_type": "phase_change", "payload": payload}
+    if created_at:
+        event["created_at"] = created_at
+    return event
+
+
+def _make_streaming_text_event(text: str = "hello", created_at: str = "", **extra) -> dict:
+    """构造 streaming_text 事件。"""
+    payload = {"text_delta": text}
+    payload.update(extra)
+    event = {"event_type": "streaming_text", "payload": payload}
+    if created_at:
+        event["created_at"] = created_at
+    return event
+
+
+def _make_result_event_with_time(
+    response_type: str = "command_sequence",
+    total_tokens: int = 500,
+    output_tokens: int = 200,
+    created_at: str = "",
+    **extra_payload,
+) -> dict:
+    """构造带时间戳的 result 事件。"""
+    payload = {
+        "response_type": response_type,
+        "summary": "test summary",
+        "usage": {
+            "total_tokens": total_tokens,
+            "completion_tokens": output_tokens,
+            "output_tokens": output_tokens,
+        },
+    }
+    payload.update(extra_payload)
+    event = {"event_type": "result", "payload": payload}
+    if created_at:
+        event["created_at"] = created_at
+    return event
+
+
+def _make_error_event_with_time(created_at: str = "", **extra) -> dict:
+    """构造带时间戳的 error 事件。"""
+    payload = {"code": "AGENT_ERROR", "message": "test error"}
+    payload.update(extra)
+    event = {"event_type": "error", "payload": payload}
+    if created_at:
+        event["created_at"] = created_at
+    return event
+
+
+# ── compute_n_turns ────────────────────────────────────────────────────────
+
+
+class TestComputeNTurns:
+    """B055: n_turns 指标测试"""
+
+    def test_no_phase_changes(self):
+        """无 phase_change 事件 → 0.0"""
+        data = SessionEventData(session_id="s1")
+        assert compute_n_turns(data) == 0.0
+
+    def test_one_phase_change(self):
+        """1 个 phase_change → 1.0"""
+        data = SessionEventData(session_id="s1", phase_change_events=1)
+        assert compute_n_turns(data) == 1.0
+
+    def test_many_phase_changes(self):
+        """多个 phase_change"""
+        data = SessionEventData(session_id="s1", phase_change_events=5)
+        assert compute_n_turns(data) == 5.0
+
+    def test_from_events(self):
+        """从事件流中正确提取 phase_change 计数"""
+        events = [
+            _make_phase_change_event("THINKING"),
+            _make_phase_change_event("ACTING"),
+            _make_tool_step_event("execute_command"),
+            _make_phase_change_event("THINKING"),
+            _make_result_event(),
+        ]
+        data = extract_session_data(events, session_id="s1")
+        assert compute_n_turns(data) == 3.0
+
+
+# ── compute_n_toolcalls ────────────────────────────────────────────────────
+
+
+class TestComputeNToolcalls:
+    """B055: n_toolcalls 指标测试"""
+
+    def test_no_toolcalls(self):
+        """无工具调用 → 0.0"""
+        data = SessionEventData(session_id="s1")
+        assert compute_n_toolcalls(data) == 0.0
+
+    def test_one_toolcall(self):
+        """1 次工具调用 → 1.0"""
+        data = SessionEventData(session_id="s1", tool_step_events=1)
+        assert compute_n_toolcalls(data) == 1.0
+
+    def test_from_events(self):
+        """从事件流中正确提取 tool_step 计数"""
+        events = [
+            _make_tool_step_event("execute_command"),
+            _make_tool_step_event("lookup_knowledge"),
+            _make_result_event(),
+        ]
+        data = extract_session_data(events, session_id="s1")
+        assert compute_n_toolcalls(data) == 2.0
+
+
+# ── compute_time_to_first_token ────────────────────────────────────────────
+
+
+class TestComputeTimeToFirstToken:
+    """B055: time_to_first_token 指标测试"""
+
+    def test_no_timestamps(self):
+        """无时间戳 → -1.0"""
+        data = SessionEventData(session_id="s1")
+        assert compute_time_to_first_token(data) == -1.0
+
+    def test_only_thinking_time(self):
+        """只有 thinking 时间，无 streaming → -1.0"""
+        data = SessionEventData(
+            session_id="s1",
+            thinking_phase_time="2025-01-01T00:00:00+00:00",
+        )
+        assert compute_time_to_first_token(data) == -1.0
+
+    def test_valid_calculation(self):
+        """正常计算：thinking 10:00:00, first_stream 10:00:02 → 2.0 秒"""
+        data = SessionEventData(
+            session_id="s1",
+            thinking_phase_time="2025-01-01T10:00:00+00:00",
+            first_streaming_text_time="2025-01-01T10:00:02+00:00",
+        )
+        result = compute_time_to_first_token(data)
+        assert abs(result - 2.0) < 0.01
+
+    def test_from_events(self):
+        """从事件流中正确计算首 token 延迟"""
+        events = [
+            _make_phase_change_event("THINKING", created_at="2025-01-01T10:00:00+00:00"),
+            _make_streaming_text_event("hello", created_at="2025-01-01T10:00:01.500+00:00"),
+            _make_result_event_with_time(created_at="2025-01-01T10:00:03+00:00"),
+        ]
+        data = extract_session_data(events, session_id="s1")
+        result = compute_time_to_first_token(data)
+        assert abs(result - 1.5) < 0.01
+
+
+# ── compute_output_tokens_per_sec ──────────────────────────────────────────
+
+
+class TestComputeOutputTokensPerSec:
+    """B055: output_tokens_per_sec 指标测试"""
+
+    def test_no_output_tokens(self):
+        """无 output_tokens → -1.0"""
+        data = SessionEventData(session_id="s1")
+        assert compute_output_tokens_per_sec(data) == -1.0
+
+    def test_no_streaming_duration(self):
+        """有 output_tokens 但无 streaming 时间 → -1.0"""
+        data = SessionEventData(
+            session_id="s1",
+            output_tokens=100,
+            first_streaming_text_time="2025-01-01T10:00:00+00:00",
+            # 缺少 last_streaming_text_time
+        )
+        assert compute_output_tokens_per_sec(data) == -1.0
+
+    def test_valid_calculation(self):
+        """100 tokens / 2 秒 = 50.0 tokens/sec"""
+        data = SessionEventData(
+            session_id="s1",
+            output_tokens=100,
+            first_streaming_text_time="2025-01-01T10:00:00+00:00",
+            last_streaming_text_time="2025-01-01T10:00:02+00:00",
+        )
+        result = compute_output_tokens_per_sec(data)
+        assert abs(result - 50.0) < 0.01
+
+    def test_from_events(self):
+        """从事件流中正确计算输出速率"""
+        events = [
+            _make_streaming_text_event("hello", created_at="2025-01-01T10:00:00+00:00"),
+            _make_streaming_text_event("world", created_at="2025-01-01T10:00:05+00:00"),
+            _make_result_event_with_time(output_tokens=500, created_at="2025-01-01T10:00:06+00:00"),
+        ]
+        data = extract_session_data(events, session_id="s1")
+        result = compute_output_tokens_per_sec(data)
+        assert abs(result - 100.0) < 0.01  # 500 / 5 = 100
+
+
+# ── compute_time_to_last_token ─────────────────────────────────────────────
+
+
+class TestComputeTimeToLastToken:
+    """B055: time_to_last_token 指标测试"""
+
+    def test_no_timestamps(self):
+        """无时间戳 → -1.0"""
+        data = SessionEventData(session_id="s1")
+        assert compute_time_to_last_token(data) == -1.0
+
+    def test_only_first_event(self):
+        """只有第一个事件时间 → -1.0"""
+        data = SessionEventData(
+            session_id="s1",
+            first_event_time="2025-01-01T10:00:00+00:00",
+        )
+        assert compute_time_to_last_token(data) == -1.0
+
+    def test_valid_calculation(self):
+        """开始 10:00:00, 结束 10:00:05 → 5.0 秒"""
+        data = SessionEventData(
+            session_id="s1",
+            first_event_time="2025-01-01T10:00:00+00:00",
+            result_or_error_time="2025-01-01T10:00:05+00:00",
+        )
+        result = compute_time_to_last_token(data)
+        assert abs(result - 5.0) < 0.01
+
+    def test_from_events_with_result(self):
+        """从事件流中正确计算总延迟（result 事件）"""
+        events = [
+            _make_tool_step_event("execute_command"),
+            _make_phase_change_event("THINKING", created_at="2025-01-01T10:00:00+00:00"),
+            _make_result_event_with_time(created_at="2025-01-01T10:00:03+00:00"),
+        ]
+        data = extract_session_data(events, session_id="s1")
+        result = compute_time_to_last_token(data)
+        assert abs(result - 3.0) < 0.01
+
+    def test_from_events_with_error(self):
+        """从事件流中正确计算总延迟（error 事件）"""
+        events = [
+            {
+                "event_type": "tool_step",
+                "created_at": "2025-01-01T10:00:00+00:00",
+                "payload": {"tool_name": "execute_command", "status": "done"},
+            },
+            _make_error_event_with_time(created_at="2025-01-01T10:00:02+00:00"),
+        ]
+        data = extract_session_data(events, session_id="s1")
+        result = compute_time_to_last_token(data)
+        assert abs(result - 2.0) < 0.01
+
+
+# ── B055: compute_all_metrics 包含 10 个指标 ──────────────────────────────
+
+
+class TestComputeAllMetricsB055:
+    """B055: compute_all_metrics 返回 10 个指标"""
+
+    def test_ten_metrics_returned(self):
+        """compute_all_metrics 现在返回 10 个指标（5 原有 + 5 效率）"""
+        data = SessionEventData(session_id="s1")
+        metrics = compute_all_metrics(data)
+        assert len(metrics) == 10
+
+        metric_names = {m.metric_name for m in metrics}
+        expected = {
+            METRIC_RESPONSE_TYPE_ACCURACY,
+            METRIC_TOOL_USAGE_EFFICIENCY,
+            METRIC_COMMAND_SAFETY_RATE,
+            METRIC_ASK_USER_FREQUENCY,
+            METRIC_TOKEN_EFFICIENCY,
+            METRIC_N_TURNS,
+            METRIC_N_TOOLCALLS,
+            METRIC_TIME_TO_FIRST_TOKEN,
+            METRIC_OUTPUT_TOKENS_PER_SEC,
+            METRIC_TIME_TO_LAST_TOKEN,
+        }
+        assert metric_names == expected
+
+    def test_all_metric_names_constant(self):
+        """ALL_METRIC_NAMES 常量包含 10 个指标"""
+        assert len(ALL_METRIC_NAMES) == 10
+
+    def test_efficiency_metrics_from_events(self):
+        """完整事件流中效率指标计算正确"""
+        events = [
+            _make_phase_change_event("THINKING", created_at="2025-01-01T10:00:00+00:00"),
+            _make_streaming_text_event("hello", created_at="2025-01-01T10:00:01+00:00"),
+            _make_streaming_text_event("world", created_at="2025-01-01T10:00:03+00:00"),
+            _make_tool_step_event("execute_command"),
+            _make_result_event_with_time(
+                total_tokens=1000, output_tokens=400,
+                created_at="2025-01-01T10:00:05+00:00",
+            ),
+        ]
+        data = extract_session_data(events, session_id="s1")
+        metrics = compute_all_metrics(data)
+        by_name = {m.metric_name: m.value for m in metrics}
+
+        # n_turns: 1 phase_change
+        assert by_name[METRIC_N_TURNS] == 1.0
+
+        # n_toolcalls: 1 tool_step
+        assert by_name[METRIC_N_TOOLCALLS] == 1.0
+
+        # time_to_first_token: 1.0 秒（10:00:01 - 10:00:00）
+        assert abs(by_name[METRIC_TIME_TO_FIRST_TOKEN] - 1.0) < 0.01
+
+        # output_tokens_per_sec: 400 / 2.0 = 200.0
+        assert abs(by_name[METRIC_OUTPUT_TOKENS_PER_SEC] - 200.0) < 0.01
+
+        # time_to_last_token: 5.0 秒（10:00:05 - 10:00:00）
+        assert abs(by_name[METRIC_TIME_TO_LAST_TOKEN] - 5.0) < 0.01
+
+
+# ── B055: integration source 过滤测试 ─────────────────────────────────────
+
+
+class TestSourceFilter:
+    """B055: source 过滤功能测试"""
+
+    @pytest_asyncio.fixture
+    async def eval_db(self, tmp_path):
+        db_path = str(tmp_path / "test_evals.db")
+        db = EvalDatabase(db_path)
+        await db.init_db()
+        return db
+
+    @pytest.mark.asyncio
+    async def test_source_filter_in_query(self, eval_db):
+        """query_quality_metrics 支持 source 过滤"""
+        # 写入 production 指标
+        events_prod = [
+            _make_tool_step_event("execute_command"),
+            _make_result_event_with_time(created_at="2025-01-01T10:00:00+00:00"),
+        ]
+        await extract_and_store_metrics(
+            eval_db, events_prod, session_id="s-prod-1", source="production",
+        )
+
+        # 写入 integration 指标
+        events_integ = [
+            _make_tool_step_event("execute_command"),
+            _make_result_event_with_time(created_at="2025-01-01T11:00:00+00:00"),
+        ]
+        await extract_and_store_metrics(
+            eval_db, events_integ, session_id="s-integ-1", source="integration",
+        )
+
+        # 不带 source 过滤 → 返回全部
+        all_metrics = await eval_db.query_quality_metrics()
+        assert len(all_metrics) == 20  # 2 sessions * 10 metrics
+
+        # 过滤 production
+        prod_metrics = await eval_db.query_quality_metrics(source="production")
+        assert len(prod_metrics) == 10
+        assert all(m.source == "production" for m in prod_metrics)
+
+        # 过滤 integration
+        integ_metrics = await eval_db.query_quality_metrics(source="integration")
+        assert len(integ_metrics) == 10
+        assert all(m.source == "integration" for m in integ_metrics)
+
+    @pytest.mark.asyncio
+    async def test_integration_source_in_compute_all(self, eval_db):
+        """compute_all_metrics 正确设置 source=integration"""
+        events = [
+            _make_result_event_with_time(created_at="2025-01-01T10:00:00+00:00"),
+        ]
+        metrics = await extract_and_store_metrics(
+            eval_db, events, session_id="s-integ-2", source="integration",
+        )
+        assert len(metrics) == 10
+        for m in metrics:
+            assert m.source == "integration"
+
+    @pytest.mark.asyncio
+    async def test_production_and_integration_isolated(self, eval_db):
+        """production 和 integration 数据互不干扰"""
+        # 写入 production
+        await extract_and_store_metrics(
+            eval_db, [_make_result_event()], session_id="s-prod-2", source="production",
+        )
+
+        # 写入 integration
+        await extract_and_store_metrics(
+            eval_db, [_make_result_event()], session_id="s-integ-3", source="integration",
+        )
+
+        # production 看板只看 production
+        prod = await eval_db.query_quality_metrics(source="production")
+        for m in prod:
+            assert m.source == "production"
+            assert "prod" in m.session_id
+
+        # integration 查询只看 integration
+        integ = await eval_db.query_quality_metrics(source="integration")
+        for m in integ:
+            assert m.source == "integration"
+            assert "integ" in m.session_id

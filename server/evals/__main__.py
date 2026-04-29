@@ -6,11 +6,13 @@ B104: Eval CLI 入口
     python -m evals run --mode integration --tasks server/evals/tasks --trials 1
     python -m evals regression --baseline <run_id> --tasks server/evals/tasks --trials 1
     python -m evals trend [--task-id <id>] [--limit 20]
+    python -m evals report [--compare <id1> <id2>] [--regression-only] [-o output.html]
 
 子命令：
     run        运行所有 tasks，保存结果到 evals.db
     regression 运行 + 与 baseline 对比
     trend      查询历史 pass_rate 趋势
+    report     生成 eval HTML 报告
 
 模式：
     unit        直接调 LLM（默认），快速迭代
@@ -32,6 +34,7 @@ from typing import List
 from evals.db import EvalConfigError, EvalDatabase, get_eval_agent_config
 from evals.harness import EvalHarness, load_yaml_tasks
 from evals.regression import detect_regressions, query_trend, run_regression_check
+from evals.report import generate_report
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +137,32 @@ def _build_parser() -> argparse.ArgumentParser:
         help="返回记录数量（默认 20）",
     )
     trend_parser.add_argument(
+        "--db",
+        default="/data/evals.db",
+        help="evals.db 路径（默认 evals.db）",
+    )
+
+    # ── report 子命令 ────────────────────────────────────────────────
+    report_parser = subparsers.add_parser("report", help="生成 eval HTML 报告")
+    report_parser.add_argument(
+        "--compare",
+        nargs=2,
+        metavar=("BASELINE_ID", "CURRENT_ID"),
+        default=None,
+        help="对比两次 run（baseline_id current_id）",
+    )
+    report_parser.add_argument(
+        "--regression-only",
+        action="store_true",
+        default=False,
+        help="只输出退化项",
+    )
+    report_parser.add_argument(
+        "-o", "--output",
+        default="eval_report.html",
+        help="输出 HTML 文件路径（默认 eval_report.html）",
+    )
+    report_parser.add_argument(
         "--db",
         default="/data/evals.db",
         help="evals.db 路径（默认 evals.db）",
@@ -517,6 +546,30 @@ async def _cmd_trend(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _cmd_report(args: argparse.Namespace) -> int:
+    """执行 report 子命令 — 生成 eval HTML 报告。"""
+    # report 不需要 LLM 配置，只查询数据库
+
+    # 初始化 DB
+    db = EvalDatabase(args.db)
+    await db.init_db()
+
+    compare_ids = getattr(args, "compare", None)
+    regression_only = getattr(args, "regression_only", False)
+    output_path = getattr(args, "output", "eval_report.html")
+
+    # 生成报告
+    result_path = await generate_report(
+        db,
+        compare_run_ids=compare_ids,
+        regression_only=regression_only,
+        output_path=output_path,
+    )
+
+    print(f"Report generated: {result_path}")
+    return 0
+
+
 async def async_main(argv: List[str] | None = None) -> int:
     """异步主入口"""
     parser = _build_parser()
@@ -535,6 +588,8 @@ async def async_main(argv: List[str] | None = None) -> int:
         return await _cmd_regression(args)
     elif args.command == "trend":
         return await _cmd_trend(args)
+    elif args.command == "report":
+        return await _cmd_report(args)
     else:
         parser.print_help()
         return 1
