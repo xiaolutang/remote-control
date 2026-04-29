@@ -1,15 +1,12 @@
 /// 会话级 usage 累加器，在内存中累积每次 SSE result/error 事件携带的 usage 数据。
 ///
-/// Session 切换时自动归零。纯客户端内存状态，不持久化。
+/// 同一终端对话中多次 agent run（每次 run 有不同 session_id）的 usage 会持续累加。
+/// 仅在终端切换/面板关闭时由外部调用 reset() 归零。纯客户端内存状态，不持久化。
 class SessionUsageAccumulator {
   int _inputTokens = 0;
   int _outputTokens = 0;
   int _totalTokens = 0;
   int _requests = 0;
-  String _currentSessionId = '';
-
-  /// 当前 session ID
-  String get currentSessionId => _currentSessionId;
 
   /// 累计 input tokens
   int get inputTokens => _inputTokens;
@@ -25,27 +22,17 @@ class SessionUsageAccumulator {
 
   /// 累加一次 usage 数据。
   ///
-  /// [sessionId] 当前会话 ID，若与上次不同则自动 reset。
   /// [usage] SSE 事件携带的 usage 字段，可能为 null 或部分字段缺失。
-  void accumulate(String sessionId, Map<String, dynamic>? usage) {
-    if (sessionId != _currentSessionId) {
-      reset();
-      _currentSessionId = sessionId;
-    }
+  void accumulate(Map<String, dynamic>? usage) {
     if (usage == null) return;
 
-    final input = _readInt(usage['input_tokens']);
-    final output = _readInt(usage['output_tokens']);
-    final total = _readInt(usage['total_tokens']);
-    final req = _readInt(usage['requests']);
-
-    _inputTokens += input;
-    _outputTokens += output;
-    _totalTokens += total;
-    _requests += req;
+    _inputTokens += _readInt(usage['input_tokens']);
+    _outputTokens += _readInt(usage['output_tokens']);
+    _totalTokens += _readInt(usage['total_tokens']);
+    _requests += _readInt(usage['requests']);
   }
 
-  /// 归零所有累计字段（不含 sessionId）。
+  /// 归零所有累计字段。由外部在终端切换/面板关闭时调用。
   void reset() {
     _inputTokens = 0;
     _outputTokens = 0;
@@ -55,7 +42,6 @@ class SessionUsageAccumulator {
 
   /// 返回快照 Map，结构兼容展示层。
   Map<String, dynamic> toSummary() => {
-        'session_id': _currentSessionId,
         'input_tokens': _inputTokens,
         'output_tokens': _outputTokens,
         'total_tokens': _totalTokens,

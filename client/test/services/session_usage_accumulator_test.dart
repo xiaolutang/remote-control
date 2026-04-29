@@ -10,14 +10,13 @@ void main() {
     });
 
     test('single event: properties match input values', () {
-      acc.accumulate('s1', {
+      acc.accumulate({
         'input_tokens': 100,
         'output_tokens': 50,
         'total_tokens': 150,
         'requests': 2,
       });
 
-      expect(acc.currentSessionId, 's1');
       expect(acc.inputTokens, 100);
       expect(acc.outputTokens, 50);
       expect(acc.totalTokens, 150);
@@ -25,19 +24,19 @@ void main() {
     });
 
     test('multiple events: values accumulate correctly', () {
-      acc.accumulate('s1', {
+      acc.accumulate({
         'input_tokens': 100,
         'output_tokens': 50,
         'total_tokens': 150,
         'requests': 1,
       });
-      acc.accumulate('s1', {
+      acc.accumulate({
         'input_tokens': 200,
         'output_tokens': 80,
         'total_tokens': 280,
         'requests': 2,
       });
-      acc.accumulate('s1', {
+      acc.accumulate({
         'input_tokens': 300,
         'output_tokens': 120,
         'total_tokens': 420,
@@ -51,7 +50,7 @@ void main() {
     });
 
     test('reset: all fields return to zero', () {
-      acc.accumulate('s1', {
+      acc.accumulate({
         'input_tokens': 100,
         'output_tokens': 50,
         'total_tokens': 150,
@@ -65,35 +64,10 @@ void main() {
       expect(acc.outputTokens, 0);
       expect(acc.totalTokens, 0);
       expect(acc.requests, 0);
-      // reset does not clear sessionId
-      expect(acc.currentSessionId, 's1');
-    });
-
-    test('session change: auto-resets on new session_id', () {
-      acc.accumulate('s1', {
-        'input_tokens': 100,
-        'output_tokens': 50,
-        'total_tokens': 150,
-        'requests': 1,
-      });
-      expect(acc.currentSessionId, 's1');
-
-      acc.accumulate('s2', {
-        'input_tokens': 10,
-        'output_tokens': 5,
-        'total_tokens': 15,
-        'requests': 1,
-      });
-
-      expect(acc.currentSessionId, 's2');
-      expect(acc.inputTokens, 10);
-      expect(acc.outputTokens, 5);
-      expect(acc.totalTokens, 15);
-      expect(acc.requests, 1);
     });
 
     test('null/missing usage fields: skip without affecting totals', () {
-      acc.accumulate('s1', {
+      acc.accumulate({
         'input_tokens': 100,
         'output_tokens': 50,
         'total_tokens': 150,
@@ -101,7 +75,7 @@ void main() {
       });
 
       // null usage
-      acc.accumulate('s1', null);
+      acc.accumulate(null);
 
       expect(acc.inputTokens, 100);
       expect(acc.outputTokens, 50);
@@ -109,7 +83,7 @@ void main() {
       expect(acc.requests, 1);
 
       // missing fields
-      acc.accumulate('s1', <String, dynamic>{});
+      acc.accumulate(<String, dynamic>{});
 
       expect(acc.inputTokens, 100);
       expect(acc.outputTokens, 50);
@@ -118,14 +92,14 @@ void main() {
     });
 
     test('all-zero usage event: does not alter existing values', () {
-      acc.accumulate('s1', {
+      acc.accumulate({
         'input_tokens': 100,
         'output_tokens': 50,
         'total_tokens': 150,
         'requests': 1,
       });
 
-      acc.accumulate('s1', {
+      acc.accumulate({
         'input_tokens': 0,
         'output_tokens': 0,
         'total_tokens': 0,
@@ -141,7 +115,7 @@ void main() {
     test('large values: no overflow in accumulation', () {
       const big = 0x7FFFFFFFFFFFFFFF; // max int64
 
-      acc.accumulate('s1', {
+      acc.accumulate({
         'input_tokens': big,
         'output_tokens': big,
         'total_tokens': big,
@@ -149,13 +123,12 @@ void main() {
       });
 
       // Dart int is 64-bit; adding to max will overflow but should not crash.
-      // Verify the value is non-negative (or accept overflow behavior).
       expect(acc.inputTokens, isA<int>());
       expect(acc.requests, 1);
 
       // Single large value without further addition should be exact.
       acc.reset();
-      acc.accumulate('s1', {
+      acc.accumulate({
         'input_tokens': 999999999999,
         'output_tokens': 888888888888,
         'total_tokens': 777777777777,
@@ -169,7 +142,7 @@ void main() {
     });
 
     test('toSummary returns correct snapshot', () {
-      acc.accumulate('s1', {
+      acc.accumulate({
         'input_tokens': 100,
         'output_tokens': 50,
         'total_tokens': 150,
@@ -178,7 +151,6 @@ void main() {
 
       final summary = acc.toSummary();
 
-      expect(summary['session_id'], 's1');
       expect(summary['input_tokens'], 100);
       expect(summary['output_tokens'], 50);
       expect(summary['total_tokens'], 150);

@@ -195,7 +195,10 @@ class _SmartTerminalSidePanelContentState
     if (deviceId != null && deviceId.isNotEmpty) {
       try {
         final controller = context.read<RuntimeSelectionController>();
-        unawaited(_refreshUsageSummary(controller: controller, forceRefresh: false));
+        unawaited(_refreshUsageSummary(
+            controller: controller,
+            forceRefresh: false,
+            terminalId: terminalId));
       } on ProviderNotFoundException {
         // ignore
       }

@@ -62,20 +62,29 @@ class UsageSummaryData {
   const UsageSummaryData({
     required this.device,
     required this.user,
+    this.terminal,
   });
 
   const UsageSummaryData.empty()
       : device = const UsageSummaryScope.empty(),
-        user = const UsageSummaryScope.empty();
+        user = const UsageSummaryScope.empty(),
+        terminal = null;
 
   final UsageSummaryScope device;
   final UsageSummaryScope user;
+
+  /// 终端维度的 usage scope（仅当请求包含 terminal_id 时返回）
+  final UsageSummaryScope? terminal;
 
   factory UsageSummaryData.fromJson(Map<String, dynamic> json) {
     return UsageSummaryData(
       device:
           UsageSummaryScope.fromJson(json['device'] as Map<String, dynamic>?),
       user: UsageSummaryScope.fromJson(json['user'] as Map<String, dynamic>?),
+      terminal: json.containsKey('terminal')
+          ? UsageSummaryScope.fromJson(
+              json['terminal'] as Map<String, dynamic>?)
+          : null,
     );
   }
 }
@@ -94,9 +103,14 @@ class UsageSummaryService {
   Future<UsageSummaryData> fetchSummary({
     required String token,
     required String deviceId,
+    String? terminalId,
   }) async {
+    final queryParams = <String, String>{'device_id': deviceId};
+    if (terminalId != null && terminalId.isNotEmpty) {
+      queryParams['terminal_id'] = terminalId;
+    }
     final uri = Uri.parse('$_httpUrl/api/agent/usage/summary').replace(
-      queryParameters: {'device_id': deviceId},
+      queryParameters: queryParams,
     );
     final response = await _client.get(
       uri,

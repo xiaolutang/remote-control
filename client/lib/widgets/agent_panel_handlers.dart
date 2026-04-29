@@ -329,7 +329,6 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
         });
         _scheduleScrollToLatest();
       case AgentResultEvent result:
-        final sid = _activeSessionId ?? '';
         setState(() {
           _agentResult = result;
           _currentPhase = AgentPhase.result;
@@ -337,36 +336,37 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
           if (_isCommandResult(result)) {
             _draft = _buildDraftFromAgentResult(result);
           }
-          // Accumulate usage from result event
+          // Accumulate usage from result event (local immediate feedback)
           final usageMap = result.usage != null ? {
             'input_tokens': result.usage!.inputTokens,
             'output_tokens': result.usage!.outputTokens,
             'total_tokens': result.usage!.totalTokens,
             'requests': result.usage!.requests,
           } : null;
-          _sessionUsageAccumulator.accumulate(sid, usageMap);
+          _sessionUsageAccumulator.accumulate(usageMap);
         });
         if (_conversationStreamSubscription == null) {
           _restartConversationStreamForCurrentScope();
         }
-        unawaited(_refreshUsageSummary(controller: controller));
+        unawaited(_refreshUsageSummary(
+            controller: controller, terminalId: _currentTerminalId()));
         _scheduleScrollToLatest();
       case AgentErrorEvent error:
-        final errSid = _activeSessionId ?? '';
         setState(() {
           _agentError = error;
           _currentPhase = AgentPhase.error;
           _activeSessionId = null;
-          // Accumulate usage from error event
+          // Accumulate usage from error event (local immediate feedback)
           final errUsageMap = error.usage != null ? {
             'input_tokens': error.usage!.inputTokens,
             'output_tokens': error.usage!.outputTokens,
             'total_tokens': error.usage!.totalTokens,
             'requests': error.usage!.requests,
           } : null;
-          _sessionUsageAccumulator.accumulate(errSid, errUsageMap);
+          _sessionUsageAccumulator.accumulate(errUsageMap);
         });
-        unawaited(_refreshUsageSummary(controller: controller));
+        unawaited(_refreshUsageSummary(
+            controller: controller, terminalId: _currentTerminalId()));
         if (_conversationStreamSubscription == null) {
           _restartConversationStreamForCurrentScope();
         }

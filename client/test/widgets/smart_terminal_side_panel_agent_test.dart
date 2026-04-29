@@ -139,17 +139,18 @@ class _FakeUsageSummaryService extends UsageSummaryService {
     required this.onFetch,
   }) : super(serverUrl: 'ws://localhost:8888');
 
-  final Future<UsageSummaryData> Function(String token, String deviceId)
-      onFetch;
+  final Future<UsageSummaryData> Function(
+      String token, String deviceId, String? terminalId) onFetch;
   int fetchCount = 0;
 
   @override
   Future<UsageSummaryData> fetchSummary({
     required String token,
     required String deviceId,
+    String? terminalId,
   }) async {
     fetchCount += 1;
-    return onFetch(token, deviceId);
+    return onFetch(token, deviceId, terminalId);
   }
 }
 
@@ -292,7 +293,7 @@ void main() {
     testWidgets('shows usage section with total and current tokens', (tester) async {
       final controller = _AgentFakeController();
       final usageService = _FakeUsageSummaryService(
-        onFetch: (_, __) async => const UsageSummaryData(
+        onFetch: (_, __, ___) async => const UsageSummaryData(
           device: UsageSummaryScope(
             totalSessions: 2,
             totalInputTokens: 120,
@@ -328,7 +329,7 @@ void main() {
     testWidgets('usage section toggle expands and collapses', (tester) async {
       final controller = _AgentFakeController();
       final usageService = _FakeUsageSummaryService(
-        onFetch: (_, __) async => const UsageSummaryData.empty(),
+        onFetch: (_, __, ___) async => const UsageSummaryData.empty(),
       );
       await tester.pumpWidget(_buildTestApp(
         controller: controller,
@@ -359,7 +360,7 @@ void main() {
         (tester) async {
       final controller = _AgentFakeController();
       final usageService = _FakeUsageSummaryService(
-        onFetch: (_, __) async => const UsageSummaryData(
+        onFetch: (_, __, ___) async => const UsageSummaryData(
           device: UsageSummaryScope(
             totalSessions: 1,
             totalInputTokens: 1520,
@@ -425,7 +426,7 @@ void main() {
         (tester) async {
       final controller = _AgentFakeController();
       final usageService = _FakeUsageSummaryService(
-        onFetch: (_, __) async {
+        onFetch: (_, __, ___) async {
           throw const UsageSummaryException(message: 'timeout');
         },
       );

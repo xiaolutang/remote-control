@@ -58,7 +58,10 @@ mixin _PanelWidgetsMixin on _PanelStateFields {
   Widget _buildUsageSection(ColorScheme colorScheme) {
     final summary = _usageSummary;
     final totalTokens = summary?.user.totalTokens ?? 0;
-    final currentTokens = _sessionUsageAccumulator.totalTokens;
+    // 优先使用服务端 terminal scope 数据，fallback 到本地累加器
+    final terminalScope = summary?.terminal;
+    final currentTokens = terminalScope?.totalTokens ?? _sessionUsageAccumulator.totalTokens;
+    final currentRequests = terminalScope?.totalRequests ?? _sessionUsageAccumulator.requests;
     final hasError = _usageSummaryError != null && summary == null;
 
     return Container(
@@ -121,7 +124,7 @@ mixin _PanelWidgetsMixin on _PanelStateFields {
                 style: Theme.of(context).textTheme.labelLarge?.copyWith(
                   fontWeight: FontWeight.w700, color: colorScheme.onSurfaceVariant)),
               const SizedBox(height: 4),
-              _buildUsageStatRow('对话', currentTokens, _sessionUsageAccumulator.requests, colorScheme),
+              _buildUsageStatRow('对话', currentTokens, currentRequests, colorScheme),
             ]),
           ),
         ],

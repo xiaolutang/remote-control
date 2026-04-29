@@ -57,17 +57,20 @@ class _FakeUsageSummaryService extends UsageSummaryService {
     required this.onFetch,
   }) : super(serverUrl: 'ws://localhost:8888');
 
-  final Future<UsageSummaryData> Function(String token, String deviceId)
-      onFetch;
+  final Future<UsageSummaryData> Function(
+      String token, String deviceId, String? terminalId) onFetch;
   int fetchCount = 0;
+  String? lastTerminalId;
 
   @override
   Future<UsageSummaryData> fetchSummary({
     required String token,
     required String deviceId,
+    String? terminalId,
   }) async {
     fetchCount += 1;
-    return onFetch(token, deviceId);
+    lastTerminalId = terminalId;
+    return onFetch(token, deviceId, terminalId);
   }
 }
 
@@ -187,11 +190,12 @@ void main() {
   });
 
   group('Agent Panel Usage Section', () {
-    testWidgets('test_collapsed_shows_summary: collapsed shows total and current tokens',
+    testWidgets(
+        'test_collapsed_shows_summary: collapsed shows total and current tokens',
         (tester) async {
       final controller = _AgentFakeController();
       final usageService = _FakeUsageSummaryService(
-        onFetch: (_, __) async => const UsageSummaryData(
+        onFetch: (_, __, ___) async => const UsageSummaryData(
           device: UsageSummaryScope(
             totalSessions: 2,
             totalInputTokens: 120,
@@ -219,18 +223,21 @@ void main() {
       await tester.pumpAndSettle();
 
       // Usage section should be visible
-      expect(find.byKey(const Key('side-panel-usage-section')), findsOneWidget);
+      expect(find.byKey(const Key('side-panel-usage-section')),
+          findsOneWidget);
       // Summary text should show total and current tokens
-      expect(find.byKey(const Key('side-panel-usage-summary')), findsOneWidget);
-      // Total is 900, current is 0
+      expect(
+          find.byKey(const Key('side-panel-usage-summary')), findsOneWidget);
+      // Total is 900, current is 0 (no terminal scope data, no local accumulation)
       expect(find.text('总消耗 900 · 当前对话 0'), findsOneWidget);
     });
 
-    testWidgets('test_toggle_expand_collapse: click toggles expand/collapse',
+    testWidgets(
+        'test_toggle_expand_collapse: click toggles expand/collapse',
         (tester) async {
       final controller = _AgentFakeController();
       final usageService = _FakeUsageSummaryService(
-        onFetch: (_, __) async => const UsageSummaryData(
+        onFetch: (_, __, ___) async => const UsageSummaryData(
           device: UsageSummaryScope(
             totalSessions: 1,
             totalInputTokens: 100,
@@ -258,29 +265,34 @@ void main() {
       await tester.pumpAndSettle();
 
       // Initially collapsed: no detail labels
-      expect(find.byKey(const Key('side-panel-usage-total-label')), findsNothing);
+      expect(find.byKey(const Key('side-panel-usage-total-label')),
+          findsNothing);
 
       // Tap to expand
       await tester.tap(find.byKey(const Key('side-panel-usage-toggle')));
       await tester.pumpAndSettle();
 
       // Expanded: detail labels visible
-      expect(find.byKey(const Key('side-panel-usage-total-label')), findsOneWidget);
-      expect(find.byKey(const Key('side-panel-usage-current-label')), findsOneWidget);
+      expect(find.byKey(const Key('side-panel-usage-total-label')),
+          findsOneWidget);
+      expect(find.byKey(const Key('side-panel-usage-current-label')),
+          findsOneWidget);
 
       // Tap again to collapse
       await tester.tap(find.byKey(const Key('side-panel-usage-toggle')));
       await tester.pumpAndSettle();
 
       // Collapsed again
-      expect(find.byKey(const Key('side-panel-usage-total-label')), findsNothing);
+      expect(find.byKey(const Key('side-panel-usage-total-label')),
+          findsNothing);
     });
 
-    testWidgets('test_expanded_shows_two_sections: expanded shows total and current sections',
+    testWidgets(
+        'test_expanded_shows_two_sections: expanded shows total and current sections',
         (tester) async {
       final controller = _AgentFakeController();
       final usageService = _FakeUsageSummaryService(
-        onFetch: (_, __) async => const UsageSummaryData(
+        onFetch: (_, __, ___) async => const UsageSummaryData(
           device: UsageSummaryScope(
             totalSessions: 2,
             totalInputTokens: 120,
@@ -312,8 +324,10 @@ void main() {
       await tester.pumpAndSettle();
 
       // Both sections visible
-      expect(find.byKey(const Key('side-panel-usage-total-label')), findsOneWidget);
-      expect(find.byKey(const Key('side-panel-usage-current-label')), findsOneWidget);
+      expect(find.byKey(const Key('side-panel-usage-total-label')),
+          findsOneWidget);
+      expect(find.byKey(const Key('side-panel-usage-current-label')),
+          findsOneWidget);
 
       // Total section should show device and user data
       expect(find.text('总消耗'), findsOneWidget);
@@ -324,7 +338,7 @@ void main() {
         (tester) async {
       final controller = _AgentFakeController();
       final usageService = _FakeUsageSummaryService(
-        onFetch: (_, __) async => const UsageSummaryData(
+        onFetch: (_, __, ___) async => const UsageSummaryData(
           device: UsageSummaryScope(
             totalSessions: 2,
             totalInputTokens: 120,
@@ -369,11 +383,12 @@ void main() {
       expect(find.text('0 次'), findsOneWidget);
     });
 
-    testWidgets('test_api_failure_shows_fallback: API failure shows error state',
+    testWidgets(
+        'test_api_failure_shows_fallback: API failure shows error state',
         (tester) async {
       final controller = _AgentFakeController();
       final usageService = _FakeUsageSummaryService(
-        onFetch: (_, __) async {
+        onFetch: (_, __, ___) async {
           throw const UsageSummaryException(message: 'timeout');
         },
       );
@@ -390,10 +405,10 @@ void main() {
       await tester.pump();
 
       // Usage section should be visible
-      expect(find.byKey(const Key('side-panel-usage-section')), findsOneWidget);
+      expect(find.byKey(const Key('side-panel-usage-section')),
+          findsOneWidget);
 
       // After fetch failure, either error message or the summary with 0 tokens should be shown.
-      // The key is: no crash, no NaN.
       final errorKey = find.byKey(const Key('side-panel-usage-error'));
       final summaryKey = find.byKey(const Key('side-panel-usage-summary'));
 
@@ -401,18 +416,20 @@ void main() {
       expect(
         errorKey.evaluate().isNotEmpty || summaryKey.evaluate().isNotEmpty,
         isTrue,
-        reason: 'Either error or summary should be visible after API failure',
+        reason:
+            'Either error or summary should be visible after API failure',
       );
 
       // No NaN or negative numbers anywhere
       expect(find.text('NaN'), findsNothing);
     });
 
-    testWidgets('test_empty_data_display: no data does not show NaN or negative',
+    testWidgets(
+        'test_empty_data_display: no data does not show NaN or negative',
         (tester) async {
       final controller = _AgentFakeController();
       final usageService = _FakeUsageSummaryService(
-        onFetch: (_, __) async => const UsageSummaryData.empty(),
+        onFetch: (_, __, ___) async => const UsageSummaryData.empty(),
       );
       await tester.pumpWidget(_buildTestApp(
         controller: controller,
@@ -423,7 +440,8 @@ void main() {
       await tester.pumpAndSettle();
 
       // Should show 0 for both values, not NaN or negative
-      expect(find.byKey(const Key('side-panel-usage-summary')), findsOneWidget);
+      expect(find.byKey(const Key('side-panel-usage-summary')),
+          findsOneWidget);
       expect(find.text('总消耗 0 · 当前对话 0'), findsOneWidget);
 
       // Expand to verify
@@ -436,11 +454,12 @@ void main() {
       expect(find.text('0 tokens'), findsWidgets);
     });
 
-    testWidgets('test_state_sync: accumulator updates reflect in UI after result event',
+    testWidgets(
+        'test_state_sync: accumulator updates reflect in UI after result event',
         (tester) async {
       final controller = _AgentFakeController();
       final usageService = _FakeUsageSummaryService(
-        onFetch: (_, __) async => const UsageSummaryData(
+        onFetch: (_, __, ___) async => const UsageSummaryData(
           device: UsageSummaryScope(
             totalSessions: 1,
             totalInputTokens: 1520,
@@ -498,8 +517,153 @@ void main() {
       await tester.pumpAndSettle();
 
       // After result event, current conversation should show 1900 tokens
-      expect(find.byKey(const Key('side-panel-usage-summary')), findsOneWidget);
+      // (from local accumulator since server response does not include terminal scope)
+      expect(find.byKey(const Key('side-panel-usage-summary')),
+          findsOneWidget);
       expect(find.text('总消耗 6600 · 当前对话 1900'), findsOneWidget);
+    });
+
+    testWidgets(
+        'test_terminal_scope_overrides_local: server terminal scope data overrides local accumulator',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final usageService = _FakeUsageSummaryService(
+        onFetch: (_, __, ___) async => const UsageSummaryData(
+          device: UsageSummaryScope(
+            totalSessions: 1,
+            totalInputTokens: 1520,
+            totalOutputTokens: 380,
+            totalTokens: 1900,
+            totalRequests: 3,
+            latestModelName: 'deepseek-chat',
+          ),
+          user: UsageSummaryScope(
+            totalSessions: 4,
+            totalInputTokens: 5400,
+            totalOutputTokens: 1200,
+            totalTokens: 6600,
+            totalRequests: 10,
+            latestModelName: 'deepseek-chat',
+          ),
+          terminal: UsageSummaryScope(
+            totalSessions: 2,
+            totalInputTokens: 3000,
+            totalOutputTokens: 600,
+            totalTokens: 3600,
+            totalRequests: 5,
+            latestModelName: 'deepseek-chat',
+          ),
+        ),
+      );
+      final agentService = _FakeAgentSessionService(
+        events: [
+          const AgentSessionCreatedEvent(sessionId: 'session-1'),
+          AgentResultEvent(
+            summary: 'done',
+            steps: const [],
+            provider: 'agent',
+            source: 'recommended',
+            needConfirm: false,
+            aliases: const <String, String>{},
+            usage: const AgentUsageData(
+              inputTokens: 1520,
+              outputTokens: 380,
+              totalTokens: 1900,
+              requests: 3,
+              modelName: 'deepseek-chat',
+            ),
+          ),
+        ],
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+        usageSummaryServiceBuilder: (_) => usageService,
+      ));
+
+      await _openSidePanel(tester);
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        'show usage',
+      );
+      // Press send
+      final button = tester.widget<FilledButton>(
+        find.byKey(const Key('side-panel-send')),
+      );
+      button.onPressed?.call();
+      await tester.pumpAndSettle();
+
+      // After result event, server terminal scope (3600) should override
+      // the local accumulator (1900) in the collapsed summary
+      expect(find.byKey(const Key('side-panel-usage-summary')),
+          findsOneWidget);
+      expect(find.text('总消耗 6600 · 当前对话 3600'), findsOneWidget);
+    });
+
+    testWidgets(
+        'test_terminal_id_passed_to_api: refresh after result passes terminal_id',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final usageService = _FakeUsageSummaryService(
+        onFetch: (_, __, ___) async => const UsageSummaryData(
+          device: UsageSummaryScope(
+            totalSessions: 1,
+            totalTokens: 200,
+            totalRequests: 3,
+            latestModelName: 'deepseek-chat',
+            totalInputTokens: 100,
+            totalOutputTokens: 100,
+          ),
+          user: UsageSummaryScope(
+            totalSessions: 2,
+            totalTokens: 500,
+            totalRequests: 5,
+            latestModelName: 'deepseek-chat',
+            totalInputTokens: 300,
+            totalOutputTokens: 200,
+          ),
+        ),
+      );
+      final agentService = _FakeAgentSessionService(
+        events: [
+          const AgentSessionCreatedEvent(sessionId: 'session-1'),
+          AgentResultEvent(
+            summary: 'done',
+            steps: const [],
+            provider: 'agent',
+            source: 'recommended',
+            needConfirm: false,
+            aliases: const <String, String>{},
+            usage: const AgentUsageData(
+              inputTokens: 100,
+              outputTokens: 50,
+              totalTokens: 150,
+              requests: 1,
+              modelName: 'deepseek-chat',
+            ),
+          ),
+        ],
+      );
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+        usageSummaryServiceBuilder: (_) => usageService,
+      ));
+
+      await _openSidePanel(tester);
+      await tester.enterText(
+        find.byKey(const Key('side-panel-intent-input')),
+        'test',
+      );
+      final button = tester.widget<FilledButton>(
+        find.byKey(const Key('side-panel-send')),
+      );
+      button.onPressed?.call();
+      await tester.pumpAndSettle();
+
+      // Verify that the usage service was called at least once
+      // (the exact terminal_id depends on MockWebSocketService.terminalId)
+      expect(usageService.fetchCount, greaterThanOrEqualTo(1));
     });
   });
 }

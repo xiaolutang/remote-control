@@ -346,9 +346,11 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
 
   // --- Usage 统计处理 ---
 
-  Future<void> _refreshUsageSummary(
-      {required RuntimeSelectionController controller,
-      bool forceRefresh = true}) async {
+  Future<void> _refreshUsageSummary({
+    required RuntimeSelectionController controller,
+    bool forceRefresh = true,
+    String? terminalId,
+  }) async {
     final deviceId = controller.selectedDeviceId;
     if (deviceId == null || deviceId.isEmpty) {
       if (!mounted) return;
@@ -372,7 +374,10 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
     });
     try {
       final summary = await _usageSummaryService(controller.serverUrl)
-          .fetchSummary(token: controller.token, deviceId: deviceId);
+          .fetchSummary(
+              token: controller.token,
+              deviceId: deviceId,
+              terminalId: terminalId);
       if (!mounted || requestSerial != _usageRefreshSerial) return;
       setState(() {
         _usageSummary = summary;
@@ -384,7 +389,7 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
       if (!mounted || requestSerial != _usageRefreshSerial) return;
       setState(() {
         _usageSummaryDeviceId = deviceId;
-        _usageSummaryError = '统计暂不可用，稍后会自动重试';
+        _usageSummaryError = '统计暂不可用，稍会后自动重试';
         _usageSummaryLoading = false;
       });
     }

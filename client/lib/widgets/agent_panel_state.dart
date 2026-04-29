@@ -207,7 +207,7 @@ mixin _PanelStateFields on State<_SmartTerminalSidePanelContent> {
   Widget _buildRespondingView(ColorScheme colorScheme);
   Widget _buildResultView(ColorScheme colorScheme, bool connected);
   Widget _buildErrorView(ColorScheme colorScheme);
-  Future<void> _refreshUsageSummary({required RuntimeSelectionController controller, bool forceRefresh = true});
+  Future<void> _refreshUsageSummary({required RuntimeSelectionController controller, bool forceRefresh = true, String? terminalId});
 
   // _PanelInputMixin
   Widget _buildInputBar(ColorScheme colorScheme);
@@ -244,6 +244,7 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
     _serverConversationEvents.clear(); _agentConversationId = null;
     _nextConversationEventIndex = 0; _terminalConversationClosed = false;
     _terminalClosedReason = null; _editingHistoryIndex = null; _editingController.clear();
+    _sessionUsageAccumulator.reset();
   }
 
   void _markTerminalConversationClosed(String message) {
