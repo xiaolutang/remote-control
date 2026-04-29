@@ -31,6 +31,12 @@ class UsageStoreMixin:
         Returns:
             True 表示成功写入/更新，False 表示写入失败。
         """
+        # 负数输入防护：当 0 处理
+        safe_input = max(0, int(input_tokens or 0))
+        safe_output = max(0, int(output_tokens or 0))
+        safe_total = max(0, int(total_tokens or 0))
+        safe_requests = max(0, int(requests or 0))
+
         now = datetime.now(timezone.utc).isoformat()
         try:
             async with self._connect() as db:
@@ -43,21 +49,24 @@ class UsageStoreMixin:
                     ON CONFLICT(session_id) DO UPDATE SET
                         user_id = excluded.user_id,
                         device_id = excluded.device_id,
-                        input_tokens = excluded.input_tokens,
-                        output_tokens = excluded.output_tokens,
-                        total_tokens = excluded.total_tokens,
-                        requests = excluded.requests,
-                        model_name = excluded.model_name,
+                        input_tokens = COALESCE(agent_usage_records.input_tokens, 0) + excluded.input_tokens,
+                        output_tokens = COALESCE(agent_usage_records.output_tokens, 0) + excluded.output_tokens,
+                        total_tokens = COALESCE(agent_usage_records.total_tokens, 0) + excluded.total_tokens,
+                        requests = COALESCE(agent_usage_records.requests, 0) + excluded.requests,
+                        model_name = CASE
+                            WHEN excluded.model_name != '' THEN excluded.model_name
+                            ELSE agent_usage_records.model_name
+                        END,
                         created_at = excluded.created_at
                     """,
                     (
                         session_id,
                         user_id,
                         device_id,
-                        int(input_tokens or 0),
-                        int(output_tokens or 0),
-                        int(total_tokens or 0),
-                        int(requests or 0),
+                        safe_input,
+                        safe_output,
+                        safe_total,
+                        safe_requests,
                         model_name or "",
                         now,
                     ),
