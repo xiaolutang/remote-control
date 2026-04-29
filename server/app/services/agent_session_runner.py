@@ -40,12 +40,12 @@ def _trigger_quality_monitor(
 ) -> None:
     """B052: result 事件后异步触发 quality_monitor 指标提取（best-effort）。
 
-    优先使用 session 内存缓存（_last_events），它只包含当前 run 的事件
-    （reuse 路径中已被清空）。这避免了从 DB 查询完整 terminal conversation
-    时混入前次 run 的事件（B051 per-terminal session 后同一 terminal 多次
-    run 共享 conversation）。
+    从 DB 查询 conversation 事件（含 created_at），确保 B055 时间指标可用。
+    不使用 _last_events 内存缓存，因为：
+    1. _last_events 只在 SSE consumer drain event_queue 后才填充，
+       result 事件触发时可能还未被缓存
+    2. _last_events 缺少 created_at 和 event_index，导致 B055 时间指标为 -1
 
-    _last_events 为空时 fallback 到 DB 查询（首次 run 或缓存被截断）。
     无 terminal_id / conversation_id 时 fallback 为合成 result 事件。
 
     不阻塞主流程，异常仅记录日志。
@@ -61,25 +61,14 @@ def _trigger_quality_monitor(
 
         terminal_id = session.terminal_id or ""
 
-        # 快照当前 run 的内存缓存（_last_events 在 reuse 时被清空）
-        cached_events = list(session._last_events)
-
         async def _do_extract():
             try:
                 await eval_db.init_db()
 
                 events = []
 
-                # 优先使用内存缓存（仅当前 run 的事件）
-                if cached_events:
-                    events = [
-                        {"event_type": et, "payload": ed}
-                        for et, ed in cached_events
-                        if ed is not None
-                    ]
-
-                # Fallback: 从 DB 查询完整 conversation 事件
-                if not events and terminal_id and session.conversation_id:
+                # 从 DB 查询 conversation 事件（含 created_at 用于 B055 时间指标）
+                if terminal_id and session.conversation_id:
                     try:
                         from app.store.database import list_agent_conversation_events
                         events = await list_agent_conversation_events(
@@ -93,7 +82,7 @@ def _trigger_quality_monitor(
                         )
                         events = []
 
-                # Final fallback: 合成 result 事件
+                # Fallback: 合成 result 事件
                 if not events:
                     events = [{
                         "event_type": "result",
