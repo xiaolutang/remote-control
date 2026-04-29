@@ -332,15 +332,20 @@ class AgentErrorEvent extends AgentSessionEvent {
   const AgentErrorEvent({
     required this.code,
     required this.message,
+    this.usage,
   });
 
   final String code;
   final String message;
+  final AgentUsageData? usage;
 
   factory AgentErrorEvent.fromJson(Map<String, dynamic> json) {
     return AgentErrorEvent(
       code: (json['code'] as String? ?? 'UNKNOWN').trim(),
       message: (json['message'] as String? ?? '').trim(),
+      usage: json['usage'] != null
+          ? AgentUsageData.fromJson(json['usage'] as Map<String, dynamic>)
+          : null,
     );
   }
 
@@ -348,6 +353,14 @@ class AgentErrorEvent extends AgentSessionEvent {
   Map<String, dynamic> toJson() => {
         'code': code,
         'message': message,
+        if (usage != null)
+          'usage': {
+            'input_tokens': usage!.inputTokens,
+            'output_tokens': usage!.outputTokens,
+            'total_tokens': usage!.totalTokens,
+            'requests': usage!.requests,
+            'model_name': usage!.modelName,
+          },
       };
 }
 

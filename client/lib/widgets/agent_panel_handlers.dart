@@ -352,11 +352,21 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
         unawaited(_refreshUsageSummary(controller: controller));
         _scheduleScrollToLatest();
       case AgentErrorEvent error:
+        final errSid = _activeSessionId ?? '';
         setState(() {
           _agentError = error;
           _currentPhase = AgentPhase.error;
           _activeSessionId = null;
+          // Accumulate usage from error event
+          final errUsageMap = error.usage != null ? {
+            'input_tokens': error.usage!.inputTokens,
+            'output_tokens': error.usage!.outputTokens,
+            'total_tokens': error.usage!.totalTokens,
+            'requests': error.usage!.requests,
+          } : null;
+          _sessionUsageAccumulator.accumulate(errSid, errUsageMap);
         });
+        unawaited(_refreshUsageSummary(controller: controller));
         if (_conversationStreamSubscription == null) {
           _restartConversationStreamForCurrentScope();
         }
