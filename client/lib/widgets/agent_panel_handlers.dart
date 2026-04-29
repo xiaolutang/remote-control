@@ -331,6 +331,7 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
       case AgentResultEvent result:
         setState(() {
           _agentResult = result;
+          _agentResultEventId = result.eventId;
           _currentPhase = AgentPhase.result;
           _activeSessionId = null;
           if (_isCommandResult(result)) {

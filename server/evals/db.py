@@ -550,24 +550,30 @@ class EvalDatabase:
                     "quality_metrics_deleted": 0,
                 }
 
+            # 分批处理，避免 SQLite 变量数限制（默认 999）
+            BATCH_SIZE = 500
+
             # 3. 找出关联的 trial_id
-            placeholders = ",".join("?" for _ in delete_ids)
-            cursor = await db.execute(
-                f"SELECT trial_id FROM eval_trials WHERE run_id IN ({placeholders})",
-                delete_ids,
-            )
-            trial_rows = await cursor.fetchall()
-            trial_ids = [r["trial_id"] for r in trial_rows]
+            trial_ids = []
+            for i in range(0, len(delete_ids), BATCH_SIZE):
+                batch = delete_ids[i:i + BATCH_SIZE]
+                placeholders = ",".join("?" for _ in batch)
+                cursor = await db.execute(
+                    f"SELECT trial_id FROM eval_trials WHERE run_id IN ({placeholders})",
+                    batch,
+                )
+                trial_ids.extend(r["trial_id"] for r in await cursor.fetchall())
 
             # 4. 删除 grader_results（通过 trial_id）
             grader_deleted = 0
-            if trial_ids:
-                t_placeholders = ",".join("?" for _ in trial_ids)
+            for i in range(0, len(trial_ids), BATCH_SIZE):
+                batch = trial_ids[i:i + BATCH_SIZE]
+                placeholders = ",".join("?" for _ in batch)
                 cursor = await db.execute(
-                    f"DELETE FROM eval_grader_results WHERE trial_id IN ({t_placeholders})",
-                    trial_ids,
+                    f"DELETE FROM eval_grader_results WHERE trial_id IN ({placeholders})",
+                    batch,
                 )
-                grader_deleted = cursor.rowcount
+                grader_deleted += cursor.rowcount
 
             # 5. 删除 quality_metrics
             # S051 fix: 通过 run_id 和 trial_id 关联清理，兼容两种 session_id 格式：
@@ -577,27 +583,36 @@ class EvalDatabase:
             all_session_ids = list(delete_ids)  # run_id 作为 session_id
             if trial_ids:
                 all_session_ids.extend(f"eval-{tid}" for tid in trial_ids)
-            if all_session_ids:
-                s_placeholders = ",".join("?" for _ in all_session_ids)
+            for i in range(0, len(all_session_ids), BATCH_SIZE):
+                batch = all_session_ids[i:i + BATCH_SIZE]
+                placeholders = ",".join("?" for _ in batch)
                 cursor = await db.execute(
-                    f"DELETE FROM quality_metrics WHERE session_id IN ({s_placeholders})",
-                    all_session_ids,
+                    f"DELETE FROM quality_metrics WHERE session_id IN ({placeholders})",
+                    batch,
                 )
-                qm_deleted = cursor.rowcount
+                qm_deleted += cursor.rowcount
 
             # 6. 删除 trials
-            cursor = await db.execute(
-                f"DELETE FROM eval_trials WHERE run_id IN ({placeholders})",
-                delete_ids,
-            )
-            trials_deleted = cursor.rowcount
+            trials_deleted = 0
+            for i in range(0, len(delete_ids), BATCH_SIZE):
+                batch = delete_ids[i:i + BATCH_SIZE]
+                placeholders = ",".join("?" for _ in batch)
+                cursor = await db.execute(
+                    f"DELETE FROM eval_trials WHERE run_id IN ({placeholders})",
+                    batch,
+                )
+                trials_deleted += cursor.rowcount
 
             # 7. 删除 runs
-            cursor = await db.execute(
-                f"DELETE FROM eval_runs WHERE run_id IN ({placeholders})",
-                delete_ids,
-            )
-            runs_deleted = cursor.rowcount
+            runs_deleted = 0
+            for i in range(0, len(delete_ids), BATCH_SIZE):
+                batch = delete_ids[i:i + BATCH_SIZE]
+                placeholders = ",".join("?" for _ in batch)
+                cursor = await db.execute(
+                    f"DELETE FROM eval_runs WHERE run_id IN ({placeholders})",
+                    batch,
+                )
+                runs_deleted += cursor.rowcount
 
             await db.commit()
 

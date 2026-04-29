@@ -257,6 +257,10 @@ class AgentSessionManager:
             payload=event_data,
             question_id=question_id,
         )
+        if event_record and isinstance(event_record, dict):
+            eid = event_record.get("event_id")
+            if eid and isinstance(event_data, dict):
+                event_data["event_id"] = eid
         await session.event_queue.put((event_type, event_data))
         # Notify conversation stream subscribers (e.g. mobile SSE)
         if event_record and session.terminal_id:

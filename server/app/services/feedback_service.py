@@ -95,6 +95,41 @@ async def _call_log_service(method: str, url: str, **kwargs):
         raise
 
 
+async def _find_existing_feedback(
+    user_id: str, result_event_id: str, feedback_type: Optional[str],
+) -> Optional[dict]:
+    """查询 log-service 是否已有相同 reporter + result_event_id（+ feedback_type）的反馈。
+
+    使用 GET /api/issues?reporter={user_id} 查询，再在本地匹配 result_event_id。
+    找到时返回 issue dict，否则返回 None。
+    """
+    log_service_url = os.environ.get("LOG_SERVICE_URL", "http://localhost:8001")
+    try:
+        response = await _call_log_service(
+            "get",
+            f"{log_service_url}/api/issues",
+            params={
+                "reporter": user_id,
+                "service_name": "remote-control",
+                "page_size": 50,
+            },
+        )
+        response.raise_for_status()
+        data = response.json()
+        issues = data.get("issues", []) if isinstance(data, dict) else data
+        for issue in issues:
+            if not isinstance(issue, dict):
+                continue
+            if issue.get("result_event_id") != result_event_id:
+                continue
+            if feedback_type and issue.get("feedback_type") != feedback_type:
+                continue
+            return issue
+    except Exception as e:
+        logger.warning("幂等性检查查询失败（best-effort）: user_id=%s error=%s", user_id, e)
+    return None
+
+
 async def create_feedback(
     user_id: str,
     session_id: str,
@@ -122,8 +157,26 @@ async def create_feedback(
     - result_event_id → 透传到 log-service
     - feedback_type → 透传到 log-service
     - 创建后异步调用 analyze_feedback()
+
+    R051 幂等性:
+    - 有 result_event_id 时，先查询是否已有相同 reporter + result_event_id + feedback_type 的 issue
+    - 找到则直接返回已有记录，不创建新的
+    - 无 result_event_id 的 error_report 不去重（每次提交独立记录）
     """
     _validate_description(description)
+
+    # R051: 幂等性检查 — 有 result_event_id 时查重
+    if result_event_id:
+        existing = await _find_existing_feedback(user_id, result_event_id, feedback_type)
+        if existing is not None:
+            logger.info(
+                "Feedback dedup hit: existing_issue_id=%s user_id=%s result_event_id=%s",
+                existing.get("id"), user_id, result_event_id,
+            )
+            return {
+                "feedback_id": str(existing.get("id", "")),
+                "created_at": existing.get("created_at", datetime.now(timezone.utc).isoformat()),
+            }
 
     # B052: terminal_id 归属校验 — 验证该 terminal 属于当前用户，并从 terminal_id 派生 session_id
     verified_session_id = session_id

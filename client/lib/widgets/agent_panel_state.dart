@@ -437,8 +437,9 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
           currentQuestion = null; result = null; error = null;
           state = AgentPhase.exploring; phaseDescription = '正在执行工具调用...';
         case 'result':
-          result = AgentResultEvent.fromJson(Map<String, dynamic>.from(event.payload));
-          resultEventId = event.eventId;
+          final payload = Map<String, dynamic>.from(event.payload);
+          result = AgentResultEvent.fromJson(payload);
+          resultEventId = result.eventId ?? event.eventId;
           error = null; errorEventId = null; state = AgentPhase.result;
         case 'error':
           error = AgentErrorEvent.fromJson(Map<String, dynamic>.from(event.payload));

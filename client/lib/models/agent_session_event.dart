@@ -246,6 +246,7 @@ class AgentResultEvent extends AgentSessionEvent {
     this.usage,
     this.responseType = 'command',
     this.aiPrompt = '',
+    this.eventId,
   });
 
   final String summary;
@@ -261,6 +262,9 @@ class AgentResultEvent extends AgentSessionEvent {
 
   /// ai_prompt 类型的 prompt 文本，用于注入终端 stdin
   final String aiPrompt;
+
+  /// 服务端 conversation event 的真实 event_id（SSE payload 注入）
+  final String? eventId;
 
   factory AgentResultEvent.fromJson(Map<String, dynamic> json) {
     return AgentResultEvent(
@@ -281,6 +285,7 @@ class AgentResultEvent extends AgentSessionEvent {
           : null,
       responseType: (json['response_type'] as String? ?? 'command').trim(),
       aiPrompt: (json['ai_prompt'] as String? ?? '').trim(),
+      eventId: (json['event_id'] as String?)?.trim(),
     );
   }
 
@@ -302,6 +307,7 @@ class AgentResultEvent extends AgentSessionEvent {
           },
         'response_type': responseType,
         'ai_prompt': aiPrompt,
+        if (eventId != null) 'event_id': eventId,
       };
 }
 
