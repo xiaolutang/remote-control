@@ -1,0 +1,164 @@
+{
+  "version": "1.4",
+  "project": "remote-control",
+  "updated_at": "2026-04-29T01:30:00",
+  "status": "completed",
+  "workflow": {
+    "name": "R049-brainstorm-bug-fixes",
+    "mode": "B",
+    "runtime": "skill_orchestrated",
+    "review_provider": "codex_plugin",
+    "audit_provider": "codex_plugin",
+    "risk_provider": "codex_plugin",
+    "stop_hook_enabled": false
+  },
+  "active_requirement_cycle": {
+    "id": "R049",
+    "name": "brainstorm-bug-fixes",
+    "branch": "fix/R049-brainstorm-bug-fixes",
+    "status": "active",
+    "total_tasks": 3,
+    "summary": "brainstorm 发现的三个 bug fix：工具注册 name 参数、终端注入截断、命令显示截断"
+  },
+  "summary": {
+    "total_tasks": 3,
+    "by_status": {
+      "completed": 3,
+      "pending": 0,
+      "blocked": 0
+    }
+  },
+  "archived_requirement_cycles": [
+    {
+      "id": "R047",
+      "name": "agent-conversation-interaction-optimization",
+      "status": "completed",
+      "archive_dir": "_archive/R047_agent-conversation-interaction-optimization",
+      "total_tasks": 31,
+      "completed_at": "2026-04-28"
+    },
+    {
+      "id": "R048",
+      "name": "architecture-deep-cleanup",
+      "status": "completed",
+      "archive_dir": "_archive/R048_architecture-deep-cleanup",
+      "total_tasks": 20,
+      "completed_at": "2026-04-28"
+    }
+  ],
+  "archived_phases": [],
+  "features": [
+    {
+      "id": "S049",
+      "phase": 1,
+      "module": "server",
+      "name": "Fix tool registration name parameter",
+      "description": "terminal_agent_tools.py 中 agent.tool() 注册内置工具时未显式传入 name 参数，导致 Pydantic AI 使用函数名 _tool_execute_command 暴露给 LLM。",
+      "verification": "L1",
+      "depends_on": [],
+      "status": "completed",
+      "priority": 1,
+      "acceptance_criteria": [
+        "agent.tool(_tool_execute_command, name='execute_command') 显式指定 name",
+        "agent.tool(_tool_ask_user, name='ask_user') 显式指定 name",
+        "agent.tool(_tool_deliver_result, name='deliver_result') 显式指定 name",
+        "agent.tool(_tool_lookup_knowledge, name='lookup_knowledge') 显式指定 name",
+        "全局 terminal_agent 注册也同步更新 4 个工具的 name 参数",
+        "现有测试通过"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "验证工具注册后 LLM 可见名称正确",
+          "scenarios": [
+            "build_session_agent() 返回的 agent 实例中 execute_command 工具名为 'execute_command'",
+            "全局 terminal_agent 的工具名同样正确"
+          ]
+        }
+      ],
+      "files": ["server/app/services/terminal_agent_tools.py", "server/app/services/terminal_agent.py"],
+      "fix_level": "L2",
+      "root_cause_analysis": "Pydantic AI agent.tool() 默认使用函数 __name__ 作为工具名。内部函数以 _ 前缀命名，GLM-5.1 将其拼接产生无效工具名",
+      "similar_locations": ["_register_dynamic_tool 已显式传入 name=tool_name，不受此 bug 影响"],
+      "started_at": "2026-04-29T01:00:00",
+      "completed_at": "2026-04-29T01:15:00",
+      "execution_notes": "修复 _register_builtin_tools + _register_lookup_knowledge + 全局 terminal_agent 注册，共 8 处 tool() 调用添加 name 参数。测试 166 passed。",
+      "commit": "a498056"
+    },
+    {
+      "id": "F050",
+      "phase": 1,
+      "module": "client",
+      "name": "Fix terminal injection truncation with Bracketed Paste Mode",
+      "description": "AI Prompt 注入终端时多行内容被截断。使用 BPM 转义序列包裹注入内容。",
+      "verification": "F1",
+      "depends_on": [],
+      "status": "completed",
+      "priority": 1,
+      "acceptance_criteria": [
+        "_wsSend 中注入内容前包裹 \\x1b[200~ 前缀和 \\x1b[201~ 后缀",
+        "注入的 ai_prompt 多行内容完整显示在终端中，无截断",
+        "不影响普通命令的单行发送（普通命令不加 BPM 包裹）",
+        "手动验证：注入包含换行的长 prompt 到终端，内容完整"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        {
+          "type": "manual",
+          "description": "手动验证 BPM 注入效果",
+          "scenarios": [
+            "注入单行命令：正常执行",
+            "注入多行 prompt（含 5+ 换行）：内容完整无截断",
+            "注入包含特殊字符（引号、反斜杠）的内容：正确处理"
+          ]
+        }
+      ],
+      "files": ["client/lib/services/ws_connection_manager.dart"],
+      "fix_level": "L2",
+      "root_cause_analysis": "多行文本直接 write 到 PTY 时，终端逐字符处理，换行触发 shell 解析，后续内容丢失。",
+      "started_at": "2026-04-29T01:15:00",
+      "completed_at": "2026-04-29T01:20:00",
+      "execution_notes": "在 _wsSend 中 base64 编码前添加 BPM 检测：内容含 \\n 时包裹转义序列。flutter analyze 通过。",
+      "commit": "9414c9e"
+    },
+    {
+      "id": "F051",
+      "phase": 1,
+      "module": "client",
+      "name": "Fix command and prompt display truncation in chat panel",
+      "description": "聊天面板中命令和 prompt 内容被 maxLines: 3 截断。修复 4 个位置。",
+      "verification": "F1",
+      "depends_on": [],
+      "status": "completed",
+      "priority": 2,
+      "acceptance_criteria": [
+        "agent_panel_result_views.dart:124 step.command 移除 maxLines: 3",
+        "agent_panel_conversation.dart:360 result.aiPrompt 移除 maxLines: 3",
+        "agent_panel_conversation.dart:346 result.summary 移除 maxLines: 3",
+        "agent_panel_conversation.dart:384 result.summary 移除 maxLines: 3",
+        "移除 maxLines 后 Text 自适应高度",
+        "agent_panel_widgets.dart:171 step.description 保留（有展开/收起机制）"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        {
+          "type": "unit",
+          "description": "widget 测试验证内容展示无截断",
+          "scenarios": [
+            "包含 10+ 行的命令步骤完整展示",
+            "单行命令正常展示"
+          ]
+        }
+      ],
+      "files": ["client/lib/widgets/agent_panel_result_views.dart", "client/lib/widgets/agent_panel_conversation.dart"],
+      "fix_level": "L1",
+      "root_cause_analysis": "maxLines: 3 是 UI 布局保护，但命令内容、prompt 内容和结果摘要需要完整展示",
+      "similar_locations": ["agent_panel_widgets.dart:171 step.description 有 expand/collapse，不在修复范围"],
+      "started_at": "2026-04-29T01:20:00",
+      "completed_at": "2026-04-29T01:25:00",
+      "execution_notes": "4 处 maxLines + overflow 移除。flutter analyze 通过，71 个 widget 测试通过。",
+      "commit": "95cd417"
+    }
+  ]
+}
