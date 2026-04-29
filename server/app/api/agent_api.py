@@ -276,9 +276,9 @@ async def run_terminal_agent_session(
         )
 
     try:
-        agent_session = await manager.create_session(
+        agent_session = await manager.reuse_or_create_session(
             intent=intent, device_id=device_id, user_id=user_id,
-            session_id=agent_session_id, terminal_id=terminal_id,
+            terminal_id=terminal_id,
             terminal_cwd=_terminal.get("cwd"), conversation_id=conversation_id,
             message_history=message_history, check_rate_limit=False,
         )

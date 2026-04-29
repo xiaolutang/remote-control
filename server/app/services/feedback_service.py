@@ -95,6 +95,41 @@ async def _call_log_service(method: str, url: str, **kwargs):
         raise
 
 
+async def _fetch_feedback_issues(
+    user_id: str, max_pages: int = 10, page_size: int = 50,
+) -> list[dict]:
+    """查询 log-service 中该用户的所有 feedback issues（分页遍历）。
+
+    逐页获取直到取完或达到 max_pages 上限（默认最多 500 条）。
+    Best-effort: 查询失败返回已获取的部分。
+    """
+    log_service_url = os.environ.get("LOG_SERVICE_URL", "http://localhost:8001")
+    all_issues: list[dict] = []
+    try:
+        for page in range(1, max_pages + 1):
+            response = await _call_log_service(
+                "get",
+                f"{log_service_url}/api/issues",
+                params={
+                    "reporter": user_id,
+                    "service_name": "remote-control",
+                    "page": page,
+                    "page_size": page_size,
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+            issues = data.get("issues", []) if isinstance(data, dict) else data
+            issues = [i for i in issues if isinstance(i, dict)]
+            all_issues.extend(issues)
+            if len(issues) < page_size:
+                break
+        return all_issues
+    except Exception as e:
+        logger.warning("Feedback issues 查询失败（best-effort）: user_id=%s error=%s", user_id, e)
+        return all_issues
+
+
 async def _find_existing_feedback(
     user_id: str, result_event_id: str, feedback_type: Optional[str],
 ) -> Optional[dict]:
@@ -103,31 +138,43 @@ async def _find_existing_feedback(
     使用 GET /api/issues?reporter={user_id} 查询，再在本地匹配 result_event_id。
     找到时返回 issue dict，否则返回 None。
     """
-    log_service_url = os.environ.get("LOG_SERVICE_URL", "http://localhost:8001")
-    try:
-        response = await _call_log_service(
-            "get",
-            f"{log_service_url}/api/issues",
-            params={
-                "reporter": user_id,
-                "service_name": "remote-control",
-                "page_size": 50,
-            },
-        )
-        response.raise_for_status()
-        data = response.json()
-        issues = data.get("issues", []) if isinstance(data, dict) else data
-        for issue in issues:
-            if not isinstance(issue, dict):
-                continue
-            if issue.get("result_event_id") != result_event_id:
-                continue
-            if feedback_type and issue.get("feedback_type") != feedback_type:
-                continue
-            return issue
-    except Exception as e:
-        logger.warning("幂等性检查查询失败（best-effort）: user_id=%s error=%s", user_id, e)
+    issues = await _fetch_feedback_issues(user_id)
+    for issue in issues:
+        if issue.get("result_event_id") != result_event_id:
+            continue
+        if feedback_type and issue.get("feedback_type") != feedback_type:
+            continue
+        return issue
     return None
+
+
+async def batch_query_feedback_status(
+    user_id: str,
+    event_ids: list[str],
+) -> dict[str, str]:
+    """批量查询多个 event_id 的 feedback status。
+
+    Args:
+        user_id: 用户 ID
+        event_ids: 需要查询的 event_id 列表
+
+    Returns:
+        {event_id: feedback_type} 映射，未找到的不包含在结果中。
+
+    Best-effort: 查询失败返回空 dict。
+    """
+    if not event_ids:
+        return {}
+    issues = await _fetch_feedback_issues(user_id)
+    result: dict[str, str] = {}
+    event_id_set = set(event_ids)
+    for issue in issues:
+        rid = issue.get("result_event_id", "")
+        ftype = issue.get("feedback_type", "")
+        if rid and rid in event_id_set and ftype:
+            # 同一个 event_id 可能有多次 feedback，取最新的（后面的覆盖前面的）
+            result[rid] = ftype
+    return result
 
 
 async def create_feedback(
@@ -165,6 +212,11 @@ async def create_feedback(
     """
     _validate_description(description)
 
+    # B052: terminal_id 归属校验 — 先验证该 terminal 属于当前用户，再执行 dedup
+    verified_session_id = session_id
+    if terminal_id:
+        verified_session_id = await _verify_terminal_ownership(user_id, terminal_id)
+
     # R051: 幂等性检查 — 有 result_event_id 时查重
     if result_event_id:
         existing = await _find_existing_feedback(user_id, result_event_id, feedback_type)
@@ -177,11 +229,6 @@ async def create_feedback(
                 "feedback_id": str(existing.get("id", "")),
                 "created_at": existing.get("created_at", datetime.now(timezone.utc).isoformat()),
             }
-
-    # B052: terminal_id 归属校验 — 验证该 terminal 属于当前用户，并从 terminal_id 派生 session_id
-    verified_session_id = session_id
-    if terminal_id:
-        verified_session_id = await _verify_terminal_ownership(user_id, terminal_id)
 
     log_service_url = os.environ.get("LOG_SERVICE_URL", "http://localhost:8001")
 

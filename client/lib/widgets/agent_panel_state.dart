@@ -314,6 +314,8 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
     _agentErrorEventId = renderState.errorEventId;
     _agentIntent = renderState.intent; _agentAnswers.addAll(renderState.answers);
     _streamingTextBuffer.clear(); _toolSteps.clear();
+    // 从 projection events 恢复 feedback status
+    _restoreFeedbackStatusFromEvents(projection.events);
     if (_agentResult != null) _draft = _buildDraftFromAgentResult(_agentResult!);
   }
 
@@ -369,6 +371,10 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
     _agentResultEventId = renderState.resultEventId;
     _agentErrorEventId = renderState.errorEventId;
     _agentAnswers..clear()..addAll(renderState.answers);
+    // 从增量事件恢复 feedback status（仅 result 类型，error 反馈无稳定 event_id 关联）
+    if (event.type == 'result') {
+      _restoreFeedbackStatusFromEvent(event);
+    }
     if (_activeSessionId == null &&
         (_currentPhase == AgentPhase.confirming || _currentPhase == AgentPhase.exploring ||
             _currentPhase == AgentPhase.thinking || _currentPhase == AgentPhase.analyzing)) {
@@ -466,6 +472,31 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
   bool _isCommandResult(AgentResultEvent result) {
     final rt = result.responseType;
     return rt != 'message' && rt != 'ai_prompt';
+  }
+
+  /// 从 conversation events 中提取 feedback_status 并恢复到 _feedbackStatus map。
+  /// 用于 projection 初始加载时批量恢复。
+  void _restoreFeedbackStatusFromEvents(List<AgentConversationEventItem> events) {
+    final updated = Map<String, String>.from(_feedbackStatus);
+    for (final event in events) {
+      if (event.type != 'result') continue;
+      final feedbackStatus = event.payload['feedback_status'];
+      if (feedbackStatus is String && feedbackStatus.isNotEmpty && event.eventId.isNotEmpty) {
+        updated[event.eventId] = feedbackStatus;
+      }
+    }
+    _feedbackStatus = updated;
+  }
+
+  /// 从单个 conversation event 中提取 feedback_status 并恢复到 _feedbackStatus map。
+  /// 用于增量事件到达时恢复。
+  void _restoreFeedbackStatusFromEvent(AgentConversationEventItem event) {
+    final feedbackStatus = event.payload['feedback_status'];
+    if (feedbackStatus is String && feedbackStatus.isNotEmpty && event.eventId.isNotEmpty) {
+      final updated = Map<String, String>.from(_feedbackStatus);
+      updated[event.eventId] = feedbackStatus;
+      _feedbackStatus = updated;
+    }
   }
 
   /// 提交反馈到服务端

@@ -118,14 +118,21 @@ async def get_agent_usage_summary_api(
     session = await _deps.get_session_by_device_id(normalized_device_id, user_id)
 
     device_scope = _empty_agent_usage_summary_scope()
+    terminal_scope = None
     if session:
         device_summary = await _deps.get_usage_summary(
-            user_id, normalized_device_id, terminal_id=terminal_id,
+            user_id, normalized_device_id,
         )
         device_scope = AgentUsageSummaryScope(**device_summary)
+        if terminal_id and terminal_id.strip():
+            terminal_summary = await _deps.get_usage_summary(
+                user_id, normalized_device_id, terminal_id=terminal_id,
+            )
+            terminal_scope = AgentUsageSummaryScope(**terminal_summary)
     user_summary = await _deps.get_usage_summary(user_id, None)
 
     return AgentUsageSummaryResponse(
         device=device_scope,
+        terminal=terminal_scope,
         user=AgentUsageSummaryScope(**user_summary),
     )

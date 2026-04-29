@@ -452,6 +452,7 @@ async def run_agent_loop(
             total_tokens=outcome.total_tokens,
             requests=outcome.requests,
             model_name=outcome.model_name,
+            terminal_id=session.terminal_id,
         )
         if not saved_usage:
             logger.warning(

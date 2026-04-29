@@ -296,6 +296,23 @@ async def _build_agent_conversation_projection(
 
     events = await _deps.list_agent_conversation_events(user_id, device_id, terminal_id, after_index=after_index)
     event_items = [_agent_conversation_event_item(event) for event in events]
+
+    # Best-effort: 对 result 类型事件注入 feedback_status
+    # 注意: error 反馈不携带 result_event_id，无法通过 event_id 关联，因此跳过
+    try:
+        feedback_event_ids = [
+            item.event_id for item in event_items
+            if item.type == "result" and item.event_id
+        ]
+        if feedback_event_ids:
+            from app.services.feedback_service import batch_query_feedback_status
+            feedback_map = await batch_query_feedback_status(user_id, feedback_event_ids)
+            for item in event_items:
+                if item.event_id in feedback_map:
+                    item.payload["feedback_status"] = feedback_map[item.event_id]
+    except Exception:
+        logger.warning("Failed to inject feedback status (best-effort)", exc_info=True)
+
     if after_index is None:
         next_event_index = max((e.event_index for e in event_items), default=-1) + 1
     else:
