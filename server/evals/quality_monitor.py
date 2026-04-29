@@ -559,8 +559,7 @@ async def extract_and_store_metrics(
         terminal_id=terminal_id,
     )
 
-    for metric in metrics:
-        await eval_db.save_quality_metric(metric)
+    await eval_db.save_quality_metrics_batch(metrics)
 
     logger.info(
         "Quality metrics stored: session_id=%s metrics=%d",

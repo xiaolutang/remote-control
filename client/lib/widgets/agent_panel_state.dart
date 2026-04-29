@@ -278,24 +278,28 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
   }
 
   void _resetPanelStateForScopeChange() {
+    _resetPanelStateCore();
+    _terminalConversationClosed = false;
+    _terminalClosedReason = null;
+    _editingHistoryIndex = null;
+    _editingController.clear();
+    _sessionUsageAccumulator.reset();
+  }
+
+  void _markTerminalConversationClosed(String message) {
+    _resetPanelStateCore();
+    _terminalConversationClosed = true;
+    _terminalClosedReason = message;
+    _intentController.clear();
+  }
+
+  void _resetPanelStateCore() {
     _eventSubscription?.cancel(); _eventSubscription = null;
     _conversationStreamSubscription?.cancel(); _conversationStreamSubscription = null;
     _pendingReset = false; _draft = _defaultDraft(); _executing = false;
     _resetAgentRenderState(); _agentHistory.clear(); _expandedHistorySet.clear();
     _serverConversationEvents.clear(); _agentConversationId = null;
-    _nextConversationEventIndex = 0; _terminalConversationClosed = false;
-    _terminalClosedReason = null; _editingHistoryIndex = null; _editingController.clear();
-    _sessionUsageAccumulator.reset();
-  }
-
-  void _markTerminalConversationClosed(String message) {
-    _eventSubscription?.cancel(); _eventSubscription = null;
-    _conversationStreamSubscription?.cancel(); _conversationStreamSubscription = null;
-    _pendingReset = false; _executing = false; _draft = _defaultDraft();
-    _resetAgentRenderState(); _agentHistory.clear(); _expandedHistorySet.clear();
-    _serverConversationEvents.clear(); _agentConversationId = null;
-    _nextConversationEventIndex = 0; _terminalConversationClosed = true;
-    _terminalClosedReason = message; _intentController.clear();
+    _nextConversationEventIndex = 0;
   }
 
   void _applyConversationProjection(AgentConversationProjection projection) {

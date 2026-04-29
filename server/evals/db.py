@@ -718,6 +718,30 @@ class EvalDatabase:
             )
             await db.commit()
 
+    async def save_quality_metrics_batch(self, metrics: List[QualityMetric]) -> None:
+        """批量保存质量指标（单次连接 + 单次事务）。"""
+        if not metrics:
+            return
+        rows = []
+        for m in metrics:
+            d = m.to_db_dict()
+            rows.append((
+                d["metric_id"], d["session_id"], d["user_id"], d["device_id"],
+                d["metric_name"], d["value"], d["computed_at"], d["source"],
+                d["result_event_id"], d["terminal_id"],
+            ))
+        async with self._connect() as db:
+            await db.executemany(
+                """
+                INSERT OR REPLACE INTO quality_metrics
+                    (metric_id, session_id, user_id, device_id, metric_name, value,
+                     computed_at, source, result_event_id, terminal_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                rows,
+            )
+            await db.commit()
+
     async def get_quality_metrics_by_session(
         self, session_id: str
     ) -> List[QualityMetric]:

@@ -1,6 +1,7 @@
 """
 Assistant Execution Report + Agent Usage Summary REST API。
 """
+import asyncio
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, status, Depends
@@ -119,17 +120,31 @@ async def get_agent_usage_summary_api(
 
     device_scope = _empty_agent_usage_summary_scope()
     terminal_scope = None
+
     if session:
-        device_summary = await _deps.get_usage_summary(
-            user_id, normalized_device_id,
+        # 并发执行 3 个独立的 usage 查询
+        device_task = asyncio.create_task(
+            _deps.get_usage_summary(user_id, normalized_device_id),
         )
+        terminal_task = (
+            asyncio.create_task(
+                _deps.get_usage_summary(
+                    user_id, normalized_device_id, terminal_id=terminal_id.strip(),
+                ),
+            ) if terminal_id and terminal_id.strip() else None
+        )
+        user_task = asyncio.create_task(
+            _deps.get_usage_summary(user_id, None),
+        )
+
+        device_summary = await device_task
         device_scope = AgentUsageSummaryScope(**device_summary)
-        if terminal_id and terminal_id.strip():
-            terminal_summary = await _deps.get_usage_summary(
-                user_id, normalized_device_id, terminal_id=terminal_id,
-            )
+        if terminal_task:
+            terminal_summary = await terminal_task
             terminal_scope = AgentUsageSummaryScope(**terminal_summary)
-    user_summary = await _deps.get_usage_summary(user_id, None)
+        user_summary = await user_task
+    else:
+        user_summary = await _deps.get_usage_summary(user_id, None)
 
     return AgentUsageSummaryResponse(
         device=device_scope,

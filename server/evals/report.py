@@ -447,38 +447,19 @@ async def generate_report(
     return output_path
 
 
-async def _generate_single_report(
+async def _build_task_rows(
     eval_db: EvalDatabase,
-    regression_only: bool,
+    trials: list,
+    task_defs: dict,
+    *,
+    comparison_data: Optional[Dict[str, Dict[str, str]]] = None,
+    regression_only: bool = False,
 ) -> tuple:
-    """生成单次 run 的报告（最近一次）。"""
-    errors: List[str] = []
-    parts: List[str] = []
+    """从 trials 构建 task_rows 和 categories 聚合。
 
-    # 获取最近一次 run
-    runs = await eval_db.list_runs(limit=1)
-    if not runs:
-        return '<div class="empty-state">No eval runs found in database.</div>', errors
-
-    latest_run = runs[0]
-
-    # 总览
-    run_data = {
-        "total_tasks": latest_run.total_tasks,
-        "passed_tasks": latest_run.passed_tasks,
-    }
-    parts.append(_render_overview(run_data))
-
-    # 获取 task 结果详情
-    trials = await eval_db.list_trials_by_run(latest_run.run_id)
-
-    # 获取 task defs 以获取 category
-    task_defs = {}
-    all_defs = await eval_db.list_task_defs()
-    for td in all_defs:
-        task_defs[td.id] = td
-
-    # 聚合 category
+    Returns:
+        (task_rows, categories) 元组
+    """
     categories: Dict[str, Dict[str, int]] = {}
     task_rows: List[Dict[str, Any]] = []
 
@@ -487,8 +468,13 @@ async def _generate_single_report(
         task_def = task_defs.get(task_id)
         category = task_def.category.value if task_def else "unknown"
         description = task_def.description if task_def else ""
-
         passed = _is_trial_passed({"agent_result_json": trial.agent_result_json})
+
+        # 对比模式：regression_only 过滤
+        if comparison_data is not None:
+            change = comparison_data.get(task_id, {}).get("change", "stable")
+            if regression_only and change != "regression":
+                continue
 
         # Category 聚合
         if category not in categories:
@@ -519,13 +505,37 @@ async def _generate_single_report(
             "duration_ms": trial.duration_ms,
         })
 
-    parts.append(_render_categories(categories))
+    return task_rows, categories
 
-    # 历史趋势
+
+async def _generate_single_report(
+    eval_db: EvalDatabase,
+    regression_only: bool,
+) -> tuple:
+    """生成单次 run 的报告（最近一次）。"""
+    errors: List[str] = []
+    parts: List[str] = []
+
+    runs = await eval_db.list_runs(limit=1)
+    if not runs:
+        return '<div class="empty-state">No eval runs found in database.</div>', errors
+
+    latest_run = runs[0]
+
+    run_data = {
+        "total_tasks": latest_run.total_tasks,
+        "passed_tasks": latest_run.passed_tasks,
+    }
+    parts.append(_render_overview(run_data))
+
+    trials = await eval_db.list_trials_by_run(latest_run.run_id)
+    task_defs = {td.id: td for td in await eval_db.list_task_defs()}
+
+    task_rows, categories = await _build_task_rows(eval_db, trials, task_defs)
+
+    parts.append(_render_categories(categories))
     trend = await _generate_trend_data(eval_db)
     parts.append(_render_trend(trend))
-
-    # Task 详情表
     parts.append(_render_task_table(task_rows))
 
     return "".join(parts), errors
@@ -541,7 +551,6 @@ async def _generate_compare_report(
     errors: List[str] = []
     parts: List[str] = []
 
-    # 验证 run 存在
     baseline_run = await eval_db.get_run(baseline_id)
     current_run = await eval_db.get_run(current_id)
 
@@ -556,7 +565,6 @@ async def _generate_compare_report(
             errors,
         )
 
-    # 总览（使用 current run 的数据）
     parts.append(f'<h2>Compare: {_html_escape(baseline_id[:12])} vs {_html_escape(current_id[:12])}</h2>')
     run_data = {
         "total_tasks": current_run.total_tasks,
@@ -564,7 +572,6 @@ async def _generate_compare_report(
     }
     parts.append(_render_overview(run_data))
 
-    # 检测回归/改进
     from evals.regression import detect_regressions
     comparison = await detect_regressions(eval_db, baseline_id, current_id)
 
@@ -572,7 +579,6 @@ async def _generate_compare_report(
     improvements = comparison.get("improvements", [])
     stable = comparison.get("stable", [])
 
-    # 对比摘要
     parts.append(
         f'<div class="summary-cards">'
         f'<div class="card fail"><div class="label">Regressions</div>'
@@ -584,14 +590,9 @@ async def _generate_compare_report(
         f'</div>'
     )
 
-    # 获取 current run 的 task 结果
     trials = await eval_db.list_trials_by_run(current_id)
-    task_defs = {}
-    all_defs = await eval_db.list_task_defs()
-    for td in all_defs:
-        task_defs[td.id] = td
+    task_defs = {td.id: td for td in await eval_db.list_task_defs()}
 
-    # 构建对比数据
     comparison_data: Dict[str, Dict[str, str]] = {}
     for r in regressions:
         comparison_data[r["task_id"]] = {"change": "regression"}
@@ -600,56 +601,15 @@ async def _generate_compare_report(
     for s in stable:
         comparison_data[s["task_id"]] = {"change": "stable"}
 
-    # Category 聚合
-    categories: Dict[str, Dict[str, int]] = {}
-    task_rows: List[Dict[str, Any]] = []
-
-    for trial in trials:
-        task_id = trial.task_id
-        task_def = task_defs.get(task_id)
-        category = task_def.category.value if task_def else "unknown"
-        description = task_def.description if task_def else ""
-        passed = _is_trial_passed({"agent_result_json": trial.agent_result_json})
-
-        change = comparison_data.get(task_id, {}).get("change", "stable")
-
-        # regression_only 过滤
-        if regression_only and change != "regression":
-            continue
-
-        if category not in categories:
-            categories[category] = {"total": 0, "passed": 0}
-        categories[category]["total"] += 1
-        if passed:
-            categories[category]["passed"] += 1
-
-        grader_results_raw = await eval_db.get_grader_results_by_trial(trial.trial_id)
-        grader_results = [{"grader_type": g.grader_type, "passed": g.passed} for g in grader_results_raw]
-
-        sanitized = _sanitize_transcript(
-            trial.transcript_json,
-            agent_result_json=trial.agent_result_json,
-            grader_results=grader_results,
-        )
-
-        task_rows.append({
-            "task_id": task_id,
-            "category": category,
-            "description": description,
-            "passed": passed,
-            "agent_summary": sanitized["agent_result_summary"],
-            "grader_verdict": sanitized["grader_verdict"],
-            "sanitized_turns": sanitized["sanitized_turns"],
-            "duration_ms": trial.duration_ms,
-        })
+    task_rows, categories = await _build_task_rows(
+        eval_db, trials, task_defs,
+        comparison_data=comparison_data,
+        regression_only=regression_only,
+    )
 
     parts.append(_render_categories(categories))
-
-    # 趋势
     trend = await _generate_trend_data(eval_db)
     parts.append(_render_trend(trend))
-
-    # Task 详情表（含对比标记）
     parts.append(_render_task_table(task_rows, comparison_data=comparison_data))
 
     return "".join(parts), errors

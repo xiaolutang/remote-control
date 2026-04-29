@@ -20,88 +20,61 @@ from evals.graders.code_grader import CodeGraderBase, GRADER_REGISTRY, _register
 from evals.models import EvalGraderResult, EvalTaskDef, EvalTrial
 
 
+# ── 公共 token_usage 提取 ──────────────────────────────────────────────────
+
+
+def _iter_token_usages(trial: EvalTrial) -> List[Tuple[int, Dict[str, Any]]]:
+    """从 trial transcript 中提取所有 token_usage，返回 (index, usage_dict) 列表。
+
+    同时检查顶层 token_usage 和 agent_result.token_usage。
+    """
+    results: List[Tuple[int, Dict[str, Any]]] = []
+    for idx, entry in enumerate(trial.transcript_json):
+        # 顶层 token_usage
+        token_usage = entry.get("token_usage")
+        if isinstance(token_usage, dict) and token_usage:
+            results.append((idx, token_usage))
+        # agent_result 内嵌的 token_usage
+        agent_result = entry.get("agent_result") or {}
+        if isinstance(agent_result, dict):
+            nested_usage = agent_result.get("token_usage")
+            if isinstance(nested_usage, dict) and nested_usage:
+                results.append((idx, nested_usage))
+    return results
+
+
 # ── 不变量检查函数 ──────────────────────────────────────────────────────────
 
 
 def _check_token_monotonic(trial: EvalTrial) -> List[str]:
-    """检查 token 累加单调递增。
-
-    从 trial transcript 中的 result/final_result 事件提取 usage.total_tokens，
-    验证后续 run 的 total_tokens >= 前一次（累加不减少）。
-
-    Returns:
-        violation 列表（空表示通过）
-    """
+    """检查 token 累加单调递增。"""
     violations: List[str] = []
     prev_total: int | None = None
 
-    for entry in trial.transcript_json:
-        role = entry.get("role", "")
-
-        # 从 assistant 角色或 final_result 角色中提取 token_usage
-        if role in ("assistant", "final_result"):
-            token_usage = entry.get("token_usage") or {}
-            total_tokens = int(token_usage.get("total_tokens", 0) or 0)
-
-            # B054 fix: 跳过没有 token_usage 的轮次（integration 模式可能只有最终累计）
-            if total_tokens > 0:
-                if prev_total is not None and total_tokens < prev_total:
-                    violations.append(
-                        f"token decreased from {prev_total} to {total_tokens}"
-                    )
-                prev_total = total_tokens
-
-        # 也从 agent_result 中提取 token_usage
-        agent_result = entry.get("agent_result") or {}
-        if isinstance(agent_result, dict):
-            token_usage = agent_result.get("token_usage") or {}
-            total_tokens = int(token_usage.get("total_tokens", 0) or 0)
-
-            # B054 fix: 跳过没有 token_usage 的轮次
-            if total_tokens > 0:
-                if prev_total is not None and total_tokens < prev_total:
-                    violations.append(
-                        f"token decreased from {prev_total} to {total_tokens}"
-                    )
-                prev_total = total_tokens
+    for _, usage in _iter_token_usages(trial):
+        total_tokens = int(usage.get("total_tokens", 0) or 0)
+        if total_tokens > 0:
+            if prev_total is not None and total_tokens < prev_total:
+                violations.append(
+                    f"token decreased from {prev_total} to {total_tokens}"
+                )
+            prev_total = total_tokens
 
     return violations
 
 
 def _check_usage_non_negative(trial: EvalTrial) -> List[str]:
-    """检查所有 usage 字段均为非负。
-
-    从 trial transcript 中所有事件提取 usage 字段，
-    检查 input_tokens, output_tokens, total_tokens 均不能为负。
-
-    Returns:
-        violation 列表（空表示通过）
-    """
+    """检查所有 usage 字段均为非负。"""
     violations: List[str] = []
     token_fields = ("input_tokens", "output_tokens", "total_tokens")
 
-    for idx, entry in enumerate(trial.transcript_json):
-        # 检查顶层的 token_usage
-        token_usage = entry.get("token_usage") or {}
-        if isinstance(token_usage, dict):
-            for field in token_fields:
-                val = token_usage.get(field)
-                if val is not None and int(val) < 0:
-                    violations.append(
-                        f"negative {field}={val} in event at index {idx}"
-                    )
-
-        # 检查 agent_result 内嵌的 token_usage
-        agent_result = entry.get("agent_result") or {}
-        if isinstance(agent_result, dict):
-            token_usage = agent_result.get("token_usage") or {}
-            if isinstance(token_usage, dict):
-                for field in token_fields:
-                    val = token_usage.get(field)
-                    if val is not None and int(val) < 0:
-                        violations.append(
-                            f"negative {field}={val} in event at index {idx}"
-                        )
+    for idx, usage in _iter_token_usages(trial):
+        for field in token_fields:
+            val = usage.get(field)
+            if val is not None and int(val) < 0:
+                violations.append(
+                    f"negative {field}={val} in event at index {idx}"
+                )
 
     return violations
 

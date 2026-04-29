@@ -369,6 +369,46 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
 
   // --- 反馈按钮 ---
 
+  Widget _buildFeedbackButton({
+    required String feedbackKey,
+    required String buttonKey,
+    required String feedbackType,
+    required IconData icon,
+    required String label,
+    required String? resultEventId,
+    required bool isSubmitting,
+    required ColorScheme colorScheme,
+  }) {
+    return Expanded(
+        child: OutlinedButton.icon(
+            key: Key(buttonKey),
+            style: OutlinedButton.styleFrom(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
+                side: BorderSide(
+                    color: colorScheme.outlineVariant
+                        .withValues(alpha: 0.4))),
+            onPressed: isSubmitting
+                ? null
+                : () => _submitFeedback(
+                      feedbackKey: feedbackKey,
+                      feedbackType: feedbackType,
+                      resultEventId: resultEventId,
+                    ),
+            icon: isSubmitting
+                ? SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 1.5,
+                        color: colorScheme.onSurfaceVariant))
+                : Icon(icon, size: 14),
+            label: Text(label,
+                style: Theme.of(context).textTheme.labelSmall)));
+  }
+
   Widget _buildFeedbackButtons({
     required ColorScheme colorScheme,
     required String feedbackKey,
@@ -446,63 +486,27 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
     // result 视图两个按钮
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [
-        Expanded(
-            child: OutlinedButton.icon(
-                key: Key('feedback-helpful-$feedbackKey'),
-                style: OutlinedButton.styleFrom(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8)),
-                    side: BorderSide(
-                        color: colorScheme.outlineVariant
-                            .withValues(alpha: 0.4))),
-                onPressed: isSubmitting
-                    ? null
-                    : () => _submitFeedback(
-                          feedbackKey: feedbackKey,
-                          feedbackType: 'helpful',
-                          resultEventId: resultEventId,
-                        ),
-                icon: isSubmitting
-                    ? SizedBox(
-                        width: 12,
-                        height: 12,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 1.5,
-                            color: colorScheme.onSurfaceVariant))
-                    : const Icon(Icons.thumb_up_outlined, size: 14),
-                label: Text('有帮助',
-                    style: Theme.of(context).textTheme.labelSmall))),
+        _buildFeedbackButton(
+          feedbackKey: feedbackKey,
+          buttonKey: 'feedback-helpful-$feedbackKey',
+          feedbackType: 'helpful',
+          icon: Icons.thumb_up_outlined,
+          label: '有帮助',
+          resultEventId: resultEventId,
+          isSubmitting: isSubmitting,
+          colorScheme: colorScheme,
+        ),
         const SizedBox(width: 8),
-        Expanded(
-            child: OutlinedButton.icon(
-                key: Key('feedback-needs_improvement-$feedbackKey'),
-                style: OutlinedButton.styleFrom(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8)),
-                    side: BorderSide(
-                        color: colorScheme.outlineVariant
-                            .withValues(alpha: 0.4))),
-                onPressed: isSubmitting
-                    ? null
-                    : () => _submitFeedback(
-                          feedbackKey: feedbackKey,
-                          feedbackType: 'needs_improvement',
-                          resultEventId: resultEventId,
-                        ),
-                icon: isSubmitting
-                    ? SizedBox(
-                        width: 12,
-                        height: 12,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 1.5,
-                            color: colorScheme.onSurfaceVariant))
-                    : const Icon(Icons.thumb_down_outlined, size: 14),
-                label: Text('需改进',
-                    style: Theme.of(context).textTheme.labelSmall))),
+        _buildFeedbackButton(
+          feedbackKey: feedbackKey,
+          buttonKey: 'feedback-needs_improvement-$feedbackKey',
+          feedbackType: 'needs_improvement',
+          icon: Icons.thumb_down_outlined,
+          label: '需改进',
+          resultEventId: resultEventId,
+          isSubmitting: isSubmitting,
+          colorScheme: colorScheme,
+        ),
       ]),
       if (hasError) ...[
         const SizedBox(height: 4),
