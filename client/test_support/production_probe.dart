@@ -51,6 +51,8 @@ class RuntimeTerminalProbeResult {
     this.candidateCwd,
     this.createdTerminalId,
     this.createdStatus,
+    this.inputProbePassed,
+    this.inputProbeEcho,
     this.closedStatus,
   });
 
@@ -62,6 +64,8 @@ class RuntimeTerminalProbeResult {
   final String? candidateCwd;
   final String? createdTerminalId;
   final String? createdStatus;
+  final bool? inputProbePassed;
+  final String? inputProbeEcho;
   final String? closedStatus;
 }
 
@@ -189,6 +193,7 @@ Future<ProductionProbeResult> runProductionProbe(
     runtimeTerminalResult = await _runRuntimeTerminalProbe(
       config: config,
       token: token,
+      sessionId: sessionId,
       log: logger,
     );
   }
@@ -204,9 +209,11 @@ Future<ProductionProbeResult> runProductionProbe(
 Future<RuntimeTerminalProbeResult> _runRuntimeTerminalProbe({
   required ProductionProbeConfig config,
   required String token,
+  required String sessionId,
   required void Function(String line) log,
 }) async {
   final ipBase = 'https://${config.serverIp}/rc';
+  final ipWsBase = 'wss://${config.serverIp}/rc';
   final authHeaders = <String, String>{
     HttpHeaders.hostHeader: config.host,
     HttpHeaders.authorizationHeader: 'Bearer $token',
@@ -328,6 +335,19 @@ Future<RuntimeTerminalProbeResult> _runRuntimeTerminalProbe({
     );
   }
   final createdStatus = createData['status']?.toString();
+  final inputProbeEcho = await _probeTerminalInput(
+    uri: Uri.parse('$ipWsBase/ws/client').replace(
+      queryParameters: <String, String>{
+        'session_id': sessionId,
+        'view': 'desktop',
+        'terminal_id': terminalId,
+        'probe': 'runtime-terminal-input-e2e',
+      },
+    ),
+    token: token,
+    hostHeader: config.host,
+  );
+  log('runtime terminal-input echo=${compactText(inputProbeEcho)}');
 
   final terminalsResponse = await _getHttp(
     label: 'runtime-list-terminals',
@@ -388,6 +408,8 @@ Future<RuntimeTerminalProbeResult> _runRuntimeTerminalProbe({
     candidateCwd: candidateCwd,
     createdTerminalId: terminalId,
     createdStatus: createdStatus,
+    inputProbePassed: inputProbeEcho.contains('__RC_INPUT_PROBE__'),
+    inputProbeEcho: inputProbeEcho,
     closedStatus: closedStatus,
   );
 }
@@ -585,6 +607,75 @@ Future<_WsProbeResult> _authenticateWebSocket({
     return _WsProbeResult(frame: first, message: decoded);
   } catch (error) {
     throw StateError('$label request failed: $error');
+  }
+}
+
+Future<String> _probeTerminalInput({
+  required Uri uri,
+  required String token,
+  required String hostHeader,
+}) async {
+  final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
+  client.badCertificateCallback = (_, __, ___) => true;
+  client.findProxy = (_) => 'DIRECT';
+  final authUri = uri.replace(
+    queryParameters: <String, String>{
+      ...uri.queryParameters,
+      'token': token,
+    },
+  );
+  const marker = '__RC_INPUT_PROBE__';
+  const command = 'echo __RC_INPUT_PROBE__\r';
+
+  try {
+    final socket = await WebSocket.connect(
+      authUri.toString(),
+      headers: <String, dynamic>{HttpHeaders.hostHeader: hostHeader},
+      customClient: client,
+    ).timeout(const Duration(seconds: 10));
+    socket.add(jsonEncode(<String, dynamic>{
+      'type': 'auth',
+      'token': token,
+    }));
+
+    final iterator = StreamIterator<dynamic>(socket);
+    var sentInput = false;
+
+    while (await iterator.moveNext().timeout(const Duration(seconds: 12))) {
+      final dynamic event = iterator.current;
+      if (event is! String) {
+        continue;
+      }
+      final decoded = jsonDecode(event);
+      if (decoded is! Map<String, dynamic>) {
+        continue;
+      }
+      final type = decoded['type']?.toString();
+      if (type == 'connected' && !sentInput) {
+        socket.add(jsonEncode(<String, dynamic>{
+          'type': 'data',
+          'payload': base64Encode(utf8.encode(command)),
+          'timestamp': DateTime.now().toUtc().toIso8601String(),
+        }));
+        sentInput = true;
+        continue;
+      }
+      if (type != 'output' && type != 'snapshot' && type != 'snapshot_chunk') {
+        continue;
+      }
+      final payload = decoded['payload']?.toString() ?? '';
+      if (payload.isEmpty) {
+        continue;
+      }
+      final text = utf8.decode(base64Decode(payload), allowMalformed: true);
+      if (text.contains(marker)) {
+        await socket.close();
+        return text;
+      }
+    }
+    throw StateError('terminal input probe closed before receiving echo');
+  } catch (error) {
+    throw StateError('runtime terminal input probe failed: $error');
   }
 }
 

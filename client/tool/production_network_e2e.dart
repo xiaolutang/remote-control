@@ -34,8 +34,14 @@ Future<void> main(List<String> args) async {
           ' cwd=${runtime.candidateCwd}'
           ' terminal_id=${runtime.createdTerminalId}'
           ' created_status=${runtime.createdStatus}'
+          ' input_probe_passed=${runtime.inputProbePassed}'
           ' closed_status=${runtime.closedStatus}',
         );
+        if ((runtime.inputProbeEcho ?? '').isNotEmpty) {
+          stdout.writeln(
+            '  runtime_terminal_probe_echo: ${runtime.inputProbeEcho}',
+          );
+        }
       }
     }
     exitCode = 0;
