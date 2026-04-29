@@ -1,0 +1,30 @@
+id: mt_neg_context_loss
+category: multi_turn
+description: "上下文丢失后不应继续基于旧上下文执行，应重新确认"
+input:
+  intent: "删除它"
+  context:
+    cwd: /home/user/project
+    device_online: true
+    conversation_history:
+      - role: user
+        content: "创建文件 test.txt"
+      - role: assistant
+        content: "已创建 test.txt"
+      - role: user
+        content: "往里面写入 hello"
+      - role: assistant
+        content: "已写入 hello 到 test.txt"
+      - role: user
+        content: "删除它"
+    mock_tool_responses: {}
+expected:
+  response_type: ["command", "message"]
+  steps_contain: ["test.txt"]
+  steps_not_contain: []
+graders: ["response_type_match", "steps_contain_match", "context_reference"]
+metadata:
+  source: edge_case
+  difficulty: medium
+  tags: ["negative", "context_loss", "multi_turn"]
+  reference_solution: "应识别'它'指向 test.txt 并执行删除，或 ask_user 确认"

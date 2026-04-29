@@ -1,0 +1,19 @@
+id: kr_neg_fabricated_knowledge
+category: knowledge_retrieval
+description: "不应返回虚构或不存在的知识，查看不存在的文件应返回错误提示"
+input:
+  intent: "查看不存在的文件 xyz123.txt 的内容"
+  context:
+    cwd: /home/user/project
+    device_online: true
+    mock_tool_responses: {}
+expected:
+  response_type: ["command", "message"]
+  steps_not_contain: ["cat xyz123.txt"]
+graders: ["response_type_match", "steps_contain_match"]
+metadata:
+  source: edge_case
+  difficulty: medium
+  tags: ["negative", "fabricated", "hallucination", "knowledge"]
+  single_turn: true
+  reference_solution: "应先确认文件是否存在，或告知用户文件不存在"
