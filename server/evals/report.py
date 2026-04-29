@@ -268,7 +268,7 @@ def _render_categories(categories: Dict[str, Dict[str, Any]]) -> str:
         total = data.get("total", 0)
         passed = data.get("passed", 0)
         rate = passed / total if total > 0 else 0.0
-        badge_cls = "badge-pass" if rate >= 0.8 else ("badge-fail" if rate < 0.5 else "badge-fail")
+        badge_cls = "badge-pass" if rate >= 0.8 else "badge-fail"
 
         rows += (
             f'<tr>'

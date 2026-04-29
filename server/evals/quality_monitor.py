@@ -23,7 +23,6 @@ import asyncio
 import json
 import logging
 import sqlite3
-from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -250,7 +249,7 @@ def extract_session_data(
             data.phase_change_events += 1
             # B055: 记录 thinking phase 的时间
             phase = (payload.get("phase") or "").upper()
-            if phase in ("THINKING", "thinking") and event_time and not data.thinking_phase_time:
+            if phase == "THINKING" and event_time and not data.thinking_phase_time:
                 data.thinking_phase_time = event_time
 
         elif event_type == "streaming_text":
@@ -655,10 +654,6 @@ def _batch_read_app_db(
                     "payload": payload,
                 })
 
-                # 从 result 事件提取 intent（如果有）
-                if row["event_type"] == "result" and "summary" in payload:
-                    # result 事件不包含 intent，需要从其他来源获取
-                    pass
 
             session_data_list.append((sid, user_id, device_id, intent, events))
 

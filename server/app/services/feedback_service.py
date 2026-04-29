@@ -16,6 +16,9 @@ from app.services.agent_session_manager import generate_terminal_session_id
 
 logger = logging.getLogger(__name__)
 
+# log-service 基地址（模块级常量，避免每处重复读取环境变量）
+_LOG_SERVICE_URL = os.environ.get("LOG_SERVICE_URL", "http://localhost:8001")
+
 # description 最大长度
 MAX_DESCRIPTION_LENGTH = 10000
 
@@ -103,13 +106,12 @@ async def _fetch_feedback_issues(
     逐页获取直到取完或达到 max_pages 上限（默认最多 150 条）。
     Best-effort: 查询失败返回已获取的部分。
     """
-    log_service_url = os.environ.get("LOG_SERVICE_URL", "http://localhost:8001")
     all_issues: list[dict] = []
     try:
         for page in range(1, max_pages + 1):
             response = await _call_log_service(
                 "get",
-                f"{log_service_url}/api/issues",
+                f"{_LOG_SERVICE_URL}/api/issues",
                 params={
                     "reporter": user_id,
                     "service_name": "remote-control",
@@ -230,14 +232,12 @@ async def create_feedback(
                 "created_at": existing.get("created_at", datetime.now(timezone.utc).isoformat()),
             }
 
-    log_service_url = os.environ.get("LOG_SERVICE_URL", "http://localhost:8001")
-
     # 获取关联日志（best-effort）
     related_logs_text = ""
     try:
         log_response = await _call_log_service(
             "get",
-            f"{log_service_url}/api/logs",
+            f"{_LOG_SERVICE_URL}/api/logs",
             params={
                 "uid": user_id,
                 "service_name": "remote-control",
@@ -288,7 +288,7 @@ async def create_feedback(
 
     response = await _call_log_service(
         "post",
-        f"{log_service_url}/api/issues",
+        f"{_LOG_SERVICE_URL}/api/issues",
         json=issue_payload,
     )
     response.raise_for_status()
@@ -355,11 +355,9 @@ async def get_feedback(feedback_id: str, user_id: str) -> Optional[dict]:
 
     归属校验：reporter ≠ 当前 user_id → 返回 None（404）。
     """
-    log_service_url = os.environ.get("LOG_SERVICE_URL", "http://localhost:8001")
-
     try:
         response = await _call_log_service(
-            "get", f"{log_service_url}/api/issues/{feedback_id}",
+            "get", f"{_LOG_SERVICE_URL}/api/issues/{feedback_id}",
         )
         response.raise_for_status()
     except httpx.HTTPStatusError as e:

@@ -407,8 +407,18 @@ class AgentSessionManager:
     ) -> Optional[AgentSession]:
         """查找该 terminal 的任意状态 session（不限于 active）。
 
-        用于 per-terminal session_id 复用。
+        B051 不变量 #64: session 与 terminal 1:1，session_id 确定性生成。
+        优先用确定性 ID 做 O(1) 查找，fallback 线性遍历兼容旧 session。
         """
+        session_id = generate_terminal_session_id(terminal_id)
+        session = self._sessions.get(session_id)
+        if (
+            session
+            and session.user_id == user_id
+            and session.device_id == device_id
+        ):
+            return session
+        # Fallback: 线性遍历（兼容 create_session 创建的旧 session）
         for session in self._sessions.values():
             if (
                 session.user_id == user_id
