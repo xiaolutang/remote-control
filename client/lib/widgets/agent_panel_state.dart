@@ -151,6 +151,37 @@ mixin _PanelStateFields on State<_SmartTerminalSidePanelContent> {
   int get _usageRefreshSerial;
   set _usageRefreshSerial(int v);
   SessionUsageAccumulator get _sessionUsageAccumulator;
+  Map<String, String> get _feedbackStatus; // key: event_id or error key, value: feedback_type
+  set _feedbackStatus(Map<String, String> v);
+  String? get _feedbackSubmittingKey;
+  set _feedbackSubmittingKey(String? v);
+  String? get _feedbackErrorKey;
+  set _feedbackErrorKey(String? v);
+
+  // --- cross-mixin method stubs for feedback ---
+  Future<bool> Function({
+    required String serverUrl,
+    required String token,
+    required String terminalId,
+    String? resultEventId,
+    required String feedbackType,
+    String? description,
+  }) get _feedbackSubmitter;
+  set _feedbackSubmitter(Future<bool> Function({
+    required String serverUrl,
+    required String token,
+    required String terminalId,
+    String? resultEventId,
+    required String feedbackType,
+    String? description,
+  }) v);
+
+  Future<bool> _submitFeedback({
+    required String feedbackKey,
+    required String feedbackType,
+    String? resultEventId,
+    String? description,
+  });
 
   // --- derived getters (implemented in State class) ---
   bool get _isConnected;
@@ -233,6 +264,7 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
     _currentQuestion = null; _agentResult = null; _agentError = null;
     _activeSessionId = null; _multiSelectChosen.clear();
     _agentIntent = null; _agentAnswers.clear();
+    _feedbackStatus = {};
     if (resetDraft) _draft = _defaultDraft();
   }
 
@@ -414,5 +446,68 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
   bool _isCommandResult(AgentResultEvent result) {
     final rt = result.responseType;
     return rt != 'message' && rt != 'ai_prompt';
+  }
+
+  /// 提交反馈到服务端
+  Future<bool> _submitFeedback({
+    required String feedbackKey,
+    required String feedbackType,
+    String? resultEventId,
+    String? description,
+  }) async {
+    final key = feedbackKey;
+    if (_feedbackStatus.containsKey(key)) return false; // 已反馈过
+
+    RuntimeSelectionController? controller;
+    try {
+      controller = context.read<RuntimeSelectionController>();
+    } on ProviderNotFoundException {
+      return false;
+    }
+
+    final terminalId = _currentTerminalId();
+    if (terminalId == null || terminalId.isEmpty) return false;
+
+    setState(() {
+      _feedbackSubmittingKey = key;
+      _feedbackErrorKey = null;
+    });
+
+    try {
+      final success = await _feedbackSubmitter(
+        serverUrl: controller.serverUrl,
+        token: controller.token,
+        terminalId: terminalId,
+        resultEventId: resultEventId,
+        feedbackType: feedbackType,
+        description: description,
+      );
+
+      if (!mounted) return false;
+
+      if (success) {
+        setState(() {
+          final updated = Map<String, String>.from(_feedbackStatus);
+          updated[key] = feedbackType;
+          _feedbackStatus = updated;
+          _feedbackSubmittingKey = null;
+          _feedbackErrorKey = null;
+        });
+        return true;
+      } else {
+        setState(() {
+          _feedbackSubmittingKey = null;
+          _feedbackErrorKey = key;
+        });
+        return false;
+      }
+    } catch (_) {
+      if (!mounted) return false;
+      setState(() {
+        _feedbackSubmittingKey = null;
+        _feedbackErrorKey = key;
+      });
+      return false;
+    }
   }
 }

@@ -139,13 +139,26 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
       return const SizedBox.shrink();
     }
     final rt = result.responseType;
+    final Widget resultWidget;
     if (rt == 'message') {
-      return _buildMessageResultView(result, colorScheme);
+      resultWidget = _buildMessageResultView(result, colorScheme);
+    } else if (rt == 'ai_prompt') {
+      resultWidget = _buildAiPromptResultView(result, colorScheme, connected);
+    } else {
+      resultWidget = _buildCommandResultView(result, colorScheme, connected);
     }
-    if (rt == 'ai_prompt') {
-      return _buildAiPromptResultView(result, colorScheme, connected);
-    }
-    return _buildCommandResultView(result, colorScheme, connected);
+
+    // 使用 result 的 hashCode 作为 eventId 的替代（SSE 事件没有独立 ID 字段）
+    final resultKey = 'result_${result.summary.hashCode}';
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      resultWidget,
+      const SizedBox(height: 8),
+      _buildFeedbackButtons(
+        colorScheme: colorScheme,
+        feedbackKey: resultKey,
+        resultEventId: resultKey,
+      ),
+    ]);
   }
 
   Widget _buildMessageResultView(
@@ -317,6 +330,7 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
 
   Widget _buildErrorView(ColorScheme colorScheme) {
     final errorMsg = _agentError?.message ?? '未知错误';
+    final errorKey = 'error_${_agentError?.code.hashCode ?? 0}';
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       _buildAssistantBubble(
           Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -341,6 +355,162 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
                 onPressed: _retryAgentSession,
                 child: const Text('重试')))
       ]),
+      const SizedBox(height: 8),
+      _buildFeedbackButtons(
+        colorScheme: colorScheme,
+        feedbackKey: errorKey,
+        feedbackType: 'error_report',
+        label: '报告问题',
+      ),
+    ]);
+  }
+
+  // --- 反馈按钮 ---
+
+  Widget _buildFeedbackButtons({
+    required ColorScheme colorScheme,
+    required String feedbackKey,
+    String? resultEventId,
+    String feedbackType = 'helpful',
+    String? label,
+  }) {
+    final hasFeedback = _feedbackStatus.containsKey(feedbackKey);
+    final isSubmitting = _feedbackSubmittingKey == feedbackKey;
+    final hasError = _feedbackErrorKey == feedbackKey;
+
+    if (hasFeedback) {
+      final chosen = _feedbackStatus[feedbackKey]!;
+      final chosenLabel = switch (chosen) {
+        'helpful' => '有帮助',
+        'needs_improvement' => '需改进',
+        'error_report' => '已报告',
+        _ => chosen,
+      };
+      return Row(children: [
+        Icon(Icons.check_circle_outline,
+            size: 14, color: colorScheme.primary),
+        const SizedBox(width: 4),
+        Text('已反馈: $chosenLabel',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: colorScheme.primary, fontWeight: FontWeight.w500)),
+      ]);
+    }
+
+    // error 视图只需要一个按钮
+    if (feedbackType == 'error_report') {
+      return Row(children: [
+        Expanded(
+            child: OutlinedButton.icon(
+                key: Key('feedback-$feedbackKey'),
+                style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 6),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8)),
+                    side: BorderSide(
+                        color: hasError
+                            ? colorScheme.error
+                            : colorScheme.outlineVariant
+                                .withValues(alpha: 0.4))),
+                onPressed: isSubmitting
+                    ? null
+                    : () => _submitFeedback(
+                          feedbackKey: feedbackKey,
+                          feedbackType: 'error_report',
+                          resultEventId: resultEventId,
+                          description: _agentError?.message ?? '错误报告',
+                        ),
+                icon: isSubmitting
+                    ? SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 1.5,
+                            color: colorScheme.onSurfaceVariant))
+                    : Icon(Icons.flag_outlined, size: 14),
+                label: Text(label ?? '报告问题',
+                    style: Theme.of(context).textTheme.labelSmall))),
+        if (hasError) ...[
+          const SizedBox(width: 6),
+          Text('提交失败',
+              style: Theme.of(context)
+                  .textTheme
+                  .labelSmall
+                  ?.copyWith(color: colorScheme.error, fontSize: 10)),
+        ],
+      ]);
+    }
+
+    // result 视图两个按钮
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        Expanded(
+            child: OutlinedButton.icon(
+                key: Key('feedback-helpful-$feedbackKey'),
+                style: OutlinedButton.styleFrom(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8)),
+                    side: BorderSide(
+                        color: colorScheme.outlineVariant
+                            .withValues(alpha: 0.4))),
+                onPressed: isSubmitting
+                    ? null
+                    : () => _submitFeedback(
+                          feedbackKey: feedbackKey,
+                          feedbackType: 'helpful',
+                          resultEventId: resultEventId,
+                        ),
+                icon: isSubmitting
+                    ? SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 1.5,
+                            color: colorScheme.onSurfaceVariant))
+                    : const Icon(Icons.thumb_up_outlined, size: 14),
+                label: Text('有帮助',
+                    style: Theme.of(context).textTheme.labelSmall))),
+        const SizedBox(width: 8),
+        Expanded(
+            child: OutlinedButton.icon(
+                key: Key('feedback-needs_improvement-$feedbackKey'),
+                style: OutlinedButton.styleFrom(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8)),
+                    side: BorderSide(
+                        color: colorScheme.outlineVariant
+                            .withValues(alpha: 0.4))),
+                onPressed: isSubmitting
+                    ? null
+                    : () => _submitFeedback(
+                          feedbackKey: feedbackKey,
+                          feedbackType: 'needs_improvement',
+                          resultEventId: resultEventId,
+                        ),
+                icon: isSubmitting
+                    ? SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 1.5,
+                            color: colorScheme.onSurfaceVariant))
+                    : const Icon(Icons.thumb_down_outlined, size: 14),
+                label: Text('需改进',
+                    style: Theme.of(context).textTheme.labelSmall))),
+      ]),
+      if (hasError) ...[
+        const SizedBox(height: 4),
+        Text('反馈提交失败，请重试',
+            key: Key('feedback-error-$feedbackKey'),
+            style: Theme.of(context)
+                .textTheme
+                .labelSmall
+                ?.copyWith(color: colorScheme.error, fontSize: 10)),
+      ],
     ]);
   }
 
