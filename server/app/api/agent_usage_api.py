@@ -122,27 +122,22 @@ async def get_agent_usage_summary_api(
     terminal_scope = None
 
     if session:
-        # 并发执行 3 个独立的 usage 查询
-        device_task = asyncio.create_task(
+        # 并发执行 usage 查询（gather 保证任一失败时全部取消）
+        queries = [
             _deps.get_usage_summary(user_id, normalized_device_id),
-        )
-        terminal_task = (
-            asyncio.create_task(
+            _deps.get_usage_summary(user_id, None),
+        ]
+        if terminal_id and terminal_id.strip():
+            queries.append(
                 _deps.get_usage_summary(
                     user_id, normalized_device_id, terminal_id=terminal_id.strip(),
                 ),
-            ) if terminal_id and terminal_id.strip() else None
-        )
-        user_task = asyncio.create_task(
-            _deps.get_usage_summary(user_id, None),
-        )
-
-        device_summary = await device_task
-        device_scope = AgentUsageSummaryScope(**device_summary)
-        if terminal_task:
-            terminal_summary = await terminal_task
-            terminal_scope = AgentUsageSummaryScope(**terminal_summary)
-        user_summary = await user_task
+            )
+        results = await asyncio.gather(*queries)
+        device_scope = AgentUsageSummaryScope(**results[0])
+        user_summary = results[1]
+        if len(queries) == 3:
+            terminal_scope = AgentUsageSummaryScope(**results[2])
     else:
         user_summary = await _deps.get_usage_summary(user_id, None)
 

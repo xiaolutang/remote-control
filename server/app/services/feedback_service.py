@@ -217,35 +217,32 @@ async def create_feedback(
 
     # B052 + R051: 并发执行 terminal 归属校验和幂等去重
     verified_session_id = session_id
-    ownership_task = asyncio.create_task(
-        _verify_terminal_ownership(user_id, terminal_id),
-    ) if terminal_id else None
-    dedup_task = asyncio.create_task(
-        _find_existing_feedback(user_id, result_event_id, feedback_type),
-    ) if result_event_id else None
+    need_ownership = bool(terminal_id)
+    need_dedup = bool(result_event_id)
 
-    # 等待归属校验
-    if ownership_task is not None:
-        try:
-            verified_session_id = await ownership_task
-        except Exception:
-            # 归属校验失败 → 取消 dedup task
-            if dedup_task and not dedup_task.done():
-                dedup_task.cancel()
-            raise
+    if need_ownership and need_dedup:
+        # 两个都有 → gather 并发，任一失败自动取消另一个
+        verified_session_id, existing = await asyncio.gather(
+            _verify_terminal_ownership(user_id, terminal_id),
+            _find_existing_feedback(user_id, result_event_id, feedback_type),
+        )
+    else:
+        existing = None
+        if need_ownership:
+            verified_session_id = await _verify_terminal_ownership(user_id, terminal_id)
+        if need_dedup:
+            existing = await _find_existing_feedback(user_id, result_event_id, feedback_type)
 
-    # 等待去重检查
-    if dedup_task is not None:
-        existing = await dedup_task
-        if existing is not None:
-            logger.info(
-                "Feedback dedup hit: existing_issue_id=%s user_id=%s result_event_id=%s",
-                existing.get("id"), user_id, result_event_id,
-            )
-            return {
-                "feedback_id": str(existing.get("id", "")),
-                "created_at": existing.get("created_at", datetime.now(timezone.utc).isoformat()),
-            }
+    # 去重命中 → 直接返回已有记录
+    if existing is not None:
+        logger.info(
+            "Feedback dedup hit: existing_issue_id=%s user_id=%s result_event_id=%s",
+            existing.get("id"), user_id, result_event_id,
+        )
+        return {
+            "feedback_id": str(existing.get("id", "")),
+            "created_at": existing.get("created_at", datetime.now(timezone.utc).isoformat()),
+        }
 
     # 获取关联日志（best-effort）
     related_logs_text = ""
