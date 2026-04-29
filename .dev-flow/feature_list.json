@@ -1,12 +1,27 @@
 {
   "version": "1.4",
   "project": "remote-control",
-  "updated_at": "2026-04-29T11:20:00+08:00",
-  "status": "archived",
+  "updated_at": "2026-04-29T14:00:00+08:00",
+  "status": "active",
+  "workflow": {
+    "name": "R050-token-usage-optimization",
+    "mode": "B",
+    "runtime": "skill_orchestrated",
+    "review_provider": "codex_plugin",
+    "audit_provider": "codex_plugin",
+    "risk_provider": "codex_plugin"
+  },
+  "active_requirement_cycle": {
+    "id": "R050",
+    "name": "token-usage-optimization",
+    "branch": "feat/R050-token-usage-optimization",
+    "status": "active",
+    "started_at": "2026-04-29"
+  },
   "summary": {
-    "total_tasks": 0,
+    "total_tasks": 3,
     "by_status": {
-      "completed": 0,
+      "completed": 3,
       "pending": 0,
       "blocked": 0
     }
@@ -38,5 +53,122 @@
     }
   ],
   "archived_phases": [],
-  "features": []
+  "features": [
+    {
+      "id": "B050",
+      "phase": "backend",
+      "module": "usage-store",
+      "name": "修复 usage_store ON CONFLICT 累加逻辑 + 单元测试",
+      "description": "将 save_agent_usage() 的 ON CONFLICT(session_id) DO UPDATE 从覆盖改为累加：input_tokens = input_tokens + excluded.input_tokens（output/total/requests 同理）。model_name 保留最新非空值。同步编写单元测试覆盖：单次写入、同 session 多次累加、跨 session 聚合查询。",
+      "verification": "L1",
+      "depends_on": [],
+      "status": "completed",
+      "priority": "high",
+      "started_at": "2026-04-29T14:10:00+08:00",
+      "completed_at": "2026-04-29T14:15:00+08:00",
+      "evidence_file": ".dev-flow/evidence/B050.md",
+      "commit": "9e9e935",
+      "execution_notes": "UPSERT 改累加 + 负数防护 + 10 个单元测试全部通过",
+      "acceptance_criteria": [
+        "save_agent_usage() 同一 session_id 调用两次（1000 + 2000 tokens），DB 中记录 total_tokens = 3000",
+        "save_agent_usage() 第二次 model_name 非空时覆盖，为空时保留旧值",
+        "get_usage_summary() 正确聚合多个 session 的累加结果",
+        "累加时正确处理 NULL 值（已有记录字段为 NULL 时 + excluded 仍正确）",
+        "负数/异常输入不导致脏数据（usage 字段为负时当 0 处理）",
+        "pytest server/tests/test_usage_store.py 全部通过"
+      ],
+      "test_tasks": [
+        "test_save_usage_single_write: 单次写入后查询验证字段值",
+        "test_save_usage_accumulate: 同 session_id 两次写入，验证累加",
+        "test_save_usage_model_name_latest: 验证 model_name 保留最新非空值",
+        "test_get_usage_summary_multi_session: 多 session 聚合验证",
+        "test_get_usage_summary_empty: 无记录时返回全零",
+        "test_accumulate_with_null_existing: 已有记录含 NULL 字段时累加正确",
+        "test_negative_input_treated_as_zero: 负数输入被当 0 处理"
+      ],
+      "files": [
+        "server/app/store/usage_store.py",
+        "server/tests/test_usage_store.py"
+      ]
+    },
+    {
+      "id": "F051",
+      "phase": "frontend",
+      "module": "agent-usage",
+      "name": "Client 会话级 usage 累加器 + 单元测试",
+      "description": "新增 SessionUsageAccumulator，在内存中累积每次 SSE result/error 事件携带的 usage 数据（input_tokens, output_tokens, total_tokens, requests）。Session 切换时归零。不依赖 DB 改动，纯客户端内存状态。编写单元测试覆盖：单事件累积、多事件累加、session 切换归零。",
+      "verification": "F1",
+      "depends_on": [],
+      "status": "completed",
+      "priority": "high",
+      "started_at": "2026-04-29T14:16:00+08:00",
+      "completed_at": "2026-04-29T14:20:00+08:00",
+      "evidence_file": ".dev-flow/evidence/F051.md",
+      "commit": "b25bc99",
+      "execution_notes": "SessionUsageAccumulator + 8 个单元测试全部通过",
+      "acceptance_criteria": [
+        "SessionUsageAccumulator 接收单次 usage 事件后属性值正确",
+        "连续接收多次 usage 事件后各字段累加正确",
+        "调用 reset() 后所有字段归零",
+        "Session 切换（新 session_id）时自动归零",
+        "flutter test client/test/services/session_usage_accumulator_test.dart 全部通过"
+      ],
+      "test_tasks": [
+        "test_single_event: 单事件后验证各字段值",
+        "test_multiple_events: 3 次事件累加验证",
+        "test_reset: reset() 后归零验证",
+        "test_session_change: 切换 session_id 自动归零",
+        "test_null_usage_fields: SSE 事件 usage 字段为 null/缺失时跳过不累加",
+        "test_zero_values: 全零 usage 事件累加不影响已有值",
+        "test_large_values: 大数字累加不溢出"
+      ],
+      "files": [
+        "client/lib/services/session_usage_accumulator.dart",
+        "client/test/services/session_usage_accumulator_test.dart"
+      ]
+    },
+    {
+      "id": "F052",
+      "phase": "frontend",
+      "module": "agent-panel-ui",
+      "name": "替换 toast 为可展开/收起 usage 区域 + widget 测试",
+      "description": "移除当前 usage toast（几秒消失）逻辑，改为 agent panel 底部固定的可展开/收起区域。收起态：一行摘要「总消耗 1.3M · 当前 2.1K」。展开态：分「总消耗」和「当前对话」两段详情（total_tokens, input/output, sessions, model_name）。总消耗数据来自 UsageSummaryService API，当前对话数据来自 SessionUsageAccumulator。编写 widget 测试覆盖展开/收起交互和数据展示。",
+      "verification": "F2",
+      "depends_on": ["F051"],
+      "status": "completed",
+      "priority": "high",
+      "started_at": "2026-04-29T14:21:00+08:00",
+      "completed_at": "2026-04-29T14:30:00+08:00",
+      "evidence_file": ".dev-flow/evidence/F052.md",
+      "commit": "ff29b86",
+      "execution_notes": "替换 toast 为可展开/收起区域 + 7 个新 widget 测试 + 4 个旧测试更新，83/83 通过",
+      "acceptance_criteria": [
+        "移除 _usageToastTimer 和自动消失逻辑，确认无旧 toast 代码残留",
+        "收起态显示一行摘要：总消耗和当前对话 token 数",
+        "点击摘要行展开详情区域",
+        "展开态分两段：总消耗（来自 API）+ 当前对话（来自 accumulator）",
+        "再次点击收起",
+        "API 失败时展示兜底状态（错误提示或离线提示），不显示空数据或崩溃",
+        "error SSE 事件的 usage 也被 accumulator 累积",
+        "widget 测试覆盖：收起态文本、展开/收起切换、数据准确性",
+        "flutter test 全部通过"
+      ],
+      "test_tasks": [
+        "test_collapsed_shows_summary: 验证收起态显示总消耗和当前对话数字",
+        "test_toggle_expand_collapse: 点击后展开、再点击收起",
+        "test_expanded_shows_two_sections: 展开后显示总消耗和当前对话两段",
+        "test_data_accuracy: mock 数据后验证展示数字匹配",
+        "test_api_failure_shows_fallback: API 失败时显示兜底状态",
+        "test_empty_data_display: 无数据时不显示 NaN 或负数",
+        "test_state_sync: accumulator 变化后 UI 立即刷新"
+      ],
+      "files": [
+        "client/lib/widgets/agent_panel_widgets.dart",
+        "client/lib/widgets/agent_panel_state.dart",
+        "client/lib/widgets/agent_panel_result_views.dart",
+        "client/lib/widgets/agent_panel_handlers.dart",
+        "client/test/widgets/agent_panel_usage_test.dart"
+      ]
+    }
+  ]
 }
