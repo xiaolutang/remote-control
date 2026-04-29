@@ -502,6 +502,108 @@ class EvalDatabase:
             rows = await cursor.fetchall()
             return [EvalRun.from_db_row(dict(r)) for r in rows]
 
+    async def cleanup_old_runs(self, keep_last: int = 10) -> Dict[str, int]:
+        """清理旧的 eval run，保留最近 N 次已完成的 run。
+
+        活跃 run（completed_at 为空）不会被删除。
+        删除 run 时级联删除关联的 trials、grader_results 和 quality_metrics。
+
+        Args:
+            keep_last: 保留最近多少次已完成的 run
+
+        Returns:
+            {"runs_deleted": int, "trials_deleted": int,
+             "grader_results_deleted": int, "quality_metrics_deleted": int}
+        """
+        async with self._connect() as db:
+            # 1. 找出要保留的已完成 run_id（按 completed_at 降序）
+            cursor = await db.execute(
+                """
+                SELECT run_id FROM eval_runs
+                WHERE completed_at IS NOT NULL
+                ORDER BY completed_at DESC
+                LIMIT ?
+                """,
+                (keep_last,),
+            )
+            keep_rows = await cursor.fetchall()
+            keep_ids = {r["run_id"] for r in keep_rows}
+
+            # 2. 找出要删除的 run_id（已完成但不在保留列表 + 活跃的不动）
+            cursor = await db.execute(
+                """
+                SELECT run_id FROM eval_runs
+                WHERE completed_at IS NOT NULL
+                """,
+            )
+            all_completed = await cursor.fetchall()
+            delete_ids = [
+                r["run_id"] for r in all_completed
+                if r["run_id"] not in keep_ids
+            ]
+
+            if not delete_ids:
+                return {
+                    "runs_deleted": 0,
+                    "trials_deleted": 0,
+                    "grader_results_deleted": 0,
+                    "quality_metrics_deleted": 0,
+                }
+
+            # 3. 找出关联的 trial_id
+            placeholders = ",".join("?" for _ in delete_ids)
+            cursor = await db.execute(
+                f"SELECT trial_id FROM eval_trials WHERE run_id IN ({placeholders})",
+                delete_ids,
+            )
+            trial_rows = await cursor.fetchall()
+            trial_ids = [r["trial_id"] for r in trial_rows]
+
+            # 4. 删除 grader_results（通过 trial_id）
+            grader_deleted = 0
+            if trial_ids:
+                t_placeholders = ",".join("?" for _ in trial_ids)
+                cursor = await db.execute(
+                    f"DELETE FROM eval_grader_results WHERE trial_id IN ({t_placeholders})",
+                    trial_ids,
+                )
+                grader_deleted = cursor.rowcount
+
+            # 5. 删除 quality_metrics（session_id = run_id 的关联数据）
+            cursor = await db.execute(
+                f"DELETE FROM quality_metrics WHERE session_id IN ({placeholders})",
+                delete_ids,
+            )
+            qm_deleted = cursor.rowcount
+
+            # 6. 删除 trials
+            cursor = await db.execute(
+                f"DELETE FROM eval_trials WHERE run_id IN ({placeholders})",
+                delete_ids,
+            )
+            trials_deleted = cursor.rowcount
+
+            # 7. 删除 runs
+            cursor = await db.execute(
+                f"DELETE FROM eval_runs WHERE run_id IN ({placeholders})",
+                delete_ids,
+            )
+            runs_deleted = cursor.rowcount
+
+            await db.commit()
+
+            logger.info(
+                "cleanup_old_runs: deleted %d runs, %d trials, %d grader_results, %d quality_metrics",
+                runs_deleted, trials_deleted, grader_deleted, qm_deleted,
+            )
+
+            return {
+                "runs_deleted": runs_deleted,
+                "trials_deleted": trials_deleted,
+                "grader_results_deleted": grader_deleted,
+                "quality_metrics_deleted": qm_deleted,
+            }
+
     async def query_task_trend(self, task_id: str, limit: int = 20) -> List[Dict]:
         """单条 SQL 查询 task 的历史 pass_rate 趋势（避免 N+1）。
 

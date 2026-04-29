@@ -7,12 +7,14 @@ B104: Eval CLI 入口
     python -m evals regression --baseline <run_id> --tasks server/evals/tasks --trials 1
     python -m evals trend [--task-id <id>] [--limit 20]
     python -m evals report [--compare <id1> <id2>] [--regression-only] [-o output.html]
+    python -m evals cleanup [--keep-last 10]
 
 子命令：
     run        运行所有 tasks，保存结果到 evals.db
     regression 运行 + 与 baseline 对比
     trend      查询历史 pass_rate 趋势
     report     生成 eval HTML 报告
+    cleanup    清理旧 eval run，保留最近 N 次
 
 模式：
     unit        直接调 LLM（默认），快速迭代
@@ -163,6 +165,22 @@ def _build_parser() -> argparse.ArgumentParser:
         help="输出 HTML 文件路径（默认 eval_report.html）",
     )
     report_parser.add_argument(
+        "--db",
+        default="/data/evals.db",
+        help="evals.db 路径（默认 evals.db）",
+    )
+
+    # ── cleanup 子命令 ──────────────────────────────────────────────
+    cleanup_parser = subparsers.add_parser(
+        "cleanup", help="清理旧 eval run，保留最近 N 次"
+    )
+    cleanup_parser.add_argument(
+        "--keep-last",
+        type=int,
+        default=10,
+        help="保留最近 N 次已完成的 run（默认 10）",
+    )
+    cleanup_parser.add_argument(
         "--db",
         default="/data/evals.db",
         help="evals.db 路径（默认 evals.db）",
@@ -570,6 +588,26 @@ async def _cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _cmd_cleanup(args: argparse.Namespace) -> int:
+    """执行 cleanup 子命令 — 清理旧 eval run。"""
+    db = EvalDatabase(args.db)
+    await db.init_db()
+
+    keep_last = args.keep_last
+    print(f"Cleaning up eval runs (keeping last {keep_last}) ...")
+
+    result = await db.cleanup_old_runs(keep_last=keep_last)
+
+    print(f"  Runs deleted:            {result['runs_deleted']}")
+    print(f"  Trials deleted:          {result['trials_deleted']}")
+    print(f"  Grader results deleted:  {result['grader_results_deleted']}")
+    print(f"  Quality metrics deleted: {result['quality_metrics_deleted']}")
+    print(f"\nJSON output:")
+    print(json.dumps(result, indent=2))
+
+    return 0
+
+
 async def async_main(argv: List[str] | None = None) -> int:
     """异步主入口"""
     parser = _build_parser()
@@ -590,6 +628,8 @@ async def async_main(argv: List[str] | None = None) -> int:
         return await _cmd_trend(args)
     elif args.command == "report":
         return await _cmd_report(args)
+    elif args.command == "cleanup":
+        return await _cmd_cleanup(args)
     else:
         parser.print_help()
         return 1
