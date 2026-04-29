@@ -71,10 +71,13 @@ def _trigger_quality_monitor(
                 if terminal_id and session.conversation_id:
                     try:
                         from app.store.database import list_agent_conversation_events
+                        # 按 run 边界过滤：只取当前 run 的事件
+                        after_index = session._run_start_event_index if session._run_start_event_index >= 0 else None
                         events = await list_agent_conversation_events(
                             session.user_id,
                             session.device_id,
                             terminal_id,
+                            after_index=after_index,
                         )
                     except Exception as e:
                         logger.debug(

@@ -261,6 +261,10 @@ class AgentSessionManager:
             eid = event_record.get("event_id")
             if eid and isinstance(event_data, dict):
                 event_data["event_id"] = eid
+            # 更新 session 上最后发出的 event_index（用于 run 边界追踪）
+            ev_idx = event_record.get("event_index")
+            if ev_idx is not None:
+                session._last_emitted_event_index = int(ev_idx)
         await session.event_queue.put((event_type, event_data))
         # Notify conversation stream subscribers (e.g. mobile SSE)
         if event_record and session.terminal_id:
@@ -459,6 +463,9 @@ class AgentSessionManager:
             existing.event_queue = asyncio.Queue()
             existing._last_events = []
             existing._stream_ref_count = 0
+            # Run 边界：记录当前最后事件 index，quality monitor 只查此后的事件
+            existing._run_start_event_index = existing._last_emitted_event_index
+
             # 取消残留的 agent task
             if existing._agent_task and not existing._agent_task.done():
                 existing._agent_task.cancel()

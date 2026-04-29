@@ -53,6 +53,10 @@ class AgentSession:
     # Agent 运行 task
     _agent_task: Optional[asyncio.Task] = field(default=None, repr=False)
 
+    # Run 边界追踪（用于 quality monitor 按当前 run 过滤事件）
+    _last_emitted_event_index: int = field(default=-1, repr=False)
+    _run_start_event_index: int = field(default=-1, repr=False)
+
     # 断连恢复：缓存最近事件
     _last_events: list = field(default_factory=list)
 
