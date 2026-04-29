@@ -37,6 +37,7 @@ def _trigger_quality_monitor(
     *,
     result_event_data: dict,
     result_event_id: str = "",
+    result_event_index: int = -1,
 ) -> None:
     """B052: result 事件后异步触发 quality_monitor 指标提取（best-effort）。
 
@@ -79,6 +80,9 @@ def _trigger_quality_monitor(
                             terminal_id,
                             after_index=after_index,
                         )
+                        # 上限过滤：只取到 result 事件为止，避免异步执行时后续 run 事件被误包含
+                        if result_event_index >= 0:
+                            events = [e for e in events if e.get("event_index", -1) <= result_event_index]
                     except Exception as e:
                         logger.debug(
                             "Quality monitor: DB query failed, using fallback: %s", e,
@@ -534,12 +538,15 @@ async def run_agent_loop(
 
             # B052: result 事件后异步触发 quality_monitor（best-effort）
             result_event_id = ""
+            result_event_index = -1
             if event_record and isinstance(event_record, dict):
                 result_event_id = event_record.get("event_id", "")
+                result_event_index = event_record.get("event_index", -1)
             _trigger_quality_monitor(
                 manager, session,
                 result_event_data=result_event_data,
                 result_event_id=result_event_id,
+                result_event_index=result_event_index,
             )
 
     except AgentSessionExpired:
