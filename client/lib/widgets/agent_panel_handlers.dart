@@ -329,6 +329,7 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
         });
         _scheduleScrollToLatest();
       case AgentResultEvent result:
+        final sid = _activeSessionId ?? '';
         setState(() {
           _agentResult = result;
           _currentPhase = AgentPhase.result;
@@ -336,6 +337,14 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
           if (_isCommandResult(result)) {
             _draft = _buildDraftFromAgentResult(result);
           }
+          // Accumulate usage from result event
+          final usageMap = result.usage != null ? {
+            'input_tokens': result.usage!.inputTokens,
+            'output_tokens': result.usage!.outputTokens,
+            'total_tokens': result.usage!.totalTokens,
+            'requests': result.usage!.requests,
+          } : null;
+          _sessionUsageAccumulator.accumulate(sid, usageMap);
         });
         if (_conversationStreamSubscription == null) {
           _restartConversationStreamForCurrentScope();

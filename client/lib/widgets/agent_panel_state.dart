@@ -146,12 +146,11 @@ mixin _PanelStateFields on State<_SmartTerminalSidePanelContent> {
   set _usageSummaryError(String? v);
   bool get _usageSummaryLoading;
   set _usageSummaryLoading(bool v);
-  bool get _usageToastVisible;
-  set _usageToastVisible(bool v);
+  bool get _usageExpanded;
+  set _usageExpanded(bool v);
   int get _usageRefreshSerial;
   set _usageRefreshSerial(int v);
-  Timer? get _usageToastTimer;
-  set _usageToastTimer(Timer? v);
+  SessionUsageAccumulator get _sessionUsageAccumulator;
 
   // --- derived getters (implemented in State class) ---
   bool get _isConnected;
@@ -201,7 +200,7 @@ mixin _PanelStateFields on State<_SmartTerminalSidePanelContent> {
   Widget _buildToolStepCard(ToolStepEvent step, ColorScheme colorScheme);
   Widget _buildAgentTraceExpansionTile(ColorScheme colorScheme);
   Widget _buildAgentTraceItem(AgentTraceEvent trace, ColorScheme colorScheme);
-  Widget _buildUsageToast(ColorScheme colorScheme);
+  Widget _buildUsageSection(ColorScheme colorScheme);
 
   // _PanelResultViewsMixin
   Widget _buildProgressView(ColorScheme colorScheme);

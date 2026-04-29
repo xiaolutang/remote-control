@@ -130,11 +130,11 @@ class _SmartTerminalSidePanelContentState
   @override
   bool _usageSummaryLoading = false;
   @override
-  bool _usageToastVisible = false;
+  bool _usageExpanded = false;
   @override
   int _usageRefreshSerial = 0;
   @override
-  Timer? _usageToastTimer;
+  final SessionUsageAccumulator _sessionUsageAccumulator = SessionUsageAccumulator();
 
   @override
   void initState() {
@@ -157,7 +157,6 @@ class _SmartTerminalSidePanelContentState
     _intentFocusNode.dispose();
     _scrollController.dispose();
     _editingController.dispose();
-    _usageToastTimer?.cancel();
     super.dispose();
   }
 
@@ -192,6 +191,15 @@ class _SmartTerminalSidePanelContentState
         terminalId: terminalId,
       ),
     );
+    // Auto-refresh usage summary when scope changes
+    if (deviceId != null && deviceId.isNotEmpty) {
+      try {
+        final controller = context.read<RuntimeSelectionController>();
+        unawaited(_refreshUsageSummary(controller: controller, forceRefresh: false));
+      } on ProviderNotFoundException {
+        // ignore
+      }
+    }
   }
 
   @override
@@ -254,9 +262,7 @@ class _SmartTerminalSidePanelContentState
           color: colorScheme.outlineVariant.withValues(alpha: 0.18),
         ),
       ),
-      child: Stack(
-        children: [
-          AnimatedPadding(
+      child: AnimatedPadding(
             duration: const Duration(milliseconds: 220),
             curve: Curves.easeOutCubic,
             padding: EdgeInsets.only(bottom: keyboardInset),
@@ -277,18 +283,16 @@ class _SmartTerminalSidePanelContentState
 
                 // 底部意图输入
                 _buildInputBar(colorScheme),
+
+                // 底部 usage 区域
+                if (!_terminalConversationClosed)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+                    child: _buildUsageSection(colorScheme),
+                  ),
               ],
             ),
           ),
-          if (_usageToastVisible)
-            Positioned(
-              left: 12,
-              right: 12,
-              top: 68,
-              child: _buildUsageToast(colorScheme),
-            ),
-        ],
-      ),
     );
   }
 
@@ -331,27 +335,6 @@ class _SmartTerminalSidePanelContentState
                     ),
               ),
             ),
-          TextButton(
-            key: const Key('side-panel-usage-button'),
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              minimumSize: const Size(0, 36),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              foregroundColor: colorScheme.primary,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-              backgroundColor: colorScheme.primaryContainer,
-            ),
-            onPressed: _handleUsageButtonTap,
-            child: Text(
-              'Token 汇总',
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: colorScheme.primary,
-                  ),
-            ),
-          ),
           const SizedBox(width: 4),
           IconButton(
             key: const Key('side-panel-close'),

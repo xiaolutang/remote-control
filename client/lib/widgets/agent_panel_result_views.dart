@@ -346,30 +346,6 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
 
   // --- Usage 统计处理 ---
 
-  void _showUsageToast() {
-    _usageToastTimer?.cancel();
-    setState(() {
-      _usageToastVisible = true;
-    });
-    _usageToastTimer = Timer(const Duration(seconds: 3), () {
-      if (!mounted) return;
-      setState(() {
-        _usageToastVisible = false;
-      });
-    });
-  }
-
-  Future<void> _handleUsageButtonTap() async {
-    _showUsageToast();
-    RuntimeSelectionController? controller;
-    try {
-      controller = context.read<RuntimeSelectionController>();
-    } on ProviderNotFoundException {
-      return;
-    }
-    await _refreshUsageSummary(controller: controller);
-  }
-
   Future<void> _refreshUsageSummary(
       {required RuntimeSelectionController controller,
       bool forceRefresh = true}) async {

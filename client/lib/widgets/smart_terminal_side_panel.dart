@@ -9,6 +9,7 @@ import '../models/command_sequence_draft.dart';
 import '../models/terminal_launch_plan.dart';
 import '../services/agent_session_service.dart';
 import '../services/runtime_selection_controller.dart';
+import '../services/session_usage_accumulator.dart';
 import '../services/usage_summary_service.dart';
 import '../services/websocket_service.dart';
 import 'mobile_bottom_inset.dart';
