@@ -249,7 +249,7 @@ class AgentSessionManager:
         *,
         role: str = "assistant",
         question_id: Optional[str] = None,
-    ) -> None:
+    ) -> Optional[dict[str, Any]]:
         event_record = await self._record_conversation_event(
             session,
             event_type=event_type,
@@ -274,6 +274,7 @@ class AgentSessionManager:
                     event_type,
                     exc_info=True,
                 )
+        return event_record
 
     async def _run_agent_loop(
         self,

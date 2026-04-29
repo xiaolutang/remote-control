@@ -148,8 +148,9 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
       resultWidget = _buildCommandResultView(result, colorScheme, connected);
     }
 
-    // 使用 result 的 hashCode 作为 eventId 的替代（SSE 事件没有独立 ID 字段）
-    final resultKey = 'result_${result.summary.hashCode}';
+    // 使用服务端 conversation event 的真实 eventId
+    final realEventId = _agentResultEventId;
+    final resultKey = realEventId ?? 'result_${result.summary.hashCode}';
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       resultWidget,
       const SizedBox(height: 8),
@@ -330,7 +331,8 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
 
   Widget _buildErrorView(ColorScheme colorScheme) {
     final errorMsg = _agentError?.message ?? '未知错误';
-    final errorKey = 'error_${_agentError?.code.hashCode ?? 0}';
+    final realErrorEventId = _agentErrorEventId;
+    final errorKey = realErrorEventId ?? 'error_${_agentError?.code.hashCode ?? 0}';
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       _buildAssistantBubble(
           Row(crossAxisAlignment: CrossAxisAlignment.start, children: [

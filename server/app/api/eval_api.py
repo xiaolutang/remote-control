@@ -48,7 +48,7 @@ async def get_quality_metrics(
     user_id: Optional[str] = None,
     device_id: Optional[str] = None,
     session_id: Optional[str] = None,
-    source: Optional[str] = None,
+    source: Optional[str] = "production",
     start_time: Optional[str] = None,
     end_time: Optional[str] = None,
     limit: int = 100,
@@ -56,7 +56,7 @@ async def get_quality_metrics(
 ):
     """查询质量指标记录，支持多条件过滤。
 
-    B055: 新增 source 过滤参数，默认不过滤。
+    B055: 新增 source 过滤参数，默认 'production'。
     source 可选 'production'（生产看板）或 'integration'（eval 指标）。
     """
     try:
@@ -85,7 +85,7 @@ async def get_quality_summary(
     metric_name: Optional[str] = None,
     user_id: Optional[str] = None,
     device_id: Optional[str] = None,
-    source: Optional[str] = None,
+    source: Optional[str] = "production",
     start_time: Optional[str] = None,
     end_time: Optional[str] = None,
     group_by: str = "day",
@@ -93,7 +93,7 @@ async def get_quality_summary(
 ):
     """按时间窗口聚合质量指标（日/周/月）。
 
-    B055: 新增 source 过滤参数。
+    B055: 新增 source 过滤参数，默认 'production'。
     """
     try:
         db = await _ensure_eval_db()

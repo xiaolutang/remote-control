@@ -1373,6 +1373,9 @@ class EvalHarness:
         """
         from evals.graders.code_grader import get_grader
 
+        # B054 fix: 确保 invariant_grader 模块已加载（触发 @_register 装饰器）
+        import evals.graders.invariant_grader as _invariant_grader  # noqa: F401
+
         # 构建临时 trial（用于传给 grader）
         trial = EvalTrial(
             task_id=task.id,

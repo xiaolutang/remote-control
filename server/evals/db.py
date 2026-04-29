@@ -569,12 +569,21 @@ class EvalDatabase:
                 )
                 grader_deleted = cursor.rowcount
 
-            # 5. 删除 quality_metrics（session_id = run_id 的关联数据）
-            cursor = await db.execute(
-                f"DELETE FROM quality_metrics WHERE session_id IN ({placeholders})",
-                delete_ids,
-            )
-            qm_deleted = cursor.rowcount
+            # 5. 删除 quality_metrics
+            # S051 fix: 通过 run_id 和 trial_id 关联清理，兼容两种 session_id 格式：
+            #   - run_id 直接作为 session_id（生产/harness 模式）
+            #   - "eval-{trial_id}" 格式（integration 模式）
+            qm_deleted = 0
+            all_session_ids = list(delete_ids)  # run_id 作为 session_id
+            if trial_ids:
+                all_session_ids.extend(f"eval-{tid}" for tid in trial_ids)
+            if all_session_ids:
+                s_placeholders = ",".join("?" for _ in all_session_ids)
+                cursor = await db.execute(
+                    f"DELETE FROM quality_metrics WHERE session_id IN ({s_placeholders})",
+                    all_session_ids,
+                )
+                qm_deleted = cursor.rowcount
 
             # 6. 删除 trials
             cursor = await db.execute(

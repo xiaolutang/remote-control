@@ -963,7 +963,7 @@ class TestQualityMonitorAutoTrigger:
         assert callable(_trigger_quality_monitor)
 
     def test_trigger_handles_empty_events(self):
-        """空事件列表不触发提取"""
+        """传入空 result_event_data 仍能安全处理（不抛异常）"""
         from datetime import datetime, timezone
         from app.services.agent_session_runner import _trigger_quality_monitor
         from app.services.agent_session_manager import AgentSessionManager
@@ -982,8 +982,11 @@ class TestQualityMonitorAutoTrigger:
             last_active_at=now,
             terminal_id="term-1",
         )
-        # _last_events 为空 → 不应触发
-        _trigger_quality_monitor(manager, session)
+        # 新接口直接从 result_event_data 构造 events
+        _trigger_quality_monitor(
+            manager, session,
+            result_event_data={"response_type": "command_sequence", "usage": {"total_tokens": 0}},
+        )
         # 无异常即通过
 
     def test_trigger_handles_events(self):
@@ -1006,12 +1009,16 @@ class TestQualityMonitorAutoTrigger:
             last_active_at=now,
             terminal_id="term-2",
         )
-        # 模拟 cached events
-        session._last_events = [
-            ("tool_step", {"tool_name": "execute_command", "status": "done"}),
-            ("result", {"response_type": "command_sequence", "usage": {"total_tokens": 500}}),
-        ]
-        _trigger_quality_monitor(manager, session)
+        # 新接口直接传入 result_event_data（不再依赖 _last_events）
+        _trigger_quality_monitor(
+            manager, session,
+            result_event_data={
+                "response_type": "command_sequence",
+                "summary": "test result",
+                "usage": {"total_tokens": 500},
+            },
+            result_event_id="evt_test123",
+        )
         # 无异常即通过（实际写入可能因目录不存在而失败，但不应抛出）
 
 

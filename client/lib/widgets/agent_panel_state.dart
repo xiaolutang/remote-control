@@ -64,6 +64,8 @@ class _AgentRenderState {
     this.currentQuestion,
     this.result,
     this.error,
+    this.resultEventId,
+    this.errorEventId,
   });
   final AgentPhase state;
   final String phaseDescription;
@@ -76,6 +78,8 @@ class _AgentRenderState {
   final AgentQuestionEvent? currentQuestion;
   final AgentResultEvent? result;
   final AgentErrorEvent? error;
+  final String? resultEventId;
+  final String? errorEventId;
 }
 
 /// 面板 mixin 共享字段声明
@@ -118,6 +122,10 @@ mixin _PanelStateFields on State<_SmartTerminalSidePanelContent> {
   List<AgentConversationEventItem> get _serverConversationEvents;
   String? get _agentConversationId;
   set _agentConversationId(String? v);
+  String? get _agentResultEventId;
+  set _agentResultEventId(String? v);
+  String? get _agentErrorEventId;
+  set _agentErrorEventId(String? v);
   String? get _loadedDeviceId;
   set _loadedDeviceId(String? v);
   String? get _loadedTerminalId;
@@ -263,6 +271,7 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
     _streamingTextBuffer.clear(); _toolSteps.clear();
     _currentQuestion = null; _agentResult = null; _agentError = null;
     _activeSessionId = null; _multiSelectChosen.clear();
+    _agentResultEventId = null; _agentErrorEventId = null;
     _agentIntent = null; _agentAnswers.clear();
     _feedbackStatus = {};
     if (resetDraft) _draft = _defaultDraft();
@@ -301,6 +310,8 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
     _assistantMessages.addAll(renderState.assistantMessages);
     _currentQuestion = renderState.currentQuestion; _agentResult = renderState.result;
     _agentError = renderState.error; _activeSessionId = projection.activeSessionId;
+    _agentResultEventId = renderState.resultEventId;
+    _agentErrorEventId = renderState.errorEventId;
     _agentIntent = renderState.intent; _agentAnswers.addAll(renderState.answers);
     _streamingTextBuffer.clear(); _toolSteps.clear();
     if (_agentResult != null) _draft = _buildDraftFromAgentResult(_agentResult!);
@@ -355,6 +366,8 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
     _assistantMessages..clear()..addAll(renderState.assistantMessages);
     _currentQuestion = renderState.currentQuestion; _agentResult = renderState.result;
     _agentError = renderState.error; _agentIntent = renderState.intent;
+    _agentResultEventId = renderState.resultEventId;
+    _agentErrorEventId = renderState.errorEventId;
     _agentAnswers..clear()..addAll(renderState.answers);
     if (_activeSessionId == null &&
         (_currentPhase == AgentPhase.confirming || _currentPhase == AgentPhase.exploring ||
@@ -379,6 +392,8 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
     AgentQuestionEvent? currentQuestion;
     AgentResultEvent? result;
     AgentErrorEvent? error;
+    String? resultEventId;
+    String? errorEventId;
     var state = AgentPhase.idle;
     var phaseDescription = '';
     void archiveCurrent({AgentResultEvent? archivedResult, AgentErrorEvent? archivedError}) {
@@ -397,6 +412,7 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
           final text = (event.payload['text']?.toString() ?? '').trim();
           if (text.isEmpty) { state = AgentPhase.idle; break; }
           activeIntent = text; result = null; error = null;
+          resultEventId = null; errorEventId = null;
           state = AgentPhase.thinking; phaseDescription = '正在分析你的意图...';
         case 'trace':
           traces.add(AgentTraceEvent.fromJson(Map<String, dynamic>.from(event.payload)));
@@ -422,16 +438,19 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
           state = AgentPhase.exploring; phaseDescription = '正在执行工具调用...';
         case 'result':
           result = AgentResultEvent.fromJson(Map<String, dynamic>.from(event.payload));
-          error = null; state = AgentPhase.result;
+          resultEventId = event.eventId;
+          error = null; errorEventId = null; state = AgentPhase.result;
         case 'error':
           error = AgentErrorEvent.fromJson(Map<String, dynamic>.from(event.payload));
-          result = null; state = AgentPhase.error;
+          errorEventId = event.eventId;
+          result = null; resultEventId = null; state = AgentPhase.error;
       }
     }
     return _AgentRenderState(state: state, phaseDescription: phaseDescription, history: history,
         intent: activeIntent, traces: List.of(traces), turnEventOrder: List.of(turnEventOrder),
         assistantMessages: List.of(assistantMessages), answers: List.of(answers),
-        currentQuestion: currentQuestion, result: result, error: error);
+        currentQuestion: currentQuestion, result: result, error: error,
+        resultEventId: resultEventId, errorEventId: errorEventId);
   }
 
   CommandSequenceDraft _buildDraftFromAgentResult(AgentResultEvent result) {

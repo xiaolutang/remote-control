@@ -103,10 +103,12 @@ remote-control/
 
 | 变量 | 必需 | 说明 |
 |------|------|------|
-| `EVAL_AGENT_MODEL` | 是 | 模型名称 |
-| `EVAL_AGENT_BASE_URL` | 是 | LLM API 地址 |
-| `EVAL_AGENT_API_KEY` | 是 | LLM API 密钥 |
-| `EVAL_JUDGE_MODEL` | 否 | 评判模型（默认同 EVAL_AGENT_MODEL） |
+| `EVAL_AGENT_MODEL` | 是 | 模型名称（fallback `LLM_MODEL`） |
+| `EVAL_AGENT_BASE_URL` | 是 | LLM API 地址（fallback `LLM_BASE_URL`） |
+| `EVAL_AGENT_API_KEY` | 是 | LLM API 密钥（fallback `LLM_API_KEY`） |
+| `EVAL_JUDGE_MODEL` | 否 | 评判模型（默认 `gpt-5.4`） |
+| `EVAL_JUDGE_BASE_URL` | 否 | Judge 独立 API 地址（fallback EVAL_AGENT_BASE_URL） |
+| `EVAL_JUDGE_API_KEY` | 否 | Judge 独立 API 密钥（fallback EVAL_AGENT_API_KEY） |
 
 ### 子命令
 
@@ -156,10 +158,10 @@ python -m evals report --compare <baseline_id> <current_id> --regression-only
 python -m evals cleanup --keep-last 10
 ```
 
-### 公共参数
+### 公共参数（仅 run 和 regression）
 
 - `--db` — evals.db 路径（默认 `/data/evals.db`）
-- `--mode unit|integration` — 运行模式（默认 `unit`）
+- `--mode unit|integration` — 运行模式（默认 `unit`，regression 不支持 integration）
 - `--trials N` — 每个 task 重复次数（默认 1）
 
 ## 关键约定

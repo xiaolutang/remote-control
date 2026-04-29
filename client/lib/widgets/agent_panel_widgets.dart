@@ -58,11 +58,13 @@ mixin _PanelWidgetsMixin on _PanelStateFields {
   Widget _buildUsageSection(ColorScheme colorScheme) {
     final summary = _usageSummary;
     final totalTokens = summary?.user.totalTokens ?? 0;
-    // 优先使用服务端 terminal scope 数据，fallback 到本地累加器
+    // 使用服务端 terminal scope 数据，不 fallback 到本地累加器
     final terminalScope = summary?.terminal;
-    final currentTokens = terminalScope?.totalTokens ?? _sessionUsageAccumulator.totalTokens;
-    final currentRequests = terminalScope?.totalRequests ?? _sessionUsageAccumulator.requests;
+    final currentTokens = terminalScope?.totalTokens ?? 0;
+    final currentRequests = terminalScope?.totalRequests ?? 0;
     final hasError = _usageSummaryError != null && summary == null;
+    final isCurrentLoading = terminalScope == null && _usageSummaryLoading;
+    final isCurrentUnavailable = terminalScope == null && !_usageSummaryLoading && summary != null;
 
     return Container(
       key: const Key('side-panel-usage-section'),
@@ -84,10 +86,17 @@ mixin _PanelWidgetsMixin on _PanelStateFields {
               Expanded(child: hasError
                 ? Text(_usageSummaryError ?? '加载失败', key: const Key('side-panel-usage-error'),
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colorScheme.error))
-                : Text('总消耗 $totalTokens · 当前对话 $currentTokens',
-                    key: const Key('side-panel-usage-summary'),
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant, fontWeight: FontWeight.w500))),
+                : Builder(builder: (context) {
+                    final currentLabel = isCurrentLoading
+                        ? '加载中...'
+                        : isCurrentUnavailable
+                            ? '暂无数据'
+                            : '$currentTokens';
+                    return Text('总消耗 $totalTokens · 当前对话 $currentLabel',
+                        key: const Key('side-panel-usage-summary'),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant, fontWeight: FontWeight.w500));
+                  })),
               if (_usageSummaryLoading)
                 SizedBox(width: 14, height: 14,
                   child: CircularProgressIndicator(strokeWidth: 2, color: colorScheme.primary)),
@@ -124,7 +133,12 @@ mixin _PanelWidgetsMixin on _PanelStateFields {
                 style: Theme.of(context).textTheme.labelLarge?.copyWith(
                   fontWeight: FontWeight.w700, color: colorScheme.onSurfaceVariant)),
               const SizedBox(height: 4),
-              _buildUsageStatRow('对话', currentTokens, currentRequests, colorScheme),
+              if (isCurrentLoading)
+                Text('加载中...', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant))
+              else if (isCurrentUnavailable)
+                Text('暂无数据', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant))
+              else
+                _buildUsageStatRow('对话', currentTokens, currentRequests, colorScheme),
             ]),
           ),
         ],

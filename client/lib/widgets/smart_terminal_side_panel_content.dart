@@ -77,6 +77,10 @@ class _SmartTerminalSidePanelContentState
   @override
   AgentErrorEvent? _agentError;
   @override
+  String? _agentResultEventId;
+  @override
+  String? _agentErrorEventId;
+  @override
   String? _activeSessionId;
   @override
   StreamSubscription<AgentSessionEvent>? _eventSubscription;

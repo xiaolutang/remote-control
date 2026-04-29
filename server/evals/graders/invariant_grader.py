@@ -43,6 +43,7 @@ def _check_token_monotonic(trial: EvalTrial) -> List[str]:
             token_usage = entry.get("token_usage") or {}
             total_tokens = int(token_usage.get("total_tokens", 0) or 0)
 
+            # B054 fix: 跳过没有 token_usage 的轮次（integration 模式可能只有最终累计）
             if total_tokens > 0:
                 if prev_total is not None and total_tokens < prev_total:
                     violations.append(
@@ -56,6 +57,7 @@ def _check_token_monotonic(trial: EvalTrial) -> List[str]:
             token_usage = agent_result.get("token_usage") or {}
             total_tokens = int(token_usage.get("total_tokens", 0) or 0)
 
+            # B054 fix: 跳过没有 token_usage 的轮次
             if total_tokens > 0:
                 if prev_total is not None and total_tokens < prev_total:
                     violations.append(
@@ -140,35 +142,38 @@ def _check_sse_sequence(trial: EvalTrial) -> List[str]:
         event_type = event.get("event_type", "") or event.get("type", "")
         event_types.append(str(event_type))
 
+    # B054 fix: 使用大小写不敏感比较 event_type
+    event_types_lower = [et.lower() for et in event_types]
+
     # 规则 1：必须包含 phase_change
     phase_change_indices = [
-        idx for idx, et in enumerate(event_types) if et == "phase_change"
+        idx for idx, et in enumerate(event_types_lower) if et == "phase_change"
     ]
     if not phase_change_indices:
         violations.append("missing phase_change event")
     else:
-        # 检查首个 phase_change 的 phase 是否为 thinking
+        # 检查首个 phase_change 的 phase 是否为 thinking（大小写不敏感）
         first_phase = all_sse_events[phase_change_indices[0]]
         phase_payload = first_phase.get("payload") or {}
-        phase_value = phase_payload.get("phase", "")
+        phase_value = str(phase_payload.get("phase", "")).lower()
         if phase_value and phase_value != "thinking":
             violations.append(
-                f"first phase_change phase is '{phase_value}', expected 'thinking'"
+                f"first phase_change phase is '{phase_payload.get('phase', '')}', expected 'thinking'"
             )
 
-    # 规则 2：必须以 result 或 error 结束
-    if event_types:
-        last_event_type = event_types[-1]
+    # 规则 2：必须以 result 或 error 结束（大小写不敏感）
+    if event_types_lower:
+        last_event_type = event_types_lower[-1]
         if last_event_type not in ("result", "error"):
             violations.append("missing result/error terminal event")
 
-    # 规则 3：不允许两个连续 phase_change(phase=result)
+    # 规则 3：不允许两个连续 phase_change(phase=result)（大小写不敏感）
     prev_phase_is_result = False
     for event in all_sse_events:
-        event_type = str(event.get("event_type", "") or event.get("type", ""))
+        event_type = str(event.get("event_type", "") or event.get("type", "")).lower()
         if event_type == "phase_change":
             phase_payload = event.get("payload") or {}
-            phase_value = phase_payload.get("phase", "")
+            phase_value = str(phase_payload.get("phase", "")).lower()
             if phase_value == "result":
                 if prev_phase_is_result:
                     violations.append(

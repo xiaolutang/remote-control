@@ -12,6 +12,7 @@ import httpx
 from fastapi import HTTPException, status
 
 from app.infra.http_client import get_shared_http_client
+from app.services.agent_session_manager import generate_terminal_session_id
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,29 @@ def _validate_description(description: str) -> str:
             detail=f"描述过长，最大 {MAX_DESCRIPTION_LENGTH} 字符",
         )
     return description
+
+
+async def _verify_terminal_ownership(user_id: str, terminal_id: str) -> str:
+    """验证 terminal_id 归属于当前用户，返回派生的 session_id。
+
+    遍历用户的所有 device session，查找包含该 terminal_id 的 session。
+    如果未找到，抛出 403 错误。
+
+    Returns:
+        从 terminal_id 派生的 session_id（使用 generate_terminal_session_id）。
+    """
+    from app.store.session import list_sessions_for_user
+
+    sessions = await list_sessions_for_user(user_id)
+    for session in sessions:
+        terminals = session.get("terminals", [])
+        if any(t.get("terminal_id") == terminal_id for t in terminals):
+            return generate_terminal_session_id(terminal_id)
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="terminal_id 不属于当前用户",
+    )
 
 
 async def _call_log_service(method: str, url: str, **kwargs):
@@ -101,6 +125,11 @@ async def create_feedback(
     """
     _validate_description(description)
 
+    # B052: terminal_id 归属校验 — 验证该 terminal 属于当前用户，并从 terminal_id 派生 session_id
+    verified_session_id = session_id
+    if terminal_id:
+        verified_session_id = await _verify_terminal_ownership(user_id, terminal_id)
+
     log_service_url = os.environ.get("LOG_SERVICE_URL", "http://localhost:8001")
 
     # 获取关联日志（best-effort）
@@ -145,7 +174,7 @@ async def create_feedback(
         "description": description + related_logs_text,
         "severity": SEVERITY_MAP.get(category, "low"),
         "reporter": user_id,
-        "request_id": session_id,
+        "request_id": verified_session_id,
         "component": f"feedback:{category}",
         "environment": environment,
     }

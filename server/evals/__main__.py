@@ -339,6 +339,9 @@ async def _cmd_run_integration(args: argparse.Namespace) -> int:
     )
 
     try:
+        # S051 fix: 安装信号处理器，确保 Ctrl+C 时清理 Docker
+        runner.install_signal_handlers()
+
         # 1. 构建 + 部署
         print("[integration] 开始 Docker 构建和部署 ...")
         runner.build_and_deploy()
@@ -416,6 +419,24 @@ async def _cmd_run_integration(args: argparse.Namespace) -> int:
                             token_usage_json=integ_result.get("token_usage", {}),
                         )
                         await db.save_trial(trial)
+
+                        # B053+B055 fix: integration 模式产效率指标
+                        try:
+                            from evals.quality_monitor import extract_and_store_metrics
+                            sse_events = integ_result.get("sse_events", [])
+                            if sse_events:
+                                await extract_and_store_metrics(
+                                    db,
+                                    sse_events,
+                                    session_id=f"eval-{trial.trial_id}",
+                                    intent=task.input.intent,
+                                    source="integration",
+                                )
+                        except Exception as e:
+                            logger.warning(
+                                "B055: integration 效率指标采集失败 trial=%s: %s",
+                                trial.trial_id, e,
+                            )
 
                         trial_results.append({
                             "trial_id": trial.trial_id,
@@ -497,6 +518,7 @@ async def _cmd_run_integration(args: argparse.Namespace) -> int:
     finally:
         runner.stop_agent()
         runner.tear_down()
+        runner.restore_signal_handlers()
         await eval_client.close()
 
 
@@ -590,10 +612,14 @@ async def _cmd_report(args: argparse.Namespace) -> int:
 
 async def _cmd_cleanup(args: argparse.Namespace) -> int:
     """执行 cleanup 子命令 — 清理旧 eval run。"""
+    keep_last = args.keep_last
+    if keep_last < 1:
+        print(f"ERROR: --keep-last 必须 >= 1，当前值: {keep_last}", file=sys.stderr)
+        return 1
+
     db = EvalDatabase(args.db)
     await db.init_db()
 
-    keep_last = args.keep_last
     print(f"Cleaning up eval runs (keeping last {keep_last}) ...")
 
     result = await db.cleanup_old_runs(keep_last=keep_last)

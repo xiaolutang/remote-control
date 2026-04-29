@@ -72,6 +72,13 @@ def _patch_issue_deps(*, issue_data=None, logs_data=None, logs_error=None, issue
     session_patch = patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION)
     token_version_patch = patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1)
 
+    # B052: mock _verify_terminal_ownership — 返回基于 terminal_id 派生的 session_id
+    verify_patch = patch(
+        "app.services.feedback_service._verify_terminal_ownership",
+        new_callable=AsyncMock,
+        side_effect=lambda uid, tid: f"ts-{tid[:16]}",
+    )
+
     mock_http = AsyncMock()
 
     # Mock log fetch
@@ -94,7 +101,7 @@ def _patch_issue_deps(*, issue_data=None, logs_data=None, logs_error=None, issue
 
     client_patch = patch("app.services.feedback_service.get_shared_http_client", return_value=mock_http)
 
-    return [session_patch, token_version_patch, client_patch], mock_http
+    return [session_patch, token_version_patch, verify_patch, client_patch], mock_http
 
 
 # ---------------------------------------------------------------------------
@@ -1035,6 +1042,7 @@ class TestFeedbackAnalyzeTrigger:
         mock_http.post = AsyncMock(return_value=mock_issue_resp)
 
         with patch("app.services.feedback_service.get_shared_http_client", return_value=mock_http), \
+             patch("app.services.feedback_service._verify_terminal_ownership", new_callable=AsyncMock, return_value="ts-term-1"), \
              patch("app.services.feedback_service._run_analyze_feedback", new_callable=AsyncMock) as mock_analyze:
             result = await create_feedback(
                 user_id="testuser",

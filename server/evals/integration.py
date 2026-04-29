@@ -22,6 +22,7 @@ import shutil
 import signal
 import subprocess
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
@@ -1016,7 +1017,11 @@ class IntegrationEvalClient:
             nonlocal session_id, conversation_id, terminal_id, final_result
             nonlocal pending_question, should_stop, event_count, token_usage
 
-            sse_events.append({"event_type": event_type, "payload": payload})
+            sse_events.append({
+                "event_type": event_type,
+                "payload": payload,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
 
             if event_type == "session_created":
                 session_id = payload.get("session_id", session_id)

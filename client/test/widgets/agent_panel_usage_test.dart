@@ -228,8 +228,8 @@ void main() {
       // Summary text should show total and current tokens
       expect(
           find.byKey(const Key('side-panel-usage-summary')), findsOneWidget);
-      // Total is 900, current is 0 (no terminal scope data, no local accumulation)
-      expect(find.text('总消耗 900 · 当前对话 0'), findsOneWidget);
+      // Total is 900, current shows "暂无数据" (no terminal scope data, no fallback to local accumulator)
+      expect(find.text('总消耗 900 · 当前对话 暂无数据'), findsOneWidget);
     });
 
     testWidgets(
@@ -365,8 +365,8 @@ void main() {
       await _openSidePanel(tester);
       await tester.pumpAndSettle();
 
-      // Collapsed summary should show total 900 and current 0
-      expect(find.text('总消耗 900 · 当前对话 0'), findsOneWidget);
+      // Collapsed summary should show total 900 and current "暂无数据"
+      expect(find.text('总消耗 900 · 当前对话 暂无数据'), findsOneWidget);
 
       // Expand to verify detail accuracy
       await tester.tap(find.byKey(const Key('side-panel-usage-toggle')));
@@ -378,9 +378,8 @@ void main() {
       // User row: 900 tokens, 11 次
       expect(find.text('900 tokens'), findsOneWidget);
       expect(find.text('11 次'), findsOneWidget);
-      // Current session: 0 tokens, 0 次
-      expect(find.text('0 tokens'), findsWidgets);
-      expect(find.text('0 次'), findsOneWidget);
+      // Current session: no terminal scope data, shows "暂无数据"
+      expect(find.text('暂无数据'), findsOneWidget);
     });
 
     testWidgets(
@@ -439,10 +438,10 @@ void main() {
       await _openSidePanel(tester);
       await tester.pumpAndSettle();
 
-      // Should show 0 for both values, not NaN or negative
+      // Should show 0 for total and "暂无数据" for current, not NaN or negative
       expect(find.byKey(const Key('side-panel-usage-summary')),
           findsOneWidget);
-      expect(find.text('总消耗 0 · 当前对话 0'), findsOneWidget);
+      expect(find.text('总消耗 0 · 当前对话 暂无数据'), findsOneWidget);
 
       // Expand to verify
       await tester.tap(find.byKey(const Key('side-panel-usage-toggle')));
@@ -450,8 +449,6 @@ void main() {
 
       // No NaN in expanded view
       expect(find.text('NaN'), findsNothing);
-      // 0 tokens is valid
-      expect(find.text('0 tokens'), findsWidgets);
     });
 
     testWidgets(
@@ -516,11 +513,11 @@ void main() {
       button.onPressed?.call();
       await tester.pumpAndSettle();
 
-      // After result event, current conversation should show 1900 tokens
-      // (from local accumulator since server response does not include terminal scope)
+      // After result event, current conversation shows "暂无数据"
+      // (no terminal scope from server, local accumulator not used as display source)
       expect(find.byKey(const Key('side-panel-usage-summary')),
           findsOneWidget);
-      expect(find.text('总消耗 6600 · 当前对话 1900'), findsOneWidget);
+      expect(find.text('总消耗 6600 · 当前对话 暂无数据'), findsOneWidget);
     });
 
     testWidgets(
