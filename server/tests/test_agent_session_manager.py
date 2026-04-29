@@ -973,9 +973,9 @@ class TestSessionState:
     """测试会话状态枚举。"""
 
     def test_all_states_defined(self):
-        """6 种状态应全部定义。"""
+        """7 种状态应全部定义。"""
         states = list(AgentSessionState)
-        assert len(states) == 6
+        assert len(states) == 7
         state_values = [s.value for s in states]
         assert "exploring" in state_values
         assert "asking" in state_values
@@ -983,6 +983,7 @@ class TestSessionState:
         assert "error" in state_values
         assert "expired" in state_values
         assert "cancelled" in state_values
+        assert "inactive" in state_values
 
 
 # ---------------------------------------------------------------------------

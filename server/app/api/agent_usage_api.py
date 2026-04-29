@@ -101,9 +101,13 @@ async def create_assistant_execution_report(
 @router.get("/agent/usage/summary", response_model=AgentUsageSummaryResponse)
 async def get_agent_usage_summary_api(
     device_id: Optional[str] = None,
+    terminal_id: Optional[str] = None,
     user_id: str = Depends(get_current_user_id),
 ):
-    """返回当前用户的 Agent usage 汇总。"""
+    """返回当前用户的 Agent usage 汇总。
+
+    B051: 支持 terminal_id 参数实现 per-terminal usage。
+    """
     if not device_id or not device_id.strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -115,7 +119,9 @@ async def get_agent_usage_summary_api(
 
     device_scope = _empty_agent_usage_summary_scope()
     if session:
-        device_summary = await _deps.get_usage_summary(user_id, normalized_device_id)
+        device_summary = await _deps.get_usage_summary(
+            user_id, normalized_device_id, terminal_id=terminal_id,
+        )
         device_scope = AgentUsageSummaryScope(**device_summary)
     user_summary = await _deps.get_usage_summary(user_id, None)
 

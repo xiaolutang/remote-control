@@ -1,6 +1,7 @@
 """Agent 使用量统计实体域 Store Mixin。
 
 提供 usage 记录写入和汇总查询的数据库操作。
+B051: 新增 terminal_id 支持 per-terminal usage。
 """
 import logging
 from datetime import datetime, timezone
@@ -25,6 +26,7 @@ class UsageStoreMixin:
         total_tokens: Optional[int] = None,
         requests: Optional[int] = None,
         model_name: Optional[str] = None,
+        terminal_id: Optional[str] = None,
     ) -> bool:
         """保存单次 Agent 运行 usage。
 
@@ -44,8 +46,8 @@ class UsageStoreMixin:
                     """
                     INSERT INTO agent_usage_records (
                         session_id, user_id, device_id, input_tokens,
-                        output_tokens, total_tokens, requests, model_name, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        output_tokens, total_tokens, requests, model_name, created_at, terminal_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(session_id) DO UPDATE SET
                         user_id = excluded.user_id,
                         device_id = excluded.device_id,
@@ -57,7 +59,11 @@ class UsageStoreMixin:
                             WHEN excluded.model_name != '' THEN excluded.model_name
                             ELSE agent_usage_records.model_name
                         END,
-                        created_at = excluded.created_at
+                        created_at = excluded.created_at,
+                        terminal_id = CASE
+                            WHEN excluded.terminal_id != '' THEN excluded.terminal_id
+                            ELSE COALESCE(agent_usage_records.terminal_id, '')
+                        END
                     """,
                     (
                         session_id,
@@ -69,6 +75,7 @@ class UsageStoreMixin:
                         safe_requests,
                         model_name or "",
                         now,
+                        terminal_id or "",
                     ),
                 )
                 await db.commit()
@@ -81,18 +88,23 @@ class UsageStoreMixin:
         self,
         user_id: str,
         device_id: Optional[str] = None,
+        terminal_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """汇总 Agent usage。
 
         Args:
             user_id: 当前用户
             device_id: 指定设备；为空时汇总用户全量设备
+            terminal_id: B051 per-terminal 过滤
         """
         where_clause = "WHERE user_id = ?"
         params: list[Any] = [user_id]
         if device_id is not None:
             where_clause += " AND device_id = ?"
             params.append(device_id)
+        if terminal_id is not None:
+            where_clause += " AND terminal_id = ?"
+            params.append(terminal_id)
 
         async with self._connect() as db:
             cursor = await db.execute(

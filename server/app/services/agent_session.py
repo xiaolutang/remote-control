@@ -2,12 +2,18 @@
 B080: AgentSession 数据类定义。
 
 从 agent_session_manager.py 拆分出的会话数据模型。
+
+B051: per-terminal session 生命周期管理。
+- run_count: 记录同一 terminal 上 agent run 的次数
+- is_first_run: 标记是否为首次 run（用于 SSE session_created 事件）
+- current_run_id: 每次 run 的唯一标识（用于 execution report 区分）
 """
 
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Optional
+from uuid import uuid4
 
 from app.services.terminal_agent import AgentResult
 from app.services.agent_session_types import (
@@ -32,6 +38,11 @@ class AgentSession:
     pending_question_id: Optional[str] = None
     message_history: Optional[list[Any]] = None
     result: Optional[AgentResult] = None
+
+    # B051: per-terminal session run 追踪
+    run_count: int = 1
+    is_first_run: bool = True
+    current_run_id: str = field(default_factory=lambda: uuid4().hex)
 
     # SSE 事件队列（用于流式推送）
     event_queue: asyncio.Queue = field(default_factory=asyncio.Queue)

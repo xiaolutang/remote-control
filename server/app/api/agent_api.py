@@ -18,6 +18,7 @@ from app.store.database import (
 from app.services.agent_session_manager import (
     AgentSessionRateLimited,
     AgentSessionState,
+    generate_terminal_session_id,
 )
 from app.api.schemas import (
     AgentRespondRequest,
@@ -221,7 +222,7 @@ async def run_terminal_agent_session(
             headers={"Retry-After": "60"},
         )
 
-    agent_session_id = request.session_id or uuid4().hex
+    agent_session_id = generate_terminal_session_id(terminal_id)
 
     if request.truncate_after_index is not None:
         await truncate_agent_conversation_events(
