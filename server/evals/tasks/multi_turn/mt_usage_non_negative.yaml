@@ -1,0 +1,25 @@
+id: mt_usage_non_negative
+category: multi_turn
+description: "多轮交互验证 usage 字段始终非负"
+input:
+  intent: "查看项目结构"
+  context:
+    cwd: /home/user/project
+    device_online: true
+    mock_tool_responses: {}
+turns:
+  - intent: "查看项目结构"
+  - intent: "查找配置文件"
+  - intent: "显示文件内容"
+expected:
+  response_type: ["command", "message"]
+  steps_contain: []
+  steps_not_contain: []
+  invariants:
+    - usage_non_negative
+graders: ["invariant"]
+metadata:
+  source: invariant_test
+  difficulty: medium
+  tags: ["multi_turn", "invariant", "usage_non_negative"]
+  reference_solution: "所有 usage 字段（input_tokens, output_tokens, total_tokens）非负"

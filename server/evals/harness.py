@@ -1225,7 +1225,9 @@ class EvalHarness:
         }
 
     def _evaluate_trial(
-        self, task: EvalTaskDef, agent_result: Dict[str, Any]
+        self, task: EvalTaskDef, agent_result: Dict[str, Any],
+        transcript_json: Optional[List[Dict[str, Any]]] = None,
+        token_usage_json: Optional[Dict[str, int]] = None,
     ) -> bool:
         """评估 trial 是否通过。
 
@@ -1234,9 +1236,14 @@ class EvalHarness:
         所有 grader.passed 为 True 时才通过。
         如果 task.graders 为空或仅含 'exact_match'（默认值），回退到内置逻辑。
 
+        B054: 支持 transcript_json 和 token_usage_json 参数，
+        以便 InvariantGrader 等需要 transcript 数据的 grader 使用。
+
         Args:
             task: 评估任务定义
             agent_result: Agent 最终结果
+            transcript_json: 对话 transcript（可选，integration 模式传入）
+            token_usage_json: token 用量（可选）
 
         Returns:
             是否通过
@@ -1256,17 +1263,24 @@ class EvalHarness:
         )
 
         if has_custom_graders:
-            return self._evaluate_with_graders(task, agent_result)
+            return self._evaluate_with_graders(
+                task, agent_result,
+                transcript_json=transcript_json,
+                token_usage_json=token_usage_json,
+            )
 
         # 回退：内置简单逻辑（向后兼容）
         return self._evaluate_builtin(task, agent_result)
 
     def _evaluate_with_graders(
-        self, task: EvalTaskDef, agent_result: Dict[str, Any]
+        self, task: EvalTaskDef, agent_result: Dict[str, Any],
+        transcript_json: Optional[List[Dict[str, Any]]] = None,
+        token_usage_json: Optional[Dict[str, int]] = None,
     ) -> bool:
         """使用 grader 注册表评估 trial。
 
         构建 EvalTrial，依次调用每个 grader，全部通过才返回 True。
+        B054: 支持 transcript_json 参数用于 InvariantGrader 等需要 transcript 的 grader。
         """
         from evals.graders.code_grader import get_grader
 
@@ -1274,8 +1288,9 @@ class EvalHarness:
         trial = EvalTrial(
             task_id=task.id,
             run_id="eval-internal",
-            transcript_json=[],
+            transcript_json=transcript_json or [],
             agent_result_json=agent_result,
+            token_usage_json=token_usage_json or {},
         )
 
         for grader_name in task.graders:

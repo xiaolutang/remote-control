@@ -351,8 +351,13 @@ async def _cmd_run_integration(args: argparse.Namespace) -> int:
                         duration_ms = integ_result["duration_ms"]
 
                         # 使用 EvalHarness 的评估逻辑
+                        # B054: 传入 transcript 供 InvariantGrader 使用
                         harness = EvalHarness(db, num_trials=1)
-                        success = harness._evaluate_trial(task, agent_result)
+                        success = harness._evaluate_trial(
+                            task, agent_result,
+                            transcript_json=integ_result["transcript"],
+                            token_usage_json=integ_result.get("token_usage", {}),
+                        )
 
                         # 保存 trial
                         trial = EvalTrial(

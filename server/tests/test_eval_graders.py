@@ -54,6 +54,13 @@ from evals.graders.llm_judge import (
     DIMENSIONS,
     JUDGE_SYSTEM_PROMPT,
 )
+from evals.graders.invariant_grader import (
+    InvariantGrader,
+    SUPPORTED_INVARIANTS,
+    _check_token_monotonic,
+    _check_usage_non_negative,
+    _check_sse_sequence,
+)
 from evals.harness import LLMCallError
 
 
@@ -119,6 +126,7 @@ class TestGraderRegistry:
             "token_budget",
             "sse_sequence",
             "llm_judge",
+            "invariant",
         }
         assert expected == set(GRADER_REGISTRY.keys()), (
             f"缺少: {expected - set(GRADER_REGISTRY.keys())}, "
@@ -2000,6 +2008,7 @@ class TestYAMLGraderNameCoverage:
         "tool_call_order",
         "command_safety",
         "llm_judge",
+        "invariant",
     ]
 
     def test_all_yaml_graders_loadable(self):
@@ -2012,3 +2021,350 @@ class TestYAMLGraderNameCoverage:
             except KeyError:
                 missing.append(name)
         assert not missing, f"以下 grader 无法加载: {missing}"
+
+
+# ── B054: InvariantGrader 测试 ─────────────────────────────────────────────
+
+
+def _make_invariant_task(
+    invariants: list | None = None,
+) -> EvalTaskDef:
+    """快捷创建配置了 invariants 的 EvalTaskDef"""
+    expected = EvalTaskExpected(
+        response_type=[],
+        steps_contain=[],
+        steps_not_contain=[],
+    )
+    if invariants:
+        # 通过 model_extra 设置 invariants
+        expected.model_extra["invariants"] = invariants
+    return EvalTaskDef(
+        id="test-invariant-task",
+        category="multi_turn",
+        input=EvalTaskInput(intent="test invariant"),
+        expected=expected,
+        graders=["invariant"],
+    )
+
+
+class TestInvariantGraderTokenIncrease:
+    def test_invariant_grader_token_increase_pass(self):
+        """token 单调递增时应通过"""
+        trial = _make_trial(
+            agent_result={"response_type": "message", "summary": "ok"},
+            transcript=[
+                {"role": "assistant", "token_usage": {"total_tokens": 100, "input_tokens": 80, "output_tokens": 20}},
+                {"role": "assistant", "token_usage": {"total_tokens": 200, "input_tokens": 150, "output_tokens": 50}},
+                {"role": "assistant", "token_usage": {"total_tokens": 300, "input_tokens": 200, "output_tokens": 100}},
+            ],
+        )
+        task = _make_invariant_task(
+            invariants=["token_monotonic_increase"],
+        )
+        grader = InvariantGrader()
+        result = grader.grade(trial, task)
+        assert result.passed is True
+        assert result.score == 1.0
+
+    def test_invariant_grader_token_increase_fail(self):
+        """token 递减时应失败"""
+        trial = _make_trial(
+            agent_result={"response_type": "message", "summary": "ok"},
+            transcript=[
+                {"role": "assistant", "token_usage": {"total_tokens": 500, "input_tokens": 400, "output_tokens": 100}},
+                {"role": "assistant", "token_usage": {"total_tokens": 300, "input_tokens": 200, "output_tokens": 100}},
+            ],
+        )
+        task = _make_invariant_task(
+            invariants=["token_monotonic_increase"],
+        )
+        grader = InvariantGrader()
+        result = grader.grade(trial, task)
+        assert result.passed is False
+        assert result.score == 0.0
+        # 验证 violation 描述包含具体原因
+        violations = result.details_json["violations"]
+        assert len(violations) > 0
+        assert "token decreased" in violations[0]["violations"][0]
+
+
+class TestInvariantGraderUsageNonNegative:
+    def test_invariant_grader_usage_non_negative_pass(self):
+        """所有 usage 非负时应通过"""
+        trial = _make_trial(
+            agent_result={"response_type": "message", "summary": "ok"},
+            transcript=[
+                {"role": "assistant", "token_usage": {"input_tokens": 100, "output_tokens": 50, "total_tokens": 150}},
+                {"role": "assistant", "token_usage": {"input_tokens": 200, "output_tokens": 80, "total_tokens": 280}},
+            ],
+        )
+        task = _make_invariant_task(
+            invariants=["usage_non_negative"],
+        )
+        grader = InvariantGrader()
+        result = grader.grade(trial, task)
+        assert result.passed is True
+        assert result.score == 1.0
+
+    def test_invariant_grader_usage_non_negative_fail(self):
+        """出现负值时应失败"""
+        trial = _make_trial(
+            agent_result={"response_type": "message", "summary": "ok"},
+            transcript=[
+                {"role": "assistant", "token_usage": {"input_tokens": 100, "output_tokens": 50, "total_tokens": 150}},
+                {"role": "assistant", "token_usage": {"input_tokens": 200, "output_tokens": -5, "total_tokens": 195}},
+                {"role": "assistant", "token_usage": {"input_tokens": 300, "output_tokens": 100, "total_tokens": 400}},
+            ],
+        )
+        task = _make_invariant_task(
+            invariants=["usage_non_negative"],
+        )
+        grader = InvariantGrader()
+        result = grader.grade(trial, task)
+        assert result.passed is False
+        violations = result.details_json["violations"]
+        assert len(violations) > 0
+        # 验证包含具体 violation 描述
+        violation_text = violations[0]["violations"][0]
+        assert "negative" in violation_text
+        assert "output_tokens=-5" in violation_text
+
+
+class TestInvariantGraderSSESequence:
+    def test_invariant_grader_sse_sequence_pass(self):
+        """合法 SSE 序列应通过"""
+        trial = _make_trial(
+            agent_result={
+                "response_type": "message",
+                "summary": "ok",
+                "sse_events": [
+                    {"event_type": "phase_change", "payload": {"phase": "thinking"}},
+                    {"event_type": "streaming_text", "payload": {"text": "hello"}},
+                    {"event_type": "result", "payload": {"summary": "done"}},
+                ],
+            },
+        )
+        task = _make_invariant_task(
+            invariants=["sse_sequence_valid"],
+        )
+        grader = InvariantGrader()
+        result = grader.grade(trial, task)
+        assert result.passed is True
+        assert result.score == 1.0
+
+    def test_invariant_grader_sse_sequence_fail(self):
+        """缺少 result/error 终止事件应失败"""
+        trial = _make_trial(
+            agent_result={
+                "response_type": "message",
+                "summary": "ok",
+                "sse_events": [
+                    {"event_type": "phase_change", "payload": {"phase": "thinking"}},
+                    {"event_type": "streaming_text", "payload": {"text": "hello"}},
+                    {"event_type": "phase_change", "payload": {"phase": "tool"}},
+                ],
+            },
+        )
+        task = _make_invariant_task(
+            invariants=["sse_sequence_valid"],
+        )
+        grader = InvariantGrader()
+        result = grader.grade(trial, task)
+        assert result.passed is False
+        violations = result.details_json["violations"]
+        assert len(violations) > 0
+        violation_text = violations[0]["violations"][0]
+        assert "missing result/error terminal event" in violation_text
+
+
+class TestInvariantFailureMessage:
+    def test_invariant_failure_message_contains_details(self):
+        """失败时应包含具体原因描述"""
+        trial = _make_trial(
+            agent_result={"response_type": "message", "summary": "ok"},
+            transcript=[
+                {"role": "assistant", "token_usage": {"total_tokens": 500, "input_tokens": 400, "output_tokens": 100}},
+                {"role": "assistant", "token_usage": {"total_tokens": 300, "input_tokens": 200, "output_tokens": 100}},
+            ],
+        )
+        task = _make_invariant_task(
+            invariants=["token_monotonic_increase"],
+        )
+        grader = InvariantGrader()
+        result = grader.grade(trial, task)
+        assert result.passed is False
+        reason = result.details_json["reason"]
+        assert "token decreased from 500 to 300" in reason
+        assert "token_monotonic_increase" in reason
+
+    def test_invariant_multiple_violations(self):
+        """多个不变量同时违反时应全部报告"""
+        trial = _make_trial(
+            agent_result={
+                "response_type": "message",
+                "summary": "ok",
+                "sse_events": [
+                    {"event_type": "streaming_text", "payload": {"text": "hello"}},
+                ],
+            },
+            transcript=[
+                {"role": "assistant", "token_usage": {"total_tokens": 500, "input_tokens": 400, "output_tokens": 100}},
+                {"role": "assistant", "token_usage": {"total_tokens": 300, "input_tokens": 200, "output_tokens": -5}},
+            ],
+        )
+        task = _make_invariant_task(
+            invariants=["token_monotonic_increase", "usage_non_negative", "sse_sequence_valid"],
+        )
+        grader = InvariantGrader()
+        result = grader.grade(trial, task)
+        assert result.passed is False
+        # 所有三个不变量都应有 violations
+        violations = result.details_json["violations"]
+        violated_invariants = [v["invariant"] for v in violations]
+        assert "token_monotonic_increase" in violated_invariants
+        assert "usage_non_negative" in violated_invariants
+        assert "sse_sequence_valid" in violated_invariants
+
+
+class TestInvariantMalformedRule:
+    def test_invariant_malformed_rule(self):
+        """未知的不变量规则应报告为错误"""
+        trial = _make_trial(
+            agent_result={"response_type": "message", "summary": "ok"},
+        )
+        task = _make_invariant_task(
+            invariants=["nonexistent_invariant"],
+        )
+        grader = InvariantGrader()
+        result = grader.grade(trial, task)
+        assert result.passed is False
+        violations = result.details_json["violations"]
+        assert len(violations) > 0
+        assert "未知的不变量规则" in violations[0]["violations"][0]
+
+    def test_invariant_no_config_passes(self):
+        """未配置 invariants 时默认通过"""
+        task = _make_invariant_task(invariants=None)
+        trial = _make_trial(
+            agent_result={"response_type": "message", "summary": "ok"},
+        )
+        grader = InvariantGrader()
+        result = grader.grade(trial, task)
+        assert result.passed is True
+        assert result.score == 1.0
+
+    def test_invariant_empty_list_passes(self):
+        """空 invariants 列表时默认通过"""
+        task = _make_invariant_task(invariants=[])
+        trial = _make_trial(
+            agent_result={"response_type": "message", "summary": "ok"},
+        )
+        grader = InvariantGrader()
+        result = grader.grade(trial, task)
+        assert result.passed is True
+
+    def test_invariant_registered_in_registry(self):
+        """InvariantGrader 应注册到 GRADER_REGISTRY"""
+        assert "invariant" in GRADER_REGISTRY
+        assert GRADER_REGISTRY["invariant"] is InvariantGrader
+
+    def test_invariant_get_grader_works(self):
+        """通过 get_grader('invariant') 应能获取实例"""
+        grader = get_grader("invariant")
+        assert isinstance(grader, InvariantGrader)
+
+    def test_invariant_no_transcript_no_events_passes(self):
+        """无 transcript 和 SSE 事件时，usage 和 sse 检查应通过"""
+        trial = _make_trial(
+            agent_result={"response_type": "message", "summary": "ok"},
+        )
+        task = _make_invariant_task(
+            invariants=["usage_non_negative", "sse_sequence_valid"],
+        )
+        grader = InvariantGrader()
+        result = grader.grade(trial, task)
+        assert result.passed is True
+
+    def test_invariant_consecutive_phase_result_fails(self):
+        """连续两个 phase_change(phase=result) 应失败"""
+        trial = _make_trial(
+            agent_result={
+                "response_type": "message",
+                "summary": "ok",
+                "sse_events": [
+                    {"event_type": "phase_change", "payload": {"phase": "thinking"}},
+                    {"event_type": "phase_change", "payload": {"phase": "result"}},
+                    {"event_type": "phase_change", "payload": {"phase": "result"}},
+                    {"event_type": "result", "payload": {"summary": "done"}},
+                ],
+            },
+        )
+        task = _make_invariant_task(
+            invariants=["sse_sequence_valid"],
+        )
+        grader = InvariantGrader()
+        result = grader.grade(trial, task)
+        assert result.passed is False
+        violations = result.details_json["violations"]
+        assert any("consecutive" in v["violations"][0] for v in violations)
+
+    def test_invariant_first_phase_not_thinking_warns(self):
+        """首个 phase_change 不是 thinking 时应报告警告"""
+        trial = _make_trial(
+            agent_result={
+                "response_type": "message",
+                "summary": "ok",
+                "sse_events": [
+                    {"event_type": "phase_change", "payload": {"phase": "tool"}},
+                    {"event_type": "result", "payload": {"summary": "done"}},
+                ],
+            },
+        )
+        task = _make_invariant_task(
+            invariants=["sse_sequence_valid"],
+        )
+        grader = InvariantGrader()
+        result = grader.grade(trial, task)
+        assert result.passed is False
+        violations = result.details_json["violations"]
+        assert any("thinking" in v["violations"][0] for v in violations)
+
+    def test_invariant_token_from_agent_result(self):
+        """从 agent_result 嵌套的 token_usage 中也能检测违规"""
+        trial = _make_trial(
+            agent_result={"response_type": "message", "summary": "ok"},
+            transcript=[
+                {"role": "assistant", "agent_result": {"token_usage": {"total_tokens": 100}}},
+                {"role": "final_result", "agent_result": {"token_usage": {"total_tokens": 50}}},
+            ],
+        )
+        task = _make_invariant_task(
+            invariants=["token_monotonic_increase"],
+        )
+        grader = InvariantGrader()
+        result = grader.grade(trial, task)
+        assert result.passed is False
+
+    def test_invariant_negative_in_agent_result(self):
+        """从 agent_result 嵌套的 token_usage 中也能检测负值"""
+        trial = _make_trial(
+            agent_result={"response_type": "message", "summary": "ok"},
+            transcript=[
+                {"role": "assistant", "agent_result": {"token_usage": {"input_tokens": -10, "output_tokens": 5, "total_tokens": -5}}},
+            ],
+        )
+        task = _make_invariant_task(
+            invariants=["usage_non_negative"],
+        )
+        grader = InvariantGrader()
+        result = grader.grade(trial, task)
+        assert result.passed is False
+        violation_text = result.details_json["violations"][0]["violations"][0]
+        assert "negative" in violation_text
+
+    def test_supported_invariants_constant(self):
+        """SUPPORTED_INVARIANTS 应包含三种不变量"""
+        assert "token_monotonic_increase" in SUPPORTED_INVARIANTS
+        assert "usage_non_negative" in SUPPORTED_INVARIANTS
+        assert "sse_sequence_valid" in SUPPORTED_INVARIANTS
+        assert len(SUPPORTED_INVARIANTS) == 3
