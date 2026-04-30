@@ -261,6 +261,10 @@ class QualityMetric(BaseModel):
     computed_at: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
+    # B052: 新增字段
+    source: str = "production"       # production / integration
+    result_event_id: str = ""        # 关联的 result 事件 ID
+    terminal_id: str = ""            # 关联的 terminal ID
 
     def to_db_dict(self) -> Dict[str, Any]:
         """序列化为数据库存储格式"""
@@ -272,6 +276,9 @@ class QualityMetric(BaseModel):
             "metric_name": self.metric_name,
             "value": self.value,
             "computed_at": self.computed_at,
+            "source": self.source,
+            "result_event_id": self.result_event_id,
+            "terminal_id": self.terminal_id,
         }
 
     @classmethod
@@ -285,6 +292,9 @@ class QualityMetric(BaseModel):
             metric_name=row["metric_name"],
             value=row["value"],
             computed_at=row["computed_at"],
+            source=row.get("source", "production"),
+            result_event_id=row.get("result_event_id", ""),
+            terminal_id=row.get("terminal_id", ""),
         )
 
 

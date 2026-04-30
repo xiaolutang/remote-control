@@ -139,13 +139,27 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
       return const SizedBox.shrink();
     }
     final rt = result.responseType;
+    final Widget resultWidget;
     if (rt == 'message') {
-      return _buildMessageResultView(result, colorScheme);
+      resultWidget = _buildMessageResultView(result, colorScheme);
+    } else if (rt == 'ai_prompt') {
+      resultWidget = _buildAiPromptResultView(result, colorScheme, connected);
+    } else {
+      resultWidget = _buildCommandResultView(result, colorScheme, connected);
     }
-    if (rt == 'ai_prompt') {
-      return _buildAiPromptResultView(result, colorScheme, connected);
-    }
-    return _buildCommandResultView(result, colorScheme, connected);
+
+    // 使用服务端 conversation event 的真实 eventId
+    final realEventId = _agentResultEventId;
+    final resultKey = realEventId ?? 'result_${result.summary.hashCode}';
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      resultWidget,
+      const SizedBox(height: 8),
+      _buildFeedbackButtons(
+        colorScheme: colorScheme,
+        feedbackKey: resultKey,
+        resultEventId: resultKey,
+      ),
+    ]);
   }
 
   Widget _buildMessageResultView(
@@ -317,6 +331,8 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
 
   Widget _buildErrorView(ColorScheme colorScheme) {
     final errorMsg = _agentError?.message ?? '未知错误';
+    final realErrorEventId = _agentErrorEventId;
+    final errorKey = realErrorEventId ?? 'error_${_agentError?.code.hashCode ?? 0}';
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       _buildAssistantBubble(
           Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -341,38 +357,176 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
                 onPressed: _retryAgentSession,
                 child: const Text('重试')))
       ]),
+      const SizedBox(height: 8),
+      _buildFeedbackButtons(
+        colorScheme: colorScheme,
+        feedbackKey: errorKey,
+        feedbackType: 'error_report',
+        label: '报告问题',
+      ),
+    ]);
+  }
+
+  // --- 反馈按钮 ---
+
+  Widget _buildFeedbackButton({
+    required String feedbackKey,
+    required String buttonKey,
+    required String feedbackType,
+    required IconData icon,
+    required String label,
+    required String? resultEventId,
+    required bool isSubmitting,
+    required ColorScheme colorScheme,
+  }) {
+    return Expanded(
+        child: OutlinedButton.icon(
+            key: Key(buttonKey),
+            style: OutlinedButton.styleFrom(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
+                side: BorderSide(
+                    color: colorScheme.outlineVariant
+                        .withValues(alpha: 0.4))),
+            onPressed: isSubmitting
+                ? null
+                : () => _submitFeedback(
+                      feedbackKey: feedbackKey,
+                      feedbackType: feedbackType,
+                      resultEventId: resultEventId,
+                    ),
+            icon: isSubmitting
+                ? SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 1.5,
+                        color: colorScheme.onSurfaceVariant))
+                : Icon(icon, size: 14),
+            label: Text(label,
+                style: Theme.of(context).textTheme.labelSmall)));
+  }
+
+  Widget _buildFeedbackButtons({
+    required ColorScheme colorScheme,
+    required String feedbackKey,
+    String? resultEventId,
+    String feedbackType = 'helpful',
+    String? label,
+  }) {
+    final hasFeedback = _feedbackStatus.containsKey(feedbackKey);
+    final isSubmitting = _feedbackSubmittingKey == feedbackKey;
+    final hasError = _feedbackErrorKey == feedbackKey;
+
+    if (hasFeedback) {
+      final chosen = _feedbackStatus[feedbackKey]!;
+      final chosenLabel = switch (chosen) {
+        'helpful' => '有帮助',
+        'needs_improvement' => '需改进',
+        'error_report' => '已报告',
+        _ => chosen,
+      };
+      return Row(children: [
+        Icon(Icons.check_circle_outline,
+            size: 14, color: colorScheme.primary),
+        const SizedBox(width: 4),
+        Text('已反馈: $chosenLabel',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: colorScheme.primary, fontWeight: FontWeight.w500)),
+      ]);
+    }
+
+    // error 视图只需要一个按钮
+    if (feedbackType == 'error_report') {
+      return Row(children: [
+        Expanded(
+            child: OutlinedButton.icon(
+                key: Key('feedback-$feedbackKey'),
+                style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 6),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8)),
+                    side: BorderSide(
+                        color: hasError
+                            ? colorScheme.error
+                            : colorScheme.outlineVariant
+                                .withValues(alpha: 0.4))),
+                onPressed: isSubmitting
+                    ? null
+                    : () => _submitFeedback(
+                          feedbackKey: feedbackKey,
+                          feedbackType: 'error_report',
+                          resultEventId: resultEventId,
+                          description: _agentError?.message ?? '错误报告',
+                        ),
+                icon: isSubmitting
+                    ? SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 1.5,
+                            color: colorScheme.onSurfaceVariant))
+                    : Icon(Icons.flag_outlined, size: 14),
+                label: Text(label ?? '报告问题',
+                    style: Theme.of(context).textTheme.labelSmall))),
+        if (hasError) ...[
+          const SizedBox(width: 6),
+          Text('提交失败',
+              style: Theme.of(context)
+                  .textTheme
+                  .labelSmall
+                  ?.copyWith(color: colorScheme.error, fontSize: 10)),
+        ],
+      ]);
+    }
+
+    // result 视图两个按钮
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        _buildFeedbackButton(
+          feedbackKey: feedbackKey,
+          buttonKey: 'feedback-helpful-$feedbackKey',
+          feedbackType: 'helpful',
+          icon: Icons.thumb_up_outlined,
+          label: '有帮助',
+          resultEventId: resultEventId,
+          isSubmitting: isSubmitting,
+          colorScheme: colorScheme,
+        ),
+        const SizedBox(width: 8),
+        _buildFeedbackButton(
+          feedbackKey: feedbackKey,
+          buttonKey: 'feedback-needs_improvement-$feedbackKey',
+          feedbackType: 'needs_improvement',
+          icon: Icons.thumb_down_outlined,
+          label: '需改进',
+          resultEventId: resultEventId,
+          isSubmitting: isSubmitting,
+          colorScheme: colorScheme,
+        ),
+      ]),
+      if (hasError) ...[
+        const SizedBox(height: 4),
+        Text('反馈提交失败，请重试',
+            key: Key('feedback-error-$feedbackKey'),
+            style: Theme.of(context)
+                .textTheme
+                .labelSmall
+                ?.copyWith(color: colorScheme.error, fontSize: 10)),
+      ],
     ]);
   }
 
   // --- Usage 统计处理 ---
 
-  void _showUsageToast() {
-    _usageToastTimer?.cancel();
-    setState(() {
-      _usageToastVisible = true;
-    });
-    _usageToastTimer = Timer(const Duration(seconds: 3), () {
-      if (!mounted) return;
-      setState(() {
-        _usageToastVisible = false;
-      });
-    });
-  }
-
-  Future<void> _handleUsageButtonTap() async {
-    _showUsageToast();
-    RuntimeSelectionController? controller;
-    try {
-      controller = context.read<RuntimeSelectionController>();
-    } on ProviderNotFoundException {
-      return;
-    }
-    await _refreshUsageSummary(controller: controller);
-  }
-
-  Future<void> _refreshUsageSummary(
-      {required RuntimeSelectionController controller,
-      bool forceRefresh = true}) async {
+  Future<void> _refreshUsageSummary({
+    required RuntimeSelectionController controller,
+    bool forceRefresh = true,
+    String? terminalId,
+  }) async {
     final deviceId = controller.selectedDeviceId;
     if (deviceId == null || deviceId.isEmpty) {
       if (!mounted) return;
@@ -396,7 +550,10 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
     });
     try {
       final summary = await _usageSummaryService(controller.serverUrl)
-          .fetchSummary(token: controller.token, deviceId: deviceId);
+          .fetchSummary(
+              token: controller.token,
+              deviceId: deviceId,
+              terminalId: terminalId);
       if (!mounted || requestSerial != _usageRefreshSerial) return;
       setState(() {
         _usageSummary = summary;
@@ -408,7 +565,7 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
       if (!mounted || requestSerial != _usageRefreshSerial) return;
       setState(() {
         _usageSummaryDeviceId = deviceId;
-        _usageSummaryError = '统计暂不可用，稍后会自动重试';
+        _usageSummaryError = '统计暂不可用，稍会后自动重试';
         _usageSummaryLoading = false;
       });
     }

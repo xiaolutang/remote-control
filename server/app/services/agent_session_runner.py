@@ -31,6 +31,33 @@ from app.services.agent_session import AgentSession
 logger = logging.getLogger(__name__)
 
 
+def _trigger_quality_monitor(
+    manager,
+    session: AgentSession,
+    *,
+    result_event_data: dict,
+    result_event_id: str = "",
+    result_event_index: int = -1,
+) -> None:
+    """B052: result 事件后通过事件钩子触发 evals 指标提取（best-effort）。
+
+    不再直接 import evals 模块，通过 event_bus 触发钩子。
+    钩子的具体实现在 evals 模块启动时注册。
+    """
+    try:
+        from app.infra.event_bus import emit_evals_event_background
+
+        emit_evals_event_background(
+            "on_result_event",
+            session=session,
+            result_event_data=result_event_data,
+            result_event_id=result_event_id,
+            result_event_index=result_event_index,
+        )
+    except Exception as e:
+        logger.info("Quality monitor trigger skipped: session_id=%s error=%s", session.id, e)
+
+
 def _get_save_agent_usage():
     """延迟获取 save_agent_usage，确保测试 patch 目标正确。
 
@@ -398,6 +425,7 @@ async def run_agent_loop(
             total_tokens=outcome.total_tokens,
             requests=outcome.requests,
             model_name=outcome.model_name,
+            terminal_id=session.terminal_id,
         )
         if not saved_usage:
             logger.warning(
@@ -431,20 +459,34 @@ async def run_agent_loop(
             session.result = outcome.result
             session.last_active_at = datetime.now(timezone.utc)
 
-            await manager._emit_session_event(
+            result_event_data = {
+                "summary": outcome.result.summary,
+                "steps": [step.model_dump() for step in outcome.result.steps],
+                "response_type": outcome.result.response_type,
+                "ai_prompt": outcome.result.ai_prompt,
+                "provider": outcome.result.provider,
+                "source": outcome.result.source,
+                "need_confirm": outcome.result.need_confirm,
+                "aliases": outcome.result.aliases,
+                "usage": usage_payload,
+            }
+            event_record = await manager._emit_session_event(
                 session,
                 "result",
-                {
-                    "summary": outcome.result.summary,
-                    "steps": [step.model_dump() for step in outcome.result.steps],
-                    "response_type": outcome.result.response_type,
-                    "ai_prompt": outcome.result.ai_prompt,
-                    "provider": outcome.result.provider,
-                    "source": outcome.result.source,
-                    "need_confirm": outcome.result.need_confirm,
-                    "aliases": outcome.result.aliases,
-                    "usage": usage_payload,
-                },
+                result_event_data,
+            )
+
+            # B052: result 事件后异步触发 quality_monitor（best-effort）
+            result_event_id = ""
+            result_event_index = -1
+            if event_record and isinstance(event_record, dict):
+                result_event_id = event_record.get("event_id", "")
+                result_event_index = event_record.get("event_index", -1)
+            _trigger_quality_monitor(
+                manager, session,
+                result_event_data=result_event_data,
+                result_event_id=result_event_id,
+                result_event_index=result_event_index,
             )
 
     except AgentSessionExpired:

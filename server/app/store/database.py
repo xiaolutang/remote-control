@@ -364,6 +364,7 @@ async def save_agent_usage(
     total_tokens: Optional[int] = None,
     requests: Optional[int] = None,
     model_name: Optional[str] = None,
+    terminal_id: Optional[str] = None,
 ) -> bool:
     return await _get_db().save_agent_usage(
         session_id,
@@ -374,11 +375,13 @@ async def save_agent_usage(
         total_tokens=total_tokens,
         requests=requests,
         model_name=model_name,
+        terminal_id=terminal_id,
     )
 
 
 async def get_usage_summary(
     user_id: str,
     device_id: Optional[str] = None,
+    terminal_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    return await _get_db().get_usage_summary(user_id, device_id)
+    return await _get_db().get_usage_summary(user_id, device_id, terminal_id=terminal_id)

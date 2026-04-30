@@ -246,6 +246,7 @@ class AgentResultEvent extends AgentSessionEvent {
     this.usage,
     this.responseType = 'command',
     this.aiPrompt = '',
+    this.eventId,
   });
 
   final String summary;
@@ -261,6 +262,9 @@ class AgentResultEvent extends AgentSessionEvent {
 
   /// ai_prompt 类型的 prompt 文本，用于注入终端 stdin
   final String aiPrompt;
+
+  /// 服务端 conversation event 的真实 event_id（SSE payload 注入）
+  final String? eventId;
 
   factory AgentResultEvent.fromJson(Map<String, dynamic> json) {
     return AgentResultEvent(
@@ -281,6 +285,7 @@ class AgentResultEvent extends AgentSessionEvent {
           : null,
       responseType: (json['response_type'] as String? ?? 'command').trim(),
       aiPrompt: (json['ai_prompt'] as String? ?? '').trim(),
+      eventId: (json['event_id'] as String?)?.trim(),
     );
   }
 
@@ -302,6 +307,7 @@ class AgentResultEvent extends AgentSessionEvent {
           },
         'response_type': responseType,
         'ai_prompt': aiPrompt,
+        if (eventId != null) 'event_id': eventId,
       };
 }
 
@@ -332,15 +338,20 @@ class AgentErrorEvent extends AgentSessionEvent {
   const AgentErrorEvent({
     required this.code,
     required this.message,
+    this.usage,
   });
 
   final String code;
   final String message;
+  final AgentUsageData? usage;
 
   factory AgentErrorEvent.fromJson(Map<String, dynamic> json) {
     return AgentErrorEvent(
       code: (json['code'] as String? ?? 'UNKNOWN').trim(),
       message: (json['message'] as String? ?? '').trim(),
+      usage: json['usage'] != null
+          ? AgentUsageData.fromJson(json['usage'] as Map<String, dynamic>)
+          : null,
     );
   }
 
@@ -348,6 +359,14 @@ class AgentErrorEvent extends AgentSessionEvent {
   Map<String, dynamic> toJson() => {
         'code': code,
         'message': message,
+        if (usage != null)
+          'usage': {
+            'input_tokens': usage!.inputTokens,
+            'output_tokens': usage!.outputTokens,
+            'total_tokens': usage!.totalTokens,
+            'requests': usage!.requests,
+            'model_name': usage!.modelName,
+          },
       };
 }
 

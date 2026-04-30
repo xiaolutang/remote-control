@@ -23,7 +23,6 @@ import asyncio
 import json
 import logging
 import sqlite3
-from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -41,12 +40,24 @@ METRIC_COMMAND_SAFETY_RATE = "command_safety_rate"
 METRIC_ASK_USER_FREQUENCY = "ask_user_frequency"
 METRIC_TOKEN_EFFICIENCY = "token_efficiency"
 
+# B055: 效率指标
+METRIC_N_TURNS = "n_turns"
+METRIC_N_TOOLCALLS = "n_toolcalls"
+METRIC_TIME_TO_FIRST_TOKEN = "time_to_first_token"
+METRIC_OUTPUT_TOKENS_PER_SEC = "output_tokens_per_sec"
+METRIC_TIME_TO_LAST_TOKEN = "time_to_last_token"
+
 ALL_METRIC_NAMES = [
     METRIC_RESPONSE_TYPE_ACCURACY,
     METRIC_TOOL_USAGE_EFFICIENCY,
     METRIC_COMMAND_SAFETY_RATE,
     METRIC_ASK_USER_FREQUENCY,
     METRIC_TOKEN_EFFICIENCY,
+    METRIC_N_TURNS,
+    METRIC_N_TOOLCALLS,
+    METRIC_TIME_TO_FIRST_TOKEN,
+    METRIC_OUTPUT_TOKENS_PER_SEC,
+    METRIC_TIME_TO_LAST_TOKEN,
 ]
 
 # ── 任务复杂度分桶基准（token 效率用）─────────────────────────────────────────
@@ -124,6 +135,15 @@ class SessionEventData:
 
     # Token 用量
     total_tokens: int = 0
+    output_tokens: int = 0       # B055: completion tokens
+
+    # B055: 时间戳相关（ISO 格式字符串）
+    first_event_time: str = ""                # 第一个事件的时间
+    last_event_time: str = ""                 # 最后一个事件的时间
+    thinking_phase_time: str = ""             # phase_change(thinking) 的时间
+    first_streaming_text_time: str = ""       # 第一个 streaming_text 事件的时间
+    last_streaming_text_time: str = ""        # 最后一个 streaming_text 事件的时间
+    result_or_error_time: str = ""            # result 或 error 事件的时间
 
     # 意图（从 conversation metadata 或推算）
     intent: str = ""
@@ -192,7 +212,14 @@ def extract_session_data(
                 payload = {}
 
         event_type = event.get("event_type", "")
+        event_time = event.get("created_at", "") or event.get("timestamp", "")
         data.total_events += 1
+
+        # B055: 记录首/末事件时间
+        if event_time:
+            if not data.first_event_time:
+                data.first_event_time = event_time
+            data.last_event_time = event_time
 
         if event_type in ("trace", "tool_step"):
             # trace: 旧事件类型（向后兼容）
@@ -220,9 +247,18 @@ def extract_session_data(
 
         elif event_type == "phase_change":
             data.phase_change_events += 1
+            # B055: 记录 thinking phase 的时间
+            phase = (payload.get("phase") or "").upper()
+            if phase == "THINKING" and event_time and not data.thinking_phase_time:
+                data.thinking_phase_time = event_time
 
         elif event_type == "streaming_text":
             data.streaming_text_events += 1
+            # B055: 记录首/末 streaming_text 时间
+            if event_time:
+                if not data.first_streaming_text_time:
+                    data.first_streaming_text_time = event_time
+                data.last_streaming_text_time = event_time
 
         elif event_type == "question":
             data.question_events += 1
@@ -238,9 +274,17 @@ def extract_session_data(
             data.response_type = payload.get("response_type", "")
             usage = payload.get("usage") or {}
             data.total_tokens = usage.get("total_tokens", 0)
+            # B055: 提取 output_tokens
+            data.output_tokens = usage.get("completion_tokens", 0) or usage.get("output_tokens", 0)
+            # B055: 记录 result 时间
+            if event_time:
+                data.result_or_error_time = event_time
 
         elif event_type == "error":
             data.error_events += 1
+            # B055: 记录 error 时间
+            if event_time:
+                data.result_or_error_time = event_time
 
     return data
 
@@ -341,10 +385,101 @@ def compute_token_efficiency(data: SessionEventData) -> float:
     return min(1.0, efficiency)
 
 
+# ── B055: 效率指标计算 ────────────────────────────────────────────────────
+
+
+def _parse_iso_time(ts: str) -> Optional[float]:
+    """解析 ISO 格式时间戳为 epoch 秒数。
+
+    支持多种 ISO 8601 变体（带/不带时区、带/不带微秒）。
+    返回 None 表示解析失败。
+    """
+    if not ts:
+        return None
+    try:
+        # 尝试直接解析 ISO 格式
+        dt = datetime.fromisoformat(ts)
+        return dt.timestamp()
+    except (ValueError, TypeError):
+        pass
+    return None
+
+
+def compute_n_turns(data: SessionEventData) -> float:
+    """B055: 计算轮次数量（phase_change 事件计数）。
+
+    phase_change 代表 agent 循环的一次迭代（thinking/acting/reflecting）。
+    返回整数值的 float（保持与其他指标一致的类型）。
+    """
+    return float(data.phase_change_events)
+
+
+def compute_n_toolcalls(data: SessionEventData) -> float:
+    """B055: 计算工具调用次数（tool_step 事件计数）。
+
+    返回整数值的 float。
+    """
+    return float(data.tool_step_events)
+
+
+def compute_time_to_first_token(data: SessionEventData) -> float:
+    """B055: 首 token 延迟（秒）。
+
+    从 phase_change(thinking) 到第一个 streaming_text 事件的时间差。
+    无法计算时返回 -1.0。
+    """
+    thinking_ts = _parse_iso_time(data.thinking_phase_time)
+    first_stream_ts = _parse_iso_time(data.first_streaming_text_time)
+
+    if thinking_ts is not None and first_stream_ts is not None:
+        return round(max(0.0, first_stream_ts - thinking_ts), 4)
+    return -1.0
+
+
+def compute_output_tokens_per_sec(data: SessionEventData) -> float:
+    """B055: 输出速率（output_tokens / streaming_duration）。
+
+    streaming_duration = 最后一个 streaming_text - 第一个 streaming_text 的时间差。
+    如果 duration <= 0 或无 output_tokens，返回 -1.0。
+    """
+    if data.output_tokens <= 0:
+        return -1.0
+
+    first_ts = _parse_iso_time(data.first_streaming_text_time)
+    last_ts = _parse_iso_time(data.last_streaming_text_time)
+
+    if first_ts is not None and last_ts is not None:
+        duration = last_ts - first_ts
+        if duration > 0:
+            return round(data.output_tokens / duration, 4)
+
+    return -1.0
+
+
+def compute_time_to_last_token(data: SessionEventData) -> float:
+    """B055: 总延迟（秒）。
+
+    从第一个事件到 result/error 事件的时间差。
+    无法计算时返回 -1.0。
+    """
+    first_ts = _parse_iso_time(data.first_event_time)
+    end_ts = _parse_iso_time(data.result_or_error_time)
+
+    if first_ts is not None and end_ts is not None:
+        return round(max(0.0, end_ts - first_ts), 4)
+    return -1.0
+
+
 # ── 指标计算入口 ────────────────────────────────────────────────────────────
 
 
-def compute_all_metrics(data: SessionEventData) -> List[QualityMetric]:
+def compute_all_metrics(
+    data: SessionEventData,
+    *,
+    source: str = "production",
+    result_event_id: str = "",
+    terminal_id: str = "",
+) -> List[QualityMetric]:
     """计算全部 5 类指标，返回 QualityMetric 列表。"""
     now = datetime.now(timezone.utc).isoformat()
 
@@ -354,6 +489,12 @@ def compute_all_metrics(data: SessionEventData) -> List[QualityMetric]:
         (METRIC_COMMAND_SAFETY_RATE, compute_command_safety_rate),
         (METRIC_ASK_USER_FREQUENCY, compute_ask_user_frequency),
         (METRIC_TOKEN_EFFICIENCY, compute_token_efficiency),
+        # B055: 效率指标
+        (METRIC_N_TURNS, compute_n_turns),
+        (METRIC_N_TOOLCALLS, compute_n_toolcalls),
+        (METRIC_TIME_TO_FIRST_TOKEN, compute_time_to_first_token),
+        (METRIC_OUTPUT_TOKENS_PER_SEC, compute_output_tokens_per_sec),
+        (METRIC_TIME_TO_LAST_TOKEN, compute_time_to_last_token),
     ]
 
     metrics: List[QualityMetric] = []
@@ -366,6 +507,9 @@ def compute_all_metrics(data: SessionEventData) -> List[QualityMetric]:
             metric_name=name,
             value=round(value, 4),
             computed_at=now,
+            source=source,
+            result_event_id=result_event_id,
+            terminal_id=terminal_id,
         ))
     return metrics
 
@@ -381,6 +525,9 @@ async def extract_and_store_metrics(
     user_id: str = "",
     device_id: str = "",
     intent: str = "",
+    source: str = "production",
+    result_event_id: str = "",
+    terminal_id: str = "",
 ) -> List[QualityMetric]:
     """从 events 提取指标并持久化到 evals.db。
 
@@ -391,6 +538,9 @@ async def extract_and_store_metrics(
         user_id: 用户 ID
         device_id: 设备 ID
         intent: 用户意图
+        source: 来源（production/integration）
+        result_event_id: 关联的 result 事件 ID
+        terminal_id: 关联的 terminal ID
 
     Returns:
         计算并持久化的 QualityMetric 列表
@@ -402,10 +552,14 @@ async def extract_and_store_metrics(
         device_id=device_id,
         intent=intent,
     )
-    metrics = compute_all_metrics(data)
+    metrics = compute_all_metrics(
+        data,
+        source=source,
+        result_event_id=result_event_id,
+        terminal_id=terminal_id,
+    )
 
-    for metric in metrics:
-        await eval_db.save_quality_metric(metric)
+    await eval_db.save_quality_metrics_batch(metrics)
 
     logger.info(
         "Quality metrics stored: session_id=%s metrics=%d",
@@ -499,10 +653,6 @@ def _batch_read_app_db(
                     "payload": payload,
                 })
 
-                # 从 result 事件提取 intent（如果有）
-                if row["event_type"] == "result" and "summary" in payload:
-                    # result 事件不包含 intent，需要从其他来源获取
-                    pass
 
             session_data_list.append((sid, user_id, device_id, intent, events))
 

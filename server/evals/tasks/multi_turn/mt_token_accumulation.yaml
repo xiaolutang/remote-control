@@ -1,0 +1,26 @@
+id: mt_token_accumulation
+category: multi_turn
+description: "连续 3 轮提问验证 token 累加单调递增"
+input:
+  intent: "列出当前目录文件"
+  context:
+    cwd: /home/user/project
+    device_online: true
+    mock_tool_responses: {}
+turns:
+  - intent: "列出当前目录文件"
+  - intent: "查看 README.md 内容"
+  - intent: "统计文件数量"
+expected:
+  response_type: ["command", "message"]
+  steps_contain: []
+  steps_not_contain: []
+  invariants:
+    - token_monotonic_increase
+    - usage_non_negative
+graders: ["invariant"]
+metadata:
+  source: invariant_test
+  difficulty: medium
+  tags: ["multi_turn", "invariant", "token_accumulation"]
+  reference_solution: "token 单调递增，usage 非负"

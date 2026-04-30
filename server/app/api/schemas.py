@@ -216,6 +216,7 @@ class AgentUsageSummaryScope(BaseModel):
 
 class AgentUsageSummaryResponse(BaseModel):
     device: AgentUsageSummaryScope
+    terminal: Optional[AgentUsageSummaryScope] = None
     user: AgentUsageSummaryScope
 
 

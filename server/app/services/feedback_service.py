@@ -3,6 +3,7 @@
 
 反馈提交和查询均通过 log-service Issues API。
 """
+import asyncio
 import logging
 import os
 from datetime import datetime, timezone
@@ -12,8 +13,12 @@ import httpx
 from fastapi import HTTPException, status
 
 from app.infra.http_client import get_shared_http_client
+from app.services.agent_session_manager import generate_terminal_session_id
 
 logger = logging.getLogger(__name__)
+
+# log-service 基地址（模块级常量，避免每处重复读取环境变量）
+_LOG_SERVICE_URL = os.environ.get("LOG_SERVICE_URL", "http://localhost:8001")
 
 # description 最大长度
 MAX_DESCRIPTION_LENGTH = 10000
@@ -41,6 +46,29 @@ def _validate_description(description: str) -> str:
             detail=f"描述过长，最大 {MAX_DESCRIPTION_LENGTH} 字符",
         )
     return description
+
+
+async def _verify_terminal_ownership(user_id: str, terminal_id: str) -> str:
+    """验证 terminal_id 归属于当前用户，返回派生的 session_id。
+
+    遍历用户的所有 device session，查找包含该 terminal_id 的 session。
+    如果未找到，抛出 403 错误。
+
+    Returns:
+        从 terminal_id 派生的 session_id（使用 generate_terminal_session_id）。
+    """
+    from app.store.session import list_sessions_for_user
+
+    sessions = await list_sessions_for_user(user_id)
+    for session in sessions:
+        terminals = session.get("terminals", [])
+        if any(t.get("terminal_id") == terminal_id for t in terminals):
+            return generate_terminal_session_id(terminal_id)
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="terminal_id 不属于当前用户",
+    )
 
 
 async def _call_log_service(method: str, url: str, **kwargs):
@@ -71,6 +99,87 @@ async def _call_log_service(method: str, url: str, **kwargs):
         raise
 
 
+async def _fetch_feedback_issues(
+    user_id: str, max_pages: int = 3, page_size: int = 50,
+) -> list[dict]:
+    """查询 log-service 中该用户的所有 feedback issues（分页遍历）。
+
+    逐页获取直到取完或达到 max_pages 上限（默认最多 150 条）。
+    Best-effort: 查询失败返回已获取的部分。
+    """
+    all_issues: list[dict] = []
+    try:
+        for page in range(1, max_pages + 1):
+            response = await _call_log_service(
+                "get",
+                f"{_LOG_SERVICE_URL}/api/issues",
+                params={
+                    "reporter": user_id,
+                    "service_name": "remote-control",
+                    "page": page,
+                    "page_size": page_size,
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+            issues = data.get("issues", []) if isinstance(data, dict) else data
+            issues = [i for i in issues if isinstance(i, dict)]
+            all_issues.extend(issues)
+            if len(issues) < page_size:
+                break
+        return all_issues
+    except Exception as e:
+        logger.warning("Feedback issues 查询失败（best-effort）: user_id=%s error=%s", user_id, e)
+        return all_issues
+
+
+async def _find_existing_feedback(
+    user_id: str, result_event_id: str, feedback_type: Optional[str],
+) -> Optional[dict]:
+    """查询 log-service 是否已有相同 reporter + result_event_id（+ feedback_type）的反馈。
+
+    使用 GET /api/issues?reporter={user_id} 查询，再在本地匹配 result_event_id。
+    找到时返回 issue dict，否则返回 None。
+    """
+    issues = await _fetch_feedback_issues(user_id)
+    for issue in issues:
+        if issue.get("result_event_id") != result_event_id:
+            continue
+        if feedback_type and issue.get("feedback_type") != feedback_type:
+            continue
+        return issue
+    return None
+
+
+async def batch_query_feedback_status(
+    user_id: str,
+    event_ids: list[str],
+) -> dict[str, str]:
+    """批量查询多个 event_id 的 feedback status。
+
+    Args:
+        user_id: 用户 ID
+        event_ids: 需要查询的 event_id 列表
+
+    Returns:
+        {event_id: feedback_type} 映射，未找到的不包含在结果中。
+
+    Best-effort: 查询失败返回空 dict。
+    """
+    if not event_ids:
+        return {}
+    issues = await _fetch_feedback_issues(user_id)
+    result: dict[str, str] = {}
+    event_id_set = set(event_ids)
+    for issue in issues:
+        rid = issue.get("result_event_id", "")
+        ftype = issue.get("feedback_type", "")
+        if rid and rid in event_id_set and ftype:
+            # 同一个 event_id 可能有多次 feedback，取最新的（后面的覆盖前面的）
+            result[rid] = ftype
+    return result
+
+
 async def create_feedback(
     user_id: str,
     session_id: str,
@@ -78,6 +187,10 @@ async def create_feedback(
     description: str,
     platform: Optional[str] = None,
     app_version: Optional[str] = None,
+    terminal_id: Optional[str] = None,
+    result_event_id: Optional[str] = None,
+    feedback_type: Optional[str] = None,
+    device_id: Optional[str] = None,
 ) -> dict:
     """
     创建反馈 —— 调用 log-service POST /api/issues 持久化。
@@ -89,17 +202,47 @@ async def create_feedback(
     - session_id → request_id
     - platform + app_version → environment
     - description + related_logs → description
+
+    B052 新增:
+    - terminal_id → environment 中追加
+    - result_event_id → 透传到 log-service
+    - feedback_type → 透传到 log-service
+    - 创建后异步调用 analyze_feedback()
+
+    R051 幂等性:
+    - 有 result_event_id 时，先查询是否已有相同 reporter + result_event_id + feedback_type 的 issue
+    - 找到则直接返回已有记录，不创建新的
+    - 无 result_event_id 的 error_report 不去重（每次提交独立记录）
     """
     _validate_description(description)
 
-    log_service_url = os.environ.get("LOG_SERVICE_URL", "http://localhost:8001")
+    # B052 + R051: 先校验授权，再查去重（避免未授权请求触发下游 I/O）
+    verified_session_id = session_id
+
+    if terminal_id:
+        verified_session_id = await _verify_terminal_ownership(user_id, terminal_id)
+
+    existing = None
+    if result_event_id:
+        existing = await _find_existing_feedback(user_id, result_event_id, feedback_type)
+
+    # 去重命中 → 直接返回已有记录
+    if existing is not None:
+        logger.info(
+            "Feedback dedup hit: existing_issue_id=%s user_id=%s result_event_id=%s",
+            existing.get("id"), user_id, result_event_id,
+        )
+        return {
+            "feedback_id": str(existing.get("id", "")),
+            "created_at": existing.get("created_at", datetime.now(timezone.utc).isoformat()),
+        }
 
     # 获取关联日志（best-effort）
     related_logs_text = ""
     try:
         log_response = await _call_log_service(
             "get",
-            f"{log_service_url}/api/logs",
+            f"{_LOG_SERVICE_URL}/api/logs",
             params={
                 "uid": user_id,
                 "service_name": "remote-control",
@@ -136,14 +279,21 @@ async def create_feedback(
         "description": description + related_logs_text,
         "severity": SEVERITY_MAP.get(category, "low"),
         "reporter": user_id,
-        "request_id": session_id,
+        "request_id": verified_session_id,
         "component": f"feedback:{category}",
         "environment": environment,
     }
+    # B052: 透传新字段
+    if terminal_id:
+        issue_payload["terminal_id"] = terminal_id
+    if result_event_id:
+        issue_payload["result_event_id"] = result_event_id
+    if feedback_type:
+        issue_payload["feedback_type"] = feedback_type
 
     response = await _call_log_service(
         "post",
-        f"{log_service_url}/api/issues",
+        f"{_LOG_SERVICE_URL}/api/issues",
         json=issue_payload,
     )
     response.raise_for_status()
@@ -153,9 +303,43 @@ async def create_feedback(
     created_at = issue.get("created_at", datetime.now(timezone.utc).isoformat())
 
     logger.info(
-        "Feedback created via log-service: issue_id=%s user_id=%s category=%s",
-        issue_id, user_id, category,
+        "Feedback created via log-service: issue_id=%s user_id=%s category=%s terminal_id=%s",
+        issue_id, user_id, category, terminal_id,
     )
+
+    # B052: 通过事件钩子触发 evals 分析（best-effort，不阻塞响应）
+    try:
+        from app.infra.event_bus import emit_evals_event_background
+
+        emit_evals_event_background(
+            "on_feedback_created",
+            feedback_id=issue_id,
+            category=category,
+            description=description,
+            user_id=user_id,
+            terminal_id=terminal_id,
+            result_event_id=result_event_id,
+        )
+    except Exception as e:
+        logger.info("analyze_feedback 触发跳过: %s", e)
+
+    # SSE 实时推送 feedback_status 更新
+    if result_event_id and terminal_id:
+        try:
+            from app.infra.event_bus import publish_conversation_stream_event
+            await publish_conversation_stream_event(
+                user_id=user_id,
+                device_id=device_id or "",
+                terminal_id=terminal_id,
+                event={
+                    "type": "feedback_status_update",
+                    "result_event_id": result_event_id,
+                    "feedback_status": feedback_type or category,
+                    "feedback_id": issue_id,
+                },
+            )
+        except Exception:
+            logger.debug("feedback_status SSE push skipped (best-effort)", exc_info=True)
 
     return {
         "feedback_id": issue_id,
@@ -175,11 +359,9 @@ async def get_feedback(feedback_id: str, user_id: str) -> Optional[dict]:
 
     归属校验：reporter ≠ 当前 user_id → 返回 None（404）。
     """
-    log_service_url = os.environ.get("LOG_SERVICE_URL", "http://localhost:8001")
-
     try:
         response = await _call_log_service(
-            "get", f"{log_service_url}/api/issues/{feedback_id}",
+            "get", f"{_LOG_SERVICE_URL}/api/issues/{feedback_id}",
         )
         response.raise_for_status()
     except httpx.HTTPStatusError as e:

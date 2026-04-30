@@ -1,6 +1,7 @@
 """Agent 使用量统计实体域 Store Mixin。
 
 提供 usage 记录写入和汇总查询的数据库操作。
+B051: 新增 terminal_id 支持 per-terminal usage。
 """
 import logging
 from datetime import datetime, timezone
@@ -25,12 +26,19 @@ class UsageStoreMixin:
         total_tokens: Optional[int] = None,
         requests: Optional[int] = None,
         model_name: Optional[str] = None,
+        terminal_id: Optional[str] = None,
     ) -> bool:
         """保存单次 Agent 运行 usage。
 
         Returns:
             True 表示成功写入/更新，False 表示写入失败。
         """
+        # 负数输入防护：当 0 处理
+        safe_input = max(0, int(input_tokens or 0))
+        safe_output = max(0, int(output_tokens or 0))
+        safe_total = max(0, int(total_tokens or 0))
+        safe_requests = max(0, int(requests or 0))
+
         now = datetime.now(timezone.utc).isoformat()
         try:
             async with self._connect() as db:
@@ -38,28 +46,36 @@ class UsageStoreMixin:
                     """
                     INSERT INTO agent_usage_records (
                         session_id, user_id, device_id, input_tokens,
-                        output_tokens, total_tokens, requests, model_name, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        output_tokens, total_tokens, requests, model_name, created_at, terminal_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(session_id) DO UPDATE SET
                         user_id = excluded.user_id,
                         device_id = excluded.device_id,
-                        input_tokens = excluded.input_tokens,
-                        output_tokens = excluded.output_tokens,
-                        total_tokens = excluded.total_tokens,
-                        requests = excluded.requests,
-                        model_name = excluded.model_name,
-                        created_at = excluded.created_at
+                        input_tokens = COALESCE(agent_usage_records.input_tokens, 0) + excluded.input_tokens,
+                        output_tokens = COALESCE(agent_usage_records.output_tokens, 0) + excluded.output_tokens,
+                        total_tokens = COALESCE(agent_usage_records.total_tokens, 0) + excluded.total_tokens,
+                        requests = COALESCE(agent_usage_records.requests, 0) + excluded.requests,
+                        model_name = CASE
+                            WHEN excluded.model_name != '' THEN excluded.model_name
+                            ELSE agent_usage_records.model_name
+                        END,
+                        created_at = excluded.created_at,
+                        terminal_id = CASE
+                            WHEN excluded.terminal_id != '' THEN excluded.terminal_id
+                            ELSE COALESCE(agent_usage_records.terminal_id, '')
+                        END
                     """,
                     (
                         session_id,
                         user_id,
                         device_id,
-                        int(input_tokens or 0),
-                        int(output_tokens or 0),
-                        int(total_tokens or 0),
-                        int(requests or 0),
+                        safe_input,
+                        safe_output,
+                        safe_total,
+                        safe_requests,
                         model_name or "",
                         now,
+                        terminal_id or "",
                     ),
                 )
                 await db.commit()
@@ -72,18 +88,23 @@ class UsageStoreMixin:
         self,
         user_id: str,
         device_id: Optional[str] = None,
+        terminal_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """汇总 Agent usage。
 
         Args:
             user_id: 当前用户
             device_id: 指定设备；为空时汇总用户全量设备
+            terminal_id: B051 per-terminal 过滤
         """
         where_clause = "WHERE user_id = ?"
         params: list[Any] = [user_id]
         if device_id is not None:
             where_clause += " AND device_id = ?"
             params.append(device_id)
+        if terminal_id is not None:
+            where_clause += " AND terminal_id = ?"
+            params.append(terminal_id)
 
         async with self._connect() as db:
             cursor = await db.execute(

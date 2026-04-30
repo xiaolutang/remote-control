@@ -19,8 +19,10 @@ import json
 import logging
 import os
 import shutil
+import signal
 import subprocess
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
@@ -148,6 +150,38 @@ class IntegrationRunner:
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         self.tear_down()
+
+    def install_signal_handlers(self) -> None:
+        """注册 SIGINT/SIGTERM 信号处理器，确保进程退出前执行 tear_down。
+
+        典型用法：在 build_and_deploy 之前调用，确保 Ctrl+C 或 kill 时清理 Docker。
+        """
+        runner_self = self  # closure capture
+
+        original_sigint = signal.getsignal(signal.SIGINT)
+        original_sigterm = signal.getsignal(signal.SIGTERM)
+
+        def _signal_handler(signum: int, frame) -> None:
+            logger.info("Received signal %s, cleaning up ...", signum)
+            runner_self.tear_down()
+            # 恢复原始处理器
+            signal.signal(signal.SIGINT, original_sigint)
+            signal.signal(signal.SIGTERM, original_sigterm)
+            raise KeyboardInterrupt()
+
+        signal.signal(signal.SIGINT, _signal_handler)
+        signal.signal(signal.SIGTERM, _signal_handler)
+
+        # 保存以便稍后恢复
+        self._original_sigint = original_sigint
+        self._original_sigterm = original_sigterm
+
+    def restore_signal_handlers(self) -> None:
+        """恢复原始信号处理器。"""
+        if hasattr(self, "_original_sigint"):
+            signal.signal(signal.SIGINT, self._original_sigint)
+        if hasattr(self, "_original_sigterm"):
+            signal.signal(signal.SIGTERM, self._original_sigterm)
 
     def _compose_cmd(self, *args: str, include_agent_profile: bool = False) -> list[str]:
         """构建 docker compose 命令。"""
@@ -983,7 +1017,11 @@ class IntegrationEvalClient:
             nonlocal session_id, conversation_id, terminal_id, final_result
             nonlocal pending_question, should_stop, event_count, token_usage
 
-            sse_events.append({"event_type": event_type, "payload": payload})
+            sse_events.append({
+                "event_type": event_type,
+                "payload": payload,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
 
             if event_type == "session_created":
                 session_id = payload.get("session_id", session_id)

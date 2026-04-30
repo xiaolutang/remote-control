@@ -8,11 +8,13 @@ class _SmartTerminalSidePanelContent extends StatefulWidget {
     required this.onClose,
     this.agentSessionServiceBuilder,
     this.usageSummaryServiceBuilder,
+    this.feedbackSubmitterOverride,
   });
 
   final VoidCallback onClose;
   final AgentSessionServiceFactory? agentSessionServiceBuilder;
   final UsageSummaryServiceFactory? usageSummaryServiceBuilder;
+  final FeedbackSubmitter? feedbackSubmitterOverride;
 
   @override
   State<_SmartTerminalSidePanelContent> createState() =>
@@ -75,6 +77,10 @@ class _SmartTerminalSidePanelContentState
   @override
   AgentErrorEvent? _agentError;
   @override
+  String? _agentResultEventId;
+  @override
+  String? _agentErrorEventId;
+  @override
   String? _activeSessionId;
   @override
   StreamSubscription<AgentSessionEvent>? _eventSubscription;
@@ -130,11 +136,26 @@ class _SmartTerminalSidePanelContentState
   @override
   bool _usageSummaryLoading = false;
   @override
-  bool _usageToastVisible = false;
+  bool _usageExpanded = false;
   @override
   int _usageRefreshSerial = 0;
   @override
-  Timer? _usageToastTimer;
+  final SessionUsageAccumulator _sessionUsageAccumulator = SessionUsageAccumulator();
+  @override
+  Map<String, String> _feedbackStatus = {}; // event_id/error_key -> feedback_type
+  @override
+  String? _feedbackSubmittingKey;
+  @override
+  String? _feedbackErrorKey;
+  @override
+  late Future<bool> Function({
+    required String serverUrl,
+    required String token,
+    required String terminalId,
+    String? resultEventId,
+    required String feedbackType,
+    String? description,
+  }) _feedbackSubmitter;
 
   @override
   void initState() {
@@ -145,6 +166,43 @@ class _SmartTerminalSidePanelContentState
     _intentFocusNode.addListener(_handleIntentFocusChanged);
     _scrollController = ScrollController();
     _editingController = TextEditingController();
+    _feedbackSubmitter = widget.feedbackSubmitterOverride ?? _defaultFeedbackSubmitter;
+  }
+
+  /// 默认反馈提交实现（真实 HTTP 请求）
+  Future<bool> _defaultFeedbackSubmitter({
+    required String serverUrl,
+    required String token,
+    required String terminalId,
+    String? resultEventId,
+    required String feedbackType,
+    String? description,
+  }) async {
+    final httpUrl = serverUrlToHttpBase(serverUrl);
+    final payload = <String, dynamic>{
+      'session_id': '',
+      'category': 'other',
+      'description': description ?? feedbackType,
+      'terminal_id': terminalId,
+      'feedback_type': feedbackType,
+    };
+    if (resultEventId != null) {
+      payload['result_event_id'] = resultEventId;
+    }
+    try {
+      final client = HttpClientFactory.create();
+      final response = await client.post(
+        Uri.parse('$httpUrl/api/feedback'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode(payload),
+      );
+      return response.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
   }
 
   @override
@@ -157,7 +215,6 @@ class _SmartTerminalSidePanelContentState
     _intentFocusNode.dispose();
     _scrollController.dispose();
     _editingController.dispose();
-    _usageToastTimer?.cancel();
     super.dispose();
   }
 
@@ -192,6 +249,18 @@ class _SmartTerminalSidePanelContentState
         terminalId: terminalId,
       ),
     );
+    // Auto-refresh usage summary when scope changes
+    if (deviceId != null && deviceId.isNotEmpty) {
+      try {
+        final controller = context.read<RuntimeSelectionController>();
+        unawaited(_refreshUsageSummary(
+            controller: controller,
+            forceRefresh: false,
+            terminalId: terminalId));
+      } on ProviderNotFoundException {
+        // ignore
+      }
+    }
   }
 
   @override
@@ -254,9 +323,7 @@ class _SmartTerminalSidePanelContentState
           color: colorScheme.outlineVariant.withValues(alpha: 0.18),
         ),
       ),
-      child: Stack(
-        children: [
-          AnimatedPadding(
+      child: AnimatedPadding(
             duration: const Duration(milliseconds: 220),
             curve: Curves.easeOutCubic,
             padding: EdgeInsets.only(bottom: keyboardInset),
@@ -277,18 +344,16 @@ class _SmartTerminalSidePanelContentState
 
                 // 底部意图输入
                 _buildInputBar(colorScheme),
+
+                // 底部 usage 区域
+                if (!_terminalConversationClosed)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+                    child: _buildUsageSection(colorScheme),
+                  ),
               ],
             ),
           ),
-          if (_usageToastVisible)
-            Positioned(
-              left: 12,
-              right: 12,
-              top: 68,
-              child: _buildUsageToast(colorScheme),
-            ),
-        ],
-      ),
     );
   }
 
@@ -331,27 +396,6 @@ class _SmartTerminalSidePanelContentState
                     ),
               ),
             ),
-          TextButton(
-            key: const Key('side-panel-usage-button'),
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              minimumSize: const Size(0, 36),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              foregroundColor: colorScheme.primary,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-              backgroundColor: colorScheme.primaryContainer,
-            ),
-            onPressed: _handleUsageButtonTap,
-            child: Text(
-              'Token 汇总',
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: colorScheme.primary,
-                  ),
-            ),
-          ),
           const SizedBox(width: 4),
           IconButton(
             key: const Key('side-panel-close'),

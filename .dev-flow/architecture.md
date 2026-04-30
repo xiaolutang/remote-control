@@ -102,6 +102,8 @@ Docker Agent（辅助）：显式启用 profile 后与 Server 同一 docker-comp
 57. Server 调用 ReAct Agent 时必须从 terminal conversation events 重建 `message_history`，确保手机端和桌面端任一端产生的问答都参与后续推理
 58. terminal 关闭、设备离线收口为 closed、用户登出或权限失效时，Server 必须销毁该 terminal 对应 conversation，并取消/拒绝仍在进行的 Agent session
 59. 手机端可以发起/回复同一 terminal 的 Agent conversation，但所有工具调用仍通过 Server → 桌面设备 Agent 执行；手机端不得拥有本地 ReAct 工具运行时
+64. Agent session 生命周期与 terminal 绑定（1:1），首次 agent run 时创建、终端删除时清理；Agent 内部保留 per-question 的 run 概念（用于重试和错误隔离），但不暴露 session 边界给客户端；同一 terminal 内多次 run 的 usage 在同一 session_id 下累加
+65. 客户端不得自行累加 token usage，「当前对话消耗」必须从服务端 API 获取；服务端是 token 统计的唯一权威源
 
 ## 禁止模式
 
@@ -148,6 +150,8 @@ Docker Agent（辅助）：显式启用 profile 后与 Server 同一 docker-comp
 - ✗ Agent 重连耗尽后进程继续存活（local_server 仍监听视为僵尸进程）
 - ✗ LLM 调用未设置 max_tokens（依赖 API 默认值会导致截断）
 - ✗ 对话历史未做 token 预算截断直接传给 LLM（多轮后上下文溢出）
+- ✗ 客户端自行累加 token usage 或基于 session_id 边界归零（token 统计权威在服务端）
+- ✗ 每次提问创建新的 agent session_id（session 生命周期跟 terminal 走，不跟提问走）
 
 ## 数据流
 

@@ -2092,9 +2092,16 @@ live -> detached_recoverable -> closed
     "total_tokens": 1900,
     "requests": 3,
     "model_name": "deepseek-chat"
-  }
+  },
+  "result_event_id": "evt_abc123",
+  "feedback_status": null
 }
 ```
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `result_event_id` | string | Result 事件的唯一标识（R051 新增），跨模块 canonical key：feedback、quality_metrics、execution_report 均通过此 ID 关联 |
+| `feedback_status` | string/null | 当前用户对此 result 的反馈状态（R051 新增）：null（未反馈）/ helpful / needs_improvement / error_report |
 
 #### Usage Sub-object Fields
 
@@ -2140,7 +2147,7 @@ live -> detached_recoverable -> closed
 | 字段 | 值 |
 |------|---|
 | ID | CONTRACT-048 |
-| 关联任务 | B084, F100, B105, B106, S110 |
+| 关联任务 | B084, F100, B105, B106, S110, B051, F053 |
 | 方法 | `GET /api/agent/usage/summary` |
 | 认证 | `async_verify_token` 必需 |
 
@@ -2149,6 +2156,7 @@ live -> detached_recoverable -> closed
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | device_id | string | 是 | 当前设备 ID；API 同时返回该设备的汇总和用户级总汇总 |
+| terminal_id | string | 否 | 终端 ID；传入时额外返回该终端关联 session 的累计 usage（R051 per-terminal scope） |
 
 #### Response 200
 
@@ -2169,9 +2177,18 @@ live -> detached_recoverable -> closed
     "total_tokens": 36750,
     "total_requests": 45,
     "latest_model_name": "deepseek-chat"
+  },
+  "terminal": {
+    "total_input_tokens": 1200,
+    "total_output_tokens": 300,
+    "total_tokens": 1500,
+    "total_requests": 2,
+    "latest_model_name": "deepseek-chat"
   }
 }
 ```
+
+注：`terminal` scope 仅在传入 `terminal_id` 时返回。终端无 session 时 `terminal` 返回全零。
 
 #### Response 400
 
@@ -2187,6 +2204,7 @@ live -> detached_recoverable -> closed
 |------|---------|
 | User-scoped | 只返回当前认证用户的 usage，不得跨用户查询 |
 | Dual scope | device scope 按 device_id 过滤，user scope 聚合用户所有设备，一次返回 |
+| Terminal scope | terminal scope 按 terminal_id 查找关联 session 的累计 usage（R051 新增，可选） |
 | device_id required | device_id 必传，确保前端始终能拿到双 scope |
 | Zero defaults | 无记录时返回全零汇总（不返回 404） |
 | Write before push | usage 必须先落库再发 SSE result 事件 |
@@ -2686,7 +2704,7 @@ metadata:
 |------|------|------|
 | grader_id | str | UUID |
 | trial_id | str | 关联 trial |
-| grader_type | str | response_type_match / command_safety / steps_structure / contains_command / tool_call_order / llm_judge |
+| grader_type | str | response_type_match / command_safety / steps_structure / contains_command / tool_call_order / llm_judge / invariant（R051 新增） |
 | passed | bool | 是否通过 |
 | score | float | 0.0-1.0 |
 | details | JSON | 详细评分信息 |
@@ -2712,7 +2730,7 @@ metadata:
 | eval_trials | 单次执行记录 | trial_id, task_id, run_id, transcript_json, agent_result_json, duration_ms, token_usage_json |
 | eval_grader_results | grader 输出 | grader_id, trial_id, grader_type, passed, score, details_json |
 | eval_runs | 批量运行 | run_id, started_at, completed_at, total_tasks, passed_tasks, config_json |
-| quality_metrics | 在线质量指标 | metric_id, session_id, user_id, device_id, metric_name, value, computed_at |
+| quality_metrics | 在线质量指标 | metric_id, session_id, user_id, device_id, metric_name, value, computed_at, source(production/integration), result_event_id |
 | eval_task_candidates | 反馈闭环 candidate | candidate_id, source_feedback_id, suggested_intent, suggested_category, suggested_expected_json, status, reviewed_by, reviewed_at |
 
 Harness 支持两种 task 来源：1) YAML 目录批量加载 2) evals.db 中 status=approved 的 candidate（由反馈闭环审批后写入）。两者合并后执行。
@@ -2731,7 +2749,7 @@ Harness 支持两种 task 来源：1) YAML 目录批量加载 2) evals.db 中 st
 | 字段 | 值 |
 |------|-----|
 | ID | CONTRACT-052 |
-| 关联任务 | B101, B102, S091 |
+| 关联任务 | B101, B102, S091, B055 |
 | 模块 | server/evals |
 
 #### Quality Metrics 数据模型
@@ -2743,6 +2761,11 @@ Harness 支持两种 task 来源：1) YAML 目录批量加载 2) evals.db 中 st
 | command_safety_rate | float | 生成命令通过 command_validator 的比例 |
 | ask_user_frequency | float | ask_user 工具调用次数 / 总轮数 |
 | token_efficiency | float | total_tokens / 任务复杂度（按 category 分桶） |
+| n_turns | int | 对话轮次数量（R051 新增） |
+| n_toolcalls | int | 工具调用总次数（R051 新增） |
+| time_to_first_token | float | 首 token 延迟（秒）（R051 新增） |
+| output_tokens_per_sec | float | 输出速率（R051 新增） |
+| time_to_last_token | float | 总延迟（秒）（R051 新增） |
 
 #### API Endpoints
 
@@ -2755,6 +2778,8 @@ Harness 支持两种 task 来源：1) YAML 目录批量加载 2) evals.db 中 st
 | user_id | string | 用户过滤 |
 | device_id | string | 设备过滤 |
 | category | string | 指标类别过滤 |
+| metric_name | string | 指标名称过滤（R051 新增，支持按名称精确匹配） |
+| source | string | 来源过滤：production / integration（R051 新增，默认不过滤） |
 
 响应: `{ "metrics": [{metric_name, value, sample_size, time_window}], "total": N }`
 
@@ -2767,6 +2792,7 @@ Harness 支持两种 task 来源：1) YAML 目录批量加载 2) evals.db 中 st
 | window | string | day / week / month |
 | start_time | ISO datetime | 起始时间 |
 | end_time | ISO datetime | 结束时间 |
+| source | string | 来源过滤：production / integration（R051 新增，默认不过滤） |
 
 响应: `{ "windows": [{window_start, window_end, metrics: {name: value}}] }`
 
@@ -2779,7 +2805,7 @@ Harness 支持两种 task 来源：1) YAML 目录批量加载 2) evals.db 中 st
 | 字段 | 值 |
 |------|-----|
 | ID | CONTRACT-053 |
-| 关联任务 | B103, B104, S092 |
+| 关联任务 | B103, B104, S092, B052, F054 |
 | 模块 | server/evals |
 
 #### 反馈→Candidate 流程
@@ -2788,6 +2814,19 @@ Harness 支持两种 task 来源：1) YAML 目录批量加载 2) evals.db 中 st
 2. 异步触发：LLM 分析反馈摘要（脱敏后），判断是否为 Agent 质量问题
 3. 如果是 → 生成 candidate eval task 写入 `eval_task_candidates` 表
 4. 反馈内容不直接进入 eval 系统，只传递脱敏摘要和分类信息
+
+#### Feedback API Payload（R051 扩展）
+
+POST /api/feedback 请求体新增字段：
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| terminal_id | string | 是 | 终端 ID，服务端据此推导 session_id |
+| feedback_type | string | 是 | 枚举：helpful / needs_improvement / error_report |
+| result_event_id | string | 否 | SSE result 事件的唯一标识，用于定位具体回答 |
+| content | string | 否 | 用户文字反馈 |
+
+注：session_id 由服务端根据 terminal_id→session 映射内部推导，不暴露给客户端。terminal_id 必须属于当前认证用户，否则返回 403。首次 run 失败时 terminal 无 session，session_id 内部为 null，反馈仅记录 terminal_id + result_event_id + 内容。
 
 #### Candidate 数据模型
 

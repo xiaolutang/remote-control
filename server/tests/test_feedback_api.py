@@ -72,6 +72,13 @@ def _patch_issue_deps(*, issue_data=None, logs_data=None, logs_error=None, issue
     session_patch = patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION)
     token_version_patch = patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1)
 
+    # B052: mock _verify_terminal_ownership — 返回基于 terminal_id 派生的 session_id
+    verify_patch = patch(
+        "app.services.feedback_service._verify_terminal_ownership",
+        new_callable=AsyncMock,
+        side_effect=lambda uid, tid: f"ts-{tid[:16]}",
+    )
+
     mock_http = AsyncMock()
 
     # Mock log fetch
@@ -94,7 +101,7 @@ def _patch_issue_deps(*, issue_data=None, logs_data=None, logs_error=None, issue
 
     client_patch = patch("app.services.feedback_service.get_shared_http_client", return_value=mock_http)
 
-    return [session_patch, token_version_patch, client_patch], mock_http
+    return [session_patch, token_version_patch, verify_patch, client_patch], mock_http
 
 
 # ---------------------------------------------------------------------------
@@ -886,3 +893,512 @@ class TestFeedbackTimeoutAndAbnormalResponse:
         finally:
             for p in patches:
                 p.stop()
+
+
+# ---------------------------------------------------------------------------
+# B052 新增测试: 新字段 terminal_id / result_event_id / feedback_type
+# ---------------------------------------------------------------------------
+
+
+class TestFeedbackB052NewFields:
+    """B052: 新字段测试"""
+
+    def test_submit_with_new_fields(self, client, auth_headers):
+        """[happy] 包含新字段 terminal_id / result_event_id / feedback_type 提交成功"""
+        patches, mock_http = _patch_issue_deps()
+
+        for p in patches:
+            p.start()
+        try:
+            resp = client.post(
+                "/api/feedback",
+                json={
+                    "session_id": "test-session-fb",
+                    "category": "terminal",
+                    "description": "AI 给出了错误命令",
+                    "terminal_id": "term-abc123",
+                    "result_event_id": "evt-xyz789",
+                    "feedback_type": "error_report",
+                },
+                headers=auth_headers,
+            )
+            assert resp.status_code == 200
+            assert resp.json()["feedback_id"] == "42"
+
+            # 验证新字段透传到 log-service
+            call_args = mock_http.post.call_args
+            body = call_args.kwargs.get("json") or call_args[1].get("json")
+            assert body["terminal_id"] == "term-abc123"
+            assert body["result_event_id"] == "evt-xyz789"
+            assert body["feedback_type"] == "error_report"
+        finally:
+            for p in patches:
+                p.stop()
+
+    def test_submit_without_new_fields_still_works(self, client, auth_headers):
+        """[backward-compat] 不含新字段时旧逻辑仍正常"""
+        patches, mock_http = _patch_issue_deps()
+
+        for p in patches:
+            p.start()
+        try:
+            resp = client.post(
+                "/api/feedback",
+                json={
+                    "session_id": "test-session-fb",
+                    "category": "connection",
+                    "description": "旧格式反馈",
+                },
+                headers=auth_headers,
+            )
+            assert resp.status_code == 200
+        finally:
+            for p in patches:
+                p.stop()
+
+    def test_feedback_type_partial_fields(self, client, auth_headers):
+        """[partial] 只传 terminal_id 不传其他新字段"""
+        patches, mock_http = _patch_issue_deps()
+
+        for p in patches:
+            p.start()
+        try:
+            resp = client.post(
+                "/api/feedback",
+                json={
+                    "session_id": "test-session-fb",
+                    "category": "suggestion",
+                    "description": "建议添加新功能",
+                    "terminal_id": "term-001",
+                },
+                headers=auth_headers,
+            )
+            assert resp.status_code == 200
+            call_args = mock_http.post.call_args
+            body = call_args.kwargs.get("json") or call_args[1].get("json")
+            assert body["terminal_id"] == "term-001"
+            assert "result_event_id" not in body
+            assert "feedback_type" not in body
+        finally:
+            for p in patches:
+                p.stop()
+
+    def test_session_id_optional(self, client, auth_headers):
+        """[backward-compat] session_id 为可选字段，不传时使用空字符串"""
+        patches, _ = _patch_issue_deps()
+
+        for p in patches:
+            p.start()
+        try:
+            resp = client.post(
+                "/api/feedback",
+                json={
+                    "category": "other",
+                    "description": "无 session_id 的反馈",
+                    "terminal_id": "term-002",
+                },
+                headers=auth_headers,
+            )
+            assert resp.status_code == 200
+        finally:
+            for p in patches:
+                p.stop()
+
+    def test_invalid_feedback_type_returns_422(self, client, auth_headers):
+        """[validation] 无效的 feedback_type → 422"""
+        with patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION), \
+             patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1):
+            resp = client.post(
+                "/api/feedback",
+                json={
+                    "session_id": "test-session-fb",
+                    "category": "connection",
+                    "description": "测试",
+                    "feedback_type": "invalid_type",
+                },
+                headers=auth_headers,
+            )
+            assert resp.status_code == 422
+
+
+class TestFeedbackAnalyzeTrigger:
+    """B052: 反馈提交后触发 analyze_feedback 闭环"""
+
+    @pytest.mark.asyncio
+    async def test_create_feedback_triggers_analyze(self):
+        """反馈创建后通过事件钩子触发 analyze_feedback"""
+        from app.services.feedback_service import create_feedback
+
+        mock_issue_resp = MagicMock(status_code=201)
+        mock_issue_resp.raise_for_status = MagicMock()
+        mock_issue_resp.json = MagicMock(return_value={"id": 99, "created_at": "2026-04-29T10:00:00Z"})
+
+        mock_log_resp = MagicMock(status_code=200)
+        mock_log_resp.raise_for_status = MagicMock()
+        mock_log_resp.json = MagicMock(return_value={"logs": [], "total": 0})
+
+        mock_http = AsyncMock()
+        mock_http.get = AsyncMock(return_value=mock_log_resp)
+        mock_http.post = AsyncMock(return_value=mock_issue_resp)
+
+        with patch("app.services.feedback_service.get_shared_http_client", return_value=mock_http), \
+             patch("app.services.feedback_service._verify_terminal_ownership", new_callable=AsyncMock, return_value="ts-term-1"), \
+             patch("app.infra.event_bus.emit_evals_event_background") as mock_emit:
+            result = await create_feedback(
+                user_id="testuser",
+                session_id="sess-1",
+                category="suggestion",
+                description="AI 回答不准确",
+                terminal_id="term-1",
+                result_event_id="evt-1",
+                feedback_type="needs_improvement",
+            )
+
+            assert result["feedback_id"] == "99"
+            # 验证事件钩子被触发
+            mock_emit.assert_called_once()
+            call_kwargs = mock_emit.call_args
+            assert call_kwargs[0][0] == "on_feedback_created" or call_kwargs.kwargs.get("event_type") == "on_feedback_created"
+
+    @pytest.mark.asyncio
+    async def test_analyze_failure_does_not_block_feedback(self):
+        """analyze_feedback 失败不阻塞反馈创建"""
+        from app.services.feedback_service import create_feedback
+
+        mock_issue_resp = MagicMock(status_code=201)
+        mock_issue_resp.raise_for_status = MagicMock()
+        mock_issue_resp.json = MagicMock(return_value={"id": 100, "created_at": "2026-04-29T10:00:00Z"})
+
+        mock_log_resp = MagicMock(status_code=200)
+        mock_log_resp.raise_for_status = MagicMock()
+        mock_log_resp.json = MagicMock(return_value={"logs": [], "total": 0})
+
+        mock_http = AsyncMock()
+        mock_http.get = AsyncMock(return_value=mock_log_resp)
+        mock_http.post = AsyncMock(return_value=mock_issue_resp)
+
+        with patch("app.services.feedback_service.get_shared_http_client", return_value=mock_http):
+            result = await create_feedback(
+                user_id="testuser",
+                session_id="sess-1",
+                category="connection",
+                description="连接断开",
+            )
+            # 即使 analyze 失败，反馈仍成功
+            assert result["feedback_id"] == "100"
+
+
+# ---------------------------------------------------------------------------
+# R051 幂等性测试: feedback 去重
+# ---------------------------------------------------------------------------
+
+
+class TestFeedbackIdempotency:
+    """R051: 有 result_event_id 时反馈幂等去重"""
+
+    @pytest.mark.asyncio
+    async def test_dedup_returns_existing(self):
+        """有 result_event_id 且已存在相同记录 → 返回已有记录，不创建新的"""
+        from app.services.feedback_service import create_feedback
+
+        # 第一次调用 get 返回已存在的 issue
+        existing_issue = {
+            "id": 77,
+            "created_at": "2026-04-29T08:00:00Z",
+            "result_event_id": "evt-dedup-1",
+            "feedback_type": "helpful",
+        }
+        mock_issues_resp = MagicMock(status_code=200)
+        mock_issues_resp.raise_for_status = MagicMock()
+        mock_issues_resp.json = MagicMock(return_value={"issues": [existing_issue]})
+
+        mock_http = AsyncMock()
+        mock_http.get = AsyncMock(return_value=mock_issues_resp)
+        mock_http.post = AsyncMock()  # 不应被调用
+
+        with patch("app.services.feedback_service.get_shared_http_client", return_value=mock_http), \
+             patch("app.services.feedback_service._verify_terminal_ownership", new_callable=AsyncMock, return_value="ts-term-1"):
+            result = await create_feedback(
+                user_id="testuser",
+                session_id="sess-1",
+                category="suggestion",
+                description="重复提交测试",
+                terminal_id="term-1",
+                result_event_id="evt-dedup-1",
+                feedback_type="helpful",
+            )
+
+            # 返回已有记录
+            assert result["feedback_id"] == "77"
+            assert result["created_at"] == "2026-04-29T08:00:00Z"
+            # post 不应被调用（没有创建新 issue）
+            mock_http.post.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_dedup_no_match_creates_new(self):
+        """有 result_event_id 但无匹配记录 → 正常创建"""
+        from app.services.feedback_service import create_feedback
+
+        # get 返回空 issues
+        mock_issues_resp = MagicMock(status_code=200)
+        mock_issues_resp.raise_for_status = MagicMock()
+        mock_issues_resp.json = MagicMock(return_value={"issues": []})
+
+        # logs
+        mock_log_resp = MagicMock(status_code=200)
+        mock_log_resp.raise_for_status = MagicMock()
+        mock_log_resp.json = MagicMock(return_value={"logs": [], "total": 0})
+
+        # create
+        mock_issue_resp = MagicMock(status_code=201)
+        mock_issue_resp.raise_for_status = MagicMock()
+        mock_issue_resp.json = MagicMock(return_value={"id": 88, "created_at": "2026-04-30T10:00:00Z"})
+
+        call_count = {"get": 0}
+
+        async def _mock_get(url, **kwargs):
+            call_count["get"] += 1
+            if "/api/issues" in url and "reporter" in kwargs.get("params", {}):
+                return mock_issues_resp
+            return mock_log_resp
+
+        mock_http = AsyncMock()
+        mock_http.get = _mock_get
+        mock_http.post = AsyncMock(return_value=mock_issue_resp)
+
+        with patch("app.services.feedback_service.get_shared_http_client", return_value=mock_http), \
+             patch("app.services.feedback_service._verify_terminal_ownership", new_callable=AsyncMock, return_value="ts-term-1"):
+            result = await create_feedback(
+                user_id="testuser",
+                session_id="sess-1",
+                category="suggestion",
+                description="新反馈",
+                terminal_id="term-1",
+                result_event_id="evt-new-1",
+                feedback_type="error_report",
+            )
+
+            assert result["feedback_id"] == "88"
+            mock_http.post.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_no_result_event_id_no_dedup(self):
+        """无 result_event_id 时不做去重（error_report 场景）"""
+        from app.services.feedback_service import create_feedback
+
+        mock_log_resp = MagicMock(status_code=200)
+        mock_log_resp.raise_for_status = MagicMock()
+        mock_log_resp.json = MagicMock(return_value={"logs": [], "total": 0})
+
+        mock_issue_resp = MagicMock(status_code=201)
+        mock_issue_resp.raise_for_status = MagicMock()
+        mock_issue_resp.json = MagicMock(return_value={"id": 99, "created_at": "2026-04-30T11:00:00Z"})
+
+        mock_http = AsyncMock()
+        mock_http.get = AsyncMock(return_value=mock_log_resp)
+        mock_http.post = AsyncMock(return_value=mock_issue_resp)
+
+        with patch("app.services.feedback_service.get_shared_http_client", return_value=mock_http), \
+             patch("app.services.feedback_service._verify_terminal_ownership", new_callable=AsyncMock, return_value="ts-term-1"):
+            result = await create_feedback(
+                user_id="testuser",
+                session_id="sess-1",
+                category="connection",
+                description="连接错误",
+                terminal_id="term-1",
+                # 无 result_event_id
+                feedback_type="error_report",
+            )
+
+            assert result["feedback_id"] == "99"
+            # get 只调了 logs（无幂等查询）
+            mock_http.post.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_dedup_query_fails_falls_through(self):
+        """幂等性查询失败（log-service 不可达）→ best-effort fall through 正常创建"""
+        from app.services.feedback_service import create_feedback
+        import httpx
+
+        mock_log_resp = MagicMock(status_code=200)
+        mock_log_resp.raise_for_status = MagicMock()
+        mock_log_resp.json = MagicMock(return_value={"logs": [], "total": 0})
+
+        call_count = {"get": 0}
+
+        async def _mock_get(url, **kwargs):
+            call_count["get"] += 1
+            if "/api/issues" in url and "reporter" in kwargs.get("params", {}):
+                raise httpx.ConnectError("service down")
+            return mock_log_resp
+
+        mock_issue_resp = MagicMock(status_code=201)
+        mock_issue_resp.raise_for_status = MagicMock()
+        mock_issue_resp.json = MagicMock(return_value={"id": 55, "created_at": "2026-04-30T12:00:00Z"})
+
+        mock_http = AsyncMock()
+        mock_http.get = _mock_get
+        mock_http.post = AsyncMock(return_value=mock_issue_resp)
+
+        with patch("app.services.feedback_service.get_shared_http_client", return_value=mock_http), \
+             patch("app.services.feedback_service._verify_terminal_ownership", new_callable=AsyncMock, return_value="ts-term-1"):
+            result = await create_feedback(
+                user_id="testuser",
+                session_id="sess-1",
+                category="terminal",
+                description="best-effort 测试",
+                terminal_id="term-1",
+                result_event_id="evt-bestr-1",
+                feedback_type="helpful",
+            )
+
+            # 即使查询失败，仍正常创建
+            assert result["feedback_id"] == "55"
+            mock_http.post.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_dedup_matches_feedback_type(self):
+        """去重时 feedback_type 也需要匹配"""
+        from app.services.feedback_service import create_feedback
+
+        # 已有 helpful 反馈
+        existing_issue = {
+            "id": 66,
+            "created_at": "2026-04-29T09:00:00Z",
+            "result_event_id": "evt-ft-1",
+            "feedback_type": "helpful",
+        }
+        mock_issues_resp = MagicMock(status_code=200)
+        mock_issues_resp.raise_for_status = MagicMock()
+        mock_issues_resp.json = MagicMock(return_value={"issues": [existing_issue]})
+
+        mock_log_resp = MagicMock(status_code=200)
+        mock_log_resp.raise_for_status = MagicMock()
+        mock_log_resp.json = MagicMock(return_value={"logs": [], "total": 0})
+
+        mock_issue_resp = MagicMock(status_code=201)
+        mock_issue_resp.raise_for_status = MagicMock()
+        mock_issue_resp.json = MagicMock(return_value={"id": 67, "created_at": "2026-04-30T13:00:00Z"})
+
+        call_count = {"get": 0}
+
+        async def _mock_get(url, **kwargs):
+            call_count["get"] += 1
+            if "/api/issues" in url and "reporter" in kwargs.get("params", {}):
+                return mock_issues_resp
+            return mock_log_resp
+
+        mock_http = AsyncMock()
+        mock_http.get = _mock_get
+        mock_http.post = AsyncMock(return_value=mock_issue_resp)
+
+        with patch("app.services.feedback_service.get_shared_http_client", return_value=mock_http), \
+             patch("app.services.feedback_service._verify_terminal_ownership", new_callable=AsyncMock, return_value="ts-term-1"):
+            # 同 result_event_id 但不同 feedback_type → 不去重，创建新记录
+            result = await create_feedback(
+                user_id="testuser",
+                session_id="sess-1",
+                category="suggestion",
+                description="不同 feedback_type",
+                terminal_id="term-1",
+                result_event_id="evt-ft-1",
+                feedback_type="needs_improvement",
+            )
+
+            assert result["feedback_id"] == "67"
+
+
+# ---------------------------------------------------------------------------
+# 回归：feedback 创建的授权 + 去重行为契约
+# ---------------------------------------------------------------------------
+
+class TestFeedbackAuthAndDedupContract:
+    """回归：授权校验在去重之前执行，且各失败路径符合 API 契约。"""
+
+    @pytest.mark.asyncio
+    async def test_ownership_fails_no_dedup_called(self):
+        """授权失败 → 不调用 dedup（不触发下游 I/O），直接抛 403。"""
+        from app.services.feedback_service import create_feedback
+        from unittest.mock import AsyncMock, patch
+
+        dedup_called = {"n": 0}
+
+        async def _track_dedup(*args, **kwargs):
+            dedup_called["n"] += 1
+            return None
+
+        with patch(
+            "app.services.feedback_service._verify_terminal_ownership",
+            new_callable=AsyncMock, side_effect=PermissionError("terminal not owned"),
+        ), patch(
+            "app.services.feedback_service._find_existing_feedback",
+            new_callable=AsyncMock, side_effect=_track_dedup,
+        ):
+            with pytest.raises(PermissionError, match="terminal not owned"):
+                await create_feedback(
+                    user_id="u1",
+                    session_id="s1",
+                    category="suggestion",
+                    description="test",
+                    terminal_id="t1",
+                    result_event_id="e1",
+                    feedback_type="helpful",
+                )
+            # 授权失败时 dedup 不应被调用
+            assert dedup_called["n"] == 0
+
+    @pytest.mark.asyncio
+    async def test_ownership_succeeds_dedup_hit_returns_existing(self):
+        """授权成功 + dedup 命中 → 返回已有记录 ID，不创建新 issue。"""
+        from app.services.feedback_service import create_feedback
+        from unittest.mock import AsyncMock, patch
+
+        existing_issue = {"id": 42, "created_at": "2026-04-30T10:00:00Z"}
+
+        with patch(
+            "app.services.feedback_service._verify_terminal_ownership",
+            new_callable=AsyncMock, return_value="ts-t1",
+        ), patch(
+            "app.services.feedback_service._find_existing_feedback",
+            new_callable=AsyncMock, return_value=existing_issue,
+        ):
+            result = await create_feedback(
+                user_id="u1",
+                session_id="s1",
+                category="suggestion",
+                description="test",
+                terminal_id="t1",
+                result_event_id="e1",
+                feedback_type="helpful",
+            )
+            assert result["feedback_id"] == "42"
+
+    @pytest.mark.asyncio
+    async def test_no_terminal_no_ownership_check(self):
+        """无 terminal_id → 跳过授权校验，直接走后续逻辑。"""
+        from app.services.feedback_service import create_feedback
+        from unittest.mock import AsyncMock, patch, MagicMock
+
+        mock_log_resp = MagicMock(status_code=200)
+        mock_log_resp.raise_for_status = MagicMock()
+        mock_log_resp.json = MagicMock(return_value={"logs": [], "total": 0})
+
+        mock_issue_resp = MagicMock(status_code=201)
+        mock_issue_resp.raise_for_status = MagicMock()
+        mock_issue_resp.json = MagicMock(return_value={"id": 88, "created_at": "2026-04-30T11:00:00Z"})
+
+        mock_http = AsyncMock()
+        mock_http.get = AsyncMock(return_value=mock_log_resp)
+        mock_http.post = AsyncMock(return_value=mock_issue_resp)
+
+        with patch("app.services.feedback_service.get_shared_http_client", return_value=mock_http):
+            result = await create_feedback(
+                user_id="u1",
+                session_id="s1",
+                category="suggestion",
+                description="test",
+                # 无 terminal_id，无 result_event_id
+                feedback_type="error_report",
+            )
+            assert result["feedback_id"] == "88"
+            mock_http.post.assert_called_once()

@@ -1,0 +1,24 @@
+id: mt_sse_sequence
+category: multi_turn
+description: "多轮交互验证 SSE 事件序列合法性"
+input:
+  intent: "启动开发服务器"
+  context:
+    cwd: /home/user/project
+    device_online: true
+    mock_tool_responses: {}
+turns:
+  - intent: "启动开发服务器"
+  - intent: "查看服务状态"
+expected:
+  response_type: ["command", "message"]
+  steps_contain: []
+  steps_not_contain: []
+  invariants:
+    - sse_sequence_valid
+graders: ["invariant"]
+metadata:
+  source: invariant_test
+  difficulty: medium
+  tags: ["multi_turn", "invariant", "sse_sequence"]
+  reference_solution: "SSE 序列以 phase_change(thinking) 开始，以 result/error 结束"

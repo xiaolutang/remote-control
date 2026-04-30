@@ -40,6 +40,16 @@ from app.services.agent_session import AgentSession
 logger = logging.getLogger(__name__)
 
 
+def generate_terminal_session_id(terminal_id: str) -> str:
+    """基于 terminal_id 生成确定性 session_id。
+
+    格式: ts-{terminal_id[:16]}
+    B051 不变量 #64: session 与 terminal 是 1:1 关系。
+    """
+    prefix = terminal_id[:16] if len(terminal_id) >= 16 else terminal_id
+    return f"ts-{prefix}"
+
+
 # AgentSessionManager
 
 class AgentSessionManager:
@@ -239,7 +249,7 @@ class AgentSessionManager:
         *,
         role: str = "assistant",
         question_id: Optional[str] = None,
-    ) -> None:
+    ) -> Optional[dict[str, Any]]:
         event_record = await self._record_conversation_event(
             session,
             event_type=event_type,
@@ -247,6 +257,14 @@ class AgentSessionManager:
             payload=event_data,
             question_id=question_id,
         )
+        if event_record and isinstance(event_record, dict):
+            eid = event_record.get("event_id")
+            if eid and isinstance(event_data, dict):
+                event_data["event_id"] = eid
+            # 更新 session 上最后发出的 event_index（用于 run 边界追踪）
+            ev_idx = event_record.get("event_index")
+            if ev_idx is not None:
+                session._last_emitted_event_index = int(ev_idx)
         await session.event_queue.put((event_type, event_data))
         # Notify conversation stream subscribers (e.g. mobile SSE)
         if event_record and session.terminal_id:
@@ -264,6 +282,7 @@ class AgentSessionManager:
                     event_type,
                     exc_info=True,
                 )
+        return event_record
 
     async def _run_agent_loop(
         self,
@@ -377,6 +396,148 @@ class AgentSessionManager:
         if session and session._agent_task and not session._agent_task.done():
             session._agent_task.cancel()
 
+    # B051: per-terminal session 生命周期方法
+
+    def get_terminal_session(
+        self,
+        *,
+        user_id: str,
+        device_id: str,
+        terminal_id: str,
+    ) -> Optional[AgentSession]:
+        """查找该 terminal 的任意状态 session（不限于 active）。
+
+        B051 不变量 #64: session 与 terminal 1:1，session_id 确定性生成。
+        优先用确定性 ID 做 O(1) 查找，fallback 线性遍历兼容旧 session。
+        """
+        session_id = generate_terminal_session_id(terminal_id)
+        session = self._sessions.get(session_id)
+        if (
+            session
+            and session.user_id == user_id
+            and session.device_id == device_id
+        ):
+            return session
+        # Fallback: 线性遍历（兼容 create_session 创建的旧 session）
+        for session in self._sessions.values():
+            if (
+                session.user_id == user_id
+                and session.device_id == device_id
+                and session.terminal_id == terminal_id
+            ):
+                return session
+        return None
+
+    async def reuse_or_create_session(
+        self,
+        intent: str,
+        device_id: str,
+        user_id: str,
+        *,
+        terminal_id: Optional[str] = None,
+        terminal_cwd: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        message_history: Optional[list[Any]] = None,
+        check_rate_limit: bool = True,
+    ) -> AgentSession:
+        """复用已有 terminal session 或创建新 session。
+
+        B051 不变量 #64: session 与 terminal 是 1:1 关系。
+        - 如果该 terminal 有 ACTIVE session（EXPLORING/ASKING）→ 直接返回
+        - 如果该 terminal 有 INACTIVE session → 重置状态、递增 run_count
+        - 如果该 terminal 有 ended session（COMPLETED/ERROR/EXPIRED/CANCELLED）→ 重置状态
+        - 如果无 session → 创建新 session
+        """
+        existing = self.get_terminal_session(
+            user_id=user_id, device_id=device_id, terminal_id=terminal_id,
+        ) if terminal_id else None
+
+        if existing:
+            # Active session → 直接返回（不新增 run）
+            if existing.state in (AgentSessionState.EXPLORING, AgentSessionState.ASKING):
+                return existing
+
+            # Inactive/ended session → 重置状态
+            existing.state = AgentSessionState.EXPLORING
+            existing.intent = intent
+            existing.run_count += 1
+            existing.is_first_run = False
+            existing.current_run_id = uuid4().hex
+            existing.last_active_at = datetime.now(timezone.utc)
+            existing.pending_question_id = None
+            existing.result = None
+            existing.message_history = message_history
+            if terminal_cwd is not None:
+                existing.terminal_cwd = terminal_cwd
+            # 重建 event_queue（清空旧事件）
+            existing.event_queue = asyncio.Queue()
+            existing._last_events = []
+            existing._stream_ref_count = 0
+            # Run 边界：记录当前最后事件 index，quality monitor 只查此后的事件
+            existing._run_start_event_index = existing._last_emitted_event_index
+
+            # 取消残留的 agent task
+            if existing._agent_task and not existing._agent_task.done():
+                existing._agent_task.cancel()
+            existing._agent_task = None
+            existing._pending_question_future = None
+
+            logger.info(
+                "Session reused: session_id=%s run_count=%d terminal=%s",
+                existing.id, existing.run_count, terminal_id,
+            )
+            return existing
+
+        # 无现有 session → 创建新 session
+        session_id = None
+        if terminal_id:
+            session_id = generate_terminal_session_id(terminal_id)
+        return await self.create_session(
+            intent=intent,
+            device_id=device_id,
+            user_id=user_id,
+            session_id=session_id,
+            terminal_id=terminal_id,
+            terminal_cwd=terminal_cwd,
+            conversation_id=conversation_id,
+            message_history=message_history,
+            check_rate_limit=check_rate_limit,
+        )
+
+    async def remove_terminal_sessions(
+        self,
+        device_id: str,
+        terminal_id: str,
+    ) -> list[str]:
+        """删除该 terminal 的所有 session（终端删除时调用）。
+
+        返回被移除的 session_id 列表。
+        """
+        removed = []
+        for sid, session in list(self._sessions.items()):
+            if session.device_id == device_id and session.terminal_id == terminal_id:
+                if session._agent_task and not session._agent_task.done():
+                    session._agent_task.cancel()
+                del self._sessions[sid]
+                removed.append(sid)
+        return removed
+
+    async def mark_session_inactive(self, session_id: str) -> None:
+        """将 session 标记为 inactive（终端非删除关闭时调用）。"""
+        session = self._sessions.get(session_id)
+        if session is None:
+            return
+        # 取消运行中的 agent task
+        if session._agent_task and not session._agent_task.done():
+            session._agent_task.cancel()
+        # 取消等待中的 future
+        if session._pending_question_future and not session._pending_question_future.done():
+            session._pending_question_future.set_exception(AgentSessionCancelled())
+        session.state = AgentSessionState.INACTIVE
+        session.pending_question_id = None
+        session._pending_question_future = None
+        logger.info("Session marked inactive: session_id=%s", session_id)
+
     def get_session_count(self) -> int:
         """获取当前活跃会话数。"""
         return len(self._sessions)
@@ -460,5 +621,5 @@ __all__ = [
     "QuestionEvent", "ResultEvent", "ErrorEventData",
     "AgentSessionExpired", "AgentSessionCancelled", "AgentSessionRateLimited",
     "_error_event_dict", "_phase_change_event", "_streaming_text_event", "_tool_step_event",
-    "get_agent_session_manager",
+    "get_agent_session_manager", "generate_terminal_session_id",
 ]

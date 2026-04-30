@@ -23,6 +23,9 @@ S126: 新增 grader（注册表名与 YAML 配置一一对应）：
 15. summary_completeness — integration summary 最小完整度检查
 16. token_budget        — integration input token 预算检查
 17. sse_sequence        — integration SSE 事件序列检查
+
+B054: 不变量 Grader：
+18. invariant           — 多轮状态一致性检查（token 单调递增、usage 非负、SSE 序列合法）
 """
 from evals.graders.code_grader import (
     CodeGraderBase,
@@ -55,6 +58,10 @@ from evals.graders.llm_judge import (
     JUDGE_RUBRIC_TEMPLATE,
     DIMENSIONS,
 )
+from evals.graders.invariant_grader import (
+    InvariantGrader,
+    SUPPORTED_INVARIANTS,
+)
 
 __all__ = [
     "CodeGraderBase",
@@ -74,6 +81,8 @@ __all__ = [
     "SummaryCompletenessGrader",
     "TokenBudgetGrader",
     "SSESequenceGrader",
+    "InvariantGrader",
+    "SUPPORTED_INVARIANTS",
     "LLMJudgeGrader",
     "CalibrationTool",
     "parse_judge_response",

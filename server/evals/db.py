@@ -29,6 +29,29 @@ from evals.models import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_EVAL_DB_PATH = "/data/evals.db"
+EVALS_DB_PATH_ENV = "EVALS_DB_PATH"
+
+_eval_db_instance: Optional["EvalDatabase"] = None
+_eval_db_initialized: bool = False
+
+
+def get_evals_db() -> "EvalDatabase":
+    """获取 EvalDatabase 单例（使用 EVALS_DB_PATH 环境变量或默认路径）。"""
+    global _eval_db_instance
+    if _eval_db_instance is None:
+        db_path = os.environ.get(EVALS_DB_PATH_ENV, DEFAULT_EVAL_DB_PATH)
+        _eval_db_instance = EvalDatabase(db_path)
+    return _eval_db_instance
+
+
+async def ensure_evals_db() -> "EvalDatabase":
+    """获取 EvalDatabase 单例并确保表已创建。"""
+    global _eval_db_initialized
+    db = get_evals_db()
+    if not _eval_db_initialized:
+        await db.init_db()
+        _eval_db_initialized = True
+    return db
 
 
 # ── 配置检查 ──────────────────────────────────────────────────────────────
@@ -216,7 +239,10 @@ class EvalDatabase:
                     device_id TEXT NOT NULL DEFAULT '',
                     metric_name TEXT NOT NULL,
                     value REAL NOT NULL,
-                    computed_at TEXT NOT NULL
+                    computed_at TEXT NOT NULL,
+                    source TEXT NOT NULL DEFAULT 'production',
+                    result_event_id TEXT NOT NULL DEFAULT '',
+                    terminal_id TEXT NOT NULL DEFAULT ''
                 )
             """)
             await db.execute("""
@@ -499,6 +525,132 @@ class EvalDatabase:
             rows = await cursor.fetchall()
             return [EvalRun.from_db_row(dict(r)) for r in rows]
 
+    async def cleanup_old_runs(self, keep_last: int = 10) -> Dict[str, int]:
+        """清理旧的 eval run，保留最近 N 次已完成的 run。
+
+        活跃 run（completed_at 为空）不会被删除。
+        删除 run 时级联删除关联的 trials、grader_results 和 quality_metrics。
+
+        Args:
+            keep_last: 保留最近多少次已完成的 run
+
+        Returns:
+            {"runs_deleted": int, "trials_deleted": int,
+             "grader_results_deleted": int, "quality_metrics_deleted": int}
+        """
+        async with self._connect() as db:
+            # 1. 找出要保留的已完成 run_id（按 completed_at 降序）
+            cursor = await db.execute(
+                """
+                SELECT run_id FROM eval_runs
+                WHERE completed_at IS NOT NULL
+                ORDER BY completed_at DESC
+                LIMIT ?
+                """,
+                (keep_last,),
+            )
+            keep_rows = await cursor.fetchall()
+            keep_ids = {r["run_id"] for r in keep_rows}
+
+            # 2. 找出要删除的 run_id（已完成但不在保留列表 + 活跃的不动）
+            cursor = await db.execute(
+                """
+                SELECT run_id FROM eval_runs
+                WHERE completed_at IS NOT NULL
+                """,
+            )
+            all_completed = await cursor.fetchall()
+            delete_ids = [
+                r["run_id"] for r in all_completed
+                if r["run_id"] not in keep_ids
+            ]
+
+            if not delete_ids:
+                return {
+                    "runs_deleted": 0,
+                    "trials_deleted": 0,
+                    "grader_results_deleted": 0,
+                    "quality_metrics_deleted": 0,
+                }
+
+            # 分批处理，避免 SQLite 变量数限制（默认 999）
+            BATCH_SIZE = 500
+
+            # 3. 找出关联的 trial_id
+            trial_ids = []
+            for i in range(0, len(delete_ids), BATCH_SIZE):
+                batch = delete_ids[i:i + BATCH_SIZE]
+                placeholders = ",".join("?" for _ in batch)
+                cursor = await db.execute(
+                    f"SELECT trial_id FROM eval_trials WHERE run_id IN ({placeholders})",
+                    batch,
+                )
+                trial_ids.extend(r["trial_id"] for r in await cursor.fetchall())
+
+            # 4. 删除 grader_results（通过 trial_id）
+            grader_deleted = 0
+            for i in range(0, len(trial_ids), BATCH_SIZE):
+                batch = trial_ids[i:i + BATCH_SIZE]
+                placeholders = ",".join("?" for _ in batch)
+                cursor = await db.execute(
+                    f"DELETE FROM eval_grader_results WHERE trial_id IN ({placeholders})",
+                    batch,
+                )
+                grader_deleted += cursor.rowcount
+
+            # 5. 删除 quality_metrics
+            # S051 fix: 通过 run_id 和 trial_id 关联清理，兼容两种 session_id 格式：
+            #   - run_id 直接作为 session_id（生产/harness 模式）
+            #   - "eval-{trial_id}" 格式（integration 模式）
+            qm_deleted = 0
+            all_session_ids = list(delete_ids)  # run_id 作为 session_id
+            if trial_ids:
+                all_session_ids.extend(f"eval-{tid}" for tid in trial_ids)
+            for i in range(0, len(all_session_ids), BATCH_SIZE):
+                batch = all_session_ids[i:i + BATCH_SIZE]
+                placeholders = ",".join("?" for _ in batch)
+                cursor = await db.execute(
+                    f"DELETE FROM quality_metrics WHERE session_id IN ({placeholders})",
+                    batch,
+                )
+                qm_deleted += cursor.rowcount
+
+            # 6. 删除 trials
+            trials_deleted = 0
+            for i in range(0, len(delete_ids), BATCH_SIZE):
+                batch = delete_ids[i:i + BATCH_SIZE]
+                placeholders = ",".join("?" for _ in batch)
+                cursor = await db.execute(
+                    f"DELETE FROM eval_trials WHERE run_id IN ({placeholders})",
+                    batch,
+                )
+                trials_deleted += cursor.rowcount
+
+            # 7. 删除 runs
+            runs_deleted = 0
+            for i in range(0, len(delete_ids), BATCH_SIZE):
+                batch = delete_ids[i:i + BATCH_SIZE]
+                placeholders = ",".join("?" for _ in batch)
+                cursor = await db.execute(
+                    f"DELETE FROM eval_runs WHERE run_id IN ({placeholders})",
+                    batch,
+                )
+                runs_deleted += cursor.rowcount
+
+            await db.commit()
+
+            logger.info(
+                "cleanup_old_runs: deleted %d runs, %d trials, %d grader_results, %d quality_metrics",
+                runs_deleted, trials_deleted, grader_deleted, qm_deleted,
+            )
+
+            return {
+                "runs_deleted": runs_deleted,
+                "trials_deleted": trials_deleted,
+                "grader_results_deleted": grader_deleted,
+                "quality_metrics_deleted": qm_deleted,
+            }
+
     async def query_task_trend(self, task_id: str, limit: int = 20) -> List[Dict]:
         """单条 SQL 查询 task 的历史 pass_rate 趋势（避免 N+1）。
 
@@ -570,8 +722,9 @@ class EvalDatabase:
             await db.execute(
                 """
                 INSERT OR REPLACE INTO quality_metrics
-                    (metric_id, session_id, user_id, device_id, metric_name, value, computed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (metric_id, session_id, user_id, device_id, metric_name, value,
+                     computed_at, source, result_event_id, terminal_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     data["metric_id"],
@@ -581,7 +734,34 @@ class EvalDatabase:
                     data["metric_name"],
                     data["value"],
                     data["computed_at"],
+                    data["source"],
+                    data["result_event_id"],
+                    data["terminal_id"],
                 ),
+            )
+            await db.commit()
+
+    async def save_quality_metrics_batch(self, metrics: List[QualityMetric]) -> None:
+        """批量保存质量指标（单次连接 + 单次事务）。"""
+        if not metrics:
+            return
+        rows = []
+        for m in metrics:
+            d = m.to_db_dict()
+            rows.append((
+                d["metric_id"], d["session_id"], d["user_id"], d["device_id"],
+                d["metric_name"], d["value"], d["computed_at"], d["source"],
+                d["result_event_id"], d["terminal_id"],
+            ))
+        async with self._connect() as db:
+            await db.executemany(
+                """
+                INSERT OR REPLACE INTO quality_metrics
+                    (metric_id, session_id, user_id, device_id, metric_name, value,
+                     computed_at, source, result_event_id, terminal_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                rows,
             )
             await db.commit()
 
@@ -612,7 +792,7 @@ class EvalDatabase:
     @staticmethod
     def _build_metric_conditions(
         metric_name=None, user_id=None, device_id=None,
-        start_time=None, end_time=None,
+        start_time=None, end_time=None, source=None,
     ) -> tuple:
         """构建 quality_metrics 查询的共享 WHERE 条件。"""
         conditions: List[str] = []
@@ -632,6 +812,10 @@ class EvalDatabase:
         if end_time is not None:
             conditions.append("computed_at <= ?")
             params.append(end_time)
+        # B055: source 过滤
+        if source is not None:
+            conditions.append("source = ?")
+            params.append(source)
         return conditions, params
 
     async def query_quality_metrics(
@@ -641,6 +825,7 @@ class EvalDatabase:
         user_id: Optional[str] = None,
         device_id: Optional[str] = None,
         session_id: Optional[str] = None,
+        source: Optional[str] = None,
         start_time: Optional[str] = None,
         end_time: Optional[str] = None,
         limit: int = 100,
@@ -649,9 +834,10 @@ class EvalDatabase:
 
         动态构建 WHERE 子句，只添加有值的过滤条件。
         ORDER BY computed_at DESC, LIMIT 防止大查询。
+        B055: 新增 source 参数用于区分 production/integration 来源。
         """
         conditions, params = self._build_metric_conditions(
-            metric_name, user_id, device_id, start_time, end_time
+            metric_name, user_id, device_id, start_time, end_time, source
         )
 
         if session_id is not None:
@@ -675,6 +861,7 @@ class EvalDatabase:
         metric_name: Optional[str] = None,
         user_id: Optional[str] = None,
         device_id: Optional[str] = None,
+        source: Optional[str] = None,
         start_time: Optional[str] = None,
         end_time: Optional[str] = None,
         group_by: str = "day",
@@ -683,6 +870,7 @@ class EvalDatabase:
 
         group_by: "day" / "week" / "month"
         返回 group_key, metric_name, count, avg_value, min_value, max_value。
+        B055: 新增 source 参数用于区分 production/integration 来源。
         """
         if group_by == "day":
             group_expr = "strftime('%Y-%m-%d', computed_at)"
@@ -694,7 +882,7 @@ class EvalDatabase:
             group_expr = "strftime('%Y-%m-%d', computed_at)"
 
         conditions, params = self._build_metric_conditions(
-            metric_name, user_id, device_id, start_time, end_time
+            metric_name, user_id, device_id, start_time, end_time, source
         )
 
         query = (

@@ -64,6 +64,8 @@ class _AgentRenderState {
     this.currentQuestion,
     this.result,
     this.error,
+    this.resultEventId,
+    this.errorEventId,
   });
   final AgentPhase state;
   final String phaseDescription;
@@ -76,6 +78,8 @@ class _AgentRenderState {
   final AgentQuestionEvent? currentQuestion;
   final AgentResultEvent? result;
   final AgentErrorEvent? error;
+  final String? resultEventId;
+  final String? errorEventId;
 }
 
 /// 面板 mixin 共享字段声明
@@ -118,6 +122,10 @@ mixin _PanelStateFields on State<_SmartTerminalSidePanelContent> {
   List<AgentConversationEventItem> get _serverConversationEvents;
   String? get _agentConversationId;
   set _agentConversationId(String? v);
+  String? get _agentResultEventId;
+  set _agentResultEventId(String? v);
+  String? get _agentErrorEventId;
+  set _agentErrorEventId(String? v);
   String? get _loadedDeviceId;
   set _loadedDeviceId(String? v);
   String? get _loadedTerminalId;
@@ -146,12 +154,42 @@ mixin _PanelStateFields on State<_SmartTerminalSidePanelContent> {
   set _usageSummaryError(String? v);
   bool get _usageSummaryLoading;
   set _usageSummaryLoading(bool v);
-  bool get _usageToastVisible;
-  set _usageToastVisible(bool v);
+  bool get _usageExpanded;
+  set _usageExpanded(bool v);
   int get _usageRefreshSerial;
   set _usageRefreshSerial(int v);
-  Timer? get _usageToastTimer;
-  set _usageToastTimer(Timer? v);
+  SessionUsageAccumulator get _sessionUsageAccumulator;
+  Map<String, String> get _feedbackStatus; // key: event_id or error key, value: feedback_type
+  set _feedbackStatus(Map<String, String> v);
+  String? get _feedbackSubmittingKey;
+  set _feedbackSubmittingKey(String? v);
+  String? get _feedbackErrorKey;
+  set _feedbackErrorKey(String? v);
+
+  // --- cross-mixin method stubs for feedback ---
+  Future<bool> Function({
+    required String serverUrl,
+    required String token,
+    required String terminalId,
+    String? resultEventId,
+    required String feedbackType,
+    String? description,
+  }) get _feedbackSubmitter;
+  set _feedbackSubmitter(Future<bool> Function({
+    required String serverUrl,
+    required String token,
+    required String terminalId,
+    String? resultEventId,
+    required String feedbackType,
+    String? description,
+  }) v);
+
+  Future<bool> _submitFeedback({
+    required String feedbackKey,
+    required String feedbackType,
+    String? resultEventId,
+    String? description,
+  });
 
   // --- derived getters (implemented in State class) ---
   bool get _isConnected;
@@ -201,14 +239,14 @@ mixin _PanelStateFields on State<_SmartTerminalSidePanelContent> {
   Widget _buildToolStepCard(ToolStepEvent step, ColorScheme colorScheme);
   Widget _buildAgentTraceExpansionTile(ColorScheme colorScheme);
   Widget _buildAgentTraceItem(AgentTraceEvent trace, ColorScheme colorScheme);
-  Widget _buildUsageToast(ColorScheme colorScheme);
+  Widget _buildUsageSection(ColorScheme colorScheme);
 
   // _PanelResultViewsMixin
   Widget _buildProgressView(ColorScheme colorScheme);
   Widget _buildRespondingView(ColorScheme colorScheme);
   Widget _buildResultView(ColorScheme colorScheme, bool connected);
   Widget _buildErrorView(ColorScheme colorScheme);
-  Future<void> _refreshUsageSummary({required RuntimeSelectionController controller, bool forceRefresh = true});
+  Future<void> _refreshUsageSummary({required RuntimeSelectionController controller, bool forceRefresh = true, String? terminalId});
 
   // _PanelInputMixin
   Widget _buildInputBar(ColorScheme colorScheme);
@@ -233,28 +271,35 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
     _streamingTextBuffer.clear(); _toolSteps.clear();
     _currentQuestion = null; _agentResult = null; _agentError = null;
     _activeSessionId = null; _multiSelectChosen.clear();
+    _agentResultEventId = null; _agentErrorEventId = null;
     _agentIntent = null; _agentAnswers.clear();
+    _feedbackStatus = {};
     if (resetDraft) _draft = _defaultDraft();
   }
 
   void _resetPanelStateForScopeChange() {
+    _resetPanelStateCore();
+    _terminalConversationClosed = false;
+    _terminalClosedReason = null;
+    _editingHistoryIndex = null;
+    _editingController.clear();
+    _sessionUsageAccumulator.reset();
+  }
+
+  void _markTerminalConversationClosed(String message) {
+    _resetPanelStateCore();
+    _terminalConversationClosed = true;
+    _terminalClosedReason = message;
+    _intentController.clear();
+  }
+
+  void _resetPanelStateCore() {
     _eventSubscription?.cancel(); _eventSubscription = null;
     _conversationStreamSubscription?.cancel(); _conversationStreamSubscription = null;
     _pendingReset = false; _draft = _defaultDraft(); _executing = false;
     _resetAgentRenderState(); _agentHistory.clear(); _expandedHistorySet.clear();
     _serverConversationEvents.clear(); _agentConversationId = null;
-    _nextConversationEventIndex = 0; _terminalConversationClosed = false;
-    _terminalClosedReason = null; _editingHistoryIndex = null; _editingController.clear();
-  }
-
-  void _markTerminalConversationClosed(String message) {
-    _eventSubscription?.cancel(); _eventSubscription = null;
-    _conversationStreamSubscription?.cancel(); _conversationStreamSubscription = null;
-    _pendingReset = false; _executing = false; _draft = _defaultDraft();
-    _resetAgentRenderState(); _agentHistory.clear(); _expandedHistorySet.clear();
-    _serverConversationEvents.clear(); _agentConversationId = null;
-    _nextConversationEventIndex = 0; _terminalConversationClosed = true;
-    _terminalClosedReason = message; _intentController.clear();
+    _nextConversationEventIndex = 0;
   }
 
   void _applyConversationProjection(AgentConversationProjection projection) {
@@ -269,8 +314,12 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
     _assistantMessages.addAll(renderState.assistantMessages);
     _currentQuestion = renderState.currentQuestion; _agentResult = renderState.result;
     _agentError = renderState.error; _activeSessionId = projection.activeSessionId;
+    _agentResultEventId = renderState.resultEventId;
+    _agentErrorEventId = renderState.errorEventId;
     _agentIntent = renderState.intent; _agentAnswers.addAll(renderState.answers);
     _streamingTextBuffer.clear(); _toolSteps.clear();
+    // 从 projection events 恢复 feedback status
+    _restoreFeedbackStatusFromEvents(projection.events);
     if (_agentResult != null) _draft = _buildDraftFromAgentResult(_agentResult!);
   }
 
@@ -323,7 +372,13 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
     _assistantMessages..clear()..addAll(renderState.assistantMessages);
     _currentQuestion = renderState.currentQuestion; _agentResult = renderState.result;
     _agentError = renderState.error; _agentIntent = renderState.intent;
+    _agentResultEventId = renderState.resultEventId;
+    _agentErrorEventId = renderState.errorEventId;
     _agentAnswers..clear()..addAll(renderState.answers);
+    // 从增量事件恢复 feedback status（仅 result 类型，error 反馈无稳定 event_id 关联）
+    if (event.type == 'result') {
+      _restoreFeedbackStatusFromEvent(event);
+    }
     if (_activeSessionId == null &&
         (_currentPhase == AgentPhase.confirming || _currentPhase == AgentPhase.exploring ||
             _currentPhase == AgentPhase.thinking || _currentPhase == AgentPhase.analyzing)) {
@@ -347,6 +402,8 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
     AgentQuestionEvent? currentQuestion;
     AgentResultEvent? result;
     AgentErrorEvent? error;
+    String? resultEventId;
+    String? errorEventId;
     var state = AgentPhase.idle;
     var phaseDescription = '';
     void archiveCurrent({AgentResultEvent? archivedResult, AgentErrorEvent? archivedError}) {
@@ -365,6 +422,7 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
           final text = (event.payload['text']?.toString() ?? '').trim();
           if (text.isEmpty) { state = AgentPhase.idle; break; }
           activeIntent = text; result = null; error = null;
+          resultEventId = null; errorEventId = null;
           state = AgentPhase.thinking; phaseDescription = '正在分析你的意图...';
         case 'trace':
           traces.add(AgentTraceEvent.fromJson(Map<String, dynamic>.from(event.payload)));
@@ -389,17 +447,21 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
           currentQuestion = null; result = null; error = null;
           state = AgentPhase.exploring; phaseDescription = '正在执行工具调用...';
         case 'result':
-          result = AgentResultEvent.fromJson(Map<String, dynamic>.from(event.payload));
-          error = null; state = AgentPhase.result;
+          final payload = Map<String, dynamic>.from(event.payload);
+          result = AgentResultEvent.fromJson(payload);
+          resultEventId = result.eventId ?? event.eventId;
+          error = null; errorEventId = null; state = AgentPhase.result;
         case 'error':
           error = AgentErrorEvent.fromJson(Map<String, dynamic>.from(event.payload));
-          result = null; state = AgentPhase.error;
+          errorEventId = event.eventId;
+          result = null; resultEventId = null; state = AgentPhase.error;
       }
     }
     return _AgentRenderState(state: state, phaseDescription: phaseDescription, history: history,
         intent: activeIntent, traces: List.of(traces), turnEventOrder: List.of(turnEventOrder),
         assistantMessages: List.of(assistantMessages), answers: List.of(answers),
-        currentQuestion: currentQuestion, result: result, error: error);
+        currentQuestion: currentQuestion, result: result, error: error,
+        resultEventId: resultEventId, errorEventId: errorEventId);
   }
 
   CommandSequenceDraft _buildDraftFromAgentResult(AgentResultEvent result) {
@@ -414,5 +476,93 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
   bool _isCommandResult(AgentResultEvent result) {
     final rt = result.responseType;
     return rt != 'message' && rt != 'ai_prompt';
+  }
+
+  /// 从 conversation events 中提取 feedback_status 并恢复到 _feedbackStatus map。
+  /// 用于 projection 初始加载时批量恢复。
+  void _restoreFeedbackStatusFromEvents(List<AgentConversationEventItem> events) {
+    final updated = Map<String, String>.from(_feedbackStatus);
+    for (final event in events) {
+      if (event.type != 'result') continue;
+      final feedbackStatus = event.payload['feedback_status'];
+      if (feedbackStatus is String && feedbackStatus.isNotEmpty && event.eventId.isNotEmpty) {
+        updated[event.eventId] = feedbackStatus;
+      }
+    }
+    _feedbackStatus = updated;
+  }
+
+  /// 从单个 conversation event 中提取 feedback_status 并恢复到 _feedbackStatus map。
+  /// 用于增量事件到达时恢复。
+  void _restoreFeedbackStatusFromEvent(AgentConversationEventItem event) {
+    final feedbackStatus = event.payload['feedback_status'];
+    if (feedbackStatus is String && feedbackStatus.isNotEmpty && event.eventId.isNotEmpty) {
+      final updated = Map<String, String>.from(_feedbackStatus);
+      updated[event.eventId] = feedbackStatus;
+      _feedbackStatus = updated;
+    }
+  }
+
+  /// 提交反馈到服务端
+  Future<bool> _submitFeedback({
+    required String feedbackKey,
+    required String feedbackType,
+    String? resultEventId,
+    String? description,
+  }) async {
+    final key = feedbackKey;
+    if (_feedbackStatus.containsKey(key)) return false; // 已反馈过
+
+    RuntimeSelectionController? controller;
+    try {
+      controller = context.read<RuntimeSelectionController>();
+    } on ProviderNotFoundException {
+      return false;
+    }
+
+    final terminalId = _currentTerminalId();
+    if (terminalId == null || terminalId.isEmpty) return false;
+
+    setState(() {
+      _feedbackSubmittingKey = key;
+      _feedbackErrorKey = null;
+    });
+
+    try {
+      final success = await _feedbackSubmitter(
+        serverUrl: controller.serverUrl,
+        token: controller.token,
+        terminalId: terminalId,
+        resultEventId: resultEventId,
+        feedbackType: feedbackType,
+        description: description,
+      );
+
+      if (!mounted) return false;
+
+      if (success) {
+        setState(() {
+          final updated = Map<String, String>.from(_feedbackStatus);
+          updated[key] = feedbackType;
+          _feedbackStatus = updated;
+          _feedbackSubmittingKey = null;
+          _feedbackErrorKey = null;
+        });
+        return true;
+      } else {
+        setState(() {
+          _feedbackSubmittingKey = null;
+          _feedbackErrorKey = key;
+        });
+        return false;
+      }
+    } catch (_) {
+      if (!mounted) return false;
+      setState(() {
+        _feedbackSubmittingKey = null;
+        _feedbackErrorKey = key;
+      });
+      return false;
+    }
   }
 }

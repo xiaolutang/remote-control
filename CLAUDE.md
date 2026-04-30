@@ -95,6 +95,75 @@ remote-control/
 └── .dev-flow/                # 开发流程管理
 ```
 
+## Eval CLI
+
+评估框架 CLI，位于 `server/evals/`，入口 `python -m evals`。
+
+### 环境变量
+
+| 变量 | 必需 | 说明 |
+|------|------|------|
+| `EVAL_AGENT_MODEL` | 是 | 模型名称（fallback `LLM_MODEL`） |
+| `EVAL_AGENT_BASE_URL` | 是 | LLM API 地址（fallback `LLM_BASE_URL`） |
+| `EVAL_AGENT_API_KEY` | 是 | LLM API 密钥（fallback `LLM_API_KEY`） |
+| `EVAL_JUDGE_MODEL` | 否 | 评判模型（默认 `gpt-5.4`） |
+| `EVAL_JUDGE_BASE_URL` | 否 | Judge 独立 API 地址（fallback EVAL_AGENT_BASE_URL） |
+| `EVAL_JUDGE_API_KEY` | 否 | Judge 独立 API 密钥（fallback EVAL_AGENT_API_KEY） |
+
+### 子命令
+
+**run** — 运行评估任务，保存结果到 evals.db
+
+```bash
+# unit 模式（直接调 LLM，快速迭代）
+python -m evals run --mode unit --tasks server/evals/tasks --trials 1
+
+# integration 模式（Docker 构建 + 真实 HTTP API）
+python -m evals run --mode integration --tasks server/evals/tasks \
+  --base-url http://localhost:8880 --trials 1
+```
+
+**regression** — 运行任务并与 baseline 对比，检测退化
+
+```bash
+python -m evals regression --baseline <run_id> --tasks server/evals/tasks --trials 1
+```
+
+**trend** — 查询历史 pass_rate 趋势
+
+```bash
+# 全部 run 趋势
+python -m evals trend --limit 20
+
+# 按 task 过滤
+python -m evals trend --task-id ic_basic_greeting --limit 10
+```
+
+**report** — 生成 eval HTML 报告（含对比、趋势图）
+
+```bash
+# 生成单次报告
+python -m evals report -o eval_report.html
+
+# 对比两次 run
+python -m evals report --compare <baseline_id> <current_id> -o report.html
+
+# 只输出退化项
+python -m evals report --compare <baseline_id> <current_id> --regression-only
+```
+
+**cleanup** — 清理旧 eval run，保留最近 N 次（活跃 run 不受影响）
+
+```bash
+python -m evals cleanup --keep-last 10
+```
+
+### 公共参数（仅 run 和 regression）
+
+- `--db` — evals.db 路径（默认 `/data/evals.db`）
+- `--mode unit|integration` — 运行模式（默认 `unit`，regression 不支持 integration）
+- `--trials N` — 每个 task 重复次数（默认 1）
+
 ## 关键约定
 
 - 所有受保护路由使用 `async_verify_token` 鉴权

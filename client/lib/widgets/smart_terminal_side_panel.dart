@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -8,7 +9,10 @@ import '../models/agent_session_event.dart';
 import '../models/command_sequence_draft.dart';
 import '../models/terminal_launch_plan.dart';
 import '../services/agent_session_service.dart';
+import '../services/http_client_factory.dart';
 import '../services/runtime_selection_controller.dart';
+import '../services/server_url_helper.dart';
+import '../services/session_usage_accumulator.dart';
 import '../services/usage_summary_service.dart';
 import '../services/websocket_service.dart';
 import 'mobile_bottom_inset.dart';
@@ -29,6 +33,14 @@ typedef AgentSessionServiceFactory = AgentSessionService Function(
 typedef UsageSummaryServiceFactory = UsageSummaryService Function(
   String serverUrl,
 );
+typedef FeedbackSubmitter = Future<bool> Function({
+  required String serverUrl,
+  required String token,
+  required String terminalId,
+  String? resultEventId,
+  required String feedbackType,
+  String? description,
+});
 
 /// 侧滑式智能终端助手面板。
 ///
@@ -41,6 +53,7 @@ class SmartTerminalSidePanel extends StatefulWidget {
     this.onPanelClosed,
     this.agentSessionServiceBuilder,
     this.usageSummaryServiceBuilder,
+    this.feedbackSubmitterOverride,
   });
 
   /// 底层终端内容
@@ -48,6 +61,9 @@ class SmartTerminalSidePanel extends StatefulWidget {
   final VoidCallback? onPanelClosed;
   final AgentSessionServiceFactory? agentSessionServiceBuilder;
   final UsageSummaryServiceFactory? usageSummaryServiceBuilder;
+
+  /// 覆盖反馈提交逻辑（测试用）
+  final FeedbackSubmitter? feedbackSubmitterOverride;
 
   @override
   State<SmartTerminalSidePanel> createState() => _SmartTerminalSidePanelState();
@@ -265,6 +281,8 @@ class _SmartTerminalSidePanelState extends State<SmartTerminalSidePanel> {
                         widget.agentSessionServiceBuilder,
                     usageSummaryServiceBuilder:
                         widget.usageSummaryServiceBuilder,
+                    feedbackSubmitterOverride:
+                        widget.feedbackSubmitterOverride,
                   ),
                 ),
               ),

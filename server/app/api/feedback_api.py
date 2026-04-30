@@ -24,7 +24,7 @@ router = APIRouter(prefix="/feedback", tags=["feedback"])
 
 class FeedbackCreateRequest(BaseModel):
     """提交反馈请求"""
-    session_id: str = Field(..., description="会话 ID")
+    session_id: Optional[str] = Field(None, description="会话 ID（旧字段，可选）")
     category: Literal["connection", "terminal", "crash", "suggestion", "other"] = Field(
         ..., description="反馈分类"
     )
@@ -33,6 +33,13 @@ class FeedbackCreateRequest(BaseModel):
     )
     platform: Optional[str] = Field(None, description="平台信息")
     app_version: Optional[str] = Field(None, description="应用版本")
+    # B052 新增字段
+    terminal_id: Optional[str] = Field(None, description="终端 ID")
+    result_event_id: Optional[str] = Field(None, description="关联的 result 事件 ID")
+    feedback_type: Optional[Literal["helpful", "needs_improvement", "error_report"]] = Field(
+        None, description="反馈类型"
+    )
+    device_id: Optional[str] = Field(None, description="设备 ID（用于 SSE 实时推送）")
 
 
 class FeedbackResponse(BaseModel):
@@ -64,19 +71,26 @@ async def submit_feedback(
     """
     提交反馈
 
-    - **session_id**: 会话 ID
+    - **session_id**: 会话 ID（旧字段，可选）
     - **category**: 反馈分类（connection/terminal/crash/suggestion/other）
     - **description**: 反馈描述（最大 10000 字符）
     - **platform**: 平台信息（可选）
     - **app_version**: 应用版本（可选）
+    - **terminal_id**: 终端 ID（B052 新增，可选）
+    - **result_event_id**: 关联的 result 事件 ID（B052 新增，可选）
+    - **feedback_type**: 反馈类型（B052 新增，可选）
     """
     result = await create_feedback(
         user_id=user_id,
-        session_id=request.session_id,
+        session_id=request.session_id or "",
         category=request.category,
         description=request.description,
         platform=request.platform,
         app_version=request.app_version,
+        terminal_id=request.terminal_id,
+        result_event_id=request.result_event_id,
+        feedback_type=request.feedback_type,
+        device_id=request.device_id,
     )
 
     return FeedbackResponse(

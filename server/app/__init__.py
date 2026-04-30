@@ -59,6 +59,13 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logger.warning("Failed to configure logfire console: %s", exc)
 
+    # 注册 evals 事件钩子
+    try:
+        from evals.hooks import register_all_hooks
+        register_all_hooks()
+    except Exception as exc:
+        logger.warning("Failed to register evals hooks: %s", exc)
+
     # 启动时创建 TTL checker 后台任务
     _ttl_checker_task = asyncio.create_task(_stale_agent_ttl_checker())
     logger.info("Stale agent TTL checker started")

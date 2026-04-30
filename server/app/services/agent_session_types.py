@@ -95,6 +95,7 @@ class AgentSessionState(str, Enum):
     ERROR = "error"              # Agent 出错
     EXPIRED = "expired"          # 会话超时
     CANCELLED = "cancelled"      # 用户取消
+    INACTIVE = "inactive"        # 终端非删除关闭，session 暂停
 
 
 # ---------------------------------------------------------------------------

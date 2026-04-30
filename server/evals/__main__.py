@@ -6,11 +6,15 @@ B104: Eval CLI 入口
     python -m evals run --mode integration --tasks server/evals/tasks --trials 1
     python -m evals regression --baseline <run_id> --tasks server/evals/tasks --trials 1
     python -m evals trend [--task-id <id>] [--limit 20]
+    python -m evals report [--compare <id1> <id2>] [--regression-only] [-o output.html]
+    python -m evals cleanup [--keep-last 10]
 
 子命令：
     run        运行所有 tasks，保存结果到 evals.db
     regression 运行 + 与 baseline 对比
     trend      查询历史 pass_rate 趋势
+    report     生成 eval HTML 报告
+    cleanup    清理旧 eval run，保留最近 N 次
 
 模式：
     unit        直接调 LLM（默认），快速迭代
@@ -32,6 +36,7 @@ from typing import List
 from evals.db import EvalConfigError, EvalDatabase, get_eval_agent_config
 from evals.harness import EvalHarness, load_yaml_tasks
 from evals.regression import detect_regressions, query_trend, run_regression_check
+from evals.report import generate_report
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +139,48 @@ def _build_parser() -> argparse.ArgumentParser:
         help="返回记录数量（默认 20）",
     )
     trend_parser.add_argument(
+        "--db",
+        default="/data/evals.db",
+        help="evals.db 路径（默认 evals.db）",
+    )
+
+    # ── report 子命令 ────────────────────────────────────────────────
+    report_parser = subparsers.add_parser("report", help="生成 eval HTML 报告")
+    report_parser.add_argument(
+        "--compare",
+        nargs=2,
+        metavar=("BASELINE_ID", "CURRENT_ID"),
+        default=None,
+        help="对比两次 run（baseline_id current_id）",
+    )
+    report_parser.add_argument(
+        "--regression-only",
+        action="store_true",
+        default=False,
+        help="只输出退化项",
+    )
+    report_parser.add_argument(
+        "-o", "--output",
+        default="eval_report.html",
+        help="输出 HTML 文件路径（默认 eval_report.html）",
+    )
+    report_parser.add_argument(
+        "--db",
+        default="/data/evals.db",
+        help="evals.db 路径（默认 evals.db）",
+    )
+
+    # ── cleanup 子命令 ──────────────────────────────────────────────
+    cleanup_parser = subparsers.add_parser(
+        "cleanup", help="清理旧 eval run，保留最近 N 次"
+    )
+    cleanup_parser.add_argument(
+        "--keep-last",
+        type=int,
+        default=10,
+        help="保留最近 N 次已完成的 run（默认 10）",
+    )
+    cleanup_parser.add_argument(
         "--db",
         default="/data/evals.db",
         help="evals.db 路径（默认 evals.db）",
@@ -292,6 +339,9 @@ async def _cmd_run_integration(args: argparse.Namespace) -> int:
     )
 
     try:
+        # S051 fix: 安装信号处理器，确保 Ctrl+C 时清理 Docker
+        runner.install_signal_handlers()
+
         # 1. 构建 + 部署
         print("[integration] 开始 Docker 构建和部署 ...")
         runner.build_and_deploy()
@@ -351,8 +401,13 @@ async def _cmd_run_integration(args: argparse.Namespace) -> int:
                         duration_ms = integ_result["duration_ms"]
 
                         # 使用 EvalHarness 的评估逻辑
+                        # B054: 传入 transcript 供 InvariantGrader 使用
                         harness = EvalHarness(db, num_trials=1)
-                        success = harness._evaluate_trial(task, agent_result)
+                        success = harness._evaluate_trial(
+                            task, agent_result,
+                            transcript_json=integ_result["transcript"],
+                            token_usage_json=integ_result.get("token_usage", {}),
+                        )
 
                         # 保存 trial
                         trial = EvalTrial(
@@ -364,6 +419,24 @@ async def _cmd_run_integration(args: argparse.Namespace) -> int:
                             token_usage_json=integ_result.get("token_usage", {}),
                         )
                         await db.save_trial(trial)
+
+                        # B053+B055 fix: integration 模式产效率指标
+                        try:
+                            from evals.quality_monitor import extract_and_store_metrics
+                            sse_events = integ_result.get("sse_events", [])
+                            if sse_events:
+                                await extract_and_store_metrics(
+                                    db,
+                                    sse_events,
+                                    session_id=f"eval-{trial.trial_id}",
+                                    intent=task.input.intent,
+                                    source="integration",
+                                )
+                        except Exception as e:
+                            logger.warning(
+                                "B055: integration 效率指标采集失败 trial=%s: %s",
+                                trial.trial_id, e,
+                            )
 
                         trial_results.append({
                             "trial_id": trial.trial_id,
@@ -445,6 +518,7 @@ async def _cmd_run_integration(args: argparse.Namespace) -> int:
     finally:
         runner.stop_agent()
         runner.tear_down()
+        runner.restore_signal_handlers()
         await eval_client.close()
 
 
@@ -512,6 +586,54 @@ async def _cmd_trend(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _cmd_report(args: argparse.Namespace) -> int:
+    """执行 report 子命令 — 生成 eval HTML 报告。"""
+    # report 不需要 LLM 配置，只查询数据库
+
+    # 初始化 DB
+    db = EvalDatabase(args.db)
+    await db.init_db()
+
+    compare_ids = getattr(args, "compare", None)
+    regression_only = getattr(args, "regression_only", False)
+    output_path = getattr(args, "output", "eval_report.html")
+
+    # 生成报告
+    result_path = await generate_report(
+        db,
+        compare_run_ids=compare_ids,
+        regression_only=regression_only,
+        output_path=output_path,
+    )
+
+    print(f"Report generated: {result_path}")
+    return 0
+
+
+async def _cmd_cleanup(args: argparse.Namespace) -> int:
+    """执行 cleanup 子命令 — 清理旧 eval run。"""
+    keep_last = args.keep_last
+    if keep_last < 1:
+        print(f"ERROR: --keep-last 必须 >= 1，当前值: {keep_last}", file=sys.stderr)
+        return 1
+
+    db = EvalDatabase(args.db)
+    await db.init_db()
+
+    print(f"Cleaning up eval runs (keeping last {keep_last}) ...")
+
+    result = await db.cleanup_old_runs(keep_last=keep_last)
+
+    print(f"  Runs deleted:            {result['runs_deleted']}")
+    print(f"  Trials deleted:          {result['trials_deleted']}")
+    print(f"  Grader results deleted:  {result['grader_results_deleted']}")
+    print(f"  Quality metrics deleted: {result['quality_metrics_deleted']}")
+    print(f"\nJSON output:")
+    print(json.dumps(result, indent=2))
+
+    return 0
+
+
 async def async_main(argv: List[str] | None = None) -> int:
     """异步主入口"""
     parser = _build_parser()
@@ -530,6 +652,10 @@ async def async_main(argv: List[str] | None = None) -> int:
         return await _cmd_regression(args)
     elif args.command == "trend":
         return await _cmd_trend(args)
+    elif args.command == "report":
+        return await _cmd_report(args)
+    elif args.command == "cleanup":
+        return await _cmd_cleanup(args)
     else:
         parser.print_help()
         return 1

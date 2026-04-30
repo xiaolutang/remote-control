@@ -1,6 +1,7 @@
 """
 Assistant Execution Report + Agent Usage Summary REST API。
 """
+import asyncio
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, status, Depends
@@ -101,9 +102,13 @@ async def create_assistant_execution_report(
 @router.get("/agent/usage/summary", response_model=AgentUsageSummaryResponse)
 async def get_agent_usage_summary_api(
     device_id: Optional[str] = None,
+    terminal_id: Optional[str] = None,
     user_id: str = Depends(get_current_user_id),
 ):
-    """返回当前用户的 Agent usage 汇总。"""
+    """返回当前用户的 Agent usage 汇总。
+
+    B051: 支持 terminal_id 参数实现 per-terminal usage。
+    """
     if not device_id or not device_id.strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -114,12 +119,30 @@ async def get_agent_usage_summary_api(
     session = await _deps.get_session_by_device_id(normalized_device_id, user_id)
 
     device_scope = _empty_agent_usage_summary_scope()
+    terminal_scope = None
+
     if session:
-        device_summary = await _deps.get_usage_summary(user_id, normalized_device_id)
-        device_scope = AgentUsageSummaryScope(**device_summary)
-    user_summary = await _deps.get_usage_summary(user_id, None)
+        # 并发执行 usage 查询（gather 保证任一失败时全部取消）
+        queries = [
+            _deps.get_usage_summary(user_id, normalized_device_id),
+            _deps.get_usage_summary(user_id, None),
+        ]
+        if terminal_id and terminal_id.strip():
+            queries.append(
+                _deps.get_usage_summary(
+                    user_id, normalized_device_id, terminal_id=terminal_id.strip(),
+                ),
+            )
+        results = await asyncio.gather(*queries)
+        device_scope = AgentUsageSummaryScope(**results[0])
+        user_summary = results[1]
+        if len(queries) == 3:
+            terminal_scope = AgentUsageSummaryScope(**results[2])
+    else:
+        user_summary = await _deps.get_usage_summary(user_id, None)
 
     return AgentUsageSummaryResponse(
         device=device_scope,
+        terminal=terminal_scope,
         user=AgentUsageSummaryScope(**user_summary),
     )

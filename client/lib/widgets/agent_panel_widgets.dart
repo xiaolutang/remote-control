@@ -2,7 +2,7 @@
 
 part of 'smart_terminal_side_panel.dart';
 
-/// 共享子组件（气泡、光标、工具卡片、Trace 列表、Usage Toast 等）
+/// 共享子组件（气泡、光标、工具卡片、Trace 列表、Usage Section 等）
 mixin _PanelWidgetsMixin on _PanelStateFields {
   Widget _buildAssistantBubble(Widget child) {
     final colorScheme = Theme.of(context).colorScheme;
@@ -54,49 +54,110 @@ mixin _PanelWidgetsMixin on _PanelStateFields {
     ]));
   }
 
-  /// Usage Toast
-  Widget _buildUsageToast(ColorScheme colorScheme) {
-    final summary = _usageSummary ?? const UsageSummaryData.empty();
-    return Container(key: const Key('side-panel-usage-toast'),
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
-      decoration: BoxDecoration(color: colorScheme.surface, borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: colorScheme.outlineVariant.withValues(alpha: 0.2)),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 18, offset: const Offset(0, 10))]),
+  /// Usage Section: 底部固定的可展开/收起区域
+  Widget _buildUsageSection(ColorScheme colorScheme) {
+    final summary = _usageSummary;
+    final totalTokens = summary?.user.totalTokens ?? 0;
+    // 使用服务端 terminal scope 数据，不 fallback 到本地累加器
+    final terminalScope = summary?.terminal;
+    final currentTokens = terminalScope?.totalTokens ?? 0;
+    final currentRequests = terminalScope?.totalRequests ?? 0;
+    final hasError = _usageSummaryError != null && summary == null;
+    final isCurrentLoading = terminalScope == null && _usageSummaryLoading;
+    final isCurrentUnavailable = terminalScope == null && !_usageSummaryLoading && summary != null;
+
+    return Container(
+      key: const Key('side-panel-usage-section'),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colorScheme.outlineVariant.withValues(alpha: 0.14)),
+      ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [Icon(Icons.data_usage_outlined, size: 18, color: colorScheme.primary), const SizedBox(width: 8),
-          Expanded(child: Text('Token 汇总', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700))),
-          if (_usageSummaryLoading) SizedBox(width: 14, height: 14,
-            child: CircularProgressIndicator(strokeWidth: 2, color: colorScheme.primary)),
-        ]),
-        if (_usageSummaryError != null) ...[const SizedBox(height: 8),
-          Container(key: const Key('side-panel-usage-error'),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            decoration: BoxDecoration(color: colorScheme.errorContainer, borderRadius: BorderRadius.circular(12)),
-            child: Text(_usageSummaryError!, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colorScheme.onErrorContainer)))],
-        const SizedBox(height: 10),
-        _buildUsageSummarySection(label: '当前终端', scope: summary.device, colorScheme: colorScheme),
-        const SizedBox(height: 8),
-        _buildUsageSummarySection(label: '我的总计', scope: summary.user, colorScheme: colorScheme),
-      ]));
+        // 收起/展开摘要行
+        GestureDetector(
+          key: const Key('side-panel-usage-toggle'),
+          onTap: () => setState(() => _usageExpanded = !_usageExpanded),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(children: [
+              Icon(Icons.data_usage_outlined, size: 16, color: colorScheme.primary),
+              const SizedBox(width: 8),
+              Expanded(child: hasError
+                ? Text(_usageSummaryError ?? '加载失败', key: const Key('side-panel-usage-error'),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colorScheme.error))
+                : Builder(builder: (context) {
+                    final currentLabel = isCurrentLoading
+                        ? '加载中...'
+                        : isCurrentUnavailable
+                            ? '暂无数据'
+                            : '$currentTokens';
+                    return Text('总消耗 $totalTokens · 当前对话 $currentLabel',
+                        key: const Key('side-panel-usage-summary'),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant, fontWeight: FontWeight.w500));
+                  })),
+              if (_usageSummaryLoading)
+                SizedBox(width: 14, height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: colorScheme.primary)),
+              const SizedBox(width: 4),
+              AnimatedRotation(
+                turns: _usageExpanded ? 0.25 : 0,
+                duration: const Duration(milliseconds: 200),
+                child: Icon(Icons.chevron_right, size: 16, color: colorScheme.onSurfaceVariant),
+              ),
+            ]),
+          ),
+        ),
+        // 展开详情
+        if (_usageExpanded) ...[
+          const Divider(height: 1, indent: 12, endIndent: 12),
+          Padding(padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              // 总消耗段
+              Text('总消耗', key: const Key('side-panel-usage-total-label'),
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w700, color: colorScheme.onSurfaceVariant)),
+              const SizedBox(height: 4),
+              if (summary != null) ...[
+                _buildUsageStatRow('终端', summary.device.totalTokens, summary.device.totalRequests, colorScheme),
+                const SizedBox(height: 2),
+                _buildUsageStatRow('我的', summary.user.totalTokens, summary.user.totalRequests, colorScheme),
+              ] else ...[
+                Text(_usageSummaryError ?? '—',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colorScheme.error)),
+              ],
+              const SizedBox(height: 10),
+              // 当前对话段
+              Text('当前对话', key: const Key('side-panel-usage-current-label'),
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w700, color: colorScheme.onSurfaceVariant)),
+              const SizedBox(height: 4),
+              if (isCurrentLoading)
+                Text('加载中...', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant))
+              else if (isCurrentUnavailable)
+                Text('暂无数据', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant))
+              else
+                _buildUsageStatRow('对话', currentTokens, currentRequests, colorScheme),
+            ]),
+          ),
+        ],
+      ]),
+    );
   }
 
-  Widget _buildUsageSummarySection({required String label, required UsageSummaryScope scope, required ColorScheme colorScheme}) {
-    return Container(padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(14)),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(label, style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700, color: colorScheme.onSurfaceVariant)),
-        const SizedBox(height: 8),
-        Row(children: [Expanded(child: Text('${scope.totalTokens}',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700))),
-          Text('${scope.totalRequests} 次请求', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant))]),
-        const SizedBox(height: 4),
-        Text('输入 ${scope.totalInputTokens}  输出 ${scope.totalOutputTokens}  会话 ${scope.totalSessions}',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant)),
-        const SizedBox(height: 2),
-        Text(scope.latestModelName.isNotEmpty ? scope.latestModelName : '暂无模型数据',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: colorScheme.onSurfaceVariant)),
-      ]));
+  Widget _buildUsageStatRow(String label, int tokens, int requests, ColorScheme colorScheme) {
+    return Row(children: [
+      SizedBox(width: 40, child: Text(label, style: Theme.of(context).textTheme.bodySmall?.copyWith(
+        color: colorScheme.onSurfaceVariant, fontWeight: FontWeight.w500))),
+      Text('$tokens tokens', style: Theme.of(context).textTheme.bodySmall?.copyWith(
+        fontWeight: FontWeight.w600, color: colorScheme.onSurface)),
+      const SizedBox(width: 8),
+      Text('$requests 次', style: Theme.of(context).textTheme.bodySmall?.copyWith(
+        color: colorScheme.onSurfaceVariant)),
+    ]);
   }
+
 }
 
 // --- 独立 Widget 组件 ---

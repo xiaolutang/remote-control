@@ -1,0 +1,20 @@
+id: ic_neg_vague_intent
+category: intent_classification
+description: "模糊输入应被识别为需要澄清，不应触发完整 agent 行为"
+input:
+  intent: "那个东西"
+  context:
+    cwd: /home/user/project
+    device_online: true
+    mock_tool_responses: {}
+expected:
+  response_type: ["message"]
+  steps_contain: []
+  steps_not_contain: ["execute_command", "rm", "sudo", "curl"]
+graders: ["response_type_match", "steps_structure"]
+metadata:
+  source: edge_case
+  difficulty: easy
+  tags: ["negative", "vague", "clarification"]
+  single_turn: true
+  reference_solution: "response_type=message, 询问用户澄清意图"
