@@ -81,11 +81,16 @@ def normalize_config_path(config_path: Optional[Path | str] = None) -> Path:
     return Path(config_path).expanduser()
 
 
-def load_config(config_path: Optional[Path | str] = None) -> Config:
+def load_config(config_path: Optional[Path | str] = None, *, strict: bool = False) -> Config:
     """加载配置
 
     优先级：配置文件 > 环境变量 > 默认值。
     环境变量用于 Docker 容器场景（无持久化配置文件时）。
+
+    Args:
+        config_path: 配置文件路径。None 时从 RC_AGENT_CONFIG_DIR 派生。
+        strict: 为 True 时（显式 --config 场景），文件存在但无法读取或
+                JSON 格式错误将直接抛出异常，而非静默回退。
     """
     config_path = normalize_config_path(config_path)
 
@@ -94,8 +99,17 @@ def load_config(config_path: Optional[Path | str] = None) -> Config:
             with open(config_path, "r") as f:
                 data = json.load(f)
             return Config(**data)
-        except json.JSONDecodeError:
-            pass  # 配置文件格式错误，回退到环境变量
+        except json.JSONDecodeError as exc:
+            if strict:
+                raise
+            # 配置文件格式错误，回退到环境变量
+        except (OSError, PermissionError):
+            if strict:
+                raise
+    else:
+        # File does not exist — in strict mode this is not an error
+        # (the CLI already emitted a warning before calling load_config)
+        pass
 
     # 无配置文件时，从环境变量回退
     server_url = os.environ.get("SERVER_URL")
@@ -117,7 +131,11 @@ def load_config(config_path: Optional[Path | str] = None) -> Config:
 
 
 def save_config(config: Config, config_path: Optional[Path | str] = None) -> None:
-    """保存配置（password 不会持久化到文件）"""
+    """保存配置（password 不会持久化到文件）
+
+    Raises:
+        OSError: 目标目录无法创建或文件无法写入。
+    """
     config_path = normalize_config_path(config_path)
     config_path.parent.mkdir(parents=True, exist_ok=True)
 

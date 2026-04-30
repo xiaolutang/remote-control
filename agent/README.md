@@ -95,7 +95,7 @@ python -m app.cli logout
 | `--shell` | `false` | Start an interactive shell |
 | `--reconnect` / `--no-reconnect` | `true` | Auto-reconnect on disconnect |
 | `--max-retries` | `60` | Maximum reconnection attempts |
-| `--config` | `~/.rc-agent.json` | Custom config file path |
+| `--config` | `~/.rc-agent/config.json` | Custom config file path |
 | `--version` | | Show version |
 
 ## Connecting to a Dev Deployment
