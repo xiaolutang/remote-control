@@ -1307,4 +1307,129 @@ class TestFeedbackIdempotency:
             )
 
             assert result["feedback_id"] == "67"
+
+
+# ---------------------------------------------------------------------------
+# 回归：gather 结构化并发 — ownership + dedup 并发失败
+# ---------------------------------------------------------------------------
+
+class TestFeedbackGatherConcurrency:
+    """回归：ownership 校验和 dedup 查询通过 asyncio.gather 并发时的失败场景。"""
+
+    @pytest.mark.asyncio
+    async def test_ownership_fails_gather_cancels_dedup(self):
+        """ownership 失败 → gather 取消 dedup，不悬挂 task。"""
+        from app.services.feedback_service import create_feedback
+        from unittest.mock import AsyncMock, patch, MagicMock
+
+        dedup_called = {"n": 0}
+
+        async def _failing_dedup(*args, **kwargs):
+            dedup_called["n"] += 1
+            return None  # dedup 正常返回 None
+
+        async def _failing_ownership(*args, **kwargs):
+            raise PermissionError("terminal not owned")
+
+        with patch(
+            "app.services.feedback_service._verify_terminal_ownership",
+            new_callable=AsyncMock, side_effect=_failing_ownership,
+        ), patch(
+            "app.services.feedback_service._find_existing_feedback",
+            new_callable=AsyncMock, side_effect=_failing_dedup,
+        ):
+            with pytest.raises(PermissionError, match="terminal not owned"):
+                await create_feedback(
+                    user_id="u1",
+                    session_id="s1",
+                    category="suggestion",
+                    description="test",
+                    terminal_id="t1",
+                    result_event_id="e1",
+                    feedback_type="helpful",
+                )
+
+    @pytest.mark.asyncio
+    async def test_dedup_fails_gather_cancels_ownership(self):
+        """dedup 查询失败 → gather 取消 ownership，整体报错。"""
+        from app.services.feedback_service import create_feedback
+        from unittest.mock import AsyncMock, patch
+
+        async def _failing_dedup(*args, **kwargs):
+            raise ConnectionError("log-service down")
+
+        with patch(
+            "app.services.feedback_service._verify_terminal_ownership",
+            new_callable=AsyncMock, return_value="ts-t1",
+        ), patch(
+            "app.services.feedback_service._find_existing_feedback",
+            new_callable=AsyncMock, side_effect=_failing_dedup,
+        ):
+            with pytest.raises(ConnectionError, match="log-service down"):
+                await create_feedback(
+                    user_id="u1",
+                    session_id="s1",
+                    category="suggestion",
+                    description="test",
+                    terminal_id="t1",
+                    result_event_id="e1",
+                    feedback_type="helpful",
+                )
+
+    @pytest.mark.asyncio
+    async def test_both_succeed_dedup_hit_returns_early(self):
+        """ownership + dedup 都成功 + dedup 命中 → 返回已有记录，不创建新的。"""
+        from app.services.feedback_service import create_feedback
+        from unittest.mock import AsyncMock, patch, MagicMock
+
+        existing_issue = {"id": 42, "created_at": "2026-04-30T10:00:00Z"}
+
+        with patch(
+            "app.services.feedback_service._verify_terminal_ownership",
+            new_callable=AsyncMock, return_value="ts-t1",
+        ), patch(
+            "app.services.feedback_service._find_existing_feedback",
+            new_callable=AsyncMock, return_value=existing_issue,
+        ):
+            result = await create_feedback(
+                user_id="u1",
+                session_id="s1",
+                category="suggestion",
+                description="test",
+                terminal_id="t1",
+                result_event_id="e1",
+                feedback_type="helpful",
+            )
+            assert result["feedback_id"] == "42"
+
+    @pytest.mark.asyncio
+    async def test_ownership_only_no_terminal_skips_gather(self):
+        """只有 ownership（有 terminal_id 无 result_event_id）→ 走单独 await 路径。"""
+        from app.services.feedback_service import create_feedback
+        from unittest.mock import AsyncMock, patch, MagicMock
+
+        mock_log_resp = MagicMock(status_code=200)
+        mock_log_resp.raise_for_status = MagicMock()
+        mock_log_resp.json = MagicMock(return_value={"logs": [], "total": 0})
+
+        mock_issue_resp = MagicMock(status_code=201)
+        mock_issue_resp.raise_for_status = MagicMock()
+        mock_issue_resp.json = MagicMock(return_value={"id": 77, "created_at": "2026-04-30T11:00:00Z"})
+
+        mock_http = AsyncMock()
+        mock_http.get = AsyncMock(return_value=mock_log_resp)
+        mock_http.post = AsyncMock(return_value=mock_issue_resp)
+
+        with patch("app.services.feedback_service.get_shared_http_client", return_value=mock_http), \
+             patch("app.services.feedback_service._verify_terminal_ownership", new_callable=AsyncMock, return_value="ts-t1"):
+            result = await create_feedback(
+                user_id="u1",
+                session_id="s1",
+                category="suggestion",
+                description="test",
+                terminal_id="t1",
+                # 无 result_event_id → 不触发 dedup，只走 ownership
+                feedback_type="error_report",
+            )
+            assert result["feedback_id"] == "77"
             mock_http.post.assert_called_once()

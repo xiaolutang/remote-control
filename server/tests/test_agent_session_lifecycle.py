@@ -651,3 +651,103 @@ class TestSessionIdGeneration:
         sid1 = generate_terminal_session_id("term-abc123456789")
         sid2 = generate_terminal_session_id("term-xyz987654321")
         assert sid1 != sid2
+
+
+# ---------------------------------------------------------------------------
+# Test: gather structured concurrency in usage summary API
+# ---------------------------------------------------------------------------
+
+class TestUsageSummaryGatherFailure:
+    """回归：asyncio.gather 任一分支失败时兄弟 task 被取消，不泄露异常。"""
+
+    @pytest.mark.asyncio
+    @patch("app.api._deps.get_usage_summary", new_callable=AsyncMock)
+    @patch("app.api._deps.get_session_by_device_id", new_callable=AsyncMock)
+    async def test_device_query_fails_raises_immediately(
+        self, mock_get_session, mock_get_usage,
+    ):
+        """device scope 查询失败 → gather 直接抛异常，user scope 不会悬挂。"""
+        from app.api.agent_usage_api import get_agent_usage_summary_api
+
+        mock_get_session.return_value = {"session_id": "ws-1"}
+        mock_get_usage.side_effect = RuntimeError("db down")
+
+        with pytest.raises(RuntimeError, match="db down"):
+            await get_agent_usage_summary_api(
+                device_id="dev-1", user_id="user-1",
+            )
+
+    @pytest.mark.asyncio
+    @patch("app.api._deps.get_usage_summary", new_callable=AsyncMock)
+    @patch("app.api._deps.get_session_by_device_id", new_callable=AsyncMock)
+    async def test_terminal_query_fails_cancels_siblings(
+        self, mock_get_session, mock_get_usage,
+    ):
+        """terminal scope 查询失败 → gather 取消其他兄弟 task。"""
+        from app.api.agent_usage_api import get_agent_usage_summary_api
+
+        mock_get_session.return_value = {"session_id": "ws-1"}
+
+        call_count = {"n": 0}
+
+        async def _usage_side_effect(*args, **kwargs):
+            call_count["n"] += 1
+            # 第 3 次调用（terminal scope）失败
+            if kwargs.get("terminal_id"):
+                raise ValueError("terminal query failed")
+            return {
+                "total_sessions": 1,
+                "total_input_tokens": 100,
+                "total_output_tokens": 200,
+                "total_tokens": 300,
+                "total_requests": 5,
+                "latest_model_name": "m",
+            }
+
+        mock_get_usage.side_effect = _usage_side_effect
+
+        with pytest.raises(ValueError, match="terminal query failed"):
+            await get_agent_usage_summary_api(
+                device_id="dev-1", terminal_id="term-1", user_id="user-1",
+            )
+
+    @pytest.mark.asyncio
+    @patch("app.api._deps.get_usage_summary", new_callable=AsyncMock)
+    @patch("app.api._deps.get_session_by_device_id", new_callable=AsyncMock)
+    async def test_all_succeed_returns_all_scopes(
+        self, mock_get_session, mock_get_usage,
+    ):
+        """device + terminal + user 三个 scope 全部成功时正确组装。"""
+        from app.api.agent_usage_api import get_agent_usage_summary_api
+
+        mock_get_session.return_value = {"session_id": "ws-1"}
+
+        async def _usage_side_effect(*args, **kwargs):
+            tid = kwargs.get("terminal_id")
+            did = args[1] if len(args) > 1 else kwargs.get("device_id")
+            if tid:
+                return {
+                    "total_sessions": 1, "total_input_tokens": 10,
+                    "total_output_tokens": 20, "total_tokens": 30,
+                    "total_requests": 1, "latest_model_name": "t-model",
+                }
+            if did:
+                return {
+                    "total_sessions": 5, "total_input_tokens": 500,
+                    "total_output_tokens": 1000, "total_tokens": 1500,
+                    "total_requests": 50, "latest_model_name": "d-model",
+                }
+            return {
+                "total_sessions": 10, "total_input_tokens": 1000,
+                "total_output_tokens": 2000, "total_tokens": 3000,
+                "total_requests": 100, "latest_model_name": "u-model",
+            }
+
+        mock_get_usage.side_effect = _usage_side_effect
+
+        result = await get_agent_usage_summary_api(
+            device_id="dev-1", terminal_id="term-1", user_id="user-1",
+        )
+        assert result.device.total_tokens == 1500
+        assert result.terminal.total_tokens == 30
+        assert result.user.total_tokens == 3000

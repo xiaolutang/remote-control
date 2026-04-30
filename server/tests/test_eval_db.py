@@ -599,3 +599,95 @@ class TestEvalTaskCandidateCRUD:
             reviewed_by="admin",
         )
         assert result is False
+
+
+class TestSaveQualityMetricsBatchParity:
+    """save_quality_metrics_batch 必须与逐条 save_quality_metric 产出相同行。"""
+
+    @pytest.mark.asyncio
+    async def test_batch_equals_per_metric(self, db):
+        """批量写入与逐条写入的最终 DB 状态完全一致。"""
+        metrics = [
+            QualityMetric(
+                metric_id=f"qm-batch-{i}",
+                session_id="sess-batch",
+                user_id="user-batch",
+                device_id="dev-batch",
+                metric_name="batch_parity_check",
+                value=0.1 * i,
+                terminal_id=f"term-{i}",
+            )
+            for i in range(5)
+        ]
+
+        # 批量写入
+        await db.save_quality_metrics_batch(metrics)
+
+        # 逐条写入到不同 session 做对照组
+        for m in metrics:
+            m2 = QualityMetric(
+                metric_id=m.metric_id + "-ctrl",
+                session_id="sess-ctrl",
+                user_id=m.user_id,
+                device_id=m.device_id,
+                metric_name=m.metric_name,
+                value=m.value,
+                terminal_id=m.terminal_id,
+            )
+            await db.save_quality_metric(m2)
+
+        batch_rows = await db.get_quality_metrics_by_session("sess-batch")
+        ctrl_rows = await db.get_quality_metrics_by_session("sess-ctrl")
+
+        assert len(batch_rows) == len(ctrl_rows) == 5
+        for b, c in zip(batch_rows, ctrl_rows):
+            assert b.value == c.value
+            assert b.metric_name == c.metric_name
+            assert b.terminal_id == c.terminal_id
+
+    @pytest.mark.asyncio
+    async def test_batch_upsert_replaces(self, db):
+        """批量写入 INSERT OR REPLACE 覆盖旧值。"""
+        m1 = QualityMetric(
+            metric_id="qm-upsert-1",
+            session_id="sess-upsert",
+            metric_name="upsert_test",
+            value=0.5,
+        )
+        await db.save_quality_metric(m1)
+
+        m1_updated = QualityMetric(
+            metric_id="qm-upsert-1",
+            session_id="sess-upsert",
+            metric_name="upsert_test",
+            value=0.9,
+        )
+        await db.save_quality_metrics_batch([m1_updated])
+
+        rows = await db.get_quality_metrics_by_session("sess-upsert")
+        assert len(rows) == 1
+        assert rows[0].value == 0.9
+
+    @pytest.mark.asyncio
+    async def test_batch_empty_noop(self, db):
+        """空列表不报错。"""
+        await db.save_quality_metrics_batch([])
+
+    @pytest.mark.asyncio
+    async def test_batch_three_metrics_all_persisted(self, db):
+        """3 条不同 metric 全部落库。"""
+        metrics = [
+            QualityMetric(
+                metric_id=f"qm-multi-{i}",
+                session_id="sess-multi",
+                metric_name=f"metric_{i}",
+                value=float(i),
+            )
+            for i in range(3)
+        ]
+        await db.save_quality_metrics_batch(metrics)
+
+        rows = await db.get_quality_metrics_by_session("sess-multi")
+        assert len(rows) == 3
+        names = {r.metric_name for r in rows}
+        assert names == {"metric_0", "metric_1", "metric_2"}
