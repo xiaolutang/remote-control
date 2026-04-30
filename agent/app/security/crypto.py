@@ -28,10 +28,18 @@ class AgentCrypto:
     """Agent 端加密管理器"""
 
     def __init__(self, state_dir: str | None = None):
-        self._state_dir = Path(state_dir or os.getenv("AGENT_STATE_DIR", Path.home() / ".rc-agent"))
+        self._explicit_state_dir = Path(state_dir) if state_dir else None
         self._public_key = None
         self._fingerprint: str | None = None
         self._aes_key: bytes | None = None
+
+    @property
+    def _state_dir(self) -> Path:
+        """延迟解析状态目录，确保 --config 桥接的 RC_AGENT_CONFIG_DIR 已生效。"""
+        if self._explicit_state_dir is not None:
+            return self._explicit_state_dir
+        config_dir = os.getenv("RC_AGENT_CONFIG_DIR", Path.home() / ".rc-agent")
+        return Path(config_dir).expanduser()
 
     # ---- 公钥管理 ----
 

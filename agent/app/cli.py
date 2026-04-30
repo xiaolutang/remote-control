@@ -20,6 +20,18 @@ from app.log_adapter import init_logging as _init_logging, close_logging as _clo
 logger = logging.getLogger(__name__)
 
 
+def _safe_save_config(config, config_path):
+    """Wrapper that catches save errors and exits with a clear message."""
+    try:
+        save_config(config, config_path)
+    except OSError as exc:
+        click.echo(click.style(
+            f"Error: cannot write config to {config_path}: {exc}",
+            fg="red",
+        ))
+        raise SystemExit(1)
+
+
 def setup_agent_logging() -> None:
     """初始化 Agent 远程日志（通过适配层）。"""
     _init_logging(component="agent")
@@ -68,11 +80,43 @@ def cli(ctx, **kwargs):
         ctx.obj = Context()
 
     # 确定配置路径
-    config_path = normalize_config_path(kwargs.pop("config_path", None))
+    explicit_config = kwargs.pop("config_path", None)
+    config_path = normalize_config_path(explicit_config)
     ctx.obj.config_path = config_path
 
-    # 加载配置
-    ctx.obj.config = load_config(config_path)
+    # Bridge --config to RC_AGENT_CONFIG_DIR so that skills/, user_knowledge/
+    # and other data dirs derive from the config file's parent directory.
+    # When --config is explicitly provided, it ALWAYS takes precedence over
+    # a pre-existing RC_AGENT_CONFIG_DIR env var.  When absent, the env var
+    # or default (~/.rc-agent) is respected.
+    if explicit_config is not None:
+        config_dir = str(config_path.parent.resolve())
+        os.environ["RC_AGENT_CONFIG_DIR"] = config_dir
+        # Warn when the explicitly provided config file does not exist.
+        # This is not a hard error because login/configure commands need
+        # to create the file on first run.
+        if not config_path.exists():
+            click.echo(click.style(
+                f"Warning: config file not found at {config_path}, "
+                "using defaults",
+                fg="yellow",
+            ))
+
+    # 加载配置 — 显式 --config 使用 strict 模式（格式错误/权限错误硬报错）
+    try:
+        ctx.obj.config = load_config(config_path, strict=(explicit_config is not None))
+    except (OSError, PermissionError) as exc:
+        click.echo(click.style(
+            f"Error: cannot read config file {config_path}: {exc}",
+            fg="red",
+        ))
+        ctx.exit(1)
+    except Exception as exc:
+        click.echo(click.style(
+            f"Error: invalid config file {config_path}: {exc}",
+            fg="red",
+        ))
+        ctx.exit(1)
 
     # 更新配置
     for key, value in kwargs.items():
@@ -109,7 +153,7 @@ async def ensure_valid_token(config: Config, config_path) -> tuple:
                 config.access_token = refresh_result.access_token
                 config.refresh_token = refresh_result.refresh_token
                 config.token = refresh_result.access_token  # 向后兼容
-                save_config(config, config_path)
+                _safe_save_config(config, config_path)
                 click.echo(click.style("✓ Token 刷新成功", fg="green"))
                 return True, refresh_result.access_token
             else:
@@ -125,7 +169,7 @@ async def ensure_valid_token(config: Config, config_path) -> tuple:
             config.access_token = login_result.access_token
             config.refresh_token = login_result.refresh_token
             config.token = login_result.access_token  # 向后兼容
-            save_config(config, config_path)
+            _safe_save_config(config, config_path)
             click.echo(click.style("✓ 自动登录成功", fg="green"))
             return True, login_result.access_token
         else:
@@ -164,7 +208,7 @@ def login(ctx, server, username, password):
         # 向后兼容
         config.token = result.access_token
 
-        save_config(config, config_path)
+        _safe_save_config(config, config_path)
 
         click.echo(click.style("✓ 登录成功!", fg="green"))
         click.echo(f"Session ID: {result.session_id}")
@@ -369,7 +413,7 @@ def configure(ctx, server, username, access_token, refresh_token, command, shell
         click.echo(f"最大重试次数已更新: {max_retries}")
 
     # 保存配置
-    save_config(config, config_path)
+    _safe_save_config(config, config_path)
     click.echo(f"\n配置已保存到: {config_path}")
 
 
@@ -385,7 +429,7 @@ def logout(ctx):
     config.token = None
     config.username = None
 
-    save_config(config, config_path)
+    _safe_save_config(config, config_path)
     click.echo("已清除登录凭据")
 
 
