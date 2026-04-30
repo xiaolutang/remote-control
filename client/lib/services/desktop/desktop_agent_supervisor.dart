@@ -224,26 +224,83 @@ class DesktopAgentSupervisor {
     }
     _logDesktopAgent('ensureAgentOnline resolved workdir=${workdir.path}');
 
+    // 检测是否为 bundled agent（包含 rc-agent 二进制）
+    final isBundled = _isBundledAgentDir(workdir);
+    _logDesktopAgent('ensureAgentOnline isBundled=$isBundled');
+
     try {
-      final process = await _processStarter(
-        'python3',
-        <String>[
-          '-m',
-          'app.cli',
-          if (agentConfigPath != null && agentConfigPath.isNotEmpty) ...[
-            '--config',
-            agentConfigPath,
+      Process process;
+      if (isBundled) {
+        // 使用内嵌 rc-agent 二进制启动
+        final rcAgentPath = p.join(workdir.path, 'rc-agent');
+        _logDesktopAgent(
+            'ensureAgentOnline starting bundled agent: $rcAgentPath');
+        try {
+          process = await _processStarter(
+            rcAgentPath,
+            <String>[
+              if (agentConfigPath != null && agentConfigPath.isNotEmpty) ...[
+                '--config',
+                agentConfigPath,
+              ],
+              'run',
+            ],
+            workingDirectory: workdir.path,
+            environment: <String, String>{
+              if (agentConfigPath != null && agentConfigPath.isNotEmpty)
+                'RC_AGENT_CONFIG_DIR': File(agentConfigPath).parent.path,
+              if (kDebugMode) 'RC_SSL_INSECURE': '1',
+            },
+            mode: ProcessStartMode.detachedWithStdio,
+          );
+        } catch (e) {
+          // bundled agent 启动失败，回退到源码模式
+          _logDesktopAgent(
+              'ensureAgentOnline bundled agent failed: $e, falling back to python3');
+          process = await _processStarter(
+            'python3',
+            <String>[
+              '-m',
+              'app.cli',
+              if (agentConfigPath != null && agentConfigPath.isNotEmpty) ...[
+                '--config',
+                agentConfigPath,
+              ],
+              'run',
+            ],
+            workingDirectory: workdir.path,
+            environment: <String, String>{
+              if (agentConfigPath != null && agentConfigPath.isNotEmpty)
+                'RC_AGENT_CONFIG_DIR': File(agentConfigPath).parent.path,
+              if (kDebugMode) 'RC_SSL_INSECURE': '1',
+            },
+            mode: ProcessStartMode.detachedWithStdio,
+          );
+        }
+      } else {
+        // 回退到 python3 源码模式（向后兼容开发环境）
+        _logDesktopAgent(
+            'ensureAgentOnline starting python3 source mode');
+        process = await _processStarter(
+          'python3',
+          <String>[
+            '-m',
+            'app.cli',
+            if (agentConfigPath != null && agentConfigPath.isNotEmpty) ...[
+              '--config',
+              agentConfigPath,
+            ],
+            'run',
           ],
-          'run',
-        ],
-        workingDirectory: workdir.path,
-        environment: <String, String>{
-          if (agentConfigPath != null && agentConfigPath.isNotEmpty)
-            'RC_AGENT_CONFIG_DIR': File(agentConfigPath).parent.path,
-          if (kDebugMode) 'RC_SSL_INSECURE': '1',
-        },
-        mode: ProcessStartMode.detachedWithStdio,
-      );
+          workingDirectory: workdir.path,
+          environment: <String, String>{
+            if (agentConfigPath != null && agentConfigPath.isNotEmpty)
+              'RC_AGENT_CONFIG_DIR': File(agentConfigPath).parent.path,
+            if (kDebugMode) 'RC_SSL_INSECURE': '1',
+          },
+          mode: ProcessStartMode.detachedWithStdio,
+        );
+      }
       await _saveManagedAgentPid(process.pid);
       _logDesktopAgent('ensureAgentOnline started pid=${process.pid}');
       unawaited(_captureManagedRuntimeOutput(process));
@@ -593,10 +650,51 @@ class DesktopAgentSupervisor {
           await _processRunner('ps', ['-p', '$pid', '-o', 'command=']);
       if (result.exitCode != 0) return false;
       final output = result.stdout.toString().trim();
-      return output.contains('app.cli') || output.contains('app\\.cli');
+      return isAgentRunCommand(output);
     } catch (_) {
       return false;
     }
+  }
+
+  /// 共享命令行分类器：判断命令行是否为 Agent 常驻 run 进程。
+  ///
+  /// 识别两种模式：
+  /// - `rc-agent ... run`（bundled 二进制模式）
+  /// - `python3 -m app.cli ... run`（源码模式）
+  ///
+  /// 排除 `rc-agent login/status/configure` 和
+  /// `python3 -m app.cli login/status/configure` 等非 daemon 命令。
+  static bool isAgentRunCommand(String commandLine) {
+    final trimmed = commandLine.trim();
+    if (trimmed.isEmpty) return false;
+
+    // 按空白拆分命令行 token，取第一个作为可执行路径
+    final tokens = trimmed.split(RegExp(r'\s+'));
+    if (tokens.isEmpty) return false;
+
+    final executable = tokens.first;
+    final basename = p.basename(executable);
+
+    // 判断最后一个 token 是否为 "run" 子命令
+    final lastArg = tokens.last;
+    if (lastArg != 'run') return false;
+
+    // Bundled 模式：可执行文件名为 rc-agent
+    if (basename == 'rc-agent') return true;
+
+    // 源码模式：python3 -m app.cli ... run
+    if (basename == 'python3' || basename == 'python') {
+      // 检查命令行是否包含 -m app.cli
+      var i = 1;
+      while (i < tokens.length - 1) {
+        if (tokens[i] == '-m' && i + 1 < tokens.length && tokens[i + 1] == 'app.cli') {
+          return true;
+        }
+        i++;
+      }
+    }
+
+    return false;
   }
 
   Future<List<int>> _listLocalAgentPids() async {
@@ -604,24 +702,65 @@ class DesktopAgentSupervisor {
       return _processLister();
     }
     try {
-      final result = await _processRunner('pgrep', ['-f', 'app\\.cli run']);
-      if (result.exitCode != 0) {
-        return const [];
-      }
       final pids = <int>[];
-      for (final line in result.stdout.toString().split('\n')) {
-        final trimmed = line.trim();
-        if (trimmed.isEmpty) {
-          continue;
-        }
-        final pid = int.tryParse(trimmed);
-        if (pid != null) {
-          pids.add(pid);
-        }
+      final seenPids = <int>{};
+
+      // 粗粒度 pgrep 获取 rc-agent 相关 PID
+      // 不依赖 \b 等 macOS/BSD pgrep 不可靠的模式
+      final rcAgentResult =
+          await _processRunner('pgrep', ['-f', 'rc-agent']);
+      if (rcAgentResult.exitCode == 0) {
+        await _verifyAndAddPids(
+          rcAgentResult.stdout.toString(),
+          pids,
+          seenPids,
+        );
       }
+
+      // 粗粒度 pgrep 获取 app.cli 相关 PID
+      final cliResult =
+          await _processRunner('pgrep', ['-f', 'app\\.cli']);
+      if (cliResult.exitCode == 0) {
+        await _verifyAndAddPids(
+          cliResult.stdout.toString(),
+          pids,
+          seenPids,
+        );
+      }
+
       return pids;
     } catch (_) {
       return const [];
+    }
+  }
+
+  /// 解析 pgrep 输出中的 PID，用 `ps -p {pid} -o command=` 获取完整命令行，
+  /// 再用共享分类器 [isAgentRunCommand] 过滤非 daemon 进程。
+  Future<void> _verifyAndAddPids(
+    String pgrepOutput,
+    List<int> pids,
+    Set<int> seenPids,
+  ) async {
+    for (final line in pgrepOutput.split('\n')) {
+      final trimmed = line.trim();
+      if (trimmed.isEmpty) continue;
+      final pid = int.tryParse(trimmed);
+      if (pid == null || seenPids.contains(pid)) continue;
+      seenPids.add(pid);
+
+      try {
+        final psResult = await _processRunner(
+          'ps',
+          ['-p', '$pid', '-o', 'command='],
+        );
+        if (psResult.exitCode != 0) continue;
+        final commandLine = psResult.stdout.toString().trim();
+        if (isAgentRunCommand(commandLine)) {
+          pids.add(pid);
+        }
+      } catch (_) {
+        // ps 调用失败，跳过此 PID
+      }
     }
   }
 
@@ -678,11 +817,24 @@ class DesktopAgentSupervisor {
     return null;
   }
 
+  /// 判断目录是否为 bundled agent（包含 rc-agent 二进制）
+  bool _isBundledAgentDir(Directory dir) {
+    return _looksLikeBundledAgent(dir);
+  }
+
   Iterable<Directory> _candidateAgentDirs({String? preferredWorkdir}) sync* {
     _logDesktopAgent('_candidateAgentDirs: preferredWorkdir=$preferredWorkdir');
     _logDesktopAgent('_candidateAgentDirs: current=${Directory.current.path}');
     _logDesktopAgent(
         '_candidateAgentDirs: resolvedExecutable=${Platform.resolvedExecutable}');
+
+    // 最高优先级：检查 .app bundle 内嵌 Agent（Contents/Resources/agent/）
+    final bundledAgentDir = _resolveBundledAgentDir();
+    if (bundledAgentDir != null) {
+      _logDesktopAgent(
+          '_candidateAgentDirs: bundledAgentDir=${bundledAgentDir.path}');
+      yield bundledAgentDir;
+    }
 
     if (preferredWorkdir != null && preferredWorkdir.isNotEmpty) {
       yield Directory(preferredWorkdir);
@@ -730,6 +882,48 @@ class DesktopAgentSupervisor {
 
   bool _looksLikeAgentDir(Directory dir) {
     return dir.existsSync() &&
-        File(p.join(dir.path, 'app', 'cli.py')).existsSync();
+        (File(p.join(dir.path, 'app', 'cli.py')).existsSync() ||
+            _looksLikeBundledAgent(dir));
+  }
+
+  /// 检查目录是否包含内嵌的 rc-agent 二进制
+  bool _looksLikeBundledAgent(Directory dir) {
+    if (!dir.existsSync()) return false;
+    final rcAgent = File(p.join(dir.path, 'rc-agent'));
+    if (!rcAgent.existsSync()) return false;
+    try {
+      final stat = rcAgent.statSync();
+      if (stat.type != FileSystemEntityType.file) return false;
+      // 校验可执行权限（Unix: owner/group/other 任一有 x 位）
+      return (stat.mode & 0x111) != 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 从 .app bundle 可执行文件路径解析出 Contents/Resources/agent/ 目录
+  /// [resolvedExecutableProvider] 可注入，用于测试；默认使用 Platform.resolvedExecutable
+  Directory? _resolveBundledAgentDir({
+    String Function()? resolvedExecutableProvider,
+  }) {
+    try {
+      final resolved =
+          (resolvedExecutableProvider ?? () => Platform.resolvedExecutable)();
+      // macOS .app bundle 结构：xxx.app/Contents/MacOS/{executable}
+      // 内嵌 Agent 位于：xxx.app/Contents/Resources/agent/
+      if (resolved.contains('.app/Contents/MacOS/')) {
+        final appBundleRoot = resolved.substring(
+          0,
+          resolved.indexOf('.app/Contents/MacOS/') + '.app'.length,
+        );
+        final resourcesAgentDir = Directory(
+          p.join(appBundleRoot, 'Contents', 'Resources', 'agent'),
+        );
+        if (_looksLikeBundledAgent(resourcesAgentDir)) {
+          return resourcesAgentDir;
+        }
+      }
+    } catch (_) {}
+    return null;
   }
 }
