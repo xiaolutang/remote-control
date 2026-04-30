@@ -71,7 +71,7 @@ ProductionProbeConfig _parseConfig(List<String> args) {
   if (hasFlag('--help') || hasFlag('-h')) {
     stdout.writeln('Usage: dart run tool/production_network_e2e.dart '
         '--server-ip YOUR_SERVER_IP '
-        '[--host rc.xiaolutang.top] '
+        '--host YOUR_HOST '
         '[--username prod_test] '
         '[--password test123456] '
         '[--probe-runtime-terminal] '
@@ -92,7 +92,7 @@ ProductionProbeConfig _parseConfig(List<String> args) {
 
   final host = (argValue('--host') ??
           Platform.environment['RC_TEST_HOST'] ??
-          'rc.xiaolutang.top')
+          '')
       .trim();
   final username = (argValue('--username') ??
           Platform.environment['RC_TEST_USERNAME'] ??

@@ -89,7 +89,7 @@ def test_register_and_login():
     print("\n[Test 1] 用户注册 + 登录")
     ts = int(time.time())
     username = f"itest_{ts}"
-    password = "TestPass123!"
+    password = os.environ.get("ITEST_PASSWORD", "TestPass123!")
 
     # 注册
     status, body = api("POST", "/api/register", {
@@ -621,7 +621,7 @@ async def run_tests():
     # 注册 agent 测试用户（用于 WebSocket + Runtime 测试）
     ts = int(time.time())
     agent_user = f"agent_itest_{ts}"
-    agent_pass = "AgentPass123!"
+    agent_pass = os.environ.get("ITEST_AGENT_PASSWORD", "AgentPass123!")
     api("POST", "/api/register", {
         "username": agent_user,
         "password": agent_pass,

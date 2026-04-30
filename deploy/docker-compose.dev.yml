@@ -1,0 +1,79 @@
+# Remote Control 开发/自包含部署配置
+# 使用方式: docker compose -f deploy/docker-compose.dev.yml --env-file .env up -d
+# 不依赖 Traefik，直接暴露端口，适合本地开发和开源用户快速上手
+#
+# 契约: Server HTTP/WS 暴露 8880 端口，客户端 ENV=direct 连接 ws://host:8880
+
+services:
+  # ===== Redis =====
+  redis:
+    image: redis:7-alpine
+    container_name: rc-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    command:
+      - sh
+      - -lc
+      - |
+        redis-server \
+          --appendonly ${REDIS_APPENDONLY:-no} \
+          --appendfsync ${REDIS_APPENDFSYNC:-everysec} \
+          --requirepass ${REDIS_PASSWORD:?请在 .env 中设置 REDIS_PASSWORD}
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ===== Server =====
+  server:
+    image: remote-control-server:latest
+    container_name: rc-server
+    restart: unless-stopped
+    ports:
+      - "${RC_DIRECT_PORT:-8880}:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?请在 .env 中设置 REDIS_PASSWORD}
+      - JWT_SECRET=${JWT_SECRET:?请在 .env 或环境变量中设置 JWT_SECRET}
+      - JWT_EXPIRY_HOURS=${JWT_EXPIRY_HOURS:-168}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_BASE_URL=${LLM_BASE_URL:-}
+      - LLM_MODEL=${LLM_MODEL:-}
+      - CORS_ORIGINS=${CORS_ORIGINS:-}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DATABASE_PATH=/data/users.db
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - user_data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ===== Agent (可选，默认不启动) =====
+  agent:
+    image: remote-control-agent:latest
+    container_name: rc-agent
+    profiles:
+      - standalone-agent
+    restart: unless-stopped
+    environment:
+      - SERVER_URL=${SERVER_URL:-ws://server:8000}
+      - AGENT_TOKEN=${AGENT_TOKEN:-}
+      - AGENT_USERNAME=${AGENT_USERNAME:-}
+      - AGENT_PASSWORD=${AGENT_PASSWORD:-}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on:
+      server:
+        condition: service_healthy
+
+volumes:
+  redis_data:
+  user_data:

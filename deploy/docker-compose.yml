@@ -20,11 +20,11 @@ services:
         --auto-aof-rewrite-percentage ${REDIS_AUTO_AOF_REWRITE_PERCENTAGE:-100}
         --auto-aof-rewrite-min-size ${REDIS_AUTO_AOF_REWRITE_MIN_SIZE:-64mb}
         --aof-use-rdb-preamble yes
-        --requirepass ${REDIS_PASSWORD:-changeme}
+        --requirepass ${REDIS_PASSWORD:?请在 .env 中设置 REDIS_PASSWORD}
     networks:
       - rc-network
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-changeme}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -40,7 +40,7 @@ services:
       - "8000"
     environment:
       - REDIS_URL=redis://redis:6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-changeme}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?请在 .env 中设置 REDIS_PASSWORD}
       - JWT_SECRET=${JWT_SECRET:?请在 .env 或环境变量中设置 JWT_SECRET}
       - TRUSTED_PROXY_TLS_TOKEN=${TRUSTED_PROXY_TLS_TOKEN:?请在 .env 或环境变量中设置 TRUSTED_PROXY_TLS_TOKEN}
       - JWT_EXPIRY_HOURS=${JWT_EXPIRY_HOURS:-24}
@@ -66,7 +66,7 @@ services:
       - rc-network
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.rc.rule=Host(`rc.xiaolutang.top`) && PathPrefix(`/rc/`)"
+      - "traefik.http.routers.rc.rule=${TRAEFIK_ROUTER_RULE:-Host(`localhost`) && PathPrefix(`/rc/`)}"
       - "traefik.http.routers.rc.entrypoints=websecure"
       - "traefik.http.routers.rc.tls=true"
       - "traefik.http.routers.rc.tls.certresolver=ali"

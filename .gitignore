@@ -25,6 +25,7 @@ venv/
 # Docker
 docker-compose.override.yml
 deploy/.remote.env
+deploy/remote-deploy.sh
 
 # 构建产物
 build/
@@ -41,8 +42,16 @@ server/sdk/
 # Eval 数据库（本地运行产物）
 server/evals.db
 
-# Dev flow 执行证据（运行时生成）
-.dev-flow/evidence/
+# Claude 配置（本地开发工具）
+.claude/
+
+# Dev flow 内部文件（保留 _archive/ 用于历史追溯）
+.dev-flow/*
+!.dev-flow/.gitkeep
+!.dev-flow/_archive/
+
+# Eval 报告（本地产物）
+eval_report*.html
 
 # HarmonyOS 构建产物（需要本地 HarmonyOS SDK）
 client/ohos/package.json
