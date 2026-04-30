@@ -215,23 +215,15 @@ async def create_feedback(
     """
     _validate_description(description)
 
-    # B052 + R051: 并发执行 terminal 归属校验和幂等去重
+    # B052 + R051: 先校验授权，再查去重（避免未授权请求触发下游 I/O）
     verified_session_id = session_id
-    need_ownership = bool(terminal_id)
-    need_dedup = bool(result_event_id)
 
-    if need_ownership and need_dedup:
-        # 两个都有 → gather 并发，任一失败自动取消另一个
-        verified_session_id, existing = await asyncio.gather(
-            _verify_terminal_ownership(user_id, terminal_id),
-            _find_existing_feedback(user_id, result_event_id, feedback_type),
-        )
-    else:
-        existing = None
-        if need_ownership:
-            verified_session_id = await _verify_terminal_ownership(user_id, terminal_id)
-        if need_dedup:
-            existing = await _find_existing_feedback(user_id, result_event_id, feedback_type)
+    if terminal_id:
+        verified_session_id = await _verify_terminal_ownership(user_id, terminal_id)
+
+    existing = None
+    if result_event_id:
+        existing = await _find_existing_feedback(user_id, result_event_id, feedback_type)
 
     # 去重命中 → 直接返回已有记录
     if existing is not None:

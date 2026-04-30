@@ -470,11 +470,16 @@ async def _build_task_rows(
         description = task_def.description if task_def else ""
         passed = _is_trial_passed({"agent_result_json": trial.agent_result_json})
 
-        # 对比模式：regression_only 过滤
-        if comparison_data is not None:
-            change = comparison_data.get(task_id, {}).get("change", "stable")
-            if regression_only and change != "regression":
-                continue
+        # regression_only 过滤
+        if regression_only:
+            if comparison_data is not None:
+                change = comparison_data.get(task_id, {}).get("change", "stable")
+                if change != "regression":
+                    continue
+            else:
+                # 单次报告模式：无 baseline 无法判断退化，跳过通过的 trial
+                if passed:
+                    continue
 
         # Category 聚合
         if category not in categories:
@@ -531,7 +536,10 @@ async def _generate_single_report(
     trials = await eval_db.list_trials_by_run(latest_run.run_id)
     task_defs = {td.id: td for td in await eval_db.list_task_defs()}
 
-    task_rows, categories = await _build_task_rows(eval_db, trials, task_defs)
+    task_rows, categories = await _build_task_rows(
+        eval_db, trials, task_defs,
+        regression_only=regression_only,
+    )
 
     parts.append(_render_categories(categories))
     trend = await _generate_trend_data(eval_db)

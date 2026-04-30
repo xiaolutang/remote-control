@@ -1310,33 +1310,30 @@ class TestFeedbackIdempotency:
 
 
 # ---------------------------------------------------------------------------
-# 回归：gather 结构化并发 — ownership + dedup 并发失败
+# 回归：feedback 创建的授权 + 去重行为契约
 # ---------------------------------------------------------------------------
 
-class TestFeedbackGatherConcurrency:
-    """回归：ownership 校验和 dedup 查询通过 asyncio.gather 并发时的失败场景。"""
+class TestFeedbackAuthAndDedupContract:
+    """回归：授权校验在去重之前执行，且各失败路径符合 API 契约。"""
 
     @pytest.mark.asyncio
-    async def test_ownership_fails_gather_cancels_dedup(self):
-        """ownership 失败 → gather 取消 dedup，不悬挂 task。"""
+    async def test_ownership_fails_no_dedup_called(self):
+        """授权失败 → 不调用 dedup（不触发下游 I/O），直接抛 403。"""
         from app.services.feedback_service import create_feedback
-        from unittest.mock import AsyncMock, patch, MagicMock
+        from unittest.mock import AsyncMock, patch
 
         dedup_called = {"n": 0}
 
-        async def _failing_dedup(*args, **kwargs):
+        async def _track_dedup(*args, **kwargs):
             dedup_called["n"] += 1
-            return None  # dedup 正常返回 None
-
-        async def _failing_ownership(*args, **kwargs):
-            raise PermissionError("terminal not owned")
+            return None
 
         with patch(
             "app.services.feedback_service._verify_terminal_ownership",
-            new_callable=AsyncMock, side_effect=_failing_ownership,
+            new_callable=AsyncMock, side_effect=PermissionError("terminal not owned"),
         ), patch(
             "app.services.feedback_service._find_existing_feedback",
-            new_callable=AsyncMock, side_effect=_failing_dedup,
+            new_callable=AsyncMock, side_effect=_track_dedup,
         ):
             with pytest.raises(PermissionError, match="terminal not owned"):
                 await create_feedback(
@@ -1348,39 +1345,14 @@ class TestFeedbackGatherConcurrency:
                     result_event_id="e1",
                     feedback_type="helpful",
                 )
+            # 授权失败时 dedup 不应被调用
+            assert dedup_called["n"] == 0
 
     @pytest.mark.asyncio
-    async def test_dedup_fails_gather_cancels_ownership(self):
-        """dedup 查询失败 → gather 取消 ownership，整体报错。"""
+    async def test_ownership_succeeds_dedup_hit_returns_existing(self):
+        """授权成功 + dedup 命中 → 返回已有记录 ID，不创建新 issue。"""
         from app.services.feedback_service import create_feedback
         from unittest.mock import AsyncMock, patch
-
-        async def _failing_dedup(*args, **kwargs):
-            raise ConnectionError("log-service down")
-
-        with patch(
-            "app.services.feedback_service._verify_terminal_ownership",
-            new_callable=AsyncMock, return_value="ts-t1",
-        ), patch(
-            "app.services.feedback_service._find_existing_feedback",
-            new_callable=AsyncMock, side_effect=_failing_dedup,
-        ):
-            with pytest.raises(ConnectionError, match="log-service down"):
-                await create_feedback(
-                    user_id="u1",
-                    session_id="s1",
-                    category="suggestion",
-                    description="test",
-                    terminal_id="t1",
-                    result_event_id="e1",
-                    feedback_type="helpful",
-                )
-
-    @pytest.mark.asyncio
-    async def test_both_succeed_dedup_hit_returns_early(self):
-        """ownership + dedup 都成功 + dedup 命中 → 返回已有记录，不创建新的。"""
-        from app.services.feedback_service import create_feedback
-        from unittest.mock import AsyncMock, patch, MagicMock
 
         existing_issue = {"id": 42, "created_at": "2026-04-30T10:00:00Z"}
 
@@ -1403,8 +1375,8 @@ class TestFeedbackGatherConcurrency:
             assert result["feedback_id"] == "42"
 
     @pytest.mark.asyncio
-    async def test_ownership_only_no_terminal_skips_gather(self):
-        """只有 ownership（有 terminal_id 无 result_event_id）→ 走单独 await 路径。"""
+    async def test_no_terminal_no_ownership_check(self):
+        """无 terminal_id → 跳过授权校验，直接走后续逻辑。"""
         from app.services.feedback_service import create_feedback
         from unittest.mock import AsyncMock, patch, MagicMock
 
@@ -1414,22 +1386,20 @@ class TestFeedbackGatherConcurrency:
 
         mock_issue_resp = MagicMock(status_code=201)
         mock_issue_resp.raise_for_status = MagicMock()
-        mock_issue_resp.json = MagicMock(return_value={"id": 77, "created_at": "2026-04-30T11:00:00Z"})
+        mock_issue_resp.json = MagicMock(return_value={"id": 88, "created_at": "2026-04-30T11:00:00Z"})
 
         mock_http = AsyncMock()
         mock_http.get = AsyncMock(return_value=mock_log_resp)
         mock_http.post = AsyncMock(return_value=mock_issue_resp)
 
-        with patch("app.services.feedback_service.get_shared_http_client", return_value=mock_http), \
-             patch("app.services.feedback_service._verify_terminal_ownership", new_callable=AsyncMock, return_value="ts-t1"):
+        with patch("app.services.feedback_service.get_shared_http_client", return_value=mock_http):
             result = await create_feedback(
                 user_id="u1",
                 session_id="s1",
                 category="suggestion",
                 description="test",
-                terminal_id="t1",
-                # 无 result_event_id → 不触发 dedup，只走 ownership
+                # 无 terminal_id，无 result_event_id
                 feedback_type="error_report",
             )
-            assert result["feedback_id"] == "77"
+            assert result["feedback_id"] == "88"
             mock_http.post.assert_called_once()

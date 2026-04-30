@@ -279,9 +279,10 @@ async def test_report_regression_only(eval_db, tmp_path):
 
     # 只应有退化的 task-reg-1
     assert "task-reg-1" in html_content
-    # task-reg-2 (improvement) 和 task-reg-3 (stable) 不应在表格中
-    # 注意：它们可能在对比摘要卡片中，但不应在 task 详情表中
-    # 检查详情表中是否只有 task-reg-1
+    # task-reg-2 (improvement) 和 task-reg-3 (stable) 不应在详情表中
+    # regression_only 过滤后，非退化 task 不出现在 <tr> 行里
+    assert "task-reg-2" not in html_content
+    assert "task-reg-3" not in html_content
     assert "REGRESSION" in html_content
 
 
