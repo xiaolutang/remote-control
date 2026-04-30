@@ -6,3 +6,4 @@
 | R048 | architecture-deep-cleanup | 2026-04-28 | 9-11 | 20/20 | _archive/R048_architecture-deep-cleanup |
 | R049 | brainstorm-bug-fixes | 2026-04-29 | 1 | 3/3 | _archive/R049_brainstorm-bug-fixes |
 | R050 | token-usage-optimization | 2026-04-29 | 1 | 0/3 | _archive/R050_token-usage-optimization |
+| R051 | eval-architecture-overhaul | 2026-04-30 | 1-4 | 11/11 | _archive/R051_eval-architecture-overhaul |
