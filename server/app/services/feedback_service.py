@@ -190,6 +190,7 @@ async def create_feedback(
     terminal_id: Optional[str] = None,
     result_event_id: Optional[str] = None,
     feedback_type: Optional[str] = None,
+    device_id: Optional[str] = None,
 ) -> dict:
     """
     创建反馈 —— 调用 log-service POST /api/issues 持久化。
@@ -306,44 +307,44 @@ async def create_feedback(
         issue_id, user_id, category, terminal_id,
     )
 
-    # B052: 异步触发 analyze_feedback（best-effort，不阻塞响应）
+    # B052: 通过事件钩子触发 evals 分析（best-effort，不阻塞响应）
     try:
-        from evals.feedback_loop import analyze_feedback
-        from evals.db import EvalDatabase
+        from app.infra.event_bus import emit_evals_event_background
 
-        eval_db_path = os.environ.get("EVAL_DB_PATH", "/data/evals.db")
-        eval_db = EvalDatabase(eval_db_path)
-
-        # 不 await —— 分析失败不影响反馈提交
-        asyncio.ensure_future(_run_analyze_feedback(
-            eval_db, issue_id, category, description,
-        ))
+        emit_evals_event_background(
+            "on_feedback_created",
+            feedback_id=issue_id,
+            category=category,
+            description=description,
+            user_id=user_id,
+            terminal_id=terminal_id,
+            result_event_id=result_event_id,
+        )
     except Exception as e:
         logger.info("analyze_feedback 触发跳过: %s", e)
+
+    # SSE 实时推送 feedback_status 更新
+    if result_event_id and terminal_id:
+        try:
+            from app.infra.event_bus import publish_conversation_stream_event
+            await publish_conversation_stream_event(
+                user_id=user_id,
+                device_id=device_id or "",
+                terminal_id=terminal_id,
+                event={
+                    "type": "feedback_status_update",
+                    "result_event_id": result_event_id,
+                    "feedback_status": feedback_type or category,
+                    "feedback_id": issue_id,
+                },
+            )
+        except Exception:
+            logger.debug("feedback_status SSE push skipped (best-effort)", exc_info=True)
 
     return {
         "feedback_id": issue_id,
         "created_at": created_at,
     }
-
-
-async def _run_analyze_feedback(
-    eval_db, feedback_id: str, category: str, description: str,
-) -> None:
-    """包装 analyze_feedback 调用，捕获所有异常。"""
-    try:
-        await eval_db.init_db()
-        from evals.feedback_loop import analyze_feedback
-        candidate_id = await analyze_feedback(
-            eval_db,
-            feedback_id=feedback_id,
-            category=category,
-            description=description,
-        )
-        if candidate_id:
-            logger.info("Feedback→Candidate: feedback_id=%s candidate_id=%s", feedback_id, candidate_id)
-    except Exception as e:
-        logger.warning("analyze_feedback 执行失败（best-effort）: feedback_id=%s error=%s", feedback_id, e)
 
 
 async def get_feedback(feedback_id: str, user_id: str) -> Optional[dict]:

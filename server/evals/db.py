@@ -29,6 +29,29 @@ from evals.models import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_EVAL_DB_PATH = "/data/evals.db"
+EVALS_DB_PATH_ENV = "EVALS_DB_PATH"
+
+_eval_db_instance: Optional["EvalDatabase"] = None
+_eval_db_initialized: bool = False
+
+
+def get_evals_db() -> "EvalDatabase":
+    """获取 EvalDatabase 单例（使用 EVALS_DB_PATH 环境变量或默认路径）。"""
+    global _eval_db_instance
+    if _eval_db_instance is None:
+        db_path = os.environ.get(EVALS_DB_PATH_ENV, DEFAULT_EVAL_DB_PATH)
+        _eval_db_instance = EvalDatabase(db_path)
+    return _eval_db_instance
+
+
+async def ensure_evals_db() -> "EvalDatabase":
+    """获取 EvalDatabase 单例并确保表已创建。"""
+    global _eval_db_initialized
+    db = get_evals_db()
+    if not _eval_db_initialized:
+        await db.init_db()
+        _eval_db_initialized = True
+    return db
 
 
 # ── 配置检查 ──────────────────────────────────────────────────────────────

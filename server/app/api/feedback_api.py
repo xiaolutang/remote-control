@@ -39,6 +39,7 @@ class FeedbackCreateRequest(BaseModel):
     feedback_type: Optional[Literal["helpful", "needs_improvement", "error_report"]] = Field(
         None, description="反馈类型"
     )
+    device_id: Optional[str] = Field(None, description="设备 ID（用于 SSE 实时推送）")
 
 
 class FeedbackResponse(BaseModel):
@@ -89,6 +90,7 @@ async def submit_feedback(
         terminal_id=request.terminal_id,
         result_event_id=request.result_event_id,
         feedback_type=request.feedback_type,
+        device_id=request.device_id,
     )
 
     return FeedbackResponse(

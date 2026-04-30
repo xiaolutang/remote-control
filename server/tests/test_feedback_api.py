@@ -1026,7 +1026,7 @@ class TestFeedbackAnalyzeTrigger:
 
     @pytest.mark.asyncio
     async def test_create_feedback_triggers_analyze(self):
-        """反馈创建后异步调用 analyze_feedback"""
+        """反馈创建后通过事件钩子触发 analyze_feedback"""
         from app.services.feedback_service import create_feedback
 
         mock_issue_resp = MagicMock(status_code=201)
@@ -1043,7 +1043,7 @@ class TestFeedbackAnalyzeTrigger:
 
         with patch("app.services.feedback_service.get_shared_http_client", return_value=mock_http), \
              patch("app.services.feedback_service._verify_terminal_ownership", new_callable=AsyncMock, return_value="ts-term-1"), \
-             patch("app.services.feedback_service._run_analyze_feedback", new_callable=AsyncMock) as mock_analyze:
+             patch("app.infra.event_bus.emit_evals_event_background") as mock_emit:
             result = await create_feedback(
                 user_id="testuser",
                 session_id="sess-1",
@@ -1055,11 +1055,10 @@ class TestFeedbackAnalyzeTrigger:
             )
 
             assert result["feedback_id"] == "99"
-            # _run_analyze_feedback 被 ensure_future 调度，验证其被触发
-            # 由于 ensure_future 是异步的，我们需要给事件循环一些时间
-            import asyncio
-            await asyncio.sleep(0.05)
-            mock_analyze.assert_called()
+            # 验证事件钩子被触发
+            mock_emit.assert_called_once()
+            call_kwargs = mock_emit.call_args
+            assert call_kwargs[0][0] == "on_feedback_created" or call_kwargs.kwargs.get("event_type") == "on_feedback_created"
 
     @pytest.mark.asyncio
     async def test_analyze_failure_does_not_block_feedback(self):

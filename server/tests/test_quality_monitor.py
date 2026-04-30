@@ -1521,7 +1521,13 @@ class TestQualityMonitorRunBoundary:
         mock_eval_db = self._make_mock_eval_db()
         mock_list_events = self._make_mock_list_events(all_events)
 
-        with patch("evals.db.EvalDatabase", return_value=mock_eval_db), \
+        # 注册 evals 钩子（确保 on_result_event 已注册）
+        from app.infra.event_bus import _evals_hooks
+        _evals_hooks.clear()
+        from evals.hooks import register_all_hooks
+        register_all_hooks()
+
+        with patch("evals.db.get_evals_db", return_value=mock_eval_db), \
              patch("evals.quality_monitor.extract_and_store_metrics",
                    side_effect=_fake_extract_and_store), \
              patch("app.store.database.list_agent_conversation_events",
@@ -1590,7 +1596,12 @@ class TestQualityMonitorRunBoundary:
         mock_eval_db = self._make_mock_eval_db()
         mock_list_events = self._make_mock_list_events(all_events)
 
-        with patch("evals.db.EvalDatabase", return_value=mock_eval_db), \
+        from app.infra.event_bus import _evals_hooks
+        _evals_hooks.clear()
+        from evals.hooks import register_all_hooks
+        register_all_hooks()
+
+        with patch("evals.db.get_evals_db", return_value=mock_eval_db), \
              patch("evals.quality_monitor.extract_and_store_metrics",
                    side_effect=_fake_extract_and_store), \
              patch("app.store.database.list_agent_conversation_events",
@@ -1649,7 +1660,12 @@ class TestQualityMonitorRunBoundary:
         mock_eval_db = self._make_mock_eval_db()
         mock_list_events = self._make_mock_list_events(all_events)
 
-        with patch("evals.db.EvalDatabase", return_value=mock_eval_db), \
+        from app.infra.event_bus import _evals_hooks
+        _evals_hooks.clear()
+        from evals.hooks import register_all_hooks
+        register_all_hooks()
+
+        with patch("evals.db.get_evals_db", return_value=mock_eval_db), \
              patch("evals.quality_monitor.extract_and_store_metrics",
                    side_effect=_fake_extract_and_store), \
              patch("app.store.database.list_agent_conversation_events",

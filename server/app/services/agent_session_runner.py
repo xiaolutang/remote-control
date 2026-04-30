@@ -39,81 +39,21 @@ def _trigger_quality_monitor(
     result_event_id: str = "",
     result_event_index: int = -1,
 ) -> None:
-    """B052: result 事件后异步触发 quality_monitor 指标提取（best-effort）。
+    """B052: result 事件后通过事件钩子触发 evals 指标提取（best-effort）。
 
-    从 DB 查询 conversation 事件（含 created_at），确保 B055 时间指标可用。
-    不使用 _last_events 内存缓存，因为：
-    1. _last_events 只在 SSE consumer drain event_queue 后才填充，
-       result 事件触发时可能还未被缓存
-    2. _last_events 缺少 created_at 和 event_index，导致 B055 时间指标为 -1
-
-    无 terminal_id / conversation_id 时 fallback 为合成 result 事件。
-
-    不阻塞主流程，异常仅记录日志。
+    不再直接 import evals 模块，通过 event_bus 触发钩子。
+    钩子的具体实现在 evals 模块启动时注册。
     """
     try:
-        import asyncio
-        import os
-        from evals.db import EvalDatabase
-        from evals.quality_monitor import extract_and_store_metrics
+        from app.infra.event_bus import emit_evals_event_background
 
-        eval_db_path = os.environ.get("EVAL_DB_PATH", "/data/evals.db")
-        eval_db = EvalDatabase(eval_db_path)
-
-        terminal_id = session.terminal_id or ""
-
-        async def _do_extract():
-            try:
-                await eval_db.init_db()
-
-                events = []
-
-                # 从 DB 查询 conversation 事件（含 created_at 用于 B055 时间指标）
-                if terminal_id and session.conversation_id:
-                    try:
-                        from app.store.database import list_agent_conversation_events
-                        # 按 run 边界过滤：只取当前 run 的事件
-                        after_index = session._run_start_event_index if session._run_start_event_index >= 0 else None
-                        events = await list_agent_conversation_events(
-                            session.user_id,
-                            session.device_id,
-                            terminal_id,
-                            after_index=after_index,
-                        )
-                        # 上限过滤：只取到 result 事件为止，避免异步执行时后续 run 事件被误包含
-                        if result_event_index >= 0:
-                            events = [e for e in events if e.get("event_index", -1) <= result_event_index]
-                    except Exception as e:
-                        logger.debug(
-                            "Quality monitor: DB query failed, using fallback: %s", e,
-                        )
-                        events = []
-
-                # Fallback: 合成 result 事件
-                if not events:
-                    events = [{
-                        "event_type": "result",
-                        "payload": result_event_data,
-                    }]
-
-                await extract_and_store_metrics(
-                    eval_db,
-                    events,
-                    session_id=session.id,
-                    user_id=session.user_id,
-                    device_id=session.device_id,
-                    intent=session.intent,
-                    source="production",
-                    terminal_id=terminal_id,
-                    result_event_id=result_event_id,
-                )
-            except Exception as e:
-                logger.warning(
-                    "Quality monitor extraction failed (best-effort): session_id=%s error=%s",
-                    session.id, e,
-                )
-
-        asyncio.ensure_future(_do_extract())
+        emit_evals_event_background(
+            "on_result_event",
+            session=session,
+            result_event_data=result_event_data,
+            result_event_id=result_event_id,
+            result_event_index=result_event_index,
+        )
     except Exception as e:
         logger.info("Quality monitor trigger skipped: session_id=%s error=%s", session.id, e)
 

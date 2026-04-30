@@ -1,14 +1,13 @@
 """
 Eval REST API — 质量指标、评估候选 CRUD。
 """
-import os
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, status, Depends
 import logging
 
 from app.infra.auth import get_current_user_id
-from evals.db import EvalDatabase
+from evals.db import EvalDatabase, get_evals_db, ensure_evals_db
 from evals.feedback_loop import (
     approve_candidate,
     list_candidates,
@@ -19,27 +18,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-_eval_db_instance: Optional[EvalDatabase] = None
-_eval_db_initialized: bool = False
-
-
-def _get_eval_db() -> EvalDatabase:
-    """获取 EvalDatabase 单例（使用 EVALS_DB_PATH 环境变量或默认路径）。"""
-    global _eval_db_instance
-    if _eval_db_instance is None:
-        db_path = os.environ.get("EVALS_DB_PATH", "/data/evals.db")
-        _eval_db_instance = EvalDatabase(db_path)
-    return _eval_db_instance
-
 
 async def _ensure_eval_db() -> EvalDatabase:
-    """获取 EvalDatabase 单例并确保表已创建（仅首次调用时执行 init_db）。"""
-    global _eval_db_initialized
-    db = _get_eval_db()
-    if not _eval_db_initialized:
-        await db.init_db()
-        _eval_db_initialized = True
-    return db
+    """获取 EvalDatabase 单例并确保表已创建。"""
+    return await ensure_evals_db()
 
 
 @router.get("/eval/quality/metrics")
