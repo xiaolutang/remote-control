@@ -210,6 +210,14 @@ docker compose --env-file .env -f deploy/docker-compose.dev.yml \
 
 开发环境搭建、代码风格和 PR 流程详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
+## 赞赏
+
+如果这个项目对你有帮助，欢迎请我喝杯咖啡 ☕
+
+<div align="center">
+<img src="docs/donate/wechat.jpg" width="200" />
+</div>
+
 ## 许可证
 
 本项目基于 MIT 许可证开源，详见 [LICENSE](LICENSE)。
