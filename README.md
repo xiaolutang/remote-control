@@ -1,73 +1,75 @@
 # Remote Control
 
-A remote terminal control system that lets you access and manage CLI sessions from your phone or desktop. Built with Flutter, FastAPI, and Python.
+[English](README_EN.md)
 
-## Features
+远程控制终端 —— 通过手机或桌面端远程访问和管理终端会话。基于 Flutter、FastAPI 和 Python 构建。
 
-- **Flutter Client** -- cross-platform terminal workspace with session management (Android, iOS, macOS, Windows, Linux)
-- **FastAPI Server** -- authentication, device management, terminal routing, WebSocket relay
-- **Python Agent** -- local PTY management, command execution, WebSocket communication
-- **Desktop Agent Lifecycle** -- the desktop client can automatically manage a local Agent process
-- **Terminal State Sync** -- exit, restore, and reconnect with consistent terminal state
-- **Docker Deployment** -- containerized server and agent with one-command startup
-- **End-to-End Encryption** -- RSA + AES encryption for terminal data in transit
+## 功能特性
 
-## Architecture
+- **Flutter 客户端** — 跨平台终端工作台，支持 Android、iOS、macOS、Windows、Linux
+- **FastAPI 服务端** — 用户认证、设备管理、终端路由、WebSocket 中继
+- **Python Agent** — 本地 PTY 管理、命令执行、WebSocket 通信
+- **桌面端 Agent 管理** — 桌面客户端自动管理本地 Agent 进程生命周期
+- **终端状态同步** — 退出、恢复、重连时保持一致的终端状态
+- **Docker 部署** — 容器化服务端和 Agent，一键启动
+- **端到端加密** — RSA + AES 加密保障终端数据传输安全
+
+## 架构
 
 ```text
 ┌─────────────┐     WebSocket      ┌─────────────┐     WebSocket      ┌─────────────┐
 │   Flutter   │◄──────────────────►│   FastAPI   │◄──────────────────►│   Python    │
 │   Client    │                    │   Server    │                    │   Agent     │
-│  Mobile/Desktop                 │  + Redis    │                    │  + PTY      │
+│  手机/桌面端                     │  + Redis    │                    │  + PTY      │
 └─────────────┘                    └─────────────┘                    └─────────────┘
 ```
 
-The Flutter Client connects to the FastAPI Server over WebSocket. The Server authenticates the client, manages sessions via Redis, and relays terminal I/O to the Python Agent running on the target machine. Each Agent manages a local PTY process and streams input/output back through the Server.
+Flutter 客户端通过 WebSocket 连接 FastAPI 服务端。服务端负责认证客户端、通过 Redis 管理会话，并将终端 I/O 中继到运行在目标机器上的 Python Agent。每个 Agent 管理本地 PTY 进程，通过服务端回传输入输出。
 
-## Quick Start
+## 快速开始
 
-### Prerequisites
+### 前置条件
 
-- [Docker](https://docs.docker.com/get-docker/) with Docker Compose (v2) and Buildx
-- A terminal / command line
+- [Docker](https://docs.docker.com/get-docker/)（含 Docker Compose v2 和 Buildx）
+- 终端 / 命令行
 
-### 1. Configure environment
+### 1. 配置环境变量
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` and set the required values:
+编辑 `.env`，设置必填项：
 
 ```bash
-# Generate a random secret:
+# 生成随机密钥：
 openssl rand -hex 32
 ```
 
-Set `JWT_SECRET` and `REDIS_PASSWORD` to unique, strong values.
+将 `JWT_SECRET` 和 `REDIS_PASSWORD` 设置为强随机值。
 
-### 2. Build and start the server
+### 2. 构建并启动服务
 
 ```bash
 ./deploy/deploy.sh --dev
 ```
 
-This builds Docker images and starts the self-contained dev stack (Server + Redis, no Traefik needed). When ready, you will see:
+自动构建 Docker 镜像并启动自包含开发环境（Server + Redis，无需 Traefik）。启动成功后输出：
 
 ```text
-==> Service is ready!
-  HTTP API:     http://localhost:8880/
-  WebSocket:    ws://localhost:8880
-  Health check: http://localhost:8880/health
+==> 服务已就绪!
+  HTTP API:    http://localhost:8880/
+  WebSocket:   ws://localhost:8880
+  健康检查:    http://localhost:8880/health
 ```
 
-Verify the health check:
+验证健康检查：
 
 ```bash
 curl http://localhost:8880/health
 ```
 
-### 3. Create a user account
+### 3. 注册用户
 
 ```bash
 curl -X POST http://localhost:8880/api/register \
@@ -75,19 +77,19 @@ curl -X POST http://localhost:8880/api/register \
   -d '{"username": "myuser", "password": "mypassword"}'
 ```
 
-### 4. Run the client
+### 4. 运行客户端
 
 ```bash
 cd client
 flutter pub get
-flutter run -d macos    # or: flutter run -d windows, flutter run -d linux
+flutter run -d macos    # 或: flutter run -d windows, flutter run -d linux
 ```
 
-In the client, select **Direct** connection mode, enter the server IP (e.g. `localhost`) and port (`8880`), then log in with the account you created.
+客户端中选择 **直连** 模式，输入服务端 IP（如 `localhost`）和端口（`8880`），使用注册的账号登录。
 
-### 5. Connect an agent (optional for desktop)
+### 5. 连接 Agent（桌面端可选）
 
-For desktop clients, the app manages a local Agent automatically. For remote machines, run the Agent standalone:
+桌面端会自动管理本地 Agent。远程机器可独立运行 Agent：
 
 ```bash
 cd agent
@@ -96,123 +98,118 @@ python -m app.cli login --server http://YOUR_SERVER_IP:8880
 python -m app.cli run
 ```
 
-See [agent/README.md](agent/README.md) for full Agent documentation.
+详见 [agent/README.md](agent/README.md)。
 
-## Project Structure
+## 项目结构
 
 ```text
 remote-control/
-├── deploy/                     # Docker and deployment
-│   ├── docker-compose.dev.yml  # Self-contained dev stack
-│   ├── docker-compose.yml      # Production stack (Traefik gateway)
-│   ├── server.Dockerfile       # Server multi-stage build
-│   ├── agent.Dockerfile        # Agent multi-stage build
-│   ├── build.sh                # Build images
-│   └── deploy.sh               # Deploy entry point
-├── server/                     # FastAPI backend
-│   ├── app/                    # Application code
-│   └── tests/                  # Server tests
-├── agent/                      # Terminal agent
-│   ├── app/                    # Agent code
-│   └── tests/                  # Agent tests
-├── client/                     # Flutter client
-│   ├── lib/                    # Dart source
-│   └── test/                   # Client tests
-├── .env.example                # Environment variable template
-└── CLAUDE.md                   # Project conventions (internal)
+├── deploy/                     # Docker 与部署
+│   ├── docker-compose.dev.yml  # 自包含开发环境
+│   ├── docker-compose.yml      # 生产环境（Traefik 网关）
+│   ├── server.Dockerfile       # Server 多阶段构建
+│   ├── agent.Dockerfile        # Agent 多阶段构建
+│   ├── build.sh                # 构建镜像
+│   └── deploy.sh               # 部署入口
+├── server/                     # FastAPI 后端
+│   ├── app/                    # 应用代码
+│   └── tests/                  # 服务端测试
+├── agent/                      # 终端代理
+│   ├── app/                    # Agent 代码
+│   └── tests/                  # Agent 测试
+├── client/                     # Flutter 客户端
+│   ├── lib/                    # Dart 源码
+│   └── test/                   # 客户端测试
+├── .env.example                # 环境变量模板
+└── CLAUDE.md                   # 项目约定
 ```
 
-## Configuration
+## 配置
 
-All configuration is handled through environment variables. Copy `.env.example` to `.env` and fill in the values:
+所有配置通过环境变量管理，复制 `.env.example` 到 `.env` 并填写：
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `JWT_SECRET` | Yes | JWT signing secret. Generate with `openssl rand -hex 32` |
-| `REDIS_PASSWORD` | Yes | Redis password |
-| `LLM_API_KEY` | No | LLM API key (required for Agent AI features) |
-| `LLM_BASE_URL` | No | LLM API base URL (OpenAI-compatible) |
-| `LLM_MODEL` | No | LLM model name |
-| `CORS_ORIGINS` | No | Allowed CORS origins (comma-separated) |
-| `RC_DIRECT_PORT` | No | Server port in dev mode (default: `8880`) |
-| `LOG_LEVEL` | No | Log level (default: `INFO`) |
-| `JWT_EXPIRY_HOURS` | No | JWT expiry in hours (default: `168` = 7 days) |
+| 变量 | 必填 | 说明 |
+|------|------|------|
+| `JWT_SECRET` | 是 | JWT 签名密钥，使用 `openssl rand -hex 32` 生成 |
+| `REDIS_PASSWORD` | 是 | Redis 密码 |
+| `LLM_API_KEY` | 否 | LLM API 密钥（Agent AI 功能必需） |
+| `LLM_BASE_URL` | 否 | LLM API 地址（OpenAI 兼容） |
+| `LLM_MODEL` | 否 | LLM 模型名称 |
+| `CORS_ORIGINS` | 否 | CORS 允许来源（逗号分隔） |
+| `RC_DIRECT_PORT` | 否 | 开发模式服务端口（默认 `8880`） |
+| `LOG_LEVEL` | 否 | 日志级别（默认 `INFO`） |
+| `JWT_EXPIRY_HOURS` | 否 | JWT 过期时间（默认 `168` 即 7 天） |
 
-For Agent standalone deployment (Docker):
+Agent 独立部署（Docker）时额外配置：
 
-| Variable | Description |
-|----------|-------------|
-| `AGENT_USERNAME` | Agent login username |
-| `AGENT_PASSWORD` | Agent login password |
+| 变量 | 说明 |
+|------|------|
+| `AGENT_USERNAME` | Agent 登录用户名 |
+| `AGENT_PASSWORD` | Agent 登录密码 |
 
-## Development Guide
+## 开发指南
 
-### Running tests
+### 运行测试
 
 ```bash
-# Server tests
-cd server
-pytest tests/ -v
+# 服务端测试
+cd server && pytest tests/ -v
 
-# Agent tests
-cd agent
-pytest tests/ -v
+# Agent 测试
+cd agent && pytest tests/ -v
 
-# Client tests
-cd client
-flutter test
+# 客户端测试
+cd client && flutter test
 ```
 
-### Dev compose (manual)
-
-If you prefer to run Docker commands directly:
+### 手动启动开发环境
 
 ```bash
-# Build images
+# 构建镜像
 ./deploy/build.sh
 
-# Start dev stack
+# 启动
 docker compose --env-file .env -f deploy/docker-compose.dev.yml up -d
 
-# View logs
+# 查看日志
 docker compose -f deploy/docker-compose.dev.yml logs -f
 
-# Stop
+# 停止
 docker compose -f deploy/docker-compose.dev.yml down
 ```
 
-### Running standalone Agent in Docker
+### Docker 中运行独立 Agent
 
 ```bash
 docker compose --env-file .env -f deploy/docker-compose.dev.yml \
   --profile standalone-agent up -d agent
 ```
 
-Make sure `AGENT_USERNAME` and `AGENT_PASSWORD` are set in `.env` with valid credentials.
+确保 `.env` 中配置了有效的 `AGENT_USERNAME` 和 `AGENT_PASSWORD`。
 
-### Production deployment
+### 生产部署
 
-Production uses `docker-compose.yml` with a Traefik gateway. See `deploy/docker-compose.yml` for details.
+生产环境使用 `docker-compose.yml` 配合 Traefik 网关，详见 `deploy/docker-compose.yml`。
 
-## Tech Stack
+## 技术栈
 
-- **Client**: Flutter 3.6+, Dart, Provider, xterm
-- **Server**: Python 3.11, FastAPI, uvicorn, Redis, SQLite (aiosqlite), httpx
+- **客户端**: Flutter 3.6+, Dart, Provider, xterm
+- **服务端**: Python 3.11, FastAPI, uvicorn, Redis, SQLite (aiosqlite), httpx
 - **Agent**: Python 3.11, Click, websockets, PTY
-- **Deploy**: Docker, Docker Compose, Traefik (production)
+- **部署**: Docker, Docker Compose, Traefik（生产）
 
-## Security
+## 安全
 
-- Always use HTTPS/WSS in production (via a reverse proxy or gateway)
-- Set `JWT_SECRET` to a strong random value -- never use the default
-- Restrict access via firewall or network policies
-- Do not expose development configurations to the public internet
-- See [SECURITY.md](SECURITY.md) for vulnerability reporting
+- 生产环境务必使用 HTTPS/WSS（通过反向代理或网关）
+- `JWT_SECRET` 设置为强随机值，不要使用默认值
+- 通过防火墙或网络策略限制访问
+- 不要将开发配置暴露到公网
+- 漏洞报告详见 [SECURITY.md](SECURITY.md)
 
-## Contributing
+## 贡献
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code style, and PR process.
+开发环境搭建、代码风格和 PR 流程详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-## License
+## 许可证
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+本项目基于 MIT 许可证开源，详见 [LICENSE](LICENSE)。
