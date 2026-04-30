@@ -1,9 +1,31 @@
 {
   "version": "1.4",
   "project": "remote-control",
-  "updated_at": "2026-04-30T10:00:00+08:00",
+  "updated_at": "2026-04-30T12:00:00+08:00",
   "status": "active",
-  "workflow": {},
+  "workflow": {
+    "name": "R052-open-source-release",
+    "mode": "B",
+    "runtime": "skill_orchestrated",
+    "review_provider": "codex_plugin",
+    "audit_provider": "codex_plugin",
+    "risk_provider": "codex_plugin"
+  },
+  "active_requirement_cycle": {
+    "id": "R052",
+    "name": "open-source-release",
+    "branch": "chore/R052-open-source-release",
+    "status": "active",
+    "started_at": "2026-04-30"
+  },
+  "summary": {
+    "total_tasks": 5,
+    "by_status": {
+      "completed": 0,
+      "pending": 5,
+      "blocked": 0
+    }
+  },
   "archived_requirement_cycles": [
     {
       "id": "R047",
@@ -47,5 +69,174 @@
     }
   ],
   "archived_phases": [],
-  "features": []
+  "features": [
+    {
+      "id": "S054",
+      "phase": "shared",
+      "module": "deploy",
+      "name": "自包含部署配置",
+      "description": "创建 docker-compose.dev.yml（不依赖 Traefik，直接暴露端口），参数化 docker-compose.yml 中的硬编码域名和路由标签为环境变量。创建根级 .env.example。重写 deploy.sh 去掉对私有 deploy-lib.sh 的依赖，移除硬编码的 xiaolutang.top 域名引用。开源部署契约：Server HTTP/WS 暴露 8880 端口，客户端 ENV=direct 连接 ws://host:8880。先验证 JWT_SECRET fail-fast 和 LLM graceful degradation 是否为已有行为，若不是则补最小服务端代码。",
+      "verification": "L3",
+      "depends_on": [],
+      "status": "pending",
+      "priority": "high",
+      "risk_tags": ["config", "first_use", "startup"],
+      "smoke_required": true,
+      "acceptance_criteria": [
+        "docker-compose.dev.yml 不引用 external network，Server 暴露 8880:8000",
+        "docker-compose.yml 中域名和路由标签参数化为环境变量（SERVER_DOMAIN, TRAEFIK_ROUTER_RULE）",
+        "deploy.sh 不再 source ../../ai_rules/infrastructure/deploy-lib.sh，不硬编码 xiaolutang.top",
+        ".env.example 包含所有必需变量并附注释",
+        "JWT_SECRET 缺失时容器启动失败并输出明确错误（验证已有行为或补代码）",
+        "LLM_API_KEY 为空时 Agent 功能返回 503（验证已有行为或补代码）"
+      ],
+      "test_tasks": [
+        "test_dev_compose_no_external_network: docker-compose.dev.yml 不含 external network",
+        "test_env_example_complete: .env.example 覆盖所有 docker-compose.dev.yml 引用变量",
+        "test_compose_domain_parameterized: docker-compose.yml 中无硬编码 xiaolutang.top（通过 ${SERVER_DOMAIN} 引用）",
+        "test_deploy_sh_no_private_deps: deploy.sh 不 source deploy-lib.sh 且不硬编码域名",
+        "test_jwt_secret_required: 不设 JWT_SECRET 时 Server 启动失败",
+        "test_llm_graceful_degradation: LLM_API_KEY 为空时 Agent API 返回 503",
+        "test_health_after_start: 完整 .env 启动后 /health 返回 200",
+        "smoke_e2e_first_use: clone → cp .env → 填密钥 → up → /health=200 → 客户端登录 → Agent 建连 → 创建 terminal → echo hello"
+      ],
+      "files": [
+        "deploy/docker-compose.dev.yml",
+        "deploy/docker-compose.yml",
+        "deploy/deploy.sh",
+        ".env.example"
+      ],
+      "planning_notes": "deploy.sh 和 docker-compose.yml 的修改职责归属本任务，其他任务不碰这些文件。"
+    },
+    {
+      "id": "S057",
+      "phase": "shared",
+      "module": "docs",
+      "name": "README 重写 + 开源必备文件",
+      "description": "重写 README.md（英文，面向开源用户），新增 LICENSE/CONTRIBUTING.md/SECURITY.md。Quick Start 基于 docker-compose.dev.yml。CONTRIBUTING.md 包含完整开发环境搭建指南，覆盖 .dev-flow 中对贡献者有价值的架构信息。client/README.md 和 agent/README.md 一并补全（client/README.md 凭据已在 S054/S056 处理，本任务只改文档内容不改凭据）。所有文档中的命令必须可复制执行。",
+      "verification": "L1",
+      "depends_on": ["S054"],
+      "status": "pending",
+      "priority": "high",
+      "acceptance_criteria": [
+        "README.md 英文，结构完整（Intro/Features/Quick Start/Architecture/Config/Dev Guide）",
+        "Quick Start 基于 docker-compose.dev.yml，可直接复制执行",
+        "LICENSE (MIT) 存在",
+        "CONTRIBUTING.md 含 PR 流程、代码风格、开发环境搭建（含 dev compose 运行指南）",
+        "SECURITY.md 含漏洞报告指引",
+        "client/README.md 含三平台编译运行 + ENV=direct 连接说明",
+        "agent/README.md 含独立运行 + CLI 参数 + 连接 dev 部署说明",
+        "所有文档无硬编码凭据或内网地址"
+      ],
+      "test_tasks": [
+        "test_readme_quickstart_executable: README Quick Start 中的 docker compose 命令与 docker-compose.dev.yml 一致",
+        "test_all_docs_no_secrets: grep README.md CONTRIBUTING.md SECURITY.md client/README.md agent/README.md 无硬编码密钥/密码",
+        "test_license_mit: LICENSE 首行含 MIT",
+        "test_client_readme_env: client/README.md 包含 ENV=direct 说明",
+        "test_agent_readme_cli: agent/README.md 包含 --server 和 --token 参数"
+      ],
+      "files": [
+        "README.md",
+        "LICENSE",
+        "CONTRIBUTING.md",
+        "SECURITY.md",
+        "client/README.md",
+        "agent/README.md"
+      ],
+      "planning_notes": "合并原 S058（客户端/Agent 文档）到本任务。client/README.md 凭据清理由 S056 负责，本任务只改文档结构内容。"
+    },
+    {
+      "id": "S059",
+      "phase": "shared",
+      "module": "docs",
+      "name": "配套产物刷新",
+      "description": "刷新 test_coverage.md 和 alignment_checklist.md 为 R052 任务映射。在 S058 清理 .dev-flow/ 之前完成。",
+      "verification": "L1",
+      "depends_on": [],
+      "status": "pending",
+      "priority": "low",
+      "acceptance_criteria": [
+        "test_coverage.md 更新为 R052 任务覆盖（S054-S059）",
+        "alignment_checklist.md 更新为 R052 任务映射",
+        "活跃周期标记更新为 R052"
+      ],
+      "test_tasks": [
+        "test_coverage_has_r052: test_coverage.md 包含 S054/S057/S058 条目",
+        "test_alignment_has_r052: alignment_checklist.md 活跃周期为 R052"
+      ],
+      "files": [
+        ".dev-flow/test_coverage.md",
+        ".dev-flow/alignment_checklist.md"
+      ],
+      "planning_notes": "本任务产出会被 S058 归档到 _archive，这是预期行为。"
+    },
+    {
+      "id": "S056",
+      "phase": "shared",
+      "module": "security",
+      "name": "全仓库泄漏扫描 + 凭据清理（最终门禁）",
+      "description": "在 S057 文档生成完成后，对全仓库执行最终泄漏扫描并清理残留凭据。范围：硬编码密码、内部主机名（xiaolutang.top 在非配置文件中）、私有路径引用（ai_rules/）、测试账号明文。run_agent.sh 凭据清理归属本任务。本任务是开源发布的最终安全门禁。",
+      "verification": "L1",
+      "depends_on": ["S057"],
+      "status": "pending",
+      "priority": "high",
+      "acceptance_criteria": [
+        "server/evals/integration.py 硬编码密码改为 os.environ.get()",
+        "deploy/integration_test.py 硬编码密码改为环境变量",
+        "run_agent.sh 硬编码凭据改为环境变量",
+        "grep -rn 扫描全仓库确认无真实密码/api_key 残留（排除 .env.example、test fixture、_archive/）",
+        "grep -rn 扫描全仓库确认无私有路径引用（ai_rules/、deploy-lib.sh）",
+        "grep -rn 扫描全仓库确认无非配置文件中的内部域名（xiaolutang.top 仅在 docker-compose.yml 环境变量默认值和 EnvironmentService 中保留）",
+        "所有新生成的文档（README/CONTRIBUTING/SECURITY/client README/agent README）通过泄漏扫描"
+      ],
+      "test_tasks": [
+        "test_no_hardcoded_passwords: grep -rn 排除 .env.example/_archive/ 后无 password= 后跟引号字符串",
+        "test_no_hardcoded_api_keys: grep -rn 排除 .env.example/_archive/ 后无 sk- 后跟非占位符值",
+        "test_no_private_paths: grep -rn 排除 _archive/ 后无 ai_rules/ 或 deploy-lib.sh 引用",
+        "test_no_internal_domains: grep -rn 排除 docker-compose.yml/EnvironmentService/_archive/ 后无 xiaolutang.top",
+        "test_eval_passwords_use_env: integration.py 密码通过 os.environ.get 获取",
+        "test_new_docs_clean: grep README.md CONTRIBUTING.md SECURITY.md client/README.md agent/README.md 无硬编码凭据"
+      ],
+      "files": [
+        "server/evals/integration.py",
+        "deploy/integration_test.py",
+        "run_agent.sh"
+      ],
+      "planning_notes": "移到 S057 之后执行，确保新生成的文档也经过泄漏扫描。client/README.md 所有权归 S057（文档内容），本任务只验证其无泄漏。"
+    },
+    {
+      "id": "S058",
+      "phase": "shared",
+      "module": "cleanup",
+      "name": "内部文件清理 + .gitignore 更新 + CLAUDE.md 瘦身",
+      "description": "在 S057 CONTRIBUTING.md 已覆盖贡献者架构信息、S059 已刷新配套产物、S056 已完成安全扫描之后，移除内部开发文件：.claude/、.dev-flow/（保留 .gitkeep 和 _archive/）、opik 配置、eval 临时文件。CLAUDE.md 精简为 ≤ 60 行。更新 .gitignore。",
+      "verification": "L1",
+      "depends_on": ["S056", "S059"],
+      "status": "pending",
+      "priority": "high",
+      "acceptance_criteria": [
+        ".claude/ 从 git 追踪中移除，加入 .gitignore",
+        ".dev-flow/ 从 git 追踪中移除（保留 .gitkeep 和 _archive/），加入 .gitignore",
+        "deploy/docker-compose.opik.yml 和 deploy/opik-clickhouse-config/ 移除",
+        "eval_report*.html 加入 .gitignore",
+        "CLAUDE.md ≤ 60 行，不含 Eval CLI 或 .dev-flow 引用",
+        "git ls-files 无 .claude/ 或 .dev-flow/ 下非 .gitkeep 非 _archive 文件"
+      ],
+      "test_tasks": [
+        "test_gitignore_covers_internal: .gitignore 包含 .claude/、.dev-flow/*、eval_report*.html",
+        "test_no_tracked_cclaude: git ls-files 无 .claude/ 内容",
+        "test_no_tracked_devflow_active: git ls-files 无 .dev-flow/ 下非 _archive 非 .gitkeep 文件",
+        "test_opik_removed: deploy/ 下无 opik 相关文件",
+        "test_claude_md_line_count: CLAUDE.md ≤ 60 行",
+        "test_claude_md_no_eval_ref: CLAUDE.md 不含 'Eval CLI' 或 '.dev-flow'"
+      ],
+      "files": [
+        ".gitignore",
+        "CLAUDE.md",
+        "deploy/docker-compose.opik.yml",
+        "deploy/opik-clickhouse-config/"
+      ],
+      "planning_notes": "必须在 S056（安全扫描）和 S059（配套产物刷新）之后执行。.dev-flow/_archive/ 保留。"
+    }
+  ]
 }
