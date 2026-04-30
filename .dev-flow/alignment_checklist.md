@@ -154,6 +154,11 @@
 | **R046 文档** | **事后精细校准** | **CONTRACT-047..051** | **not_applicable** | **not_applicable** | **completed** | **S111: CONTRACT-047/048/049/050/051 校准完成。architecture.md 不变量/模块职责与代码一致；api_contracts.md 五契约与代码行为一致；S109 状态同步为 73% 通过率** |
 | **R046 迭代** | **SYSTEM_PROMPT 简化 + Eval 修正** | **CONTRACT-047, CONTRACT-048, CONTRACT-050** | **completed** | **not_applicable** | **completed** | **S112: SYSTEM_PROMPT 简化 ask_user 确认流程 + 明确 execute_command vs deliver_result 边界 + 收窄 ai_prompt + cg_003 改 message + ic_008 补 mock_tool_responses + need_confirm 回归** |
 | **评估体系补全 R051** | **配套产物刷新** | — | not_applicable | not_applicable | completed | S052: alignment_checklist.md + test_coverage.md 更新为 R051 |
+| **开源发布 R052** | **自包含部署配置** | CONTRACT-037, CONTRACT-038 | completed | not_applicable | completed | S054: docker-compose.dev.yml + .env.example + deploy.sh + 参数化域名 + 16 测试 |
+| **开源发布 R052** | **README 重写 + 开源必备文件** | — | not_applicable | not_applicable | pending | S057: README.md + LICENSE + CONTRIBUTING.md + SECURITY.md + client/agent README |
+| **开源发布 R052** | **配套产物刷新** | — | not_applicable | not_applicable | completed | S059: test_coverage.md + alignment_checklist.md 更新为 R052 |
+| **开源发布 R052** | **全仓库泄漏扫描 + 凭据清理** | — | completed | completed | pending | S056: 最终安全门禁 |
+| **开源发布 R052** | **内部文件清理 + .gitignore + CLAUDE.md** | — | not_applicable | not_applicable | pending | S058: 清理内部文件 + CLAUDE.md 瘦身 |
 | **评估体系补全 R051** | **Session 生命周期 per-terminal** | CONTRACT-048, CONTRACT-049 | completed | not_applicable | completed | B051: session 懒创建 + usage API terminal scope + result_event_id |
 | **评估体系补全 R051** | **客户端 token 展示适配** | CONTRACT-048 | not_applicable | completed | completed | F053: 移除客户端累加，改为服务端 API |
 | **评估体系补全 R051** | **Feedback→Eval 闭环 + Quality Monitor** | CONTRACT-051, CONTRACT-052, CONTRACT-053 | completed | not_applicable | completed | B052: 反馈闭环 + 自动触发 + source=production |

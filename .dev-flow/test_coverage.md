@@ -1,8 +1,8 @@
 # 测试覆盖清单
 
 > 项目：remote-control
-> 更新时间：2026-04-28
-> 状态：R047/R048/R049/R050 已归档；`eval-architecture-overhaul`（R051）为当前活跃需求周期
+> 更新时间：2026-04-30
+> 状态：R047/R048/R049/R050/R051 已归档；`open-source-release`（R052）为当前活跃需求周期
 
 ## 测试统计
 
@@ -759,3 +759,24 @@
 - [ ] streaming_text/tool_step 事件（live + resume）+ 内容过滤兜底
 - [ ] ResultDelivered 后 usage 持久化顺序
 - [ ] client streaming_text/tool_step 四通道（SSE/projection/resume/widget）+ 移动端 conversation stream 同步
+
+### 开源发布准备（open-source-release R052）
+
+| Module | Task IDs | Test Type | Required Scenarios | Status |
+|--------|----------|-----------|--------------------|--------|
+| 自包含部署配置 | S054 | unit, manual | docker-compose.dev.yml 无 external network; .env.example 完整; 域名参数化; deploy.sh 无私有依赖; JWT_SECRET 必填; LLM graceful degradation | ✅ 16/16 deploy config tests |
+| README 重写 + 开源必备文件 | S057 | manual | README 英文完整; Quick Start 基于 dev compose; LICENSE MIT; CONTRIBUTING.md; SECURITY.md; client/agent README | ⬜ |
+| 配套产物刷新 | S059 | verification | test_coverage.md R052; alignment_checklist.md R052 | ✅ |
+| 全仓库泄漏扫描 + 凭据清理 | S056 | manual | 无硬编码密码/api_key; 无私有路径引用; 无内部域名; 新文档通过扫描 | ⬜ |
+| 内部文件清理 + .gitignore + CLAUDE.md 瘦身 | S058 | manual | .claude/ 从 git 移除; .dev-flow/ 仅保留 _archive; opik 移除; CLAUDE.md ≤60 行 | ⬜ |
+
+#### R052 关键测试场景
+
+##### S054 部署配置
+- [x] docker-compose.dev.yml 不含 external network
+- [x] .env.example 覆盖所有 compose 引用变量
+- [x] docker-compose.yml 中无硬编码内部域名
+- [x] deploy.sh 不 source .env 且无私有依赖
+- [x] JWT_SECRET 缺失时 Server 启动失败（已有行为）
+- [x] LLM_API_KEY 为空时 Agent 功能返回 503（已有行为）
+- [x] deploy config 验证测试 16/16 passed
