@@ -1,6 +1,6 @@
 # Remote Control
 
-A remote terminal control system that lets you access and manage CLI sessions from your phone or desktop. Built with Flutter, FastAPI, and Python.
+A remote terminal control system that lets you access your **local** terminal from any device. Run AI coding tools like Claude Code / Codex from your phone, continue your desktop work on the go — all connected to the same terminal session. Built with Flutter, FastAPI, and Python.
 
 ## Features
 
