@@ -4,6 +4,19 @@
 
 远程控制终端 —— 通过手机或桌面端远程访问和管理终端会话。基于 Flutter、FastAPI 和 Python 构建。
 
+## 效果演示
+
+<table>
+<tr>
+<td align="center">桌面端</td>
+<td align="center">手机端</td>
+</tr>
+<tr>
+<td><img src="docs/demo-desktop.gif" width="400" /></td>
+<td><img src="docs/demo-mobile.gif" width="200" /></td>
+</tr>
+</table>
+
 ## 功能特性
 
 - **Flutter 客户端** — 跨平台终端工作台，支持 Android、iOS、macOS、Windows、Linux
