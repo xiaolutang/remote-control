@@ -43,9 +43,9 @@ DEFAULT_AGENT_STREAM_TIMEOUT = 180.0  # 秒
 
 # eval 测试用户前缀
 EVAL_TEST_USER_PREFIX = "eval_test_"
-EVAL_TEST_PASSWORD = "EvalTest123!"
+EVAL_TEST_PASSWORD = os.environ.get("EVAL_TEST_PASSWORD", "EvalTest123!")
 EVAL_AGENT_USER_PREFIX = "eval_agent_"
-EVAL_AGENT_PASSWORD = "AgentPass123456"
+EVAL_AGENT_PASSWORD = os.environ.get("EVAL_AGENT_PASSWORD", "AgentPass123456!")
 
 
 # ── Docker 构建/部署 ─────────────────────────────────────────────────────

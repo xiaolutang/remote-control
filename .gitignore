@@ -25,6 +25,7 @@ venv/
 # Docker
 docker-compose.override.yml
 deploy/.remote.env
+deploy/remote-deploy.sh
 
 # 构建产物
 build/

@@ -22,6 +22,10 @@ void main() {
       key: 'RC_TEST_SERVER_IP',
       fallback: '',
     )).trim();
+    final host = (_readConfig(
+      key: 'RC_TEST_HOST',
+      fallback: '',
+    )).trim();
     final username = (_readConfig(
       key: 'RC_TEST_USERNAME',
       fallback: 'prod_test',
@@ -44,11 +48,16 @@ void main() {
           reason: 'RC_TEST_SERVER_IP is required for production e2e. '
               'This test only gates the deterministic IP + Host path.',
         );
+        expect(
+          host,
+          isNotEmpty,
+          reason: 'RC_TEST_HOST is required for production e2e.',
+        );
 
         final result = await runProductionProbe(
           ProductionProbeConfig(
             serverIp: serverIp,
-            host: 'rc.xiaolutang.top',
+            host: host,
             username: username,
             password: password,
           ),
@@ -72,11 +81,16 @@ void main() {
           isNotEmpty,
           reason: 'RC_TEST_SERVER_IP is required for production runtime e2e.',
         );
+        expect(
+          host,
+          isNotEmpty,
+          reason: 'RC_TEST_HOST is required for production runtime e2e.',
+        );
 
         final result = await runProductionProbe(
           ProductionProbeConfig(
             serverIp: serverIp,
-            host: 'rc.xiaolutang.top',
+            host: host,
             username: username,
             password: password,
             probeRuntimeTerminal: true,
@@ -131,6 +145,13 @@ String _readConfig({
         defaultValue: '',
       ).trim().isNotEmpty
           ? const String.fromEnvironment('RC_TEST_RUNTIME_DEVICE_ID')
+          : (Platform.environment[key] ?? fallback);
+    case 'RC_TEST_HOST':
+      return const String.fromEnvironment(
+        'RC_TEST_HOST',
+        defaultValue: '',
+      ).trim().isNotEmpty
+          ? const String.fromEnvironment('RC_TEST_HOST')
           : (Platform.environment[key] ?? fallback);
     default:
       return fallback;
