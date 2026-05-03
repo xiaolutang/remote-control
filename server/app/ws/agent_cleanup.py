@@ -12,6 +12,7 @@ from app.ws.agent_connection import (
     AgentConnection,
     active_agents,
 )
+from app.infra.message_types import MessageType
 from app.ws.agent_request import (
     pending_terminal_creates,
     pending_terminal_closes,
@@ -280,7 +281,7 @@ async def _restore_recoverable_terminals(session_id: str, agent_conn: AgentConne
 
     for terminal in terminals:
         await agent_conn.send({
-            "type": "create_terminal",
+            "type": MessageType.CREATE_TERMINAL,
             "terminal_id": terminal["terminal_id"],
             "title": terminal.get("title", terminal["terminal_id"]),
             "cwd": terminal.get("cwd", ""),

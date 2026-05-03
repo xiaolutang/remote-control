@@ -13,6 +13,7 @@ from fastapi import WebSocketDisconnect, HTTPException
 from redis.exceptions import RedisError
 
 from app.infra.crypto import get_crypto_manager, decrypt_message
+from app.infra.message_types import MessageType
 
 # session store 函数：ws_agent 自身使用，同时 re-export 给子模块延迟引用 + 测试 mock 兼容
 from app.store.session import (                             # noqa: F401
@@ -228,7 +229,7 @@ async def agent_websocket_handler(
 
         # 发送连接成功消息（符合 CONTRACT-002）
         await websocket.send_json({
-            "type": "connected",
+            "type": MessageType.CONNECTED,
             "session_id": session_id,
             "owner": owner,
             "views": view_counts,

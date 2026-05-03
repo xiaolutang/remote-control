@@ -12,6 +12,7 @@ from typing import Optional
 from fastapi import WebSocketDisconnect, HTTPException
 
 from app.infra.crypto import get_crypto_manager, encrypt_message, decrypt_message, should_encrypt
+from app.infra.message_types import MessageType
 from app.store.session import (
     get_session,
     get_session_by_device_id,
@@ -243,7 +244,7 @@ async def client_websocket_handler(
         _unregister_client(existing_channel, existing_client)
         try:
             await existing_client.send({
-                "type": "device_kicked",
+                "type": MessageType.DEVICE_KICKED,
                 "reason": "replaced_by_new_device",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             })
@@ -288,7 +289,7 @@ async def client_websocket_handler(
 
         # 发送连接成功消息（符合 CONTRACT-003）
         await websocket.send_json({
-            "type": "connected",
+            "type": MessageType.CONNECTED,
             "session_id": session_id,
             "device_id": resolved_device_id,
             "terminal_id": terminal_id,
@@ -316,12 +317,12 @@ async def client_websocket_handler(
             if not raw_text or not raw_text.strip():
                 continue
             if len(raw_text) > MAX_WS_MESSAGE_SIZE:
-                await websocket.send_json({"type": "error", "message": "Message too large"})
+                await websocket.send_json({"type": MessageType.ERROR, "message": "Message too large"})
                 continue
             try:
                 message = json.loads(raw_text)
             except json.JSONDecodeError:
-                await websocket.send_json({"type": "error", "message": "Invalid JSON"})
+                await websocket.send_json({"type": MessageType.ERROR, "message": "Invalid JSON"})
                 continue
 
             # 解密 AES 加密消息
@@ -373,7 +374,7 @@ async def _handle_client_message(
     """
     msg_type = message.get("type")
 
-    if msg_type == "data":
+    if msg_type == MessageType.DATA:
         # 用户输入数据，转发给 Agent
         payload = message.get("payload", "")
 
@@ -381,14 +382,14 @@ async def _handle_client_message(
         agent_conn = get_agent_connection(session_id)
         if agent_conn:
             await agent_conn.send({
-                "type": "data",
+                "type": MessageType.DATA,
                 "source_view": view,
                 "terminal_id": terminal_id,
                 "payload": payload,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             })
 
-    elif msg_type == "resize":
+    elif msg_type == MessageType.RESIZE:
         # 终端窗口大小变化，转发给 Agent
         agent_conn = get_agent_connection(session_id)
         if agent_conn:
@@ -416,7 +417,7 @@ async def _handle_client_message(
                     cols=cols,
                 )
             await agent_conn.send({
-                "type": "resize",
+                "type": MessageType.RESIZE,
                 "source_view": view,
                 "terminal_id": terminal_id,
                 "rows": rows,
@@ -425,7 +426,7 @@ async def _handle_client_message(
             await broadcast_to_clients(
                 session_id,
                 {
-                    "type": "resize",
+                    "type": MessageType.RESIZE,
                     "terminal_id": terminal_id,
                     "rows": rows,
                     "cols": cols,
@@ -437,7 +438,7 @@ async def _handle_client_message(
     else:
         # 未知消息类型
         await websocket.send_json({
-            "type": "error",
+            "type": MessageType.ERROR,
             "message": f"Unknown message type: {msg_type}",
         })
 
@@ -448,7 +449,7 @@ async def _send_terminal_snapshot(websocket, session_id: str, terminal_id: str) 
     recovery_epoch = int((terminal or {}).get("recovery_epoch", 0) or 0)
 
     await websocket.send_json({
-        "type": "snapshot_start",
+        "type": MessageType.SNAPSHOT_START,
         "terminal_id": terminal_id,
         "attach_epoch": attach_epoch,
         "recovery_epoch": recovery_epoch,
@@ -458,7 +459,7 @@ async def _send_terminal_snapshot(websocket, session_id: str, terminal_id: str) 
     snapshot_data = await request_agent_terminal_snapshot(session_id, terminal_id)
     if snapshot_data:
         await websocket.send_json({
-            "type": "snapshot_chunk",
+            "type": MessageType.SNAPSHOT_CHUNK,
             "terminal_id": terminal_id,
             "attach_epoch": attach_epoch,
             "recovery_epoch": recovery_epoch,
@@ -478,7 +479,7 @@ async def _send_terminal_snapshot(websocket, session_id: str, terminal_id: str) 
                 continue
             if len(chunk) + len(data) > max_chunk_size and chunk:
                 await websocket.send_json({
-                    "type": "snapshot_chunk",
+                    "type": MessageType.SNAPSHOT_CHUNK,
                     "terminal_id": terminal_id,
                     "attach_epoch": attach_epoch,
                     "recovery_epoch": recovery_epoch,
@@ -490,7 +491,7 @@ async def _send_terminal_snapshot(websocket, session_id: str, terminal_id: str) 
 
         if chunk:
             await websocket.send_json({
-                "type": "snapshot_chunk",
+                "type": MessageType.SNAPSHOT_CHUNK,
                 "terminal_id": terminal_id,
                 "attach_epoch": attach_epoch,
                 "recovery_epoch": recovery_epoch,
@@ -498,7 +499,7 @@ async def _send_terminal_snapshot(websocket, session_id: str, terminal_id: str) 
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             })
     await websocket.send_json({
-        "type": "snapshot_complete",
+        "type": MessageType.SNAPSHOT_COMPLETE,
         "terminal_id": terminal_id,
         "attach_epoch": attach_epoch,
         "recovery_epoch": recovery_epoch,
@@ -617,7 +618,7 @@ async def _broadcast_presence(session_id: str, terminal_id: Optional[str] = None
         if terminal:
             geometry_owner_view = terminal.get("geometry_owner_view")
     message = {
-        "type": "presence",
+        "type": MessageType.PRESENCE,
         "terminal_id": terminal_id,
         "views": view_counts,
         "geometry_owner_view": geometry_owner_view,

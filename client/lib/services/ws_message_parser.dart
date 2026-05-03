@@ -249,14 +249,14 @@ void _wsHandleMessage(WebSocketService s, String message) {
 
     final type = data['type'] as String?;
     switch (type) {
-      case 'connected':
+      case MessageType.connected:
         _wsApplyConnectedMessage(s, data);
         break;
-      case 'snapshot':
-      case 'snapshot_start':
-      case 'snapshot_chunk':
-      case 'data':
-      case 'output':
+      case MessageType.snapshot:
+      case MessageType.snapshotStart:
+      case MessageType.snapshotChunk:
+      case MessageType.data:
+      case MessageType.output:
         {
           final msgAttachEpoch = data['attach_epoch'];
           final msgEpoch =
@@ -267,17 +267,17 @@ void _wsHandleMessage(WebSocketService s, String message) {
               msgEpoch < currentEpoch) {
             break;
           }
-          if (type == 'snapshot_start') {
+          if (type == MessageType.snapshotStart) {
             s._snapshotUtf8Decoder.reset();
             s._lastSnapshotActiveBuffer = TerminalBufferKind.main;
           }
           final payload = data['payload'] as String?;
           if (payload != null) {
-            final isSnapshotPayload = type == 'snapshot' ||
-                type == 'snapshot_start' ||
-                type == 'snapshot_chunk';
+            final isSnapshotPayload = type == MessageType.snapshot ||
+                type == MessageType.snapshotStart ||
+                type == MessageType.snapshotChunk;
             final activeBuffer = _wsParseActiveBuffer(data['active_buffer']);
-            if (type == 'snapshot' || type == 'snapshot_start') {
+            if (type == MessageType.snapshot || type == MessageType.snapshotStart) {
               s._snapshotUtf8Decoder.reset();
             }
             if (activeBuffer != null && isSnapshotPayload) {
@@ -294,7 +294,7 @@ void _wsHandleMessage(WebSocketService s, String message) {
             final recoveryEpoch = data['recovery_epoch'];
             _wsEmitTerminalPayload(
               s,
-              type: type ?? 'output',
+              type: type ?? MessageType.output,
               payload: decoded,
               attachEpoch: msgEpoch,
               recoveryEpoch:
@@ -304,7 +304,7 @@ void _wsHandleMessage(WebSocketService s, String message) {
           }
           break;
         }
-      case 'snapshot_complete':
+      case MessageType.snapshotComplete:
         {
           final msgAttachEpoch = data['attach_epoch'];
           final msgEpoch =
@@ -325,7 +325,7 @@ void _wsHandleMessage(WebSocketService s, String message) {
           if (flushedSnapshot.isNotEmpty) {
             _wsEmitTerminalPayload(
               s,
-              type: 'snapshot_chunk',
+              type: MessageType.snapshotChunk,
               payload: flushedSnapshot,
               attachEpoch: msgEpoch,
               recoveryEpoch: recoveryEpoch,
@@ -347,10 +347,10 @@ void _wsHandleMessage(WebSocketService s, String message) {
           );
           break;
         }
-      case 'presence':
+      case MessageType.presence:
         _wsApplyPresenceMessage(s, data);
         break;
-      case 'resize':
+      case MessageType.resize:
         final rows = data['rows'];
         final cols = data['cols'];
         _wsApplyPtySize(s, {
@@ -369,13 +369,13 @@ void _wsHandleMessage(WebSocketService s, String message) {
           );
         }
         break;
-      case 'pong':
+      case MessageType.pong:
         break;
-      case 'error':
+      case MessageType.error:
         s._errorMessage = data['message'] as String?;
         s._notify();
         break;
-      case 'terminal_closed':
+      case MessageType.terminalClosed:
         s._terminalStatus = 'closed';
         s._errorMessage = 'terminal 已关闭';
         s._allowReconnect = false;
@@ -389,14 +389,14 @@ void _wsHandleMessage(WebSocketService s, String message) {
         s._notify();
         unawaited(s.disconnect());
         break;
-      case 'terminals_changed':
+      case MessageType.terminalsChanged:
         debugPrint(
           '[WebSocketService] received terminals_changed: '
           'action=${data['action']} terminal_id=${data['terminal_id']}',
         );
         s._terminalsChangedController.add(data);
         break;
-      case 'device_kicked':
+      case MessageType.deviceKicked:
         debugPrint(
           '[WebSocketService] received device_kicked: reason=${data['reason']}',
         );
@@ -423,8 +423,8 @@ void _wsEmitTerminalPayload(
   s._outputFrameController.add(
     TerminalOutputFrame(
       kind: switch (type) {
-        'snapshot' => TerminalOutputKind.snapshot,
-        'snapshot_chunk' => TerminalOutputKind.snapshotChunk,
+        MessageType.snapshot => TerminalOutputKind.snapshot,
+        MessageType.snapshotChunk => TerminalOutputKind.snapshotChunk,
         _ => TerminalOutputKind.data,
       },
       payload: payload,
@@ -436,8 +436,8 @@ void _wsEmitTerminalPayload(
   s._eventController.add(
     TerminalProtocolEvent(
       kind: switch (type) {
-        'snapshot' => TerminalProtocolEventKind.snapshot,
-        'snapshot_chunk' => TerminalProtocolEventKind.snapshotChunk,
+        MessageType.snapshot => TerminalProtocolEventKind.snapshot,
+        MessageType.snapshotChunk => TerminalProtocolEventKind.snapshotChunk,
         _ => TerminalProtocolEventKind.output,
       },
       payload: payload,

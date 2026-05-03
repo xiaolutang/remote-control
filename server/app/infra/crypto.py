@@ -18,10 +18,9 @@ from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-logger = logging.getLogger(__name__)
+from app.infra.message_types import PLAINTEXT_MSG_TYPES  # noqa: F401 — re-export
 
-# 不加密的控制消息类型（协议握手/心跳）
-PLAINTEXT_MSG_TYPES = frozenset({"auth", "connected", "ping", "pong"})
+logger = logging.getLogger(__name__)
 
 
 class CryptoManager:

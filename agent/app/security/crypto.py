@@ -19,9 +19,9 @@ from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import padding as asym_padding
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-logger = logging.getLogger(__name__)
+from app.core.message_types import PLAINTEXT_MSG_TYPES  # noqa: F401 — re-export
 
-PLAINTEXT_MSG_TYPES = frozenset({"auth", "connected", "ping", "pong"})
+logger = logging.getLogger(__name__)
 
 
 class AgentCrypto:

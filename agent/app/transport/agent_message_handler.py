@@ -15,6 +15,7 @@ from app.security.command_validator import (
     MAX_STDERR_LEN,
     DEFAULT_COMMAND_TIMEOUT,
 )
+from app.core.message_types import MessageType
 from app.tools.knowledge_tool import lookup_knowledge
 from app.transport.agent_protocol import TerminalSpec
 
@@ -66,25 +67,25 @@ class AgentMessageHandler:
         msg_type = data.get("type")
         _log(f"收到消息 type={msg_type} data={json.dumps(data, ensure_ascii=False)[:200]}")
 
-        if msg_type == "data":
+        if msg_type == MessageType.DATA:
             await self._handle_data(data)
-        elif msg_type == "resize":
+        elif msg_type == MessageType.RESIZE:
             await self._handle_resize(data)
-        elif msg_type == "create_terminal":
+        elif msg_type == MessageType.CREATE_TERMINAL:
             await self._handle_create_terminal(data)
-        elif msg_type == "close_terminal":
+        elif msg_type == MessageType.CLOSE_TERMINAL:
             await self._handle_close_terminal(data)
-        elif msg_type == "snapshot_request":
+        elif msg_type == MessageType.SNAPSHOT_REQUEST:
             await self._handle_snapshot_request(data)
-        elif msg_type == "execute_command":
+        elif msg_type == MessageType.EXECUTE_COMMAND:
             asyncio.create_task(self._handle_execute_command(data))
-        elif msg_type == "lookup_knowledge":
+        elif msg_type == MessageType.LOOKUP_KNOWLEDGE:
             asyncio.create_task(self._handle_lookup_knowledge(data))
-        elif msg_type == "tool_call":
+        elif msg_type == MessageType.TOOL_CALL:
             asyncio.create_task(self._handle_tool_call(data))
-        elif msg_type == "pong":
+        elif msg_type == MessageType.PONG:
             pass
-        elif msg_type == "error":
+        elif msg_type == MessageType.ERROR:
             _log(f"服务器错误: {data.get('message')}")
 
     async def _handle_data(self, data: dict):
@@ -201,7 +202,7 @@ class AgentMessageHandler:
             return
         snapshot = self._client.snapshot_manager.build_snapshot_data(terminal_id)
         await self._client._send_ws_message({
-            "type": "snapshot_data",
+            "type": MessageType.SNAPSHOT_DATA,
             "terminal_id": terminal_id,
             "request_id": request_id,
             "payload": (snapshot or {}).get("payload", ""),
@@ -223,7 +224,7 @@ class AgentMessageHandler:
         if not valid:
             _log(f"execute_command 拒绝: {reason} command={command[:100]}")
             await self._client._send_ws_message({
-                "type": "execute_command_result",
+                "type": MessageType.EXECUTE_COMMAND_RESULT,
                 "request_id": request_id,
                 "exit_code": -1,
                 "stdout": "",
@@ -237,7 +238,7 @@ class AgentMessageHandler:
             parts = shlex.split(command)
         except ValueError:
             await self._client._send_ws_message({
-                "type": "execute_command_result",
+                "type": MessageType.EXECUTE_COMMAND_RESULT,
                 "request_id": request_id,
                 "exit_code": -1,
                 "stdout": "",
@@ -274,7 +275,7 @@ class AgentMessageHandler:
             stderr_str = stderr_str[:MAX_STDERR_LEN]
 
             await self._client._send_ws_message({
-                "type": "execute_command_result",
+                "type": MessageType.EXECUTE_COMMAND_RESULT,
                 "request_id": request_id,
                 "exit_code": proc.returncode if proc.returncode is not None else -1,
                 "stdout": stdout_str,
@@ -285,7 +286,7 @@ class AgentMessageHandler:
         except Exception as e:
             _log(f"execute_command 执行异常: {e}")
             await self._client._send_ws_message({
-                "type": "execute_command_result",
+                "type": MessageType.EXECUTE_COMMAND_RESULT,
                 "request_id": request_id,
                 "exit_code": -1,
                 "stdout": "",
@@ -301,14 +302,14 @@ class AgentMessageHandler:
         try:
             result = lookup_knowledge(query)
             await self._client._send_ws_message({
-                "type": "lookup_knowledge_result",
+                "type": MessageType.LOOKUP_KNOWLEDGE_RESULT,
                 "request_id": request_id,
                 "result": result,
             })
         except Exception as e:
             _log(f"lookup_knowledge 检索异常: {e}")
             await self._client._send_ws_message({
-                "type": "lookup_knowledge_result",
+                "type": MessageType.LOOKUP_KNOWLEDGE_RESULT,
                 "request_id": request_id,
                 "result": "",
                 "error": str(e),
@@ -323,7 +324,7 @@ class AgentMessageHandler:
         built_in_tools = {"execute_command", "ask_user", "lookup_knowledge"}
         if tool_name in built_in_tools:
             await self._client._send_ws_message({
-                "type": "tool_result",
+                "type": MessageType.TOOL_RESULT,
                 "call_id": call_id,
                 "status": "error",
                 "error": f"built-in tool {tool_name} should use dedicated handler",
@@ -333,7 +334,7 @@ class AgentMessageHandler:
         try:
             result = await self._client.mcp_manager.call_tool(tool_name, arguments)
             response = {
-                "type": "tool_result",
+                "type": MessageType.TOOL_RESULT,
                 "call_id": call_id,
                 "status": result.get("status", "error"),
             }
@@ -350,7 +351,7 @@ class AgentMessageHandler:
         except Exception as e:
             _log(f"tool_call 异常: {e}")
             await self._client._send_ws_message({
-                "type": "tool_result",
+                "type": MessageType.TOOL_RESULT,
                 "call_id": call_id,
                 "status": "error",
                 "error": str(e),

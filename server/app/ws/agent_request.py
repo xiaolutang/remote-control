@@ -16,6 +16,7 @@ from app.infra.command_validator import (
     DEFAULT_COMMAND_TIMEOUT,
     MAX_COMMAND_RATE_PER_MINUTE,
 )
+from app.infra.message_types import MessageType
 from app.ws.agent_connection import (
     AgentConnection,
     active_agents,
@@ -135,7 +136,7 @@ async def request_agent_create_terminal(
     future: asyncio.Future = loop.create_future()
     pending_terminal_creates[future_key] = future
     await agent_conn.send({
-        "type": "create_terminal", "terminal_id": terminal_id, "title": title,
+        "type": MessageType.CREATE_TERMINAL, "terminal_id": terminal_id, "title": title,
         "cwd": cwd, "command": command, "env": env or {},
         "rows": rows, "cols": cols, "timestamp": datetime.now(timezone.utc).isoformat(),
     })
@@ -177,7 +178,7 @@ async def request_agent_close_terminal(
     if not agent_conn:
         return
     await agent_conn.send({
-        "type": "close_terminal",
+        "type": MessageType.CLOSE_TERMINAL,
         "terminal_id": terminal_id,
         "reason": reason,
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -204,7 +205,7 @@ async def request_agent_close_terminal_with_ack(
     future: asyncio.Future = loop.create_future()
     pending_terminal_closes[future_key] = future
     await agent_conn.send({
-        "type": "close_terminal",
+        "type": MessageType.CLOSE_TERMINAL,
         "terminal_id": terminal_id,
         "reason": reason,
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -246,7 +247,7 @@ async def request_agent_terminal_snapshot(
     future: asyncio.Future = loop.create_future()
     pending_terminal_snapshots[future_key] = future
     await agent_conn.send({
-        "type": "snapshot_request",
+        "type": MessageType.SNAPSHOT_REQUEST,
         "terminal_id": terminal_id,
         "request_id": request_id,
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -285,7 +286,7 @@ async def send_execute_command(
     future: asyncio.Future = loop.create_future()
     pending_execute_commands[request_id] = (session_id, future)
     await agent_conn.send({
-        "type": "execute_command", "request_id": request_id, "command": command,
+        "type": MessageType.EXECUTE_COMMAND, "request_id": request_id, "command": command,
         "timeout": timeout, "cwd": cwd, "timestamp": datetime.now(timezone.utc).isoformat(),
     })
     try:
@@ -309,7 +310,7 @@ async def send_lookup_knowledge(session_id: str, query: str, timeout: int = 15) 
     future: asyncio.Future = loop.create_future()
     pending_lookup_knowledge[request_id] = (session_id, future)
     try:
-        await agent_conn.send({"type": "lookup_knowledge", "request_id": request_id, "query": query})
+        await agent_conn.send({"type": MessageType.LOOKUP_KNOWLEDGE, "request_id": request_id, "query": query})
         return await asyncio.wait_for(future, timeout=timeout)
     except asyncio.TimeoutError:
         pending_lookup_knowledge.pop(request_id, None)
@@ -336,7 +337,7 @@ async def send_tool_call(
     pending_tool_calls[call_id] = (session_id, future)
     try:
         await agent_conn.send({
-            "type": "tool_call", "call_id": call_id, "tool_name": tool_name, "arguments": arguments,
+            "type": MessageType.TOOL_CALL, "call_id": call_id, "tool_name": tool_name, "arguments": arguments,
         })
         return await asyncio.wait_for(future, timeout=timeout)
     except asyncio.TimeoutError:
