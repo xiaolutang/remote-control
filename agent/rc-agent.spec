@@ -42,6 +42,8 @@ a = Analysis(
     datas=[
         # Built-in knowledge files (shipped with agent)
         (os.path.join(agent_root, 'app', 'tools', 'knowledge'), 'app/tools/knowledge'),
+        # Shared command whitelist (used by command_validator)
+        (os.path.join(agent_root, '..', 'shared', 'command_whitelist.json'), '.'),
     ] + crypto_datas + pydantic_datas + sdk_datas,
     hiddenimports=[
         # --- agent packages ---
