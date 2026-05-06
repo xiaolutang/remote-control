@@ -4,10 +4,9 @@
 from fastapi import APIRouter, HTTPException, status, Depends, Request as FastAPIRequest
 from pydantic import BaseModel
 from typing import Optional
-import hashlib
 from datetime import datetime, timezone, timedelta
 
-from app.store.session import get_redis, create_session, get_session, verify_session_ownership, get_session_by_name, cleanup_user_sessions
+from app.store.session import create_session, get_session, verify_session_ownership, get_session_by_name, cleanup_user_sessions
 from app.infra.auth import (
     create_token_response,
     generate_refresh_token,
@@ -23,7 +22,9 @@ from app.infra.auth import (
     REFRESH_TOKEN_EXPIRATION_DAYS,
     get_current_user_id,
 )
+from app.infra import auth as _auth
 from app.store.database import get_user, save_user, get_user_devices, add_user_device, update_password_hash
+from app.store import refresh_token_store
 from app.infra.rate_limit import check_rate_limit
 
 router = APIRouter()
@@ -87,30 +88,6 @@ class SessionStateResponse(BaseModel):
     updated_at: str
 
 
-def hash_password(password: str) -> str:
-    """密码哈希（bcrypt）"""
-    import bcrypt
-    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-
-
-def verify_password(password: str, password_hash: str) -> bool:
-    """验证密码（支持 bcrypt 和旧 SHA-256）"""
-    import bcrypt
-
-    # bcrypt 哈希以 $2b$ 开头
-    if password_hash.startswith("$2b$"):
-        return bcrypt.checkpw(password.encode(), password_hash.encode())
-
-    # 旧 SHA-256 格式（64 hex 字符）
-    legacy_hash = hashlib.sha256(password.encode()).hexdigest()
-    return legacy_hash == password_hash
-
-
-def is_legacy_hash(password_hash: str) -> bool:
-    """判断是否为旧 SHA-256 哈希"""
-    return len(password_hash) == 64 and all(c in "0123456789abcdef" for c in password_hash)
-
-
 async def _rate_limit_dependency(request: FastAPIRequest):
     """速率限制依赖：检查客户端 IP，超限返回 429。"""
     client_ip = request.client.host if request.client else "unknown"
@@ -122,28 +99,6 @@ async def _rate_limit_dependency(request: FastAPIRequest):
             headers={"Retry-After": str(retry_after)},
         )
 
-
-# Refresh Token Redis 管理函数
-async def store_refresh_token(session_id: str, refresh_token: str):
-    """存储 refresh token 到 Redis"""
-    redis = await get_redis()
-    key = f"refresh_token:{session_id}"
-    ttl_seconds = REFRESH_TOKEN_EXPIRATION_DAYS * 24 * 60 * 60
-    await redis.set(key, refresh_token, ex=ttl_seconds)
-
-
-async def get_stored_refresh_token(session_id: str) -> Optional[str]:
-    """从 Redis 获取 refresh token"""
-    redis = await get_redis()
-    key = f"refresh_token:{session_id}"
-    return await redis.get(key)
-
-
-async def delete_refresh_token(session_id: str):
-    """删除 Redis 中的 refresh token（单次使用后失效）"""
-    redis = await get_redis()
-    key = f"refresh_token:{session_id}"
-    await redis.delete(key)
 
 
 def _resolve_password(password: Optional[str], password_encrypted: Optional[str]) -> str:
@@ -192,7 +147,7 @@ async def register(user: UserRegister, _rl=Depends(_rate_limit_dependency)):
         )
 
     # 创建用户
-    password_hash = hash_password(raw_password)
+    password_hash = _auth.hash_password(raw_password)
     await save_user(user.username, password_hash)
 
     # 自动登录，生成 token
@@ -247,15 +202,15 @@ async def login(user: UserLogin, _rl=Depends(_rate_limit_dependency)):
 
     stored_hash = stored_user["password_hash"]
 
-    if not verify_password(raw_password, stored_hash):
+    if not _auth.verify_password(raw_password, stored_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户名或密码错误",
         )
 
     # 旧 SHA-256 哈希自动迁移为 bcrypt
-    if is_legacy_hash(stored_hash):
-        new_hash = hash_password(raw_password)
+    if _auth.is_legacy_hash(stored_hash):
+        new_hash = _auth.hash_password(raw_password)
         await update_password_hash(user.username, new_hash)
 
     # 检查是否已有该用户的 session（实现同用户多设备共享 session）
@@ -297,7 +252,7 @@ async def login(user: UserLogin, _rl=Depends(_rate_limit_dependency)):
 
     # 生成 refresh token（携带 view_type）
     refresh_token = generate_refresh_token(session_id, view_type=view_type)
-    await store_refresh_token(session_id, refresh_token)
+    await refresh_token_store.store_refresh_token(session_id, refresh_token)
 
     # 计算 refresh token 过期时间
     refresh_expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRATION_DAYS)
@@ -350,7 +305,7 @@ async def refresh_token(request: RefreshRequest):
     session_id = payload["session_id"]
 
     # 从 Redis 获取存储的 refresh token
-    stored_token = await get_stored_refresh_token(session_id)
+    stored_token = await refresh_token_store.get_stored_refresh_token(session_id)
 
     # 检查 token 是否存在（可能已被使用或过期被清理）
     if not stored_token:
@@ -367,7 +322,7 @@ async def refresh_token(request: RefreshRequest):
         )
 
     # 立即删除旧的 refresh token（单次使用）
-    await delete_refresh_token(session_id)
+    await refresh_token_store.delete_refresh_token(session_id)
 
     # 读取当前 token_version（不递增）
     # 旧 refresh token 无 view_type 时按 mobile 处理
@@ -393,7 +348,7 @@ async def refresh_token(request: RefreshRequest):
     new_refresh_token = generate_refresh_token(session_id, view_type=view_type)
 
     # 存储新的 refresh token
-    await store_refresh_token(session_id, new_refresh_token)
+    await refresh_token_store.store_refresh_token(session_id, new_refresh_token)
 
     # 返回新的 token
     return RefreshResponse(

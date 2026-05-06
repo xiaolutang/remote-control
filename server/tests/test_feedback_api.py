@@ -591,7 +591,7 @@ class TestLoginResponseUsername:
                  "user_id": "testuser", "owner": "testuser"
              }), \
              patch("app.api.user_api.increment_token_version", new_callable=AsyncMock, return_value=1), \
-             patch("app.api.user_api.store_refresh_token", new_callable=AsyncMock), \
+             patch("app.store.refresh_token_store.store_refresh_token", new_callable=AsyncMock), \
              patch("app.api.user_api.update_password_hash", new_callable=AsyncMock):
             resp = client.post("/api/login", json={"username": "testuser", "password": "test123456"})
 
