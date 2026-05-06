@@ -12,6 +12,7 @@ import hashlib
 import json
 import logging
 import os
+import time
 from pathlib import Path
 
 import aiohttp
@@ -20,6 +21,7 @@ from cryptography.hazmat.primitives.asymmetric import padding as asym_padding
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from app.core.config import DEFAULT_CONFIG_DIR
+from app.core.log_adapter import _log
 from app.core.message_types import PLAINTEXT_MSG_TYPES  # noqa: F401 — re-export
 
 logger = logging.getLogger(__name__)
@@ -47,14 +49,16 @@ class AgentCrypto:
     async def fetch_public_key(self, http_base_url: str) -> None:
         """从 Server 拉取 RSA 公钥并校验指纹"""
         url = f"{http_base_url}/api/public-key"
+        t0 = time.monotonic()
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
                 data = await resp.json()
 
         pem = data["public_key_pem"]
         self._public_key = serialization.load_pem_public_key(pem.encode())
         self._fingerprint = data["fingerprint"]
         self._verify_fingerprint(self._fingerprint)
+        _log(f"auth: fetch_public_key took {time.monotonic() - t0:.3f}s")
         logger.info("Public key loaded, fingerprint=%s", self._fingerprint)
 
     @property

@@ -1,8 +1,22 @@
 {
   "version": "1.4",
   "project": "remote-control",
-  "updated_at": "2026-05-06T15:00:00+08:00",
+  "updated_at": "2026-05-06T21:30:00+08:00",
   "status": "active",
+  "active_requirement_cycle": {
+    "id": "R056",
+    "name": "auth-connection-optimize",
+    "branch": "feat/R056-auth-connection-optimize",
+    "started_at": "2026-05-06T21:00:00+08:00",
+    "workflow": {
+      "mode": "B",
+      "runtime": "skill_orchestrated",
+      "review_provider": "codex_plugin",
+      "audit_provider": "codex_plugin",
+      "risk_provider": "codex_plugin"
+    },
+    "summary": "P0: AuthService 共享 ClientSession（含 fetch_public_key）+ login 公钥缓存守卫"
+  },
   "archived_requirement_cycles": [
     {"id": "R047", "name": "agent-conversation-interaction-optimization", "status": "completed", "archive_dir": "_archive/R047_agent-conversation-interaction-optimization", "total_tasks": 31},
     {"id": "R048", "name": "architecture-deep-cleanup", "status": "completed", "archive_dir": "_archive/R048_architecture-deep-cleanup", "total_tasks": 20},
@@ -14,5 +28,60 @@
     {"id": "R054", "name": "code-quality-consolidation", "status": "completed", "archive_dir": "_archive/R054_code-quality-consolidation", "total_tasks": 11, "completed_at": "2026-05-06"}
   ],
   "archived_phases": [],
-  "features": []
+  "features": [
+    {
+      "id": "S401",
+      "phase": 0,
+      "module": "agent",
+      "name": "AuthService 共享 ClientSession + 公钥守卫",
+      "description": "合并 session 复用和公钥缓存为一个任务。改造：1) AuthService 持有懒加载的共享 ClientSession（self._session），所有 HTTP 方法（login/refresh_token/verify_token）共用；2) login() 加 has_public_key 守卫，跳过重复拉取；3) AuthService 实现 __aenter__/__aexit__ 支持 async with，确保所有路径（成功/失败/早返回）都关闭 session；4) ensure_valid_token 使用 async with AuthService(...) 合并实例 + 自动清理；5) login 命令同样使用 async with 确保清理；6) fetch_public_key 仍用 AgentCrypto 自己的 session（独立关注点），但 has_public_key 守卫消除了重复调用。性能改善：最坏路径从 4 次独立 TCP/TLS → AuthService 2 次（verify/refresh/login 共享 1 次）+ fetch_public_key 1 次（仅首次），且 has_public_key 守卫在重登时完全跳过。",
+      "verification": "L1",
+      "depends_on": [],
+      "status": "completed",
+      "priority": 0,
+      "acceptance_criteria": [
+        "AuthService 持有懒加载的共享 ClientSession，verify/refresh/login 使用同一 session",
+        "AuthService 实现 __aenter__/__aexit__，支持 async with 自动 close()",
+        "ensure_valid_token 只创建一个 AuthService 实例，async with 保证清理",
+        "CLI login 命令使用 async with AuthService 确保清理",
+        "login() 在 has_public_key=True 时跳过 fetch_public_key",
+        "has_public_key=False 时仍正常拉取，ws:// 公钥失败保持 fail-closed",
+        "https:// 公钥失败时 TLS 保护下回退明文密码",
+        "close() 后 session 被关闭，不会毒化后续调用",
+        "现有 pytest 全部通过"
+      ],
+      "risk_tags": ["network", "auth"],
+      "test_tasks": [
+        "test_session_reused_across_calls: 同一 AuthService 实例 verify→refresh→login 复用同一 ClientSession",
+        "test_session_created_lazily: __init__ 不创建 session，首次调用才创建",
+        "test_close_cleans_up_session: close() 后 session 被关闭",
+        "test_close_safe_after_exception: 异常后 close() 不抛二次异常",
+        "test_async_context_manager: async with AuthService 自动 close",
+        "test_login_skips_pubkey_when_cached: has_public_key=True 时不调用 fetch_public_key",
+        "test_login_fetches_pubkey_when_missing: has_public_key=False 时正常拉取",
+        "test_ws_pubkey_fail_closed: ws:// 公钥拉取失败时 fail-closed（不回退明文）",
+        "test_https_pubkey_fail_fallback: https:// 公钥失败时 TLS 下回退明文密码",
+        "test_fallback_state_machine_intact: verify 失败 → refresh → login 状态链不变"
+      ],
+      "files": [
+        "agent/app/security/auth_service.py",
+        "agent/app/cli.py"
+      ]
+    },
+    {
+      "id": "S402",
+      "phase": 1,
+      "module": "agent",
+      "name": "R056 测试验证 + project_spec 更新",
+      "description": "运行 agent 全量测试验证无回归，更新 project_spec.md 到 R056 范围。",
+      "verification": "L1",
+      "depends_on": ["S401"],
+      "status": "completed",
+      "acceptance_criteria": [
+        "agent 全量 pytest 通过",
+        "project_spec.md 更新到 R056 范围"
+      ],
+      "files": [".dev-flow/project_spec.md"]
+    }
+  ]
 }
