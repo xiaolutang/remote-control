@@ -20,6 +20,7 @@ from app.ws.agent_request import (
     pending_execute_commands,
     pending_lookup_knowledge,
     pending_tool_calls,
+    pending_registry,
     _cleanup_execute_command_futures,
     _cleanup_pending_futures_by_id,
     _execute_command_rate_tracker,
@@ -176,6 +177,9 @@ async def _cleanup_agent(
     _cleanup_execute_command_futures(session_id, reason)
     _cleanup_pending_futures_by_id(pending_lookup_knowledge, session_id, reason)
     _cleanup_pending_futures_by_id(pending_tool_calls, session_id, reason)
+
+    # B056: 清理 registry 内部时间戳追踪（dict/future 已由上面旧函数清理）
+    pending_registry.clear_timestamps_by_session(session_id)
 
     # 清理频率限制追踪
     _execute_command_rate_tracker.pop(session_id, None)

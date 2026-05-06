@@ -53,6 +53,8 @@ from app.ws.agent_connection import (                     # noqa: F401
 # agent_request: 各请求类型处理函数 + pending futures
 from app.ws.agent_request import (                       # noqa: F401
     ExecuteCommandResult,
+    PendingRequestRegistry,
+    pending_registry,
     pending_terminal_creates,
     pending_terminal_closes,
     pending_terminal_snapshots,
