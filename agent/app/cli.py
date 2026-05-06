@@ -135,45 +135,44 @@ async def ensure_valid_token(config: Config, config_path) -> tuple:
     access_token = config.get_access_token()
     refresh_token = config.refresh_token
 
-    if access_token:
-        # 验证当前 token
-        auth = AuthService(config.server_url)
-        if await auth.verify_token(access_token):
-            _log_agent(f"auth: ensure_valid_token took {time.monotonic() - t_start:.3f}s (verify ok)")
-            return True, access_token
+    async with AuthService(config.server_url) as auth:
+        if access_token:
+            # 验证当前 token
+            if await auth.verify_token(access_token):
+                _log_agent(f"auth: ensure_valid_token took {time.monotonic() - t_start:.3f}s (verify ok)")
+                return True, access_token
 
-        # Token 无效，尝试刷新
-        if refresh_token:
-            click.echo("Token 已过期，正在刷新...")
-            refresh_result = await auth.refresh_token(refresh_token)
-            if refresh_result.success:
-                config.access_token = refresh_result.access_token
-                config.refresh_token = refresh_result.refresh_token
-                config.token = refresh_result.access_token  # 向后兼容
+            # Token 无效，尝试刷新
+            if refresh_token:
+                click.echo("Token 已过期，正在刷新...")
+                refresh_result = await auth.refresh_token(refresh_token)
+                if refresh_result.success:
+                    config.access_token = refresh_result.access_token
+                    config.refresh_token = refresh_result.refresh_token
+                    config.token = refresh_result.access_token  # 向后兼容
+                    _safe_save_config(config, config_path)
+                    click.echo(click.style("✓ Token 刷新成功", fg="green"))
+                    _log_agent(f"auth: ensure_valid_token took {time.monotonic() - t_start:.3f}s (refresh ok)")
+                    return True, refresh_result.access_token
+                else:
+                    click.echo(f"Token 刷新失败: {refresh_result.message}")
+
+        # 无有效 token 或刷新失败 → 尝试自动登录
+        if config.can_auto_login():
+            click.echo(f"正在使用 {config.username} 自动登录...")
+            login_result = await auth.login(config.username, config.password)
+
+            if login_result.success:
+                config.access_token = login_result.access_token
+                config.refresh_token = login_result.refresh_token
+                config.token = login_result.access_token  # 向后兼容
                 _safe_save_config(config, config_path)
-                click.echo(click.style("✓ Token 刷新成功", fg="green"))
-                _log_agent(f"auth: ensure_valid_token took {time.monotonic() - t_start:.3f}s (refresh ok)")
-                return True, refresh_result.access_token
+                click.echo(click.style("✓ 自动登录成功", fg="green"))
+                _log_agent(f"auth: ensure_valid_token took {time.monotonic() - t_start:.3f}s (login ok)")
+                return True, login_result.access_token
             else:
-                click.echo(f"Token 刷新失败: {refresh_result.message}")
-
-    # 无有效 token 或刷新失败 → 尝试自动登录
-    if config.can_auto_login():
-        click.echo(f"正在使用 {config.username} 自动登录...")
-        auth = AuthService(config.server_url)
-        login_result = await auth.login(config.username, config.password)
-
-        if login_result.success:
-            config.access_token = login_result.access_token
-            config.refresh_token = login_result.refresh_token
-            config.token = login_result.access_token  # 向后兼容
-            _safe_save_config(config, config_path)
-            click.echo(click.style("✓ 自动登录成功", fg="green"))
-            _log_agent(f"auth: ensure_valid_token took {time.monotonic() - t_start:.3f}s (login ok)")
-            return True, login_result.access_token
-        else:
-            _log_agent(f"auth: ensure_valid_token took {time.monotonic() - t_start:.3f}s (login failed)")
-            return False, f"自动登录失败: {login_result.message}"
+                _log_agent(f"auth: ensure_valid_token took {time.monotonic() - t_start:.3f}s (login failed)")
+                return False, f"自动登录失败: {login_result.message}"
 
     _log_agent(f"auth: ensure_valid_token took {time.monotonic() - t_start:.3f}s (no credentials)")
     return False, "未配置 Token 且无登录凭据，请先使用 'rc-agent login' 登录"
@@ -191,12 +190,10 @@ def login(ctx, server, username, password):
 
     click.echo(f"正在登录 {server}...")
 
-    # 创建认证服务
-    auth = AuthService(server)
-
     # 执行登录
     async def do_login():
-        return await auth.login(username, password)
+        async with AuthService(server) as auth:
+            return await auth.login(username, password)
 
     result = asyncio.run(do_login())
 
