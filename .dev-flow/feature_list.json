@@ -1,0 +1,18 @@
+{
+  "version": "1.4",
+  "project": "remote-control",
+  "updated_at": "2026-05-06T15:00:00+08:00",
+  "status": "active",
+  "archived_requirement_cycles": [
+    {"id": "R047", "name": "agent-conversation-interaction-optimization", "status": "completed", "archive_dir": "_archive/R047_agent-conversation-interaction-optimization", "total_tasks": 31},
+    {"id": "R048", "name": "architecture-deep-cleanup", "status": "completed", "archive_dir": "_archive/R048_architecture-deep-cleanup", "total_tasks": 20},
+    {"id": "R049", "name": "brainstorm-bug-fixes", "status": "completed", "archive_dir": "_archive/R049_brainstorm-bug-fixes", "total_tasks": 3},
+    {"id": "R050", "name": "token-usage-optimization", "status": "completed", "archive_dir": "_archive/R050_token-usage-optimization", "total_tasks": 3},
+    {"id": "R051", "name": "eval-architecture-overhaul", "status": "completed", "archive_dir": "_archive/R051_eval-architecture-overhaul", "total_tasks": 11},
+    {"id": "R052", "name": "open-source-release", "status": "completed", "archive_dir": "_archive/R052_open-source-release", "total_tasks": 5},
+    {"id": "R053", "name": "desktop-agent-bundling", "status": "completed", "archive_dir": "_archive/R053_desktop-agent-bundling", "total_tasks": 3},
+    {"id": "R054", "name": "code-quality-consolidation", "status": "completed", "archive_dir": "_archive/R054_code-quality-consolidation", "total_tasks": 11, "completed_at": "2026-05-06"}
+  ],
+  "archived_phases": [],
+  "features": []
+}

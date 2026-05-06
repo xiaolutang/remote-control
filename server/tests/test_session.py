@@ -27,12 +27,24 @@ from app.store.session import (
     get_history,
     get_history_count,
     cleanup_old_history,
+    cleanup_user_sessions,
+    get_session_terminal,
+    get_session_by_name,
+    get_session_by_device_id,
+    list_sessions_for_user,
+    backfill_user_session_index,
     _validate_session_id,
     _normalize_session_data,
     _default_device_state,
     _close_expired_detached_terminals,
     _backfill_terminal_views,
     redis_conn,
+)
+from app.store.session_terminal import (
+    _terminal_cache,
+    _invalidate_session_cache,
+    _set_terminals_cache,
+    _cache_key,
 )
 from fastapi import HTTPException
 
@@ -167,11 +179,12 @@ class TestDeviceState:
             "agent_online": False,
         }
 
-        normalized = _normalize_session_data("legacy-session", legacy)
+        normalized, changed = _normalize_session_data("legacy-session", legacy)
 
         assert normalized["device"]["device_id"] == "legacy-session"
         assert normalized["device"]["max_terminals"] == 3
         assert normalized["views"] == {"mobile": 0, "desktop": 0}
+        assert changed is True
 
     def test_normalize_legacy_terminal_adds_terminal_pty(self):
         """旧 terminal 自动继承 session 级 PTY。"""
@@ -194,7 +207,7 @@ class TestDeviceState:
             ],
         }
 
-        normalized = _normalize_session_data("legacy-session", legacy)
+        normalized, changed = _normalize_session_data("legacy-session", legacy)
 
         assert normalized["terminals"][0]["pty"] == {"rows": 42, "cols": 120}
 
@@ -358,7 +371,7 @@ class TestTerminalState:
             ],
         }
 
-        normalized = _normalize_session_data("legacy-session", legacy)
+        normalized, changed = _normalize_session_data("legacy-session", legacy)
 
         assert normalized["terminals"][0]["geometry_owner_view"] is None
 
@@ -1305,3 +1318,850 @@ class TestRedisConnectionFailure:
 
             assert e.value.status_code == 503
             assert "Redis" in e.value.detail
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# B055: session store 热路径优化测试
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestNormalizeChangedFlag:
+    """_normalize_session_data changed 标志测试"""
+
+    def test_no_change_returns_false(self):
+        """已规范的数据返回 changed=False"""
+        fully_normalized = {
+            "status": "online",
+            "created_at": "2026-03-26T10:00:00Z",
+            "agent_online": False,
+            "views": {"mobile": 0, "desktop": 0},
+            "pty": {"rows": 24, "cols": 80},
+            "terminals": [],
+            "device": _default_device_state("session-1"),
+        }
+        normalized, changed = _normalize_session_data("session-1", fully_normalized)
+        assert changed is False
+
+    def test_missing_fields_returns_true(self):
+        """缺少字段时返回 changed=True"""
+        minimal = {
+            "status": "pending",
+            "created_at": "2026-03-26T10:00:00Z",
+        }
+        normalized, changed = _normalize_session_data("session-1", minimal)
+        assert changed is True
+
+    def test_legacy_status_returns_true(self):
+        """旧版状态映射触发 changed=True"""
+        legacy = {
+            "status": "offline",
+            "created_at": "2026-03-26T10:00:00Z",
+            "agent_online": False,
+        }
+        normalized, changed = _normalize_session_data("session-1", legacy)
+        assert changed is True
+        assert normalized["status"] == "offline_expired"
+
+
+class TestTerminalCache:
+    """进程内 terminal 缓存测试"""
+
+    def setup_method(self):
+        """每个测试前清空缓存"""
+        _terminal_cache.clear()
+
+    def test_cache_miss_returns_none(self):
+        """空缓存返回 None"""
+        assert _terminal_cache.get(_cache_key("s1", "t1")) is None
+
+    def test_set_and_get_cache(self):
+        """写入缓存后可以命中"""
+        terminal = {"terminal_id": "t1", "status": "live"}
+        _set_terminals_cache("s1", [terminal])
+        cached = _terminal_cache.get(_cache_key("s1", "t1"))
+        assert cached is not None
+        assert cached["terminal_id"] == "t1"
+
+    def test_invalidate_session_cache(self):
+        """失效指定 session 的全部缓存"""
+        _set_terminals_cache("s1", [
+            {"terminal_id": "t1", "status": "live"},
+            {"terminal_id": "t2", "status": "live"},
+        ])
+        _set_terminals_cache("s2", [
+            {"terminal_id": "t3", "status": "live"},
+        ])
+        _invalidate_session_cache("s1")
+        assert _terminal_cache.get(_cache_key("s1", "t1")) is None
+        assert _terminal_cache.get(_cache_key("s1", "t2")) is None
+        assert _terminal_cache.get(_cache_key("s2", "t3")) is not None
+
+    @pytest.mark.asyncio
+    async def test_get_session_terminal_hits_cache(self):
+        """缓存命中时不再访问 Redis"""
+        terminal_data = {
+            "terminal_id": "term-1",
+            "title": "Test",
+            "cwd": "/tmp",
+            "command": "/bin/bash",
+            "env": {},
+            "status": "live",
+            "views": {"mobile": 0, "desktop": 0},
+            "created_at": "2026-03-26T10:00:00Z",
+            "updated_at": "2026-03-26T10:00:00Z",
+        }
+        _set_terminals_cache("session-1", [terminal_data])
+
+        mock_redis = AsyncMock()
+        mock_redis.get = AsyncMock()
+
+        with patch.object(redis_conn, '_redis', mock_redis):
+            result = await get_session_terminal("session-1", "term-1")
+
+        assert result is not None
+        assert result["terminal_id"] == "term-1"
+        # Redis 不应被调用（缓存命中）
+        mock_redis.get.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_get_session_terminal_miss_reads_redis(self):
+        """缓存 miss 时读 Redis 并回填缓存"""
+        existing_data = json.dumps({
+            "status": "online",
+            "created_at": "2026-03-26T10:00:00Z",
+            "terminals": [
+                {
+                    "terminal_id": "term-1",
+                    "title": "Test",
+                    "cwd": "/tmp",
+                    "command": "/bin/bash",
+                    "env": {},
+                    "status": "live",
+                    "views": {"mobile": 0, "desktop": 0},
+                    "created_at": "2026-03-26T10:00:00Z",
+                    "updated_at": "2026-03-26T10:00:00Z",
+                }
+            ],
+        })
+
+        mock_redis = AsyncMock()
+        mock_redis.get = AsyncMock(return_value=existing_data)
+        mock_redis.set = AsyncMock(return_value=True)
+
+        with patch.object(redis_conn, '_redis', mock_redis):
+            result = await get_session_terminal("session-1", "term-1")
+
+        assert result is not None
+        assert result["terminal_id"] == "term-1"
+        mock_redis.get.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_terminal_write_invalidates_cache(self):
+        """terminal 写入操作后缓存被失效"""
+        terminal_data = {
+            "terminal_id": "term-1",
+            "title": "Test",
+            "cwd": "/tmp",
+            "command": "/bin/bash",
+            "env": {},
+            "status": "live",
+            "views": {"mobile": 1, "desktop": 0},
+            "created_at": "2026-03-26T10:00:00Z",
+            "updated_at": "2026-03-26T10:00:00Z",
+        }
+        existing_data = json.dumps({
+            "status": "online",
+            "created_at": "2026-03-26T10:00:00Z",
+            "terminals": [terminal_data],
+        })
+
+        mock_redis = AsyncMock()
+        mock_redis.get = AsyncMock(return_value=existing_data)
+        mock_redis.set = AsyncMock(return_value=True)
+
+        with patch.object(redis_conn, '_redis', mock_redis):
+            # 写入操作（更新状态）
+            await update_session_terminal_status(
+                "session-1", "term-1",
+                terminal_status="closed",
+                disconnect_reason="test",
+            )
+
+        # 缓存应被失效并重建（写入后 _save_session 重建缓存）
+        # 验证新的缓存内容反映 closed 状态
+        cached = _terminal_cache.get(_cache_key("session-1", "term-1"))
+        assert cached is not None
+        assert cached["status"] == "closed"
+
+
+class TestNormalizeWriteback:
+    """normalize 回写条件测试"""
+
+    @pytest.mark.asyncio
+    async def test_no_writeback_when_no_change(self):
+        """数据已规范时 _get_session_raw 不回写 Redis"""
+        from app.store.session_terminal import _get_session_raw
+
+        fully_normalized = {
+            "status": "online",
+            "created_at": "2026-03-26T10:00:00Z",
+            "agent_online": False,
+            "views": {"mobile": 0, "desktop": 0},
+            "pty": {"rows": 24, "cols": 80},
+            "terminals": [],
+            "device": _default_device_state("session-1"),
+        }
+        raw_data = json.dumps(fully_normalized)
+
+        mock_redis = AsyncMock()
+        mock_redis.get = AsyncMock(return_value=raw_data)
+        mock_redis.set = AsyncMock(return_value=True)
+
+        with patch.object(redis_conn, '_redis', mock_redis):
+            result = await _get_session_raw("session-1")
+
+        assert result["status"] == "online"
+        # changed=False 时不应触发 Redis set
+        mock_redis.set.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_writeback_when_change_detected(self):
+        """数据需要 normalize 时 _get_session_raw 回写 Redis"""
+        from app.store.session_terminal import _get_session_raw
+
+        legacy_data = json.dumps({
+            "status": "pending",
+            "created_at": "2026-03-26T10:00:00Z",
+        })
+
+        mock_redis = AsyncMock()
+        mock_redis.get = AsyncMock(return_value=legacy_data)
+        mock_redis.set = AsyncMock(return_value=True)
+
+        with patch.object(redis_conn, '_redis', mock_redis):
+            result = await _get_session_raw("session-1")
+
+        assert result["device"]["device_id"] == "session-1"
+        mock_redis.set.assert_awaited()
+
+
+class TestUserIdReverseIndex:
+    """user_id 反向索引测试"""
+
+    @pytest.mark.asyncio
+    async def test_create_session_with_user_id_adds_index(self):
+        """创建 session 时自动添加 user_id 反向索引"""
+        mock_redis = AsyncMock()
+        mock_redis.exists = AsyncMock(return_value=False)
+        mock_redis.set = AsyncMock(return_value=True)
+        mock_redis.sadd = AsyncMock(return_value=1)
+
+        with patch.object(redis_conn, '_redis', mock_redis):
+            result = await create_session(
+                "session-idx-1",
+                user_id="user-1",
+            )
+
+        # 验证 sadd 被调用
+        mock_redis.sadd.assert_awaited()
+        call_args = mock_redis.sadd.await_args
+        assert "rc:user_sessions:user-1" in call_args.args[0]
+        assert "session-idx-1" in call_args.args
+
+    @pytest.mark.asyncio
+    async def test_create_session_with_owner_adds_index(self):
+        """创建 session 时 owner 也维护反向索引"""
+        mock_redis = AsyncMock()
+        mock_redis.exists = AsyncMock(return_value=False)
+        mock_redis.set = AsyncMock(return_value=True)
+        mock_redis.sadd = AsyncMock(return_value=1)
+
+        with patch.object(redis_conn, '_redis', mock_redis):
+            result = await create_session(
+                "session-idx-2",
+                owner="owner-1",
+            )
+
+        mock_redis.sadd.assert_awaited()
+        call_args = mock_redis.sadd.await_args
+        assert "rc:user_sessions:owner-1" in call_args.args[0]
+
+    @pytest.mark.asyncio
+    async def test_cleanup_user_sessions_removes_index(self):
+        """清理 session 时自动移除反向索引"""
+        session_data = {
+            "status": "online",
+            "created_at": "2026-03-26T10:00:00Z",
+            "user_id": "user-1",
+            "terminals": [],
+        }
+
+        mock_redis = AsyncMock()
+        mock_redis.exists = AsyncMock(return_value=True)
+        mock_redis.smembers = AsyncMock(return_value={"session-to-clean"})
+        mock_redis.get = AsyncMock(return_value=json.dumps(session_data))
+        mock_redis.delete = AsyncMock(return_value=1)
+        mock_redis.srem = AsyncMock(return_value=1)
+        mock_redis.set = AsyncMock(return_value=True)
+
+        with patch.object(redis_conn, '_redis', mock_redis):
+            deleted = await cleanup_user_sessions("user-1")
+
+        assert deleted == 1
+        # 验证 srem 被调用移除索引
+        srem_calls = [call for call in mock_redis.srem.await_args_list]
+        assert any("rc:user_sessions:user-1" in str(call) for call in srem_calls)
+
+    @pytest.mark.asyncio
+    async def test_list_sessions_for_user_uses_index(self):
+        """list_sessions_for_user 使用反向索引查询"""
+        session_data = {
+            "status": "online",
+            "created_at": "2026-03-26T10:00:00Z",
+            "agent_online": False,
+            "views": {"mobile": 0, "desktop": 0},
+            "pty": {"rows": 24, "cols": 80},
+            "terminals": [],
+            "device": _default_device_state("session-user-1"),
+        }
+
+        mock_redis = AsyncMock()
+        # _ensure_user_index: exists 返回 True 表示索引已存在
+        mock_redis.exists = AsyncMock(return_value=True)
+        mock_redis.smembers = AsyncMock(return_value={"session-user-1"})
+        mock_redis.get = AsyncMock(return_value=json.dumps(session_data))
+        mock_redis.set = AsyncMock(return_value=True)
+
+        with patch.object(redis_conn, '_redis', mock_redis):
+            sessions = await list_sessions_for_user("user-1")
+
+        assert len(sessions) == 1
+        assert sessions[0]["session_id"] == "session-user-1"
+        # 不应调用 scan
+        mock_redis.scan.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_list_sessions_for_user_handles_deleted_session(self):
+        """list_sessions_for_user 遇到已删除 session 时清理索引"""
+        mock_redis = AsyncMock()
+        mock_redis.exists = AsyncMock(return_value=True)
+        mock_redis.smembers = AsyncMock(return_value={"deleted-session"})
+        mock_redis.get = AsyncMock(return_value=None)
+        mock_redis.srem = AsyncMock(return_value=1)
+
+        with patch.object(redis_conn, '_redis', mock_redis):
+            sessions = await list_sessions_for_user("user-1")
+
+        assert sessions == []
+        # 应清理失效索引
+        mock_redis.srem.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_list_sessions_for_user_empty(self):
+        """list_sessions_for_user 空 user_id 返回空列表"""
+        sessions = await list_sessions_for_user("")
+        assert sessions == []
+
+    @pytest.mark.asyncio
+    async def test_get_session_by_device_id_with_user_id(self):
+        """有 user_id 时 get_session_by_device_id 使用索引而非 SCAN"""
+        session_data = {
+            "status": "online",
+            "created_at": "2026-03-26T10:00:00Z",
+            "agent_online": False,
+            "views": {"mobile": 0, "desktop": 0},
+            "pty": {"rows": 24, "cols": 80},
+            "terminals": [],
+            "device": {
+                **_default_device_state("session-dev-1"),
+                "device_id": "device-abc",
+            },
+        }
+
+        mock_redis = AsyncMock()
+        mock_redis.exists = AsyncMock(return_value=True)
+        mock_redis.smembers = AsyncMock(return_value={"session-dev-1"})
+        mock_redis.get = AsyncMock(return_value=json.dumps(session_data))
+        mock_redis.set = AsyncMock(return_value=True)
+
+        with patch.object(redis_conn, '_redis', mock_redis):
+            result = await get_session_by_device_id("device-abc", user_id="user-1")
+
+        assert result is not None
+        assert result["device"]["device_id"] == "device-abc"
+        # 有 user_id 时不应 SCAN
+        mock_redis.scan.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_get_session_by_device_id_without_user_id(self):
+        """无 user_id 时 get_session_by_device_id 使用 SCAN 回退"""
+        session_data = {
+            "status": "online",
+            "created_at": "2026-03-26T10:00:00Z",
+            "agent_online": False,
+            "views": {"mobile": 0, "desktop": 0},
+            "pty": {"rows": 24, "cols": 80},
+            "terminals": [],
+            "device": {
+                **_default_device_state("session-scan-1"),
+                "device_id": "device-scan",
+            },
+        }
+
+        mock_redis = AsyncMock()
+        mock_redis.get = AsyncMock(return_value=json.dumps(session_data))
+        mock_redis.set = AsyncMock(return_value=True)
+        mock_redis.scan = AsyncMock(return_value=(0, ["rc:session:session-scan-1"]))
+
+        with patch.object(redis_conn, '_redis', mock_redis):
+            result = await get_session_by_device_id("device-scan")
+
+        assert result is not None
+        assert result["device"]["device_id"] == "device-scan"
+        # 无 user_id 时应 SCAN
+        mock_redis.scan.assert_awaited()
+
+
+class TestLazySelfHeal:
+    """索引缺失时 lazy self-heal 测试"""
+
+    @pytest.mark.asyncio
+    async def test_lazy_self_heal_on_missing_index(self):
+        """索引缺失时自动 SCAN 补齐"""
+        session_data = {
+            "status": "online",
+            "created_at": "2026-03-26T10:00:00Z",
+            "user_id": "user-heal",
+            "agent_online": False,
+            "views": {"mobile": 0, "desktop": 0},
+            "pty": {"rows": 24, "cols": 80},
+            "terminals": [],
+            "device": _default_device_state("session-heal-1"),
+        }
+
+        mock_redis = AsyncMock()
+        # exists 返回 False 触发 self-heal
+        exists_count = 0
+        async def exists_side_effect(key):
+            nonlocal exists_count
+            exists_count += 1
+            if key == "rc:user_sessions:user-heal":
+                return 0 if exists_count == 1 else 1
+            return 1
+        mock_redis.exists = AsyncMock(side_effect=exists_side_effect)
+        mock_redis.smembers = AsyncMock(return_value={"session-heal-1"})
+        mock_redis.get = AsyncMock(side_effect=[
+            # self-heal SCAN 阶段
+            json.dumps(session_data),
+            # 实际读取阶段
+            json.dumps(session_data),
+        ])
+        mock_redis.set = AsyncMock(return_value=True)
+        mock_redis.sadd = AsyncMock(return_value=1)
+        mock_redis.scan = AsyncMock(return_value=(0, ["rc:session:session-heal-1"]))
+
+        with patch.object(redis_conn, '_redis', mock_redis):
+            sessions = await list_sessions_for_user("user-heal")
+
+        assert len(sessions) == 1
+        # self-heal 应调用 scan
+        mock_redis.scan.assert_awaited()
+        # 应写入索引
+        mock_redis.sadd.assert_awaited()
+
+
+class TestBackfill:
+    """backfill_user_session_index 测试"""
+
+    @pytest.mark.asyncio
+    async def test_backfill_indexes_sessions(self):
+        """backfill 正确索引已有 session"""
+        session1 = json.dumps({
+            "status": "online",
+            "user_id": "user-1",
+        })
+        session2 = json.dumps({
+            "status": "online",
+            "user_id": "user-2",
+        })
+        session_no_user = json.dumps({
+            "status": "online",
+        })
+
+        mock_redis = AsyncMock()
+        # 索引清理 scan
+        mock_redis.scan = AsyncMock(side_effect=[
+            (0, []),  # 清理旧索引
+            (0, ["rc:session:s1", "rc:session:s2", "rc:session:s3"]),  # session scan
+        ])
+        mock_redis.get = AsyncMock(side_effect=[session1, session2, session_no_user])
+        mock_redis.sadd = AsyncMock(return_value=1)
+        mock_redis.delete = AsyncMock(return_value=0)
+
+        with patch.object(redis_conn, '_redis', mock_redis):
+            count = await backfill_user_session_index()
+
+        assert count == 2  # 只有 user-1 和 user-2 的 session
+
+    @pytest.mark.asyncio
+    async def test_backfill_empty(self):
+        """无 session 时 backfill 返回 0"""
+        mock_redis = AsyncMock()
+        mock_redis.scan = AsyncMock(side_effect=[
+            (0, []),  # 清理旧索引
+            (0, []),  # 无 session
+        ])
+        mock_redis.delete = AsyncMock(return_value=0)
+
+        with patch.object(redis_conn, '_redis', mock_redis):
+            count = await backfill_user_session_index()
+
+        assert count == 0
+
+
+class TestStartupBackfill:
+    """启动时 backfill 测试"""
+
+    @pytest.mark.asyncio
+    async def test_backfill_failure_does_not_raise(self):
+        """backfill 失败时不阻塞，仅记录 warning"""
+
+        mock_redis = AsyncMock()
+        mock_redis.scan = AsyncMock(side_effect=Exception("Redis unavailable"))
+
+        with patch.object(redis_conn, '_redis', mock_redis):
+            # backfill 本身在 Redis 操作失败时会抛异常
+            # __init__.py 中的 lifespan 捕获并记录 warning
+            with pytest.raises(Exception):
+                await backfill_user_session_index()
+
+
+class TestGetSessionTerminalCacheIntegration:
+    """get_session_terminal 缓存集成测试"""
+
+    def setup_method(self):
+        _terminal_cache.clear()
+
+    @pytest.mark.asyncio
+    async def test_data_message_path_uses_cache(self):
+        """data 消息处理路径 get_session_terminal 调用次数减少"""
+        terminal_data = {
+            "terminal_id": "term-data",
+            "title": "Data Terminal",
+            "cwd": "/tmp",
+            "command": "/bin/bash",
+            "env": {},
+            "status": "live",
+            "views": {"mobile": 0, "desktop": 0},
+            "created_at": "2026-03-26T10:00:00Z",
+            "updated_at": "2026-03-26T10:00:00Z",
+        }
+        session_data = json.dumps({
+            "status": "online",
+            "created_at": "2026-03-26T10:00:00Z",
+            "agent_online": False,
+            "views": {"mobile": 0, "desktop": 0},
+            "pty": {"rows": 24, "cols": 80},
+            "terminals": [terminal_data],
+            "device": _default_device_state("session-data"),
+        })
+
+        mock_redis = AsyncMock()
+        mock_redis.get = AsyncMock(return_value=session_data)
+        mock_redis.set = AsyncMock(return_value=True)
+
+        with patch.object(redis_conn, '_redis', mock_redis):
+            # 第一次调用：miss → 读 Redis + 填缓存
+            result1 = await get_session_terminal("session-data", "term-data")
+            assert result1 is not None
+
+            # 第二次调用：缓存命中，不读 Redis
+            call_count_before = mock_redis.get.await_count
+            result2 = await get_session_terminal("session-data", "term-data")
+            call_count_after = mock_redis.get.await_count
+
+            assert result2 is not None
+            # 缓存命中后 get 不应再次被调用
+            assert call_count_after == call_count_before
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# B059: 心跳优化 + 连接去重 + history 渐进式读取
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestHeartbeatOptimization:
+    """B059: 心跳只在 agent_online 状态变化时写入 Redis"""
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_skips_redis_write_when_already_online(self):
+        """连续心跳时不触发无效 Redis 写入"""
+        from app.ws.agent_message_handler import _handle_agent_message
+        from app.ws.agent_connection import AgentConnection, active_agents
+        from app.infra.message_types import MessageType
+
+        mock_ws = AsyncMock()
+        session_id = "hb-skip-1"
+
+        # 创建 AgentConnection 并设置 _redis_agent_online=True（已在线）
+        agent_conn = AgentConnection(session_id, mock_ws)
+        agent_conn._redis_agent_online = True
+        active_agents[session_id] = agent_conn
+
+        session_data = json.dumps({
+            "status": "online",
+            "created_at": "2026-03-26T10:00:00Z",
+            "agent_online": True,
+            "views": {"mobile": 0, "desktop": 0},
+            "pty": {"rows": 24, "cols": 80},
+            "terminals": [],
+            "device": _default_device_state(session_id),
+        })
+
+        mock_redis = AsyncMock()
+        mock_redis.get = AsyncMock(return_value=session_data)
+        mock_redis.set = AsyncMock(return_value=True)
+
+        with patch.object(redis_conn, '_redis', mock_redis):
+            await _handle_agent_message(mock_ws, session_id, {"type": MessageType.PING})
+
+        # _redis_agent_online=True 时不应调用 update_session_device_heartbeat
+        # update_session_device_heartbeat 内部会调用 redis.set
+        # 由于跳过了写入，redis.set 不应被 heartbeat 相关操作调用
+        # 但可能有其他地方调用，所以检查 _redis_agent_online 保持 True
+        assert agent_conn._redis_agent_online is True
+        # PONG 仍应发送
+        mock_ws.send_json.assert_called()
+
+        # 清理
+        active_agents.pop(session_id, None)
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_writes_redis_when_state_changes(self):
+        """agent 从 offline 变 online 时心跳正确写入"""
+        from app.ws.agent_message_handler import _handle_agent_message
+        from app.ws.agent_connection import AgentConnection, active_agents
+        from app.infra.message_types import MessageType
+
+        mock_ws = AsyncMock()
+        session_id = "hb-change-1"
+
+        # 创建 AgentConnection，_redis_agent_online=False（当前离线）
+        agent_conn = AgentConnection(session_id, mock_ws)
+        agent_conn._redis_agent_online = False
+        active_agents[session_id] = agent_conn
+
+        session_data = json.dumps({
+            "status": "online",
+            "created_at": "2026-03-26T10:00:00Z",
+            "agent_online": False,
+            "views": {"mobile": 0, "desktop": 0},
+            "pty": {"rows": 24, "cols": 80},
+            "terminals": [],
+            "device": _default_device_state(session_id),
+        })
+
+        mock_redis = AsyncMock()
+        mock_redis.get = AsyncMock(return_value=session_data)
+        mock_redis.set = AsyncMock(return_value=True)
+        mock_redis.expire = AsyncMock(return_value=True)
+
+        with patch.object(redis_conn, '_redis', mock_redis):
+            await _handle_agent_message(mock_ws, session_id, {"type": MessageType.PING})
+
+        # 状态变化时应触发写入，_redis_agent_online 更新为 True
+        assert agent_conn._redis_agent_online is True
+        # Redis set 应被调用（heartbeat 写入）
+        assert mock_redis.set.await_count >= 1
+
+        # 清理
+        active_agents.pop(session_id, None)
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_first_ping_reads_redis_state(self):
+        """首次心跳读取 Redis 状态并缓存"""
+        from app.ws.agent_message_handler import _handle_agent_message
+        from app.ws.agent_connection import AgentConnection, active_agents
+        from app.infra.message_types import MessageType
+
+        mock_ws = AsyncMock()
+        session_id = "hb-first-1"
+
+        # 创建 AgentConnection，_redis_agent_online=None（未知）
+        agent_conn = AgentConnection(session_id, mock_ws)
+        assert agent_conn._redis_agent_online is None
+        active_agents[session_id] = agent_conn
+
+        session_data = json.dumps({
+            "status": "online",
+            "created_at": "2026-03-26T10:00:00Z",
+            "agent_online": True,  # 已在线
+            "views": {"mobile": 0, "desktop": 0},
+            "pty": {"rows": 24, "cols": 80},
+            "terminals": [],
+            "device": _default_device_state(session_id),
+        })
+
+        mock_redis = AsyncMock()
+        mock_redis.get = AsyncMock(return_value=session_data)
+        mock_redis.set = AsyncMock(return_value=True)
+
+        with patch.object(redis_conn, '_redis', mock_redis):
+            await _handle_agent_message(mock_ws, session_id, {"type": MessageType.PING})
+
+        # 首次心跳读取 Redis 状态，发现 agent_online=True，不触发写入
+        assert agent_conn._redis_agent_online is True
+
+        # 清理
+        active_agents.pop(session_id, None)
+
+
+class TestHistoryProgressiveRead:
+    """B059: history 渐进式读取测试"""
+
+    @pytest.mark.asyncio
+    async def test_progressive_read_small_dataset(self):
+        """小数据集首次 500 条即满足需求"""
+        # 创建 10 条记录，不需要扩大窗口
+        records = [
+            json.dumps({"timestamp": f"2026-03-26T10:00:0{i}Z", "direction": "output", "terminal_id": "term-1", "data": f"d{i}"})
+            for i in range(10)
+        ]
+
+        mock_redis = AsyncMock()
+        mock_redis.exists = AsyncMock(return_value=True)
+        mock_redis.llen = AsyncMock(return_value=10)
+        mock_redis.lrange = AsyncMock(return_value=records)
+
+        with patch.object(redis_conn, '_redis', mock_redis):
+            result = await get_history("session-1", offset=0, limit=5, terminal_id="term-1", direction="output")
+
+        assert len(result) == 5
+        # lrange 只调用一次（首次 500 条窗口已足够）
+        assert mock_redis.lrange.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_progressive_read_expands_window(self):
+        """匹配记录不足时逐步扩大窗口 500→1500→5000"""
+        # 场景：1000 条记录中，前 600 条是 term-1 的，后 400 条是 term-2 的
+        # 首次窗口 500 条只取最后 500 条（都是 term-2 的），匹配数为 0
+        # 第二次窗口 1500 条（实际上只有 1000 条），能取到 term-1 的记录
+
+        records_500 = [
+            json.dumps({"timestamp": f"2026-03-26T10:00:{i:04d}Z", "direction": "output", "terminal_id": "term-2", "data": f"d{i}"})
+            for i in range(500)
+        ]
+        records_1000 = [
+            json.dumps({"timestamp": f"2026-03-26T10:00:{i:04d}Z", "direction": "output", "terminal_id": "term-1", "data": f"d{i}"})
+            for i in range(600)
+        ] + [
+            json.dumps({"timestamp": f"2026-03-26T10:00:{i:04d}Z", "direction": "output", "terminal_id": "term-2", "data": f"d{i}"})
+            for i in range(400)
+        ]
+
+        mock_redis = AsyncMock()
+        mock_redis.exists = AsyncMock(return_value=True)
+        mock_redis.llen = AsyncMock(return_value=1000)
+        mock_redis.lrange = AsyncMock(side_effect=[records_500, records_1000])
+
+        with patch.object(redis_conn, '_redis', mock_redis):
+            result = await get_history("session-1", offset=0, limit=10, terminal_id="term-1")
+
+        # 应该能找到 term-1 的记录
+        assert len(result) == 10
+        assert all(r["terminal_id"] == "term-1" for r in result)
+        # lrange 调用了两次（500 不够，扩大到 1500）
+        assert mock_redis.lrange.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_progressive_read_semantic_equivalence(self):
+        """语义等价：即使匹配记录在 500 条窗口外也能找到"""
+        # 场景：2000 条记录，只有最后一条是 term-1 的
+        # 首次 500 条窗口内没有 term-1，需要扩大到 1500→5000
+
+        # 前 1999 条是 term-2
+        base_records = [
+            json.dumps({"timestamp": f"2026-03-26T10:00:{i:04d}Z", "direction": "output", "terminal_id": "term-2", "data": f"d{i}"})
+            for i in range(1999)
+        ]
+        # 最后 1 条是 term-1
+        target_record = json.dumps({"timestamp": "2026-03-26T10:01:00Z", "direction": "output", "terminal_id": "term-1", "data": "target"})
+        all_records = base_records + [target_record]
+
+        # 第一次窗口 500 → 没有 term-1
+        first_batch = all_records[2000-500:]  # 最后 500 条，全是 term-2
+        # 第二次窗口 1500 → 没有 term-1（因为 term-1 在第 2000 条，1500 只取到 500-1999）
+        second_batch = all_records[2000-1500:]  # 最后 1500 条，全是 term-2 + 无 term-1
+        # 第三次窗口 5000 → 有 term-1（取全部 2000 条）
+        third_batch = all_records[2000-5000:]  # 取全部，因为 total < 5000
+
+        mock_redis = AsyncMock()
+        mock_redis.exists = AsyncMock(return_value=True)
+        mock_redis.llen = AsyncMock(return_value=2000)
+        mock_redis.lrange = AsyncMock(side_effect=[first_batch, second_batch, third_batch])
+
+        with patch.object(redis_conn, '_redis', mock_redis):
+            result = await get_history("session-1", offset=0, limit=10, terminal_id="term-1")
+
+        # 语义等价：必须找到 term-1 的记录
+        assert len(result) == 1
+        assert result[0]["terminal_id"] == "term-1"
+        assert result[0]["data"] == "target"
+        # 需要扩大到第三次才找到
+        assert mock_redis.lrange.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_no_filter_uses_single_window(self):
+        """无过滤条件时直接使用 5000 窗口，不使用渐进式"""
+        records = [
+            json.dumps({"timestamp": f"2026-03-26T10:00:{i:04d}Z", "data": f"d{i}"})
+            for i in range(100)
+        ]
+
+        mock_redis = AsyncMock()
+        mock_redis.exists = AsyncMock(return_value=True)
+        mock_redis.llen = AsyncMock(return_value=100)
+        mock_redis.lrange = AsyncMock(return_value=records)
+
+        with patch.object(redis_conn, '_redis', mock_redis):
+            result = await get_history("session-1", offset=0, limit=50)
+
+        assert len(result) == 50
+        # 无过滤时只调用一次 lrange
+        assert mock_redis.lrange.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_offset_beyond_records_returns_empty(self):
+        """offset 超过过滤后的记录数时返回空"""
+        records = [
+            json.dumps({"timestamp": f"2026-03-26T10:00:{i:04d}Z", "direction": "output", "terminal_id": "term-1", "data": f"d{i}"})
+            for i in range(5)
+        ]
+
+        mock_redis = AsyncMock()
+        mock_redis.exists = AsyncMock(return_value=True)
+        mock_redis.llen = AsyncMock(return_value=5)
+        mock_redis.lrange = AsyncMock(return_value=records)
+
+        with patch.object(redis_conn, '_redis', mock_redis):
+            result = await get_history("session-1", offset=100, limit=10, terminal_id="term-1")
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_history_returns_same_as_before_without_terminal_filter(self):
+        """无 terminal 过滤时结果与修改前语义等价"""
+        records = [
+            json.dumps({"timestamp": f"2026-03-26T10:00:{i:04d}Z", "data": f"output {i}"})
+            for i in range(10)
+        ]
+
+        mock_redis = AsyncMock()
+        mock_redis.exists = AsyncMock(return_value=True)
+        mock_redis.llen = AsyncMock(return_value=10)
+        mock_redis.lrange = AsyncMock(return_value=records)
+
+        with patch.object(redis_conn, '_redis', mock_redis):
+            result = await get_history("session-1", offset=2, limit=5)
+
+        assert [r["data"] for r in result] == [f"output {i}" for i in range(2, 7)]

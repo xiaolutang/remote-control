@@ -16,6 +16,8 @@ import websockets
 from websockets import ClientConnection
 
 from app.core.config import Config, ssl_context_for_websockets
+from app.core.log_adapter import _log
+from app.core.message_types import MessageType
 from app.security.crypto import agent_crypto
 from app.tools.knowledge_tool import (
     ensure_user_knowledge_dir,
@@ -40,13 +42,6 @@ __all__ = [
     "_validate_terminal_input",
 ]
 
-
-def _log(message: str) -> None:
-    """Agent 日志输出到 stderr + logging"""
-    if os.environ.get("FLUTTER_TEST"):
-        return
-    print(f"[Agent] {message}", file=sys.stderr, flush=True)
-    logger.info(message)
 
 
 class AgentSnapshotManager:
@@ -172,7 +167,7 @@ class TerminalRuntimeManager:
     @staticmethod
     def build_terminal_closed_event(terminal_id: str, reason: str = "terminal_exit") -> dict:
         return {
-            "type": "terminal_closed",
+            "type": MessageType.TERMINAL_CLOSED,
             "terminal_id": terminal_id,
             "reason": reason,
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -184,7 +179,7 @@ class TerminalRuntimeManager:
             raise KeyError(terminal_id)
         spec, _ = entry
         return {
-            "type": "terminal_created",
+            "type": MessageType.TERMINAL_CREATED,
             "terminal_id": spec.terminal_id,
             "title": spec.title,
             "cwd": spec.cwd or "",
@@ -322,7 +317,7 @@ class WebSocketClient:
 
                 try:
                     # auth 消息
-                    auth_msg = {"type": "auth", "token": self.token}
+                    auth_msg = {"type": MessageType.AUTH, "token": self.token}
                     ws_needs_encryption = self.server_url.startswith("ws://")
 
                     if ws_needs_encryption and not agent_crypto.has_public_key:
@@ -343,7 +338,7 @@ class WebSocketClient:
 
                     message = await asyncio.wait_for(ws.recv(), timeout=30)
                     data = json.loads(message)
-                    if data.get("type") == "connected":
+                    if data.get("type") == MessageType.CONNECTED:
                         self._session_id = data.get("session_id")
                         self._retry_count = 0
                         _log(f"会话已建立: {self._session_id}")
@@ -351,7 +346,7 @@ class WebSocketClient:
                         raise Exception(f"意外的消息类型: {data.get('type')}")
 
                     await self._send_ws_message({
-                        "type": "agent_metadata",
+                        "type": MessageType.AGENT_METADATA,
                         "platform": platform.system().lower(),
                         "hostname": socket.gethostname(),
                         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -363,7 +358,7 @@ class WebSocketClient:
                     catalog_tools = [get_knowledge_catalog_entry()]
                     catalog_tools.extend(self.mcp_manager.build_tool_catalog())
                     await self._send_ws_message({
-                        "type": "tool_catalog_snapshot",
+                        "type": MessageType.TOOL_CATALOG_SNAPSHOT,
                         "tools": catalog_tools,
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     })
@@ -416,7 +411,7 @@ class WebSocketClient:
                         pass
                 payload = base64.b64encode(data).decode("utf-8")
                 await self._send_ws_message({
-                    "type": "data", "payload": payload,
+                    "type": MessageType.DATA, "payload": payload,
                     "direction": "output",
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 })
@@ -440,7 +435,7 @@ class WebSocketClient:
                 payload = base64.b64encode(data).decode("utf-8")
                 self.snapshot_manager.append_output(terminal_id, data)
                 await self._send_ws_message({
-                    "type": "data", "terminal_id": terminal_id,
+                    "type": MessageType.DATA, "terminal_id": terminal_id,
                     "payload": payload, "direction": "output",
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 })
@@ -517,7 +512,7 @@ class WebSocketClient:
         """心跳循环"""
         while self._running and self._connected:
             try:
-                await self._send_ws_message({"type": "ping"})
+                await self._send_ws_message({"type": MessageType.PING})
                 await asyncio.sleep(30)
             except Exception as e:
                 _log(f"心跳发送错误: {e}")

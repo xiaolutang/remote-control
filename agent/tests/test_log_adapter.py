@@ -1,4 +1,4 @@
-"""测试 agent/app/log_adapter.py"""
+"""测试 agent/app/core/log_adapter.py"""
 import importlib
 import os
 import sys
@@ -10,7 +10,7 @@ import pytest
 @pytest.fixture(autouse=True)
 def _reset_adapter():
     """每个测试前重置适配层全局状态"""
-    import app.log_adapter as mod
+    import app.core.log_adapter as mod
     mod._handler = None
     yield
     mod._handler = None
@@ -23,7 +23,7 @@ def test_init_logging_success():
 
     with patch.dict(sys.modules, {"log_service_sdk": MagicMock(setup_remote_logging=mock_setup)}):
         with patch.dict(os.environ, {"LOG_SERVICE_URL": "http://log-service:8001"}):
-            import app.log_adapter as mod
+            import app.core.log_adapter as mod
             importlib.reload(mod)
             result = mod.init_logging(component="agent")
 
@@ -34,7 +34,7 @@ def test_init_logging_sdk_import_fails():
     """SDK import 失败 → 返回 None，不抛异常"""
     with patch.dict(sys.modules, {"log_service_sdk": None}):
         with patch.dict(os.environ, {"LOG_SERVICE_URL": "http://test:8001"}):
-            import app.log_adapter as mod
+            import app.core.log_adapter as mod
             importlib.reload(mod)
             result = mod.init_logging(component="agent")
 
@@ -44,7 +44,7 @@ def test_init_logging_sdk_import_fails():
 def test_init_logging_no_url_skips():
     """LOG_SERVICE_URL 未设置 → 跳过初始化，返回 None"""
     with patch.dict(os.environ, {}, clear=True):
-        import app.log_adapter as mod
+        import app.core.log_adapter as mod
         importlib.reload(mod)
         result = mod.init_logging(component="agent")
 
@@ -54,7 +54,7 @@ def test_init_logging_no_url_skips():
 def test_init_logging_empty_url_skips():
     """LOG_SERVICE_URL 为空字符串 → 跳过初始化，返回 None"""
     with patch.dict(os.environ, {"LOG_SERVICE_URL": ""}):
-        import app.log_adapter as mod
+        import app.core.log_adapter as mod
         importlib.reload(mod)
         result = mod.init_logging(component="agent")
 
@@ -68,7 +68,7 @@ def test_init_logging_idempotent():
 
     with patch.dict(sys.modules, {"log_service_sdk": MagicMock(setup_remote_logging=mock_setup)}):
         with patch.dict(os.environ, {"LOG_SERVICE_URL": "http://test:8001"}):
-            import app.log_adapter as mod
+            import app.core.log_adapter as mod
             importlib.reload(mod)
             r1 = mod.init_logging(component="agent")
             r2 = mod.init_logging(component="agent")
@@ -84,7 +84,7 @@ def test_close_logging_clears_handler():
 
     with patch.dict(sys.modules, {"log_service_sdk": MagicMock(setup_remote_logging=mock_setup)}):
         with patch.dict(os.environ, {"LOG_SERVICE_URL": "http://test:8001"}):
-            import app.log_adapter as mod
+            import app.core.log_adapter as mod
             importlib.reload(mod)
             mod.init_logging(component="agent")
             mod.close_logging()
@@ -95,7 +95,7 @@ def test_close_logging_clears_handler():
 
 def test_close_logging_without_init():
     """未初始化时 close → 安全"""
-    import app.log_adapter as mod
+    import app.core.log_adapter as mod
     mod.close_logging()
     assert mod._handler is None
 

@@ -68,8 +68,8 @@ class TestRateLimitIntegration:
         with patch("app.api.user_api.get_user", return_value={
             "username": "testuser", "password_hash": "$2b$12$" + "a" * 53
         }), \
-             patch("app.api.user_api.verify_password", return_value=True), \
-             patch("app.api.user_api.is_legacy_hash", return_value=False), \
+             patch("app.infra.auth.verify_password", return_value=True), \
+             patch("app.infra.auth.is_legacy_hash", return_value=False), \
              patch("app.api.user_api.get_session_by_name", return_value={
                  "id": "sess-1", "name": "testuser_session"
              }), \
@@ -79,7 +79,7 @@ class TestRateLimitIntegration:
              }), \
              patch("app.api.user_api.increment_token_version", new=AsyncMock(return_value=1)), \
              patch("app.api.user_api.generate_refresh_token", return_value="rt"), \
-             patch("app.api.user_api.store_refresh_token", new=AsyncMock()), \
+             patch("app.store.refresh_token_store.store_refresh_token", new=AsyncMock()), \
              patch("app.infra.rate_limit._get_rate_limit_redis") as mock_redis:
             redis = AsyncMock()
             redis.incr = AsyncMock(side_effect=[1, 2, 3, 4])

@@ -4,6 +4,7 @@ Agent Conversation 辅助函数 — event 构建、stream 管理、message histo
 import asyncio
 import json
 import logging
+import time
 from typing import Any, Optional
 from uuid import uuid4
 
@@ -29,6 +30,21 @@ logger = logging.getLogger(__name__)
 
 _conversation_stream_subscribers: dict[tuple[str, str, str], set[asyncio.Queue]] = {}
 
+# ---------------------------------------------------------------------------
+# B060: 全量投影 TTL 缓存（仅无 after_index 时命中）
+# ---------------------------------------------------------------------------
+_PROJECTION_CACHE_TTL = 0.5  # 500 ms
+_projection_cache: dict[str, tuple[float, "AgentConversationProjection"]] = {}
+
+
+def _cache_key(user_id: str, device_id: str, terminal_id: str) -> str:
+    return f"{user_id}:{device_id}:{terminal_id}"
+
+
+def _invalidate_projection_cache(user_id: str, device_id: str, terminal_id: str) -> None:
+    """新事件到达时立即失效对应的全量投影缓存。"""
+    _projection_cache.pop(_cache_key(user_id, device_id, terminal_id), None)
+
 
 def _conversation_stream_key(user_id: str, device_id: str, terminal_id: str) -> tuple[str, str, str]:
     return event_bus.conversation_stream_key(user_id, device_id, terminal_id)
@@ -45,6 +61,8 @@ async def _publish_conversation_stream_event(
     B122: 同时通知本地 SSE queue subscribers 和 event_bus 订阅者，
     确保向后兼容（api 层直接调用）和新架构（services 层通过 event_bus）都能工作。
     """
+    # B060: 新事件到达时立即失效全量投影缓存
+    _invalidate_projection_cache(user_id, device_id, terminal_id)
     # 1) 通知本地 SSE queue subscribers（SSE stream 端点）
     subscribers = list(
         _conversation_stream_subscribers.get(
@@ -282,6 +300,17 @@ async def _build_agent_conversation_projection(
     terminal_id: str,
     after_index: Optional[int] = None,
 ) -> AgentConversationProjection:
+    # B060: 全量投影路径（无 after_index）尝试命中 TTL 缓存
+    if after_index is None:
+        ck = _cache_key(user_id, device_id, terminal_id)
+        cached = _projection_cache.get(ck)
+        if cached is not None:
+            cached_at, cached_proj = cached
+            if time.monotonic() - cached_at < _PROJECTION_CACHE_TTL:
+                return cached_proj.model_copy(deep=True)
+            # TTL 过期，移除陈旧条目
+            _projection_cache.pop(ck, None)
+
     conversation = await _deps.get_agent_conversation(user_id, device_id, terminal_id)
     if conversation is None:
         return AgentConversationProjection(
@@ -322,7 +351,7 @@ async def _build_agent_conversation_projection(
         user_id=user_id, device_id=device_id, terminal_id=terminal_id,
         conversation_id=conversation["conversation_id"],
     )
-    return AgentConversationProjection(
+    result = AgentConversationProjection(
         conversation_id=conversation["conversation_id"],
         device_id=device_id, terminal_id=terminal_id,
         status=conversation["status"],
@@ -331,6 +360,12 @@ async def _build_agent_conversation_projection(
         active_session_id=active_session.id if active_session else None,
         events=event_items,
     )
+
+    # B060: 仅全量投影路径写入缓存
+    if after_index is None:
+        _projection_cache[_cache_key(user_id, device_id, terminal_id)] = (time.monotonic(), result.model_copy(deep=True))
+
+    return result
 
 
 async def _agent_sse_response_wrapper(manager: AgentSessionManager, agent_session):

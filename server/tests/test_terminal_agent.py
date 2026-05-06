@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.infra.command_validator import validate_command
-from app.ws.ws_agent import ExecuteCommandResult
+from app.ws.agent_request import ExecuteCommandResult
 
 
 # ---------------------------------------------------------------------------

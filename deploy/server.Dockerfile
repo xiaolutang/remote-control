@@ -29,6 +29,9 @@ RUN useradd -r -s /bin/false appuser && \
 # 从 builder 复制虚拟环境（路径一致：/app/.venv）
 COPY --from=builder /app/.venv .venv
 
+# 复制共享配置（command_whitelist.json 等）
+COPY shared ./shared
+
 # 复制应用代码
 COPY server/app ./app
 COPY server/evals ./evals

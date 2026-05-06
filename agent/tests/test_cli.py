@@ -12,7 +12,7 @@ from click.testing import CliRunner
 import pytest
 
 from app.cli import cli, _safe_save_config
-from app.config import Config, load_config
+from app.core.config import Config, load_config
 
 
 class TestCLI:
@@ -368,7 +368,7 @@ class TestSaveConfigErrors:
             # macOS 可能仍允许 root 写入，所以使用 patch 模拟
             with patch("builtins.open", side_effect=OSError("Permission denied")):
                 with pytest.raises(OSError, match="Permission denied"):
-                    from app.config import save_config
+                    from app.core.config import save_config
                     save_config(config, config_path)
         finally:
             readonly_dir.chmod(0o755)
@@ -380,7 +380,7 @@ class TestSaveConfigErrors:
         # 模拟 mkdir 失败
         with patch.object(Path, "mkdir", side_effect=OSError("cannot create dir")):
             with pytest.raises(OSError, match="cannot create dir"):
-                from app.config import save_config
+                from app.core.config import save_config
                 save_config(config, tmp_path / "sub" / "config.json")
 
 

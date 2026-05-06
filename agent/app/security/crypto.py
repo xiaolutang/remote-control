@@ -19,9 +19,10 @@ from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import padding as asym_padding
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-logger = logging.getLogger(__name__)
+from app.core.config import DEFAULT_CONFIG_DIR
+from app.core.message_types import PLAINTEXT_MSG_TYPES  # noqa: F401 — re-export
 
-PLAINTEXT_MSG_TYPES = frozenset({"auth", "connected", "ping", "pong"})
+logger = logging.getLogger(__name__)
 
 
 class AgentCrypto:
@@ -38,7 +39,7 @@ class AgentCrypto:
         """延迟解析状态目录，确保 --config 桥接的 RC_AGENT_CONFIG_DIR 已生效。"""
         if self._explicit_state_dir is not None:
             return self._explicit_state_dir
-        config_dir = os.getenv("RC_AGENT_CONFIG_DIR", Path.home() / ".rc-agent")
+        config_dir = os.getenv("RC_AGENT_CONFIG_DIR", DEFAULT_CONFIG_DIR)
         return Path(config_dir).expanduser()
 
     # ---- 公钥管理 ----

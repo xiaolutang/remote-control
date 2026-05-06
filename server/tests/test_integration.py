@@ -48,7 +48,7 @@ class TestIntegrationAgentConnection:
     @pytest.mark.asyncio
     async def test_agent_connect_with_valid_token(self):
         """Agent 使用有效 token 连接"""
-        from app.ws.ws_agent import active_agents, AgentConnection
+        from app.ws.agent_connection import active_agents, AgentConnection
         from app.infra.auth import generate_token
 
         # 清理
@@ -84,7 +84,7 @@ class TestIntegrationClientConnection:
     @pytest.mark.asyncio
     async def test_client_connect_with_valid_token(self):
         """Client 使用有效 token 连接"""
-        from app.ws.ws_client import active_clients
+        from app.ws.client_connection import active_clients
         from app.infra.auth import generate_token
 
         # 清理
@@ -116,7 +116,7 @@ class TestIntegrationClientConnection:
     @pytest.mark.asyncio
     async def test_client_connect_desktop_view(self):
         """Client 使用 desktop 视图连接"""
-        from app.ws.ws_client import active_clients
+        from app.ws.client_connection import active_clients
         from app.infra.auth import generate_token
 
         # 清理
@@ -148,12 +148,8 @@ class TestIntegrationMultiView:
     @pytest.mark.asyncio
     async def test_presence_sync_between_views(self):
         """测试多视图 presence 同步"""
-        from app.ws.ws_client import (
-            active_clients,
-            ClientConnection,
-            get_view_counts,
-            _broadcast_presence,
-        )
+        from app.ws.client_connection import active_clients, ClientConnection
+        from app.ws.client_presence import get_view_counts, _broadcast_presence
 
         active_clients.clear()
 
@@ -185,8 +181,9 @@ class TestIntegrationMessageForwarding:
     @pytest.mark.asyncio
     async def test_agent_output_broadcasts_to_clients(self):
         """Agent 输出广播到所有客户端"""
-        from app.ws.ws_agent import active_agents, AgentConnection
-        from app.ws.ws_client import active_clients, ClientConnection, broadcast_to_clients
+        from app.ws.agent_connection import active_agents, AgentConnection
+        from app.ws.client_connection import active_clients, ClientConnection
+        from app.ws.client_presence import broadcast_to_clients
 
         active_agents.clear()
         active_clients.clear()
@@ -215,8 +212,8 @@ class TestIntegrationMessageForwarding:
     @pytest.mark.asyncio
     async def test_client_input_forwards_to_agent(self):
         """Client 输入转发到 Agent"""
-        from app.ws.ws_agent import active_agents, AgentConnection
-        from app.ws.ws_client import active_clients, ClientConnection
+        from app.ws.agent_connection import active_agents, AgentConnection
+        from app.ws.client_connection import active_clients, ClientConnection
 
         active_agents.clear()
         active_clients.clear()
@@ -233,7 +230,7 @@ class TestIntegrationMessageForwarding:
         ]
 
         # 客户端发送输入消息
-        from app.ws.ws_client import _handle_client_message
+        from app.ws.client_message_handler import _handle_client_message
         message = {"type": "data", "payload": "dGVNsbGl0"}
         await _handle_client_message(
             mock_client_ws, "session-1", message, view="mobile"
@@ -339,7 +336,7 @@ class TestTerminalBoundAgentApi:
         不将 builtin 工具泄露到 dynamic_tools 参数。
         """
         from app.services.agent_session_manager import AgentSessionManager
-        from app.ws.ws_agent import AgentConnection
+        from app.ws.agent_connection import AgentConnection
 
         manager = AgentSessionManager()
         append_event = AsyncMock(
@@ -401,7 +398,7 @@ class TestTerminalBoundAgentApi:
     def test_lookup_knowledge_not_registered_without_snapshot(self):
         """回归测试：snapshot 未到达（空 catalog）时不注册 lookup_knowledge。"""
         from app.services.agent_session_manager import AgentSessionManager
-        from app.ws.ws_agent import AgentConnection
+        from app.ws.agent_connection import AgentConnection
 
         manager = AgentSessionManager()
         append_event = AsyncMock(
@@ -451,7 +448,7 @@ class TestTerminalBoundAgentApi:
     def test_lookup_knowledge_registered_with_snapshot(self):
         """回归测试：snapshot 包含 builtin lookup_knowledge 时正确注册。"""
         from app.services.agent_session_manager import AgentSessionManager
-        from app.ws.ws_agent import AgentConnection
+        from app.ws.agent_connection import AgentConnection
 
         manager = AgentSessionManager()
         append_event = AsyncMock(
@@ -2643,7 +2640,7 @@ class TestIntegrationContracts:
     @pytest.mark.asyncio
     async def test_contract_002_agent_connected_message(self):
         """验证 CONTRACT-002: Agent connected 消息格式"""
-        from app.ws.ws_agent import active_agents
+        from app.ws.agent_connection import active_agents
         from app.infra.auth import generate_token
 
         active_agents.clear()
@@ -2672,7 +2669,7 @@ class TestIntegrationContracts:
     @pytest.mark.asyncio
     async def test_contract_003_client_connected_message(self):
         """验证 CONTRACT-003: Client connected 消息格式"""
-        from app.ws.ws_client import active_clients
+        from app.ws.client_connection import active_clients
         from app.infra.auth import generate_token
 
         active_clients.clear()
@@ -2706,8 +2703,9 @@ class TestTerminalsChangedBroadcastIntegration:
     @pytest.mark.asyncio
     async def test_terminal_created_broadcasts_to_all_session_clients(self):
         """terminal_created 应广播到 session 级别的所有客户端"""
-        from app.ws.ws_agent import _handle_agent_message, active_agents, AgentConnection
-        from app.ws.ws_client import active_clients, ClientConnection
+        from app.ws.agent_message_handler import _handle_agent_message
+        from app.ws.agent_connection import active_agents, AgentConnection
+        from app.ws.client_connection import active_clients, ClientConnection
 
         active_agents.clear()
         active_clients.clear()
@@ -2731,7 +2729,7 @@ class TestTerminalsChangedBroadcastIntegration:
             ClientConnection("session-1", mock_other_terminal_ws, "mobile", terminal_id="term-other"),
         ]
 
-        with patch("app.ws.ws_agent.update_session_terminal_status", new=AsyncMock(return_value={
+        with patch("app.ws.agent_message_handler.update_session_terminal_status", new=AsyncMock(return_value={
             "terminal_id": "term-new",
             "status": "detached",
         })):
@@ -2773,8 +2771,9 @@ class TestTerminalsChangedBroadcastIntegration:
     @pytest.mark.asyncio
     async def test_terminal_closed_broadcasts_to_session_clients(self):
         """terminal_closed 应广播到 session 级别的所有客户端"""
-        from app.ws.ws_agent import _handle_agent_message, active_agents, AgentConnection
-        from app.ws.ws_client import active_clients, ClientConnection
+        from app.ws.agent_message_handler import _handle_agent_message
+        from app.ws.agent_connection import active_agents, AgentConnection
+        from app.ws.client_connection import active_clients, ClientConnection
 
         active_agents.clear()
         active_clients.clear()
@@ -2787,7 +2786,7 @@ class TestTerminalsChangedBroadcastIntegration:
             ClientConnection("session-1", mock_client_ws, "mobile"),
         ]
 
-        with patch("app.ws.ws_agent.update_session_terminal_status", new=AsyncMock()):
+        with patch("app.ws.agent_message_handler.update_session_terminal_status", new=AsyncMock()):
             await _handle_agent_message(
                 mock_agent_ws,
                 "session-1",
@@ -2809,8 +2808,9 @@ class TestTerminalsChangedBroadcastIntegration:
     @pytest.mark.asyncio
     async def test_broadcast_isolation_between_sessions(self):
         """广播应该隔离在不同 session 之间"""
-        from app.ws.ws_agent import _handle_agent_message, active_agents, AgentConnection
-        from app.ws.ws_client import active_clients, ClientConnection
+        from app.ws.agent_message_handler import _handle_agent_message
+        from app.ws.agent_connection import active_agents, AgentConnection
+        from app.ws.client_connection import active_clients, ClientConnection
 
         active_agents.clear()
         active_clients.clear()
@@ -2831,7 +2831,7 @@ class TestTerminalsChangedBroadcastIntegration:
             ClientConnection("session-2", mock_client_ws2, "mobile"),
         ]
 
-        with patch("app.ws.ws_agent.update_session_terminal_status", new=AsyncMock(return_value={
+        with patch("app.ws.agent_message_handler.update_session_terminal_status", new=AsyncMock(return_value={
             "terminal_id": "term-new",
             "status": "detached",
         })):
@@ -2862,14 +2862,16 @@ class TestTerminalsChangedBroadcastIntegration:
     @pytest.mark.asyncio
     async def test_terminal_closed_clears_pending_futures(self):
         """terminal_closed 应该正确处理 pending futures"""
-        from app.ws.ws_agent import (
-            _handle_agent_message,
+        from app.ws.agent_message_handler import _handle_agent_message
+        from app.ws.agent_connection import (
             active_agents,
             AgentConnection,
+        )
+        from app.ws.agent_request import (
             pending_terminal_creates,
             pending_terminal_closes,
         )
-        from app.ws.ws_client import active_clients
+        from app.ws.client_connection import active_clients
 
         active_agents.clear()
         active_clients.clear()
@@ -2886,7 +2888,7 @@ class TestTerminalsChangedBroadcastIntegration:
         pending_terminal_creates[("session-1", "term-1")] = create_future
         pending_terminal_closes[("session-1", "term-2")] = close_future
 
-        with patch("app.ws.ws_agent.update_session_terminal_status", new=AsyncMock()):
+        with patch("app.ws.agent_message_handler.update_session_terminal_status", new=AsyncMock()):
             # 关闭 term-1（有 pending create）
             await _handle_agent_message(
                 mock_agent_ws,
@@ -2915,8 +2917,9 @@ class TestTerminalsChangedBroadcastIntegration:
     @pytest.mark.asyncio
     async def test_terminals_changed_message_format(self):
         """验证 terminals_changed 消息格式"""
-        from app.ws.ws_agent import _handle_agent_message, active_agents, AgentConnection
-        from app.ws.ws_client import active_clients, ClientConnection
+        from app.ws.agent_message_handler import _handle_agent_message
+        from app.ws.agent_connection import active_agents, AgentConnection
+        from app.ws.client_connection import active_clients, ClientConnection
 
         active_agents.clear()
         active_clients.clear()
@@ -2929,7 +2932,7 @@ class TestTerminalsChangedBroadcastIntegration:
             ClientConnection("session-1", mock_client_ws, "mobile"),
         ]
 
-        with patch("app.ws.ws_agent.update_session_terminal_status", new=AsyncMock(return_value={
+        with patch("app.ws.agent_message_handler.update_session_terminal_status", new=AsyncMock(return_value={
             "terminal_id": "term-new",
             "status": "detached",
         })):
@@ -2956,8 +2959,9 @@ class TestTerminalsChangedBroadcastIntegration:
     @pytest.mark.asyncio
     async def test_no_broadcast_when_terminal_id_missing(self):
         """terminal_id 缺失时不应广播"""
-        from app.ws.ws_agent import _handle_agent_message, active_agents, AgentConnection
-        from app.ws.ws_client import active_clients, ClientConnection
+        from app.ws.agent_message_handler import _handle_agent_message
+        from app.ws.agent_connection import active_agents, AgentConnection
+        from app.ws.client_connection import active_clients, ClientConnection
 
         active_agents.clear()
         active_clients.clear()

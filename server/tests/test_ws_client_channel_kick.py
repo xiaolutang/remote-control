@@ -4,7 +4,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.ws.ws_client import ClientConnection, active_clients, client_websocket_handler
+from app.ws.client_connection import ClientConnection, active_clients
+from app.ws.client_presence import _broadcast_presence
+from app.ws.ws_client import client_websocket_handler
 from tests.ws_test_helpers import trusted_proxy_headers, trusted_proxy_scope
 
 
@@ -53,6 +55,7 @@ async def test_same_view_different_terminals_do_not_kick_each_other():
             "session_id": "session-1",
             "owner": "user1",
             "device": {"device_id": "mbp-01"},
+            "terminals": [{"terminal_id": "term-2", "status": "live", "pty": {"rows": 24, "cols": 80}}],
         }):
             with patch("app.ws.ws_client.get_session_terminal", new=AsyncMock(return_value={
                 "terminal_id": "term-2",
@@ -69,11 +72,11 @@ async def test_same_view_different_terminals_do_not_kick_each_other():
                             new=AsyncMock(return_value=terminal_state),
                         ):
                             with patch(
-                                "app.ws.ws_client.request_agent_terminal_snapshot",
+                                "app.ws.client_snapshot.request_agent_terminal_snapshot",
                                 new=AsyncMock(return_value=None),
                             ):
                                 with patch(
-                                    "app.ws.ws_client.get_terminal_output_history",
+                                    "app.ws.client_snapshot.get_terminal_output_history",
                                     new=AsyncMock(return_value=[]),
                                 ):
                                     with patch(
@@ -139,6 +142,7 @@ async def test_same_view_same_terminal_still_kicks_old_client():
             "session_id": "session-1",
             "owner": "user1",
             "device": {"device_id": "mbp-01"},
+            "terminals": [{"terminal_id": "term-1", "status": "live", "pty": {"rows": 24, "cols": 80}}],
         }):
             with patch("app.ws.ws_client.get_session_terminal", new=AsyncMock(return_value={
                 "terminal_id": "term-1",
@@ -155,11 +159,11 @@ async def test_same_view_same_terminal_still_kicks_old_client():
                             new=AsyncMock(return_value=terminal_state),
                         ):
                             with patch(
-                                "app.ws.ws_client.request_agent_terminal_snapshot",
+                                "app.ws.client_snapshot.request_agent_terminal_snapshot",
                                 new=AsyncMock(return_value=None),
                             ):
                                 with patch(
-                                    "app.ws.ws_client.get_terminal_output_history",
+                                    "app.ws.client_snapshot.get_terminal_output_history",
                                     new=AsyncMock(return_value=[]),
                                 ):
                                     with patch(

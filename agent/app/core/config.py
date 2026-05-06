@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Optional
 from pydantic import BaseModel, ConfigDict
 
+DEFAULT_CONFIG_DIR = os.path.expanduser("~/.rc-agent")
+
 
 def is_ssl_insecure() -> bool:
     """是否跳过 SSL 证书验证（仅开发环境，由 Client 通过 RC_SSL_INSECURE=1 传入）"""
@@ -68,7 +70,7 @@ class Config(BaseModel):
 
 def get_config_path() -> Path:
     """获取配置文件路径"""
-    config_dir = os.environ.get("RC_AGENT_CONFIG_DIR", "~/.rc-agent")
+    config_dir = os.environ.get("RC_AGENT_CONFIG_DIR", DEFAULT_CONFIG_DIR)
     return Path(config_dir).expanduser() / "config.json"
 
 

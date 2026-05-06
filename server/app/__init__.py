@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.routes import router
-from app.ws.ws_agent import _stale_agent_ttl_checker
+from app.ws.agent_cleanup import _stale_agent_ttl_checker
 from app.infra.auth import TokenVerificationError
 from app.infra.log_adapter import init_logging, close_logging
 from app.infra.middleware import (
@@ -69,6 +69,15 @@ async def lifespan(app: FastAPI):
     # 启动时创建 TTL checker 后台任务
     _ttl_checker_task = asyncio.create_task(_stale_agent_ttl_checker())
     logger.info("Stale agent TTL checker started")
+
+    # 启动时 backfill user_session 反向索引
+    try:
+        from app.store.session import backfill_user_session_index
+        indexed = await backfill_user_session_index()
+        logger.info("User session index backfill completed: %d sessions", indexed)
+    except Exception as exc:
+        logger.warning("User session index backfill failed: %s", exc)
+
     yield
     # 关闭时取消后台任务
     if _ttl_checker_task:

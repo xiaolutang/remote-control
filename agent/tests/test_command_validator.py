@@ -3,7 +3,7 @@ B078: Agent 端命令白名单验证器单元测试（独立副本）
 """
 import pytest
 
-from app.command_validator import (
+from app.security.command_validator import (
     validate_command,
     ALLOWED_COMMANDS,
     SAFE_GIT_SUBCOMMANDS,

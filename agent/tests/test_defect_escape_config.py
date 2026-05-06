@@ -19,7 +19,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.config import Config, load_config, normalize_config_path
+from app.core.config import Config, load_config, normalize_config_path
 
 
 class TestTokenSessionConsistency:
@@ -109,7 +109,7 @@ class TestAgentErrorOnInvalidSession:
         1. 捕获 ConnectionClosedError，检查 e.code in _NON_RECOVERABLE_CODES
         2. _retry_count 重置时机从"连接成功"移到"收到 connected 消息后"
         """
-        from app.websocket_client import WebSocketClient
+        from app.transport.websocket_client import WebSocketClient
         from websockets.exceptions import ConnectionClosedError
         from websockets.frames import Close
 
@@ -139,10 +139,10 @@ class TestAgentErrorOnInvalidSession:
             async def close(self):
                 pass
 
-        with patch("app.websocket_client.websockets.connect", FakeConnect4004):
+        with patch("app.transport.websocket_client.websockets.connect", FakeConnect4004):
             with patch("asyncio.sleep", new_callable=AsyncMock):
-                with patch("app.websocket_client.sys.exit") as mock_exit:
-                    with patch("app.websocket_client.agent_crypto") as mock_crypto:
+                with patch("app.transport.websocket_client.sys.exit") as mock_exit:
+                    with patch("app.transport.websocket_client.agent_crypto") as mock_crypto:
                         mock_crypto.has_public_key = False
                         mock_crypto.fetch_public_key = AsyncMock()
                         client = WebSocketClient(
@@ -167,7 +167,7 @@ class TestAgentErrorOnInvalidSession:
         """
         验证：auto_reconnect=False 时，4004 应立即退出。
         """
-        from app.websocket_client import WebSocketClient
+        from app.transport.websocket_client import WebSocketClient
         from websockets.exceptions import ConnectionClosedError
         from websockets.frames import Close
 
@@ -192,10 +192,10 @@ class TestAgentErrorOnInvalidSession:
             async def close(self):
                 pass
 
-        with patch("app.websocket_client.websockets.connect", FakeConnect4004):
+        with patch("app.transport.websocket_client.websockets.connect", FakeConnect4004):
             with patch("asyncio.sleep", new_callable=AsyncMock):
-                with patch("app.websocket_client.sys.exit"):
-                    with patch("app.websocket_client.agent_crypto") as mock_crypto:
+                with patch("app.transport.websocket_client.sys.exit"):
+                    with patch("app.transport.websocket_client.agent_crypto") as mock_crypto:
                         mock_crypto.has_public_key = False
                         mock_crypto.fetch_public_key = AsyncMock()
                         client = WebSocketClient(
@@ -300,7 +300,7 @@ class TestWebSocketCloseCodeHandling:
 
         修复后：4001 被识别为不可恢复错误，直接停止，不重试。
         """
-        from app.websocket_client import WebSocketClient
+        from app.transport.websocket_client import WebSocketClient
         from websockets.exceptions import ConnectionClosedError
         from websockets.frames import Close
 
@@ -318,10 +318,10 @@ class TestWebSocketCloseCodeHandling:
             async def __aexit__(self, *args):
                 pass
 
-        with patch("app.websocket_client.websockets.connect", FakeConnect4001):
+        with patch("app.transport.websocket_client.websockets.connect", FakeConnect4001):
             with patch("asyncio.sleep", new_callable=AsyncMock):
-                with patch("app.websocket_client.sys.exit") as mock_exit:
-                    with patch("app.websocket_client.agent_crypto") as mock_crypto:
+                with patch("app.transport.websocket_client.sys.exit") as mock_exit:
+                    with patch("app.transport.websocket_client.agent_crypto") as mock_crypto:
                         mock_crypto.has_public_key = False
                         mock_crypto.fetch_public_key = AsyncMock()
                         client = WebSocketClient(
@@ -346,7 +346,7 @@ class TestWebSocketCloseCodeHandling:
         """
         普通 network error → 应该重连（这是正常的重连场景）。
         """
-        from app.websocket_client import WebSocketClient
+        from app.transport.websocket_client import WebSocketClient
 
         connect_count = 0
 
@@ -363,10 +363,10 @@ class TestWebSocketCloseCodeHandling:
             async def __aexit__(self, *args):
                 pass
 
-        with patch("app.websocket_client.websockets.connect", FakeConnect):
+        with patch("app.transport.websocket_client.websockets.connect", FakeConnect):
             with patch("asyncio.sleep", new_callable=AsyncMock):
-                with patch("app.websocket_client.sys.exit") as mock_exit:
-                    with patch("app.websocket_client.agent_crypto") as mock_crypto:
+                with patch("app.transport.websocket_client.sys.exit") as mock_exit:
+                    with patch("app.transport.websocket_client.agent_crypto") as mock_crypto:
                         mock_crypto.has_public_key = False
                         mock_crypto.fetch_public_key = AsyncMock()
                         client = WebSocketClient(

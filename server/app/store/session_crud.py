@@ -13,6 +13,7 @@ from app.store.session_types import (
     _session_key,
     _default_device_state,
     _session_locks,
+    _user_sessions_key,
 )
 from app.store.session_normalize import (
     _normalize_session_status,
@@ -68,6 +69,11 @@ async def create_session(
         name_key = f"rc:session_name_idx:{name}"
         await redis.set(name_key, session_id, ex=SESSION_TTL_SECONDS)
 
+    # 维护 user_id 反向索引
+    uid = user_id or owner
+    if uid:
+        await redis.sadd(_user_sessions_key(uid), session_id)
+
     logger.info("Session created: session_id=%s owner=%s", session_id, owner or user_id)
 
     return {
@@ -98,6 +104,8 @@ async def cleanup_user_sessions(user_id: str, keep_session_id: Optional[str] = N
         if name:
             await redis.delete(f"rc:session_name_idx:{name}")
         await redis.delete(_session_key(sid))
+        # 维护反向索引：移除已删除 session
+        await redis.srem(_user_sessions_key(user_id), sid)
         deleted += 1
 
     if deleted > 0:

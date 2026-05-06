@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from app.websocket_client import (
+from app.transport.websocket_client import (
     AgentSnapshotManager,
     TerminalRuntimeManager,
     TerminalSpec,

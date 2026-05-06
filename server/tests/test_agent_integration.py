@@ -56,7 +56,7 @@ from app.services.terminal_agent import (
     run_agent,
     terminal_agent,
 )
-from app.ws.ws_agent import ExecuteCommandResult
+from app.ws.agent_request import ExecuteCommandResult
 
 
 # ---------------------------------------------------------------------------

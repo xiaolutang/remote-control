@@ -35,6 +35,43 @@ from app.store.session_redis_conn import redis_conn
 logger = logging.getLogger(__name__)
 
 
+# ─── 进程内 terminal 缓存 ───
+
+_terminal_cache: dict[str, dict] = {}
+"""key = f"{session_id}:{terminal_id}", value = terminal dict"""
+
+_CACHE_MAX_SIZE = 1024
+
+
+def _cache_key(session_id: str, terminal_id: str) -> str:
+    return f"{session_id}:{terminal_id}"
+
+
+def _invalidate_session_cache(session_id: str) -> None:
+    """清除指定 session 的全部 terminal 缓存条目。"""
+    prefix = f"{session_id}:"
+    to_remove = [k for k in _terminal_cache if k.startswith(prefix)]
+    for k in to_remove:
+        del _terminal_cache[k]
+
+
+def _set_terminal_cache(session_id: str, terminal: dict) -> None:
+    """缓存单个 terminal 条目。"""
+    tid = terminal.get("terminal_id")
+    if not tid:
+        return
+    if len(_terminal_cache) >= _CACHE_MAX_SIZE:
+        _terminal_cache.clear()
+    _terminal_cache[_cache_key(session_id, tid)] = terminal
+
+
+def _set_terminals_cache(session_id: str, terminals: list[dict]) -> None:
+    """批量缓存 terminal 列表。"""
+    _invalidate_session_cache(session_id)
+    for t in terminals:
+        _set_terminal_cache(session_id, t)
+
+
 # ─── 内部读写（无锁） ───
 
 async def _get_session_raw(session_id: str) -> dict:
@@ -50,16 +87,19 @@ async def _get_session_raw(session_id: str) -> dict:
         )
 
     raw = json.loads(data)
-    session_data = _normalize_session_data(session_id, raw)
-    if session_data != raw:
+    session_data, changed = _normalize_session_data(session_id, raw)
+    if changed:
         await redis.set(key, json.dumps(session_data))
     return session_data
 
 
 async def _save_session(session_id: str, session_data: dict) -> None:
-    """内层：直接写入 Redis（调用方需已持有锁）。每次写入自动续期 TTL。"""
+    """内层：直接写入 Redis（调用方需已持有锁）。每次写入自动续期 TTL。写入后失效进程内缓存。"""
     redis = await redis_conn.get_redis()
     await redis.set(_session_key(session_id), json.dumps(session_data), ex=SESSION_TTL_SECONDS)
+    _invalidate_session_cache(session_id)
+    # 写入后重建 terminal 缓存
+    _set_terminals_cache(session_id, session_data.get("terminals", []))
 
 
 # ─── terminal CRUD ───
@@ -74,12 +114,29 @@ async def list_session_terminals(session_id: str) -> list[dict]:
         if changed:
             session_data["updated_at"] = datetime.now(timezone.utc).isoformat()
             await _save_session(session_id, session_data)
+        _set_terminals_cache(session_id, terminals)
         return terminals
 
 
 async def get_session_terminal(session_id: str, terminal_id: str) -> Optional[dict]:
-    """获取 session 下指定 terminal。"""
-    terminals = await list_session_terminals(session_id)
+    """获取 session 下指定 terminal。优先命中进程内缓存。"""
+    _validate_session_id(session_id)
+
+    # 快速路径：进程内缓存
+    cached = _terminal_cache.get(_cache_key(session_id, terminal_id))
+    if cached is not None:
+        return cached
+
+    # 慢路径：加锁读 Redis
+    async with _session_locks.get_lock(session_id):
+        session_data = await _get_session_raw(session_id)
+        terminals = session_data.get("terminals", [])
+        changed = _reconcile_terminals(terminals)
+        if changed:
+            session_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+            await _save_session(session_id, session_data)
+        _set_terminals_cache(session_id, terminals)
+
     for terminal in terminals:
         if terminal.get("terminal_id") == terminal_id:
             return terminal

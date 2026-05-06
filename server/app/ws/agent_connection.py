@@ -24,6 +24,8 @@ class AgentConnection:
         self.aes_key: bytes | None = None  # 该连接的 AES 会话密钥
         # B093: Agent 上报的工具目录快照
         self.tool_catalog: list[dict] = []  # [{"name", "kind", "description", "parameters", ...}]
+        # B059: 缓存 Redis 中的 agent_online 状态，避免每次心跳都写 Redis
+        self._redis_agent_online: bool | None = None
 
     async def send(self, message: dict):
         """发送消息到 Agent（自动加密）"""

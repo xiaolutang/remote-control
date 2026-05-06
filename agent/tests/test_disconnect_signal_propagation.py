@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import websockets.exceptions
 
-from app.websocket_client import WebSocketClient
+from app.transport.websocket_client import WebSocketClient
 
 
 def _make_client():
@@ -199,10 +199,10 @@ class TestDisconnectSignalPropagation:
             raise Exception("Connection closed")
 
         # 所有 patch 必须在同一 with 块内生效
-        p1 = patch('app.websocket_client.websockets.connect', return_value=_FakeConnectCM())
-        p2 = patch('app.websocket_client.agent_crypto')
+        p1 = patch('app.transport.websocket_client.websockets.connect', return_value=_FakeConnectCM())
+        p2 = patch('app.transport.websocket_client.agent_crypto')
         p3 = patch.object(client, '_send_ws_message', side_effect=send_with_eventual_failure)
-        p4 = patch('app.websocket_client.PTYWrapper', return_value=mock_pty)
+        p4 = patch('app.transport.websocket_client.PTYWrapper', return_value=mock_pty)
 
         with p1, p2 as mock_crypto, p3, p4:
             mock_crypto.has_public_key = True

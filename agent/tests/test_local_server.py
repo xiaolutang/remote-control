@@ -240,7 +240,7 @@ class TestLocalServer:
         from aiohttp import ClientSession
 
         # 添加模拟终端
-        from app.websocket_client import TerminalSpec
+        from app.transport.websocket_client import TerminalSpec
         mock_terminal = TerminalSpec(
             terminal_id="term-1",
             command="/bin/bash",
@@ -399,40 +399,40 @@ class TestTerminalInputValidation:
     """B068: terminal 创建输入校验"""
 
     def test_valid_input_passes(self):
-        from app.websocket_client import _validate_terminal_input
+        from app.transport.websocket_client import _validate_terminal_input
         assert _validate_terminal_input("/bin/bash", "/home/user", {"KEY": "value"}) is None
 
     def test_command_not_string_rejected(self):
-        from app.websocket_client import _validate_terminal_input
+        from app.transport.websocket_client import _validate_terminal_input
         assert "must be string" in _validate_terminal_input(123, None, {})
 
     def test_command_empty_rejected(self):
-        from app.websocket_client import _validate_terminal_input
+        from app.transport.websocket_client import _validate_terminal_input
         assert "must not be empty" in _validate_terminal_input("", None, {})
 
     def test_cwd_relative_rejected(self):
-        from app.websocket_client import _validate_terminal_input
+        from app.transport.websocket_client import _validate_terminal_input
         assert "absolute path" in _validate_terminal_input("/bin/bash", "../etc", {})
 
     def test_cwd_absolute_allowed(self):
-        from app.websocket_client import _validate_terminal_input
+        from app.transport.websocket_client import _validate_terminal_input
         assert _validate_terminal_input("/bin/bash", "/home/user", {}) is None
 
     def test_cwd_none_allowed(self):
-        from app.websocket_client import _validate_terminal_input
+        from app.transport.websocket_client import _validate_terminal_input
         assert _validate_terminal_input("/bin/bash", None, {}) is None
 
     def test_env_non_string_value_rejected(self):
-        from app.websocket_client import _validate_terminal_input
+        from app.transport.websocket_client import _validate_terminal_input
         assert "must be string" in _validate_terminal_input("/bin/bash", None, {"KEY": 123})
 
     def test_env_string_value_allowed(self):
-        from app.websocket_client import _validate_terminal_input
+        from app.transport.websocket_client import _validate_terminal_input
         assert _validate_terminal_input("/bin/bash", None, {"KEY": "value"}) is None
 
     def test_command_rdash_allowed(self):
         """command='rm -rf /' 允许（字符串，用户决定信任）"""
-        from app.websocket_client import _validate_terminal_input
+        from app.transport.websocket_client import _validate_terminal_input
         assert _validate_terminal_input("rm -rf /", None, {}) is None
 
 
@@ -460,7 +460,7 @@ class TestSkillsAPI:
     async def test_get_skills_returns_list(self, mock_client, tmp_path, monkeypatch):
         """GET /skills 返回正确的 skill 列表"""
         from aiohttp import ClientSession
-        from app.skill_registry import SkillEntry, SkillManifest
+        from app.tools.skill_registry import SkillEntry, SkillManifest
 
         # 准备 skills 目录
         skills_dir = tmp_path / "skills"
@@ -474,8 +474,8 @@ class TestSkillsAPI:
             "transport": "stdio",
         }))
 
-        monkeypatch.setattr("app.skill_registry._get_agent_data_dir", lambda: tmp_path)
-        monkeypatch.setattr("app.skill_registry.discover_skills",
+        monkeypatch.setattr("app.tools.skill_registry._get_agent_data_dir", lambda: tmp_path)
+        monkeypatch.setattr("app.tools.skill_registry.discover_skills",
                             lambda: [SkillEntry(
                                 name="test-skill",
                                 enabled=True,
@@ -511,7 +511,7 @@ class TestSkillsAPI:
         """skills/ 目录为空时 GET /skills 返回空列表"""
         from aiohttp import ClientSession
 
-        monkeypatch.setattr("app.skill_registry.discover_skills", lambda: [])
+        monkeypatch.setattr("app.tools.skill_registry.discover_skills", lambda: [])
 
         port = _next_b095_port()
         server = LocalServer(mock_client, port=port)
@@ -533,17 +533,17 @@ class TestSkillsAPI:
     async def test_skills_toggle_enable(self, mock_client, tmp_path, monkeypatch):
         """POST /skills/toggle 正确更新 registry"""
         from aiohttp import ClientSession
-        from app.skill_registry import SkillEntry, SkillManifest
+        from app.tools.skill_registry import SkillEntry, SkillManifest
 
-        monkeypatch.setattr("app.skill_registry.discover_skills",
+        monkeypatch.setattr("app.tools.skill_registry.discover_skills",
                             lambda: [SkillEntry(
                                 name="my-skill",
                                 enabled=True,
                                 manifest=SkillManifest(name="my-skill", command="echo", transport="stdio"),
                             )])
-        monkeypatch.setattr("app.skill_registry.load_skill_registry", lambda: {"my-skill": True})
+        monkeypatch.setattr("app.tools.skill_registry.load_skill_registry", lambda: {"my-skill": True})
         saved = {}
-        monkeypatch.setattr("app.skill_registry.save_skill_registry", lambda e: saved.update(e))
+        monkeypatch.setattr("app.tools.skill_registry.save_skill_registry", lambda e: saved.update(e))
 
         port = _next_b095_port()
         server = LocalServer(mock_client, port=port)
@@ -570,7 +570,7 @@ class TestSkillsAPI:
         """POST /skills/toggle 不存在的 skill 返回 404"""
         from aiohttp import ClientSession
 
-        monkeypatch.setattr("app.skill_registry.discover_skills", lambda: [])
+        monkeypatch.setattr("app.tools.skill_registry.discover_skills", lambda: [])
 
         port = _next_b095_port()
         server = LocalServer(mock_client, port=port)
@@ -659,12 +659,12 @@ class TestKnowledgeAPI:
     async def test_get_knowledge_returns_list(self, mock_client, tmp_path, monkeypatch):
         """GET /knowledge 返回正确的知识文件列表"""
         from aiohttp import ClientSession
-        from app.knowledge_tool import KnowledgeConfig
+        from app.tools.knowledge_tool import KnowledgeConfig
 
         # 使用内置 knowledge 目录里的真实文件
-        monkeypatch.setattr("app.knowledge_tool.load_knowledge_config",
+        monkeypatch.setattr("app.tools.knowledge_tool.load_knowledge_config",
                             lambda: KnowledgeConfig())
-        monkeypatch.setattr("app.knowledge_tool._scan_all_knowledge_files",
+        monkeypatch.setattr("app.tools.knowledge_tool._scan_all_knowledge_files",
                             lambda: [("file1.md", Path("/fake/file1.md"))])
 
         port = _next_b095_port()
@@ -689,11 +689,11 @@ class TestKnowledgeAPI:
     async def test_get_knowledge_config_missing_all_enabled(self, mock_client, monkeypatch):
         """knowledge_config.json 缺失时 GET /knowledge 返回全部启用"""
         from aiohttp import ClientSession
-        from app.knowledge_tool import KnowledgeConfig
+        from app.tools.knowledge_tool import KnowledgeConfig
 
-        monkeypatch.setattr("app.knowledge_tool.load_knowledge_config",
+        monkeypatch.setattr("app.tools.knowledge_tool.load_knowledge_config",
                             lambda: KnowledgeConfig())
-        monkeypatch.setattr("app.knowledge_tool._scan_all_knowledge_files",
+        monkeypatch.setattr("app.tools.knowledge_tool._scan_all_knowledge_files",
                             lambda: [
                                 ("a.md", Path("/a.md")),
                                 ("b.md", Path("/b.md")),
@@ -719,14 +719,14 @@ class TestKnowledgeAPI:
     async def test_knowledge_toggle_disable(self, mock_client, tmp_path, monkeypatch):
         """POST /knowledge/toggle 正确更新 config"""
         from aiohttp import ClientSession
-        from app.knowledge_tool import KnowledgeConfig
+        from app.tools.knowledge_tool import KnowledgeConfig
 
-        monkeypatch.setattr("app.knowledge_tool._scan_all_knowledge_files",
+        monkeypatch.setattr("app.tools.knowledge_tool._scan_all_knowledge_files",
                             lambda: [("tips.md", Path("/fake/tips.md"))])
-        monkeypatch.setattr("app.knowledge_tool.load_knowledge_config",
+        monkeypatch.setattr("app.tools.knowledge_tool.load_knowledge_config",
                             lambda: KnowledgeConfig())
         saved_configs = []
-        monkeypatch.setattr("app.knowledge_tool.save_knowledge_config",
+        monkeypatch.setattr("app.tools.knowledge_tool.save_knowledge_config",
                             lambda c: saved_configs.append(c))
 
         port = _next_b095_port()
@@ -754,7 +754,7 @@ class TestKnowledgeAPI:
         """POST /knowledge/toggle 不存在的文件返回 404"""
         from aiohttp import ClientSession
 
-        monkeypatch.setattr("app.knowledge_tool._scan_all_knowledge_files", lambda: [])
+        monkeypatch.setattr("app.tools.knowledge_tool._scan_all_knowledge_files", lambda: [])
 
         port = _next_b095_port()
         server = LocalServer(mock_client, port=port)
@@ -877,7 +877,7 @@ class TestSkillRegistryCorrupt:
         mock_client = MockAgentClient()
 
         # 将数据目录指向 tmp_path，这样 skill-registry.json 和 skills/ 都在临时目录下
-        monkeypatch.setattr("app.skill_registry._get_agent_data_dir", lambda: tmp_path)
+        monkeypatch.setattr("app.tools.skill_registry._get_agent_data_dir", lambda: tmp_path)
 
         # 写入损坏的 JSON
         registry_path = tmp_path / "skill-registry.json"

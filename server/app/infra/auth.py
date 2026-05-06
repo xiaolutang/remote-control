@@ -1,6 +1,7 @@
 """
-JWT 认证服务
+JWT 认证服务 + 密码哈希工具
 """
+import hashlib
 import logging
 import os
 from datetime import datetime, timedelta, timezone
@@ -464,3 +465,29 @@ async def get_current_user_id(
             detail="用户信息缺失",
         )
     return user_id
+
+
+# ============ 密码哈希工具 ============
+
+def hash_password(password: str) -> str:
+    """密码哈希（bcrypt）"""
+    import bcrypt
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    """验证密码（支持 bcrypt 和旧 SHA-256）"""
+    import bcrypt
+
+    # bcrypt 哈希以 $2b$ 开头
+    if password_hash.startswith("$2b$"):
+        return bcrypt.checkpw(password.encode(), password_hash.encode())
+
+    # 旧 SHA-256 格式（64 hex 字符）
+    legacy_hash = hashlib.sha256(password.encode()).hexdigest()
+    return legacy_hash == password_hash
+
+
+def is_legacy_hash(password_hash: str) -> bool:
+    """判断是否为旧 SHA-256 哈希"""
+    return len(password_hash) == 64 and all(c in "0123456789abcdef" for c in password_hash)

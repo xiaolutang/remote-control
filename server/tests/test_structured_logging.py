@@ -23,7 +23,8 @@ class TestAgentStructuredLogging:
     @pytest.mark.asyncio
     async def test_agent_connect_logs_session_id(self, caplog):
         """[happy] Agent 连接时产生含 session_id 的 info 日志"""
-        from app.ws.ws_agent import agent_websocket_handler, active_agents
+        from app.ws.ws_agent import agent_websocket_handler
+        from app.ws.agent_connection import active_agents
         active_agents.clear()
 
         async def mock_iter():
@@ -35,12 +36,12 @@ class TestAgentStructuredLogging:
         mock_ws.iter_text = MagicMock(return_value=mock_iter())
 
         with caplog.at_level(logging.INFO, logger="app.ws.ws_agent"):
-            with patch("app.ws.ws_agent.async_verify_token", return_value={"session_id": "sess-001", "sub": "user1"}):
+            with patch("app.ws.ws_auth.async_verify_token", return_value={"session_id": "sess-001", "sub": "user1"}):
                 with patch("app.ws.ws_agent.get_session", return_value={"session_id": "sess-001", "owner": "user1"}):
                     with patch("app.ws.ws_agent.set_session_online", new_callable=AsyncMock):
-                        with patch("app.ws.ws_agent.update_session_device_heartbeat", new_callable=AsyncMock):
+                        with patch("app.ws.agent_message_handler.update_session_device_heartbeat", new_callable=AsyncMock):
                             with patch("app.ws.ws_client.get_view_counts", return_value={"mobile": 0, "desktop": 0}):
-                                with patch("app.ws.ws_agent.list_recoverable_session_terminals", new=AsyncMock(return_value=[])):
+                                with patch("app.ws.agent_cleanup.list_recoverable_session_terminals", new=AsyncMock(return_value=[])):
                                     await agent_websocket_handler(mock_ws)
 
         info_logs = [r for r in caplog.records if r.name == "app.ws.ws_agent" and r.levelno == logging.INFO]
@@ -51,7 +52,8 @@ class TestAgentStructuredLogging:
     @pytest.mark.asyncio
     async def test_agent_error_logs_with_exc_info(self, caplog):
         """[fail] ws_agent 连接失败时产生含异常信息的 error 日志"""
-        from app.ws.ws_agent import agent_websocket_handler, active_agents
+        from app.ws.ws_agent import agent_websocket_handler
+        from app.ws.agent_connection import active_agents
         active_agents.clear()
 
         async def error_iter():
@@ -64,12 +66,12 @@ class TestAgentStructuredLogging:
         mock_ws.iter_text = MagicMock(return_value=error_iter())
 
         with caplog.at_level(logging.ERROR, logger="app.ws.ws_agent"):
-            with patch("app.ws.ws_agent.async_verify_token", return_value={"session_id": "sess-002", "sub": "user2"}):
+            with patch("app.ws.ws_auth.async_verify_token", return_value={"session_id": "sess-002", "sub": "user2"}):
                 with patch("app.ws.ws_agent.get_session", return_value={"session_id": "sess-002", "owner": "user2"}):
                     with patch("app.ws.ws_agent.set_session_online", new_callable=AsyncMock):
-                        with patch("app.ws.ws_agent.update_session_device_heartbeat", new_callable=AsyncMock):
+                        with patch("app.ws.agent_message_handler.update_session_device_heartbeat", new_callable=AsyncMock):
                             with patch("app.ws.ws_client.get_view_counts", return_value={"mobile": 0, "desktop": 0}):
-                                with patch("app.ws.ws_agent.list_recoverable_session_terminals", new=AsyncMock(return_value=[])):
+                                with patch("app.ws.agent_cleanup.list_recoverable_session_terminals", new=AsyncMock(return_value=[])):
                                     await agent_websocket_handler(mock_ws)
 
         error_logs = [r for r in caplog.records if r.name == "app.ws.ws_agent" and r.levelno >= logging.ERROR]

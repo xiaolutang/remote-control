@@ -57,7 +57,7 @@ Future<bool> _wsConnect(WebSocketService s) async {
     );
 
     final authMessage = <String, dynamic>{
-      'type': 'auth',
+      'type': MessageType.auth,
       'token': s.token,
     };
     var aesKeyExchanged = false;
@@ -145,7 +145,7 @@ void _wsHandleInitialMessage(
 }) {
   try {
     final data = jsonDecode(message) as Map<String, dynamic>;
-    if (data['type'] == 'connected') {
+    if (data['type'] == MessageType.connected) {
       s._encryptionEnabled = aesKeyExchanged;
       s._applyConnectedMessage(data);
       _wsStartHeartbeat(s);
@@ -209,11 +209,11 @@ String _wsBuildSendUnavailableMessage(WebSocketService s) {
 
 String _wsEncodeDataMessage(WebSocketService s, String data) {
   final raw = {
-    'type': 'data',
+    'type': MessageType.data,
     'payload': base64Encode(utf8.encode(data)),
     'timestamp': DateTime.now().toUtc().toIso8601String(),
   };
-  return s._encryptionEnabled && s._crypto.shouldEncrypt('data')
+  return s._encryptionEnabled && s._crypto.shouldEncrypt(MessageType.data)
       ? jsonEncode(s._crypto.encryptMessage(raw))
       : jsonEncode(raw);
 }
@@ -222,8 +222,8 @@ void _wsResize(WebSocketService s, int rows, int cols) {
   if (s._status != ConnectionStatus.connected || s._channel == null) {
     return;
   }
-  final raw = {'type': 'resize', 'rows': rows, 'cols': cols};
-  final message = s._encryptionEnabled && s._crypto.shouldEncrypt('resize')
+  final raw = {'type': MessageType.resize, 'rows': rows, 'cols': cols};
+  final message = s._encryptionEnabled && s._crypto.shouldEncrypt(MessageType.resize)
       ? jsonEncode(s._crypto.encryptMessage(raw))
       : jsonEncode(raw);
   s._channel!.sink.add(message);
@@ -314,7 +314,7 @@ void _wsStartHeartbeat(WebSocketService s) {
   _wsStopHeartbeat(s);
   s._heartbeatTimer = Timer.periodic(const Duration(seconds: 30), (_) {
     if (s._status == ConnectionStatus.connected && s._channel != null) {
-      s._channel!.sink.add(jsonEncode({'type': 'ping'}));
+      s._channel!.sink.add(jsonEncode({'type': MessageType.ping}));
     }
   });
 }

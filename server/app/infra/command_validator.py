@@ -1,49 +1,55 @@
 """
-B078: 命令白名单验证器。
+B078: 命令白名单验证器（Server 端）。
 
-Server 端和 Agent 端双重验证共用。Agent 端在 agent/app/command_validator.py
-维护一份独立副本（Agent 不依赖 server 包）。
+白名单定义从 shared/command_whitelist.json 加载，与 Agent 端共享同一份配置源。
 
 三重防护：
 1. 白名单：只有 ALLOWED_COMMANDS 中的命令允许执行
 2. shell 元字符拦截：禁止 ;|&$`\\>> 等元字符（B122: 增加 | 管道符拦截）
 3. 敏感路径过滤：禁止访问 /etc/shadow、.ssh、.env 等
 """
+import json
 import re
 import shlex
+from pathlib import Path
 
-ALLOWED_COMMANDS = frozenset({
-    'ls', 'dir', 'tree',
-    'cat', 'head', 'tail', 'less', 'more',
-    'find', 'grep', 'rg', 'ag', 'fd',
-    'file', 'stat', 'wc', 'du', 'df',
-    'pwd', 'whoami', 'hostname', 'uname', 'id',
-    'which', 'command', 'type', 'whereis',
-    'echo', 'date',
-})
+# ---------------------------------------------------------------------------
+# 从 shared/command_whitelist.json 加载白名单配置
+# ---------------------------------------------------------------------------
+_WHITELIST_PATH = Path(__file__).resolve().parent.parent.parent.parent / "shared" / "command_whitelist.json"
 
-SAFE_GIT_SUBCOMMANDS = frozenset({
-    'log', 'status', 'branch', 'diff', 'show',
-    'remote', 'tag', 'describe', 'rev-parse',
-    'ls-files', 'ls-tree',
-})
 
-_SENSITIVE_PATHS = re.compile(
-    r'(/etc/passwd\b|/etc/shadow\b|/etc/ssh\b|/root/\.ssh\b|/proc/self\b|'
-    r'\.ssh/id_|\.ssh/known_hosts\b|\.ssh/authorized_keys\b|'
-    r'\.env\b|\.pem\b|\.key\b)',
-    re.IGNORECASE,
-)
+def _load_whitelist() -> dict:
+    """加载白名单 JSON 配置文件。加载失败时抛出 RuntimeError，不静默降级。"""
+    try:
+        with open(_WHITELIST_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        raise RuntimeError(
+            f"command_whitelist.json 未找到: {_WHITELIST_PATH}。"
+            "请确保 shared/command_whitelist.json 存在。"
+        )
+    except json.JSONDecodeError as e:
+        raise RuntimeError(
+            f"command_whitelist.json 格式错误: {e}。请检查 JSON 语法。"
+        )
 
+
+_CFG = _load_whitelist()
+
+ALLOWED_COMMANDS = frozenset(_CFG["allowed_commands"])
+SAFE_GIT_SUBCOMMANDS = frozenset(_CFG["safe_git_subcommands"])
+
+_SENSITIVE_PATHS = re.compile(_CFG["sensitive_paths_pattern"])
 # 人类可读的敏感路径摘要（从 _SENSITIVE_PATHS 同步维护，供 SYSTEM_PROMPT 引用）
 SENSITIVE_PATH_DISPLAY = "/etc/passwd、/etc/shadow、/etc/ssh、/root/.ssh、/proc/self、.ssh、.env、.pem、.key"
-_SHELL_META = re.compile(r'[;|&$`\\]|>>|>')
-_FIND_DANGEROUS = {'-exec', '-delete', '-fls', '-ok', '-fprint'}
+_SHELL_META = re.compile(_CFG["shell_meta_pattern"])
+_FIND_DANGEROUS = frozenset(_CFG["find_dangerous_options"])
 
-MAX_STDOUT_LEN = 8192
-MAX_STDERR_LEN = 4096
-DEFAULT_COMMAND_TIMEOUT = 10  # 秒
-MAX_COMMAND_RATE_PER_MINUTE = 60  # 每会话每分钟
+MAX_STDOUT_LEN = _CFG["max_stdout_len"]
+MAX_STDERR_LEN = _CFG["max_stderr_len"]
+DEFAULT_COMMAND_TIMEOUT = _CFG["default_command_timeout"]
+MAX_COMMAND_RATE_PER_MINUTE = 60  # 每会话每分钟（server 端特有常量）
 
 
 def validate_command(command: str) -> tuple[bool, str]:

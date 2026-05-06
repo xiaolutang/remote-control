@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:asn1lib/asn1lib.dart' as asn1;
 import 'package:pointycastle/export.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../constants/message_types.dart';
 
 /// 应用层加密服务：RSA-OAEP + AES-256-GCM + TOFU 公钥信任
 class CryptoService {
@@ -172,7 +173,7 @@ class CryptoService {
 
   /// 判断消息类型是否需要加密
   bool shouldEncrypt(String msgType) {
-    return !const {'auth', 'connected', 'ping', 'pong'}.contains(msgType);
+    return !plaintextMsgTypes.contains(msgType);
   }
 
   /// 清除 AES 密钥（断开连接时调用）

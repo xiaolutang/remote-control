@@ -1,0 +1,22 @@
+{
+  "allowed_commands": [
+    "ls", "dir", "tree",
+    "cat", "head", "tail", "less", "more",
+    "find", "grep", "rg", "ag", "fd",
+    "file", "stat", "wc", "du", "df",
+    "pwd", "whoami", "hostname", "uname", "id",
+    "which", "command", "type", "whereis",
+    "echo", "date"
+  ],
+  "safe_git_subcommands": [
+    "log", "status", "branch", "diff", "show",
+    "remote", "tag", "describe", "rev-parse",
+    "ls-files", "ls-tree"
+  ],
+  "sensitive_paths_pattern": "(?i)(/etc/passwd\\b|/etc/shadow\\b|/etc/ssh\\b|/root/\\.ssh\\b|/proc/self\\b|\\.ssh/id_|\\.ssh/known_hosts\\b|\\.ssh/authorized_keys\\b|\\.env\\b|\\.pem\\b|\\.key\\b)",
+  "shell_meta_pattern": "[;|&$`\\\\]|>>|>",
+  "find_dangerous_options": ["-exec", "-delete", "-fls", "-ok", "-fprint"],
+  "max_stdout_len": 8192,
+  "max_stderr_len": 4096,
+  "default_command_timeout": 10
+}
