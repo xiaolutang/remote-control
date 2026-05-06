@@ -1,8 +1,22 @@
 {
   "version": "1.4",
   "project": "remote-control",
-  "updated_at": "2026-05-06T15:00:00+08:00",
+  "updated_at": "2026-05-06T20:30:00+08:00",
   "status": "active",
+  "active_requirement_cycle": {
+    "id": "R055",
+    "name": "macos-app-path-auth",
+    "branch": "feat/R055-macos-app-path-auth",
+    "started_at": "2026-05-06T20:00:00+08:00",
+    "workflow": {
+      "mode": "B",
+      "runtime": "skill_orchestrated",
+      "review_provider": "codex_plugin",
+      "audit_provider": "codex_plugin",
+      "risk_provider": "codex_plugin"
+    },
+    "summary": "修复 macOS .app PATH 缺失 + Auth 调查与防御性优化"
+  },
   "archived_requirement_cycles": [
     {"id": "R047", "name": "agent-conversation-interaction-optimization", "status": "completed", "archive_dir": "_archive/R047_agent-conversation-interaction-optimization", "total_tasks": 31},
     {"id": "R048", "name": "architecture-deep-cleanup", "status": "completed", "archive_dir": "_archive/R048_architecture-deep-cleanup", "total_tasks": 20},
@@ -14,5 +28,154 @@
     {"id": "R054", "name": "code-quality-consolidation", "status": "completed", "archive_dir": "_archive/R054_code-quality-consolidation", "total_tasks": 11, "completed_at": "2026-05-06"}
   ],
   "archived_phases": [],
-  "features": []
+  "features": [
+    {
+      "id": "S301",
+      "phase": 0,
+      "module": "agent",
+      "name": "创建 env_compat.py PATH 修复模块",
+      "description": "新建 agent/app/core/env_compat.py，实现 ensure_shell_path() 函数。检测当前 PATH 是否缺失关键用户空间路径（/opt/homebrew/bin, /usr/local/bin 等），而非精确匹配 launchd 最小集。如果缺失：1) 通过 $SHELL -l -c 'echo $PATH' 获取用户完整 shell PATH；2) shell 获取失败时 fallback 拼接常见 macOS 路径；3) 成功后更新 os.environ['PATH']。幂等设计，重复调用安全。",
+      "verification": "L1",
+      "depends_on": [],
+      "status": "pending",
+      "priority": 0,
+      "acceptance_criteria": [
+        "agent/app/core/env_compat.py 存在，导出 ensure_shell_path()",
+        "PATH 已包含 homebrew 路径时函数立即返回，不修改",
+        "PATH 缺失关键路径时通过 shell 或 fallback 补全（不要求精确等于最小集）",
+        "PATH 有额外系统路径但仍缺失 homebrew 时仍触发修复",
+        "更新 os.environ['PATH'] 使下游 PTY 进程受益"
+      ],
+      "risk_tags": ["startup", "config"],
+      "test_tasks": [
+        "test_no_op_when_path_already_full: PATH 已含 homebrew 路径时不修改",
+        "test_expands_minimal_path: 模拟 launchd 最小 PATH 时扩展",
+        "test_expands_partial_path: PATH 有系统路径但缺失 homebrew 时仍触发",
+        "test_shell_fallback: shell 命令失败时使用 fallback 路径",
+        "test_shell_missing: $SHELL 环境变量缺失时 fallback",
+        "test_shell_empty_path: shell 返回空 PATH 时 fallback",
+        "test_idempotent: 重复调用幂等"
+      ],
+      "files": ["agent/app/core/env_compat.py"]
+    },
+    {
+      "id": "S302",
+      "phase": 0,
+      "module": "agent",
+      "name": "集成 PATH 修复到 cli.py",
+      "description": "在 agent/app/cli.py 的 run 命令和 start 命令中，setup_agent_logging() 之后调用 ensure_shell_path()。添加 import 和调用各 2 行，共 4 行改动。",
+      "verification": "L1",
+      "depends_on": ["S301"],
+      "status": "pending",
+      "priority": 0,
+      "acceptance_criteria": [
+        "run 命令在 setup_agent_logging() 后调用 ensure_shell_path()",
+        "start 命令在 setup_agent_logging() 后调用 ensure_shell_path()",
+        "import 正确，不影响其他功能",
+        "现有 pytest 通过"
+      ],
+      "risk_tags": ["startup"],
+      "test_tasks": [
+        "test_run_calls_ensure_shell_path: mock ensure_shell_path，调用 run 命令，验证被调用",
+        "test_start_calls_ensure_shell_path: mock ensure_shell_path，调用 start 命令，验证被调用",
+        "test_ensure_shell_path_after_logging: 验证 ensure_shell_path 在 setup_agent_logging 之后被调用"
+      ],
+      "files": ["agent/app/cli.py"]
+    },
+    {
+      "id": "S303",
+      "phase": 0,
+      "module": "agent",
+      "name": "env_compat 单元测试",
+      "description": "新建 agent/tests/test_env_compat.py，覆盖 ensure_shell_path() 的 7 个场景：PATH 已完整、最小 PATH、部分 PATH（有系统路径缺 homebrew）、shell fallback、$SHELL 缺失、shell 返回空、幂等性。约 100 行。",
+      "verification": "L1",
+      "depends_on": ["S301"],
+      "status": "pending",
+      "priority": 0,
+      "acceptance_criteria": [
+        "agent/tests/test_env_compat.py 存在",
+        "7 个测试场景全部通过",
+        "pytest tests/test_env_compat.py -v 全绿"
+      ],
+      "files": ["agent/tests/test_env_compat.py"]
+    },
+    {
+      "id": "S304",
+      "phase": 1,
+      "module": "agent",
+      "name": "Auth 流程耗时日志",
+      "description": "在 ensure_valid_token 的每个关键步骤（verify、refresh、login）前后添加 time.monotonic() 计时，统一通过 log_adapter._log() 输出每步耗时到 stderr（桌面端 _captureManagedRuntimeOutput 捕获 stderr）。AuthService 和 crypto 的耗时也统一通过 _log() 输出，确保在 .app 场景下可见。",
+      "verification": "L1",
+      "depends_on": [],
+      "status": "pending",
+      "priority": 1,
+      "acceptance_criteria": [
+        "ensure_valid_token 每步通过 _log() 输出耗时到 stderr",
+        "AuthService 各方法通过 _log() 输出耗时到 stderr",
+        "crypto.fetch_public_key 通过 _log() 输出耗时到 stderr",
+        "桌面端 managed-agent stderr 捕获可见耗时日志",
+        "现有 pytest 通过"
+      ],
+      "risk_tags": ["network"],
+      "test_tasks": [
+        "test_verify_timing_logged: verify 成功和失败都有耗时日志",
+        "test_refresh_timing_logged: refresh 成功和失败都有耗时日志",
+        "test_login_timing_logged: login 成功和失败都有耗时日志",
+        "test_pubkey_timing_logged: fetch_public_key 有耗时日志"
+      ],
+      "files": [
+        "agent/app/cli.py",
+        "agent/app/security/auth_service.py",
+        "agent/app/security/crypto.py"
+      ]
+    },
+    {
+      "id": "S305",
+      "phase": 1,
+      "module": "agent",
+      "name": "Auth 超时值防御性降低",
+      "description": "降低 auth_service.py 和 crypto.py 的 HTTP 超时值作为防御性改善：login 30s→8s，refresh_token 30s→8s，verify_token 10s→5s，fetch_public_key 10s→5s。超时后行为不变：verify 超时 → 尝试 refresh → refresh 超时 → 尝试 auto-login → login 失败报错退出。状态转换逻辑与降低前完全一致。",
+      "verification": "L1",
+      "depends_on": ["S304"],
+      "status": "pending",
+      "priority": 1,
+      "acceptance_criteria": [
+        "auth_service.py login timeout = 8s",
+        "auth_service.py refresh_token timeout = 8s",
+        "auth_service.py verify_token timeout = 5s",
+        "crypto.py fetch_public_key timeout = 5s",
+        "verify 超时后继续 refresh，refresh 超时后继续 auto-login，login 失败报错退出（行为不变）",
+        "现有 pytest 通过"
+      ],
+      "risk_tags": ["network"],
+      "test_tasks": [
+        "test_timeout_does_not_break_fallback: verify 超时后 refresh 仍可成功",
+        "test_refresh_timeout_falls_to_login: refresh 超时/失败后 auto-login 仍可成功",
+        "test_login_timeout_reports_error: login 超时/失败后报错退出",
+        "test_all_auth_timeouts_reduced: 确认 4 个超时值均为新值"
+      ],
+      "files": [
+        "agent/app/security/auth_service.py",
+        "agent/app/security/crypto.py"
+      ]
+    },
+    {
+      "id": "S306",
+      "phase": 1,
+      "module": "agent",
+      "name": "需求包级 Smoke 手工验证",
+      "description": "手工验证 R055 两个核心 smoke 场景：1) macOS .app 启动 Agent → 创建终端 → `which claude` 返回正确路径；2) Agent 启动日志（stderr）中可见各 auth 步骤耗时。此任务验证 S301-S305 的代码改动在实际 .app 环境中生效。验证后记录结果到 evidence/S306.md。",
+      "verification": "L4",
+      "depends_on": ["S302", "S303", "S304", "S305"],
+      "status": "pending",
+      "priority": 1,
+      "acceptance_criteria": [
+        "macOS .app 启动后终端内 `which claude` 返回 /opt/homebrew/bin/claude 或类似路径",
+        "Agent stderr 日志可见 auth 各步骤耗时（如 'verify took 0.12s'）",
+        "结果记录到 .dev-flow/evidence/S306.md"
+      ],
+      "smoke_required": true,
+      "files": []
+    }
+  ]
 }

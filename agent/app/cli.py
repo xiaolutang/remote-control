@@ -8,6 +8,7 @@ import logging
 import os
 import signal
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -15,6 +16,7 @@ from app.core.config import Config, load_config, save_config, get_config_path, n
 from app.transport.websocket_client import WebSocketClient
 from app.security.auth_service import AuthService
 from app.core.log_adapter import init_logging as _init_logging, close_logging as _close_logging, _log as _log_agent
+from app.core.env_compat import ensure_shell_path
 
 
 logger = logging.getLogger(__name__)
@@ -129,6 +131,7 @@ async def ensure_valid_token(config: Config, config_path) -> tuple:
     Returns:
         (success, access_token_or_error_message)
     """
+    t_start = time.monotonic()
     access_token = config.get_access_token()
     refresh_token = config.refresh_token
 
@@ -136,6 +139,7 @@ async def ensure_valid_token(config: Config, config_path) -> tuple:
         # 验证当前 token
         auth = AuthService(config.server_url)
         if await auth.verify_token(access_token):
+            _log_agent(f"auth: ensure_valid_token took {time.monotonic() - t_start:.3f}s (verify ok)")
             return True, access_token
 
         # Token 无效，尝试刷新
@@ -148,6 +152,7 @@ async def ensure_valid_token(config: Config, config_path) -> tuple:
                 config.token = refresh_result.access_token  # 向后兼容
                 _safe_save_config(config, config_path)
                 click.echo(click.style("✓ Token 刷新成功", fg="green"))
+                _log_agent(f"auth: ensure_valid_token took {time.monotonic() - t_start:.3f}s (refresh ok)")
                 return True, refresh_result.access_token
             else:
                 click.echo(f"Token 刷新失败: {refresh_result.message}")
@@ -164,10 +169,13 @@ async def ensure_valid_token(config: Config, config_path) -> tuple:
             config.token = login_result.access_token  # 向后兼容
             _safe_save_config(config, config_path)
             click.echo(click.style("✓ 自动登录成功", fg="green"))
+            _log_agent(f"auth: ensure_valid_token took {time.monotonic() - t_start:.3f}s (login ok)")
             return True, login_result.access_token
         else:
+            _log_agent(f"auth: ensure_valid_token took {time.monotonic() - t_start:.3f}s (login failed)")
             return False, f"自动登录失败: {login_result.message}"
 
+    _log_agent(f"auth: ensure_valid_token took {time.monotonic() - t_start:.3f}s (no credentials)")
     return False, "未配置 Token 且无登录凭据，请先使用 'rc-agent login' 登录"
 
 
@@ -220,6 +228,7 @@ def login(ctx, server, username, password):
 def run(ctx, command, shell, reconnect, max_retries):
     """使用保存的配置启动 Agent（支持自动登录）"""
     setup_agent_logging()
+    ensure_shell_path()
     config = ctx.obj.config
     config_path = ctx.obj.config_path
 
@@ -298,6 +307,7 @@ def run(ctx, command, shell, reconnect, max_retries):
 def start(ctx, server, token, command, shell, local_display, reconnect, max_retries):
     """手动指定参数启动 Agent（不保存配置）"""
     setup_agent_logging()
+    ensure_shell_path()
     config = ctx.obj.config
 
     click.echo(f"正在连接服务器: {server}")

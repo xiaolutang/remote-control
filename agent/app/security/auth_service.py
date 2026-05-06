@@ -3,11 +3,14 @@
 处理登录、token 刷新等认证相关操作
 """
 import logging
+import time
+
 import aiohttp
 from typing import Optional
 from dataclasses import dataclass
 
 from app.core.config import ssl_context_for_aiohttp
+from app.core.log_adapter import _log
 from app.security.crypto import agent_crypto
 
 logger = logging.getLogger(__name__)
@@ -56,6 +59,7 @@ class AuthService:
         """
         用户登录
         """
+        t0 = time.monotonic()
         url = f"{self.base_url}/api/login"
 
         # 密码加密：ws:// (→ http://) 必须加密（不变量 #27），wss:// (→ https://) 由 TLS 保护
@@ -76,12 +80,13 @@ class AuthService:
                     url,
                     json=body,
                     ssl=ssl_context_for_aiohttp(),
-                    timeout=aiohttp.ClientTimeout(total=30),
+                    timeout=aiohttp.ClientTimeout(total=8),
                 ) as response:
                     data = await response.json()
 
                     if response.status == 200 and data.get("success"):
                         logger.info("Login success: username=%s", username)
+                        _log(f"auth: login took {time.monotonic() - t0:.3f}s (success)")
                         return LoginResult(
                             success=True,
                             access_token=data.get("token"),
@@ -92,6 +97,7 @@ class AuthService:
                         )
                     else:
                         logger.warning("Login failed: username=%s status=%d", username, response.status)
+                        _log(f"auth: login took {time.monotonic() - t0:.3f}s (failed: status={response.status})")
                         return LoginResult(
                             success=False,
                             message=data.get("detail", "登录失败"),
@@ -99,11 +105,13 @@ class AuthService:
 
         except aiohttp.ClientError as e:
             logger.warning("Login network error: username=%s error=%s", username, e)
+            _log(f"auth: login took {time.monotonic() - t0:.3f}s (network error)")
             return LoginResult(
                 success=False,
                 message=f"网络错误: {e}",
             )
         except Exception as e:
+            _log(f"auth: login took {time.monotonic() - t0:.3f}s (exception)")
             return LoginResult(
                 success=False,
                 message=f"登录失败: {e}",
@@ -119,6 +127,7 @@ class AuthService:
         Returns:
             RefreshResult 刷新结果
         """
+        t0 = time.monotonic()
         url = f"{self.base_url}/api/refresh"
 
         try:
@@ -127,12 +136,13 @@ class AuthService:
                     url,
                     json={"refresh_token": refresh_token},
                     ssl=ssl_context_for_aiohttp(),
-                    timeout=aiohttp.ClientTimeout(total=30),
+                    timeout=aiohttp.ClientTimeout(total=8),
                 ) as response:
                     data = await response.json()
 
                     if response.status == 200 and data.get("success"):
                         logger.info("Token refresh success")
+                        _log(f"auth: refresh_token took {time.monotonic() - t0:.3f}s (success)")
                         return RefreshResult(
                             success=True,
                             access_token=data.get("access_token"),
@@ -141,17 +151,20 @@ class AuthService:
                             message="Token 刷新成功",
                         )
                     else:
+                        _log(f"auth: refresh_token took {time.monotonic() - t0:.3f}s (failed)")
                         return RefreshResult(
                             success=False,
                             message=data.get("detail", "Token 刷新失败"),
                         )
 
         except aiohttp.ClientError as e:
+            _log(f"auth: refresh_token took {time.monotonic() - t0:.3f}s (network error)")
             return RefreshResult(
                 success=False,
                 message=f"网络错误: {e}",
             )
         except Exception as e:
+            _log(f"auth: refresh_token took {time.monotonic() - t0:.3f}s (exception)")
             return RefreshResult(
                 success=False,
                 message=f"刷新失败: {e}",
@@ -167,7 +180,7 @@ class AuthService:
         Returns:
             bool Token 是否有效
         """
-        # 使用 /api/devices 端点验证 token（需要认证的简单端点）
+        t0 = time.monotonic()
         url = f"{self.base_url}/api/devices?username=test"
 
         try:
@@ -176,13 +189,15 @@ class AuthService:
                     url,
                     headers={"Authorization": f"Bearer {access_token}"},
                     ssl=ssl_context_for_aiohttp(),
-                    timeout=aiohttp.ClientTimeout(total=10),
+                    timeout=aiohttp.ClientTimeout(total=5),
                 ) as response:
                     result = response.status == 200
+                    _log(f"auth: verify_token took {time.monotonic() - t0:.3f}s (status={response.status})")
                     if not result:
                         logger.warning("Token verification failed: status=%d", response.status)
                     return result
 
         except Exception as e:
+            _log(f"auth: verify_token took {time.monotonic() - t0:.3f}s (error)")
             logger.warning("Token verification error: %s", e)
             return False
