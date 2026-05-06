@@ -1,5 +1,7 @@
 """
 Agent 请求处理 — 各请求类型处理函数（create/close terminal, snapshot, execute_command, lookup_knowledge, tool_call）
+
+所有依赖直接从源模块导入，不再通过 ws_agent 中转。
 """
 import asyncio
 import logging
@@ -18,6 +20,7 @@ from app.infra.command_validator import (
     MAX_COMMAND_RATE_PER_MINUTE,
 )
 from app.infra.message_types import MessageType
+from app.store.session import get_session_terminal
 from app.ws.agent_connection import (
     AgentConnection,
     active_agents,
@@ -25,12 +28,6 @@ from app.ws.agent_connection import (
 )
 
 logger = logging.getLogger(__name__)
-
-# 延迟导入入口模块中的 store 函数，保证 mock patch 路径兼容
-import app.ws.ws_agent as _ws  # isort: skip
-
-# re-export store 函数供测试 mock patch 兼容
-from app.store.session import get_session_terminal              # noqa: F401
 
 
 # ---------------------------------------------------------------------------
@@ -357,7 +354,7 @@ async def request_agent_create_terminal(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
             detail=f"terminal {terminal_id} 创建超时",
         ) from exc
-    terminal = await _ws.get_session_terminal(session_id, terminal_id)
+    terminal = await get_session_terminal(session_id, terminal_id)
     if not terminal:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

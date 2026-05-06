@@ -23,11 +23,11 @@ from app.store.session import (
     update_session_terminal_pty,
     update_session_terminal_views,
 )
-from app.ws.ws_agent import (
+from app.ws.agent_connection import (
     get_agent_connection,
     is_agent_connected,
-    request_agent_terminal_snapshot,
 )
+from app.ws.agent_request import request_agent_terminal_snapshot
 from app.ws.ws_auth import (
     wait_for_ws_auth,
     http_to_ws_code,

@@ -1,8 +1,9 @@
 """
 WebSocket Agent 连接路由
 
-拆分后的入口模块，从子模块导入并 re-export 所有公共符号，
-保证 `from app.ws.ws_agent import X` 继续工作。
+拆分后的入口模块，负责 handler 注册和生命周期管理。
+所有子模块（agent_connection、agent_request、agent_cleanup、agent_message_handler）
+直接从源模块导入依赖，不再通过本模块 re-export 中转。
 """
 import asyncio
 import json
@@ -14,18 +15,9 @@ from redis.exceptions import RedisError
 
 from app.infra.crypto import get_crypto_manager, decrypt_message
 from app.infra.message_types import MessageType
-
-# session store 函数：ws_agent 自身使用，同时 re-export 给子模块延迟引用 + 测试 mock 兼容
-from app.store.session import (                             # noqa: F401
+from app.store.session import (
     get_session,
     set_session_online,
-    set_session_offline,
-    set_session_offline_recoverable,
-    update_session_device_heartbeat,
-    update_session_terminal_status,
-    update_session_device_metadata,
-    get_session_terminal,
-    append_history,
     list_recoverable_session_terminals,
 )
 
@@ -35,70 +27,25 @@ from app.ws.ws_auth import (
     MAX_WS_MESSAGE_SIZE,
     is_secure_websocket_transport,
 )
-# 测试 patch 兼容：async_verify_token 通过 ws_agent 模块 patch
-from app.infra.auth import async_verify_token               # noqa: F401
 
-# ---- 从子模块 re-export 所有公共符号 ----
-
-# agent_connection: AgentConnection 类 + 连接注册/查询 + 心跳配置
-from app.ws.agent_connection import (                     # noqa: F401
+# 子模块导入：handler 自身使用
+from app.ws.agent_connection import (
     AgentConnection,
     active_agents,
-    get_agent_connection,
-    is_agent_connected,
     HEARTBEAT_INTERVAL,
     HEARTBEAT_TIMEOUT,
 )
-
-# agent_request: 各请求类型处理函数 + pending futures
-from app.ws.agent_request import (                       # noqa: F401
-    ExecuteCommandResult,
-    PendingRequestRegistry,
-    pending_registry,
-    pending_terminal_creates,
-    pending_terminal_closes,
-    pending_terminal_snapshots,
-    pending_execute_commands,
-    pending_lookup_knowledge,
-    pending_tool_calls,
-    _execute_command_rate_tracker,
-    _handle_execute_command_result,
-    _cleanup_execute_command_futures,
-    _cleanup_pending_futures_by_id,
-    _check_rate_limit,
-    request_agent_create_terminal,
-    request_agent_close_terminal,
-    request_agent_close_terminal_with_ack,
-    request_agent_terminal_snapshot,
-    send_execute_command,
-    send_lookup_knowledge,
-    send_tool_call,
-)
-
-# agent_cleanup: 断连清理 + stale 管理 + TTL 检查
-from app.ws.agent_cleanup import (                       # noqa: F401
+from app.ws.agent_cleanup import (
     CLEANUP_REASON_AGENT_SHUTDOWN,
     CLEANUP_REASON_NETWORK_LOST,
-    CLEANUP_REASON_DEVICE_OFFLINE,
-    STALE_TTL_SECONDS,
-    stale_agents,
-    _cleanup_pending_futures,
-    _cleanup_agent,
-    _mark_agent_stale,
     _is_agent_stale,
     _clear_agent_stale,
-    _uses_immediate_offline_cleanup,
-    _expire_stale_agent,
+    _cleanup_agent,
+    _restore_recoverable_terminals,
     _stale_agent_ttl_checker,
     _cleanup_agent_immediately,
-    _set_session_offline_immediately,
-    _restore_recoverable_terminals,
-    _close_agent_conversation_for_terminal,
-    _close_agent_conversations_for_session,
 )
-
-# agent_message_handler: 消息分发
-from app.ws.agent_message_handler import (               # noqa: F401
+from app.ws.agent_message_handler import (
     _handle_agent_message,
 )
 

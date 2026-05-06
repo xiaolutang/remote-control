@@ -39,9 +39,11 @@ from app.store.database import (  # noqa: F401
 )
 
 # ---- app.ws ----
-from app.ws.ws_agent import (  # noqa: F401
+from app.ws.agent_connection import (  # noqa: F401
     get_agent_connection,
     is_agent_connected,
+)
+from app.ws.agent_request import (  # noqa: F401
     request_agent_close_terminal_with_ack,
     request_agent_create_terminal,
     send_execute_command,

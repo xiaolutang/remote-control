@@ -31,7 +31,7 @@ from app.services.agent_session_manager import (
     get_agent_session_manager,
 )
 from app.services.terminal_agent import AgentResult, AgentRunOutcome, CommandSequenceStep
-from app.ws.ws_agent import ExecuteCommandResult
+from app.ws.agent_request import ExecuteCommandResult
 
 
 # ---------------------------------------------------------------------------

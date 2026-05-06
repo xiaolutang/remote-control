@@ -73,7 +73,7 @@ def _auth_patches():
     """Mock auth 链路：get_token_version + get_session。"""
     return [
         patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-        patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
+        patch("app.ws.agent_message_handler.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
     ]
 
 

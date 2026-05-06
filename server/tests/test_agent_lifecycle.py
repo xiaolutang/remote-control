@@ -64,12 +64,12 @@ class TestHeartbeatChecker:
     @pytest.mark.asyncio
     async def test_heartbeat_checker_closes_with_1008_on_timeout(self):
         """心跳超时应使用 code 1008 而非 1000"""
-        from app.ws.ws_agent import (
+        from app.ws.agent_connection import (
             AgentConnection,
             HEARTBEAT_TIMEOUT,
             active_agents,
-            _heartbeat_checker,
         )
+        from app.ws.ws_agent import _heartbeat_checker
 
         active_agents.clear()
         mock_ws = AsyncMock()
@@ -106,7 +106,7 @@ class TestHeartbeatChecker:
     @pytest.mark.asyncio
     async def test_heartbeat_checker_does_not_close_when_alive(self):
         """心跳正常时不应关闭连接"""
-        from app.ws.ws_agent import AgentConnection, active_agents, HEARTBEAT_INTERVAL
+        from app.ws.agent_connection import AgentConnection, active_agents, HEARTBEAT_INTERVAL
 
         active_agents.clear()
         mock_ws = AsyncMock()
@@ -136,7 +136,8 @@ class TestHeartbeatChecker:
     @pytest.mark.asyncio
     async def test_heartbeat_checker_breaks_when_agent_removed(self):
         """Agent 已从 active_agents 移除时，checker 应退出循环"""
-        from app.ws.ws_agent import active_agents, _heartbeat_checker
+        from app.ws.agent_connection import active_agents
+        from app.ws.ws_agent import _heartbeat_checker
 
         active_agents.clear()
 
@@ -161,7 +162,7 @@ class TestStaleTTLStateMachine:
     @pytest.mark.asyncio
     async def test_stale_to_offline_after_ttl(self):
         """stale 状态在 TTL 后转为 offline"""
-        from app.ws.ws_agent import (
+        from app.ws.agent_cleanup import (
             _mark_agent_stale,
             _expire_stale_agent,
             stale_agents,
@@ -172,7 +173,7 @@ class TestStaleTTLStateMachine:
         _mark_agent_stale("session-1")
         assert "session-1" in stale_agents
 
-        with patch("app.ws.ws_agent.set_session_offline", new=AsyncMock()) as mock_offline:
+        with patch("app.ws.agent_cleanup.set_session_offline", new=AsyncMock()) as mock_offline:
             await _expire_stale_agent("session-1")
 
         mock_offline.assert_awaited_once_with("session-1", reason="device_offline")
@@ -181,10 +182,8 @@ class TestStaleTTLStateMachine:
     @pytest.mark.asyncio
     async def test_stale_recovery_clears_stale_before_connect(self):
         """Agent 重连时，如果处于 stale 状态，应先清除 stale 再连接"""
-        from app.ws.ws_agent import (
-            stale_agents,
-            active_agents,
-        )
+        from app.ws.agent_cleanup import stale_agents
+        from app.ws.agent_connection import active_agents
 
         stale_agents.clear()
         active_agents.clear()
@@ -206,11 +205,11 @@ class TestStaleTTLStateMachine:
         mock_ws.iter_text = MagicMock(return_value=cancelled_iter_text())
 
         with patch("app.ws.ws_agent.wait_for_ws_auth", new=AsyncMock(return_value=make_ws_auth_payload())):
-            with patch("app.ws.ws_agent.get_session", return_value={"session_id": "session-1", "owner": "user1"}):
+            with patch("app.ws.agent_message_handler.get_session", return_value={"session_id": "session-1", "owner": "user1"}):
                 with patch("app.ws.ws_agent.set_session_online", new_callable=AsyncMock):
-                    with patch("app.ws.ws_agent.update_session_device_heartbeat", new_callable=AsyncMock):
+                    with patch("app.ws.agent_message_handler.update_session_device_heartbeat", new_callable=AsyncMock):
                         with patch("app.ws.ws_client.get_view_counts", return_value={"mobile": 0, "desktop": 0}):
-                            with patch("app.ws.ws_agent.list_recoverable_session_terminals", new=AsyncMock(return_value=[])):
+                            with patch("app.ws.agent_cleanup.list_recoverable_session_terminals", new=AsyncMock(return_value=[])):
                                 from app.ws.ws_agent import agent_websocket_handler
                                 try:
                                     await agent_websocket_handler(mock_ws)
@@ -224,7 +223,7 @@ class TestStaleTTLStateMachine:
     @pytest.mark.asyncio
     async def test_ttl_checker_expires_stale_agents(self):
         """TTL checker 正确检测和过期 stale agents"""
-        from app.ws.ws_agent import (
+        from app.ws.agent_cleanup import (
             stale_agents,
             _stale_agent_ttl_checker,
         )
@@ -236,7 +235,7 @@ class TestStaleTTLStateMachine:
         # 设置一个未过期的 stale agent
         stale_agents["session-alive"] = datetime.now(timezone.utc) + timedelta(seconds=90)
 
-        with patch("app.ws.ws_agent.set_session_offline", new=AsyncMock()):
+        with patch("app.ws.agent_cleanup.set_session_offline", new=AsyncMock()):
             # 第一次 sleep 正常返回（让检查逻辑执行），第二次退出
             sleep_count = 0
 
@@ -267,7 +266,7 @@ class TestAgentHandlerExceptionPaths:
     @pytest.mark.asyncio
     async def test_handler_catches_websocket_disconnect_silently(self):
         """WebSocketDisconnect 应被静默捕获，不打印错误"""
-        from app.ws.ws_agent import active_agents
+        from app.ws.agent_connection import active_agents
 
         active_agents.clear()
 
@@ -284,11 +283,11 @@ class TestAgentHandlerExceptionPaths:
         mock_ws.iter_text = MagicMock(return_value=disconnect_iter_text())
 
         with patch("app.ws.ws_agent.wait_for_ws_auth", new=AsyncMock(return_value=make_ws_auth_payload())):
-            with patch("app.ws.ws_agent.get_session", return_value={"session_id": "session-1", "owner": "user1"}):
+            with patch("app.ws.agent_message_handler.get_session", return_value={"session_id": "session-1", "owner": "user1"}):
                 with patch("app.ws.ws_agent.set_session_online", new_callable=AsyncMock):
-                    with patch("app.ws.ws_agent.update_session_device_heartbeat", new_callable=AsyncMock):
+                    with patch("app.ws.agent_message_handler.update_session_device_heartbeat", new_callable=AsyncMock):
                         with patch("app.ws.ws_client.get_view_counts", return_value={"mobile": 0, "desktop": 0}):
-                            with patch("app.ws.ws_agent.list_recoverable_session_terminals", new=AsyncMock(return_value=[])):
+                            with patch("app.ws.agent_cleanup.list_recoverable_session_terminals", new=AsyncMock(return_value=[])):
                                 from app.ws.ws_agent import agent_websocket_handler
                                 # 应不抛异常
                                 await agent_websocket_handler(mock_ws)
@@ -299,7 +298,7 @@ class TestAgentHandlerExceptionPaths:
     @pytest.mark.asyncio
     async def test_handler_catches_generic_exception(self):
         """一般异常应打印错误并标记 cleanup_reason"""
-        from app.ws.ws_agent import active_agents
+        from app.ws.agent_connection import active_agents
 
         active_agents.clear()
 
@@ -317,9 +316,9 @@ class TestAgentHandlerExceptionPaths:
         with patch("app.ws.ws_agent.wait_for_ws_auth", new=AsyncMock(return_value=make_ws_auth_payload())):
             with patch("app.ws.ws_agent.get_session", return_value={"session_id": "session-1", "owner": "user1"}):
                 with patch("app.ws.ws_agent.set_session_online", new_callable=AsyncMock):
-                    with patch("app.ws.ws_agent.update_session_device_heartbeat", new_callable=AsyncMock):
+                    with patch("app.ws.agent_message_handler.update_session_device_heartbeat", new_callable=AsyncMock):
                         with patch("app.ws.ws_client.get_view_counts", return_value={"mobile": 0, "desktop": 0}):
-                            with patch("app.ws.ws_agent.list_recoverable_session_terminals", new=AsyncMock(return_value=[])):
+                            with patch("app.ws.agent_cleanup.list_recoverable_session_terminals", new=AsyncMock(return_value=[])):
                                 with patch("app.ws.ws_agent.logger") as mock_logger:
                                     from app.ws.ws_agent import agent_websocket_handler
                                     await agent_websocket_handler(mock_ws)
@@ -333,7 +332,7 @@ class TestAgentHandlerExceptionPaths:
     @pytest.mark.asyncio
     async def test_restore_recoverable_terminals_exception_does_not_break_connection(self):
         """_restore_recoverable_terminals 异常不应断开连接"""
-        from app.ws.ws_agent import active_agents
+        from app.ws.agent_connection import active_agents
 
         active_agents.clear()
 
@@ -359,10 +358,10 @@ class TestAgentHandlerExceptionPaths:
         with patch("app.ws.ws_agent.wait_for_ws_auth", new=AsyncMock(return_value=make_ws_auth_payload())):
             with patch("app.ws.ws_agent.get_session", return_value={"session_id": "session-1", "owner": "user1"}):
                 with patch("app.ws.ws_agent.set_session_online", new_callable=AsyncMock):
-                    with patch("app.ws.ws_agent.update_session_device_heartbeat", new_callable=AsyncMock):
+                    with patch("app.ws.agent_message_handler.update_session_device_heartbeat", new_callable=AsyncMock):
                         with patch("app.ws.ws_client.get_view_counts", return_value={"mobile": 0, "desktop": 0}):
                             with patch(
-                                "app.ws.ws_agent.list_recoverable_session_terminals",
+                                "app.ws.agent_cleanup.list_recoverable_session_terminals",
                                 new=AsyncMock(side_effect=Exception("Redis error")),
                             ):
                                 from app.ws.ws_agent import agent_websocket_handler
@@ -559,7 +558,7 @@ class TestServerCloseCodes:
     @pytest.mark.asyncio
     async def test_duplicate_agent_rejected_with_4009(self):
         """重复 Agent 连接应返回 4009"""
-        from app.ws.ws_agent import active_agents, AgentConnection
+        from app.ws.agent_connection import active_agents, AgentConnection
 
         active_agents.clear()
 
@@ -764,7 +763,7 @@ class TestCloseOriginDetection:
         5. agent _cleanup 调用 ws.close() (code 1000)
         6. server 收到 close frame → WebSocketDisconnect → _cleanup_agent → stale
         """
-        from app.ws.ws_agent import active_agents
+        from app.ws.agent_connection import active_agents
         from fastapi import WebSocketDisconnect
 
         active_agents.clear()
@@ -778,11 +777,11 @@ class TestCloseOriginDetection:
         )
 
         with patch("app.ws.ws_agent.wait_for_ws_auth", new=AsyncMock(return_value=make_ws_auth_payload())):
-            with patch("app.ws.ws_agent.get_session", return_value={"session_id": "session-1", "owner": "user1"}):
+            with patch("app.ws.agent_message_handler.get_session", return_value={"session_id": "session-1", "owner": "user1"}):
                 with patch("app.ws.ws_agent.set_session_online", new_callable=AsyncMock):
-                    with patch("app.ws.ws_agent.update_session_device_heartbeat", new_callable=AsyncMock):
+                    with patch("app.ws.agent_message_handler.update_session_device_heartbeat", new_callable=AsyncMock):
                         with patch("app.ws.ws_client.get_view_counts", return_value={"mobile": 0, "desktop": 0}):
-                            with patch("app.ws.ws_agent.list_recoverable_session_terminals", new=AsyncMock(return_value=[])):
+                            with patch("app.ws.agent_cleanup.list_recoverable_session_terminals", new=AsyncMock(return_value=[])):
                                 from app.ws.ws_agent import agent_websocket_handler
                                 await agent_websocket_handler(mock_ws)
 
@@ -800,7 +799,7 @@ class TestCloseOriginDetection:
 
         这种场景下 agent 应看到 1008 而非 1000。
         """
-        from app.ws.ws_agent import active_agents
+        from app.ws.agent_connection import active_agents
         from fastapi import WebSocketDisconnect
 
         active_agents.clear()
@@ -816,9 +815,9 @@ class TestCloseOriginDetection:
         with patch("app.ws.ws_agent.wait_for_ws_auth", new=AsyncMock(return_value=make_ws_auth_payload())):
             with patch("app.ws.ws_agent.get_session", return_value={"session_id": "session-1", "owner": "user1"}):
                 with patch("app.ws.ws_agent.set_session_online", new_callable=AsyncMock):
-                    with patch("app.ws.ws_agent.update_session_device_heartbeat", new_callable=AsyncMock):
+                    with patch("app.ws.agent_message_handler.update_session_device_heartbeat", new_callable=AsyncMock):
                         with patch("app.ws.ws_client.get_view_counts", return_value={"mobile": 0, "desktop": 0}):
-                            with patch("app.ws.ws_agent.list_recoverable_session_terminals", new=AsyncMock(return_value=[])):
+                            with patch("app.ws.agent_cleanup.list_recoverable_session_terminals", new=AsyncMock(return_value=[])):
                                 from app.ws.ws_agent import agent_websocket_handler
                                 await agent_websocket_handler(mock_ws)
 
@@ -835,7 +834,8 @@ class TestPingPongLifecycle:
     @pytest.mark.asyncio
     async def test_agent_ping_updates_server_heartbeat(self):
         """Agent 的 ping 消息应正确更新服务端心跳时间"""
-        from app.ws.ws_agent import active_agents, AgentConnection, _handle_agent_message
+        from app.ws.agent_connection import active_agents, AgentConnection
+        from app.ws.agent_message_handler import _handle_agent_message
 
         active_agents.clear()
         mock_ws = AsyncMock()
@@ -848,7 +848,7 @@ class TestPingPongLifecycle:
         conn.last_heartbeat = old_heartbeat
         active_agents["session-1"] = conn
 
-        with patch("app.ws.ws_agent.update_session_device_heartbeat", new_callable=AsyncMock):
+        with patch("app.ws.agent_message_handler.update_session_device_heartbeat", new_callable=AsyncMock):
             await _handle_agent_message(mock_ws, "session-1", {"type": "ping"})
 
         # 心跳应被更新
@@ -860,7 +860,7 @@ class TestPingPongLifecycle:
     @pytest.mark.asyncio
     async def test_multiple_pings_keep_connection_alive(self):
         """连续多次 ping 应保持连接存活"""
-        from app.ws.ws_agent import AgentConnection, HEARTBEAT_TIMEOUT
+        from app.ws.agent_connection import AgentConnection, HEARTBEAT_TIMEOUT
 
         mock_ws = AsyncMock()
         mock_ws.scope = {"scheme": "wss"}
@@ -901,7 +901,7 @@ class TestPartialUpdateRisk:
 
         期望：异常被捕获，不会抛到调用方。
         """
-        from app.ws.ws_agent import _cleanup_agent_immediately, stale_agents
+        from app.ws.agent_cleanup import _cleanup_agent_immediately, stale_agents
 
         stale_agents.clear()
 
@@ -912,7 +912,7 @@ class TestPartialUpdateRisk:
             called = True
             raise RuntimeError("Redis connection lost")
 
-        with patch("app.ws.ws_agent.set_session_offline", new=mock_set_offline):
+        with patch("app.ws.agent_cleanup.set_session_offline", new=mock_set_offline):
             # 不应抛异常（except Exception: pass）
             await _cleanup_agent_immediately("session-partial")
 
@@ -923,7 +923,7 @@ class TestPartialUpdateRisk:
         """
         _cleanup_agent_immediately 所有步骤成功时应完整执行。
         """
-        from app.ws.ws_agent import _cleanup_agent_immediately, stale_agents
+        from app.ws.agent_cleanup import _cleanup_agent_immediately, stale_agents
 
         stale_agents.clear()
         stale_agents["session-ok"] = datetime.now(timezone.utc) + timedelta(seconds=90)
@@ -934,7 +934,7 @@ class TestPartialUpdateRisk:
             nonlocal called
             called = True
 
-        with patch("app.ws.ws_agent.set_session_offline", new=mock_set_offline):
+        with patch("app.ws.agent_cleanup.set_session_offline", new=mock_set_offline):
             await _cleanup_agent_immediately("session-ok")
 
         assert called
@@ -947,7 +947,7 @@ class TestPartialUpdateRisk:
 
         期望：异常被打印，不会抛出。
         """
-        from app.ws.ws_agent import _expire_stale_agent, stale_agents
+        from app.ws.agent_cleanup import _expire_stale_agent, stale_agents
 
         stale_agents.clear()
         stale_agents["session-expire-partial"] = datetime.now(timezone.utc)
@@ -959,7 +959,7 @@ class TestPartialUpdateRisk:
             called = True
             raise RuntimeError("Redis timeout")
 
-        with patch("app.ws.ws_agent.set_session_offline", new=mock_set_offline):
+        with patch("app.ws.agent_cleanup.set_session_offline", new=mock_set_offline):
             # 不应抛异常
             await _expire_stale_agent("session-expire-partial")
 
@@ -972,7 +972,7 @@ class TestPartialUpdateRisk:
         """
         _expire_stale_agent 所有步骤成功时应完整执行。
         """
-        from app.ws.ws_agent import _expire_stale_agent, stale_agents
+        from app.ws.agent_cleanup import _expire_stale_agent, stale_agents
 
         stale_agents.clear()
         stale_agents["session-expire-ok"] = datetime.now(timezone.utc)
@@ -983,7 +983,7 @@ class TestPartialUpdateRisk:
             nonlocal called
             called = True
 
-        with patch("app.ws.ws_agent.set_session_offline", new=mock_set_offline):
+        with patch("app.ws.agent_cleanup.set_session_offline", new=mock_set_offline):
             await _expire_stale_agent("session-expire-ok")
 
         assert called
@@ -994,7 +994,7 @@ class TestPartialUpdateRisk:
         Agent 连接时 set_session_online 遇到底层存储故障，
         连接应继续建立，不应因为在线状态持久化失败而直接断开。
         """
-        from app.ws.ws_agent import active_agents
+        from app.ws.agent_connection import active_agents
         from fastapi import HTTPException
 
         active_agents.clear()

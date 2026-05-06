@@ -107,7 +107,7 @@ class TestAgentCreationIntegration:
         await create_session(session_id, owner="test-user")
 
         # Agent 未连接 → agent_online=False
-        from app.ws.ws_agent import is_agent_connected
+        from app.ws.agent_connection import is_agent_connected
         assert is_agent_connected(session_id) is False
 
         # Agent 连接 → set_session_online
@@ -139,7 +139,7 @@ class TestAgentCreationIntegration:
         这是 Flutter 轮询"看不到"agent 的根本原因：
         Agent 连接后如果很快断开，active_agents 中已无记录。
         """
-        from app.ws.ws_agent import active_agents, AgentConnection, is_agent_connected
+        from app.ws.agent_connection import active_agents, AgentConnection, is_agent_connected
         from app.api.runtime_api import _device_online
 
         session_id = "agent-integration-3"
@@ -184,10 +184,8 @@ class TestAgentCreationIntegration:
         如果 Agent 在 T+0.5s 到 T+0.7s 之间断开（200ms），
         Flutter 的 600ms 轮询可能刚好错过 agent_online=True。
         """
-        from app.ws.ws_agent import (
-            active_agents, AgentConnection, stale_agents,
-            _cleanup_agent, is_agent_connected,
-        )
+        from app.ws.agent_connection import active_agents, AgentConnection, is_agent_connected
+        from app.ws.agent_cleanup import stale_agents, _cleanup_agent
         from app.api.runtime_api import _device_online
 
         session_id = "agent-integration-4"
@@ -231,7 +229,7 @@ class TestAgentCreationIntegration:
         3. agent-2 收到 4009 → close → 重连循环 → 再次 4009
         4. agent-1 也被挤掉 → 两个都失败
         """
-        from app.ws.ws_agent import active_agents, AgentConnection
+        from app.ws.agent_connection import active_agents, AgentConnection
 
         session_id = "agent-integration-5"
         await create_session(session_id, owner="test-user")
@@ -245,7 +243,7 @@ class TestAgentCreationIntegration:
         mock_ws2 = AsyncMock()
         mock_ws2.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
 
-        with patch("app.ws.ws_agent.async_verify_token", return_value={
+        with patch("app.ws.ws_auth.async_verify_token", return_value={
             "session_id": session_id, "sub": "test-user"
         }):
             from app.ws.ws_agent import agent_websocket_handler
@@ -269,10 +267,8 @@ class TestAgentCreationIntegration:
         4. Agent 断连 → stale → offline
         5. Flutter 轮询 → 看到 agent_offline
         """
-        from app.ws.ws_agent import (
-            active_agents, AgentConnection, stale_agents,
-            _cleanup_agent, _expire_stale_agent, is_agent_connected,
-        )
+        from app.ws.agent_connection import active_agents, AgentConnection, is_agent_connected
+        from app.ws.agent_cleanup import stale_agents, _cleanup_agent, _expire_stale_agent
         from app.api.runtime_api import _device_online
 
         mock, store = mock_redis
@@ -396,7 +392,7 @@ class TestAgentCreationEscapeAnalysis:
         _device_online() 优先看 is_agent_connected，所以返回 False。
         但 Flutter 可能依赖 Redis 的 agent_online 字段做其他判断。
         """
-        from app.ws.ws_agent import active_agents, AgentConnection
+        from app.ws.agent_connection import active_agents, AgentConnection
         from app.api.runtime_api import _device_online
 
         session_id = "escape-1"
@@ -424,7 +420,8 @@ class TestAgentCreationEscapeAnalysis:
         但如果 Agent 在 stale 期间重连失败（比如端口被占用），
         Flutter 在 12 秒后放弃，调用 stopManagedAgent()。
         """
-        from app.ws.ws_agent import active_agents, AgentConnection, stale_agents, _cleanup_agent
+        from app.ws.agent_connection import active_agents, AgentConnection
+        from app.ws.agent_cleanup import stale_agents, _cleanup_agent
         from app.api.runtime_api import _device_online
 
         session_id = "escape-2"

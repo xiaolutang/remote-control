@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.routes import router
-from app.ws.ws_agent import _stale_agent_ttl_checker
+from app.ws.agent_cleanup import _stale_agent_ttl_checker
 from app.infra.auth import TokenVerificationError
 from app.infra.log_adapter import init_logging, close_logging
 from app.infra.middleware import (

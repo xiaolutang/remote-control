@@ -93,7 +93,7 @@ class TestErrorHandlerMiddleware:
     def test_unhandled_exception_returns_500_with_request_id(self, client):
         """[fail] 未处理异常返回含 request_id 的 JSON 错误响应"""
         # 通过一个会抛出异常的路由来测试
-        with patch("app.ws.ws_agent._stale_agent_ttl_checker", side_effect=RuntimeError("test boom")):
+        with patch("app.__init__._stale_agent_ttl_checker", side_effect=RuntimeError("test boom")):
             # /health 是正常端点，我们需要找一个能触发异常的方式
             # 使用 routes 中的一个端点来测试
             pass

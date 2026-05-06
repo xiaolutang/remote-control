@@ -1,15 +1,25 @@
 """
 Agent 消息分发 + 各消息类型处理
 
-注意：store 函数通过 app.ws.ws_agent 延迟引用，
-以确保测试 patch("app.ws.ws_agent.xxx") 能生效。
+所有依赖直接从源模块导入，不再通过 ws_agent 中转。
 """
 import base64
 import logging
 from datetime import datetime, timezone
 
+from fastapi import HTTPException
+from redis.exceptions import RedisError
+
 from app.infra.crypto import decrypt_message
 from app.infra.message_types import MessageType
+from app.store.session import (
+    get_session_terminal,
+    update_session_device_heartbeat,
+    append_history,
+    update_session_terminal_status,
+    get_session,
+    update_session_device_metadata,
+)
 from app.ws.agent_connection import (
     AgentConnection,
     active_agents,
@@ -29,9 +39,12 @@ from app.ws.agent_cleanup import (
 
 logger = logging.getLogger(__name__)
 
-# 延迟导入入口模块中的 store 函数，保证 mock patch 路径兼容
-# （测试统一 patch "app.ws.ws_agent.xxx"）
-import app.ws.ws_agent as _ws  # isort: skip  — 需要 ws_agent 先加载完成
+
+def _is_degradable_session_state_error(exc: Exception) -> bool:
+    """仅将底层存储类故障视为可降级，避免吞掉真实业务错误。"""
+    if isinstance(exc, HTTPException):
+        return exc.status_code >= 500
+    return isinstance(exc, (RedisError, OSError, ConnectionError, TimeoutError))
 
 
 async def _handle_agent_message(websocket, session_id: str, message: dict):
@@ -54,9 +67,9 @@ async def _handle_agent_message(websocket, session_id: str, message: dict):
         if agent_conn:
             agent_conn.update_heartbeat()
             try:
-                await _ws.update_session_device_heartbeat(session_id, online=True)
+                await update_session_device_heartbeat(session_id, online=True)
             except Exception as exc:
-                if not _ws._is_degradable_session_state_error(exc):
+                if not _is_degradable_session_state_error(exc):
                     raise
                 logger.warning(
                     "Agent heartbeat persistence degraded: session_id=%s error=%s",
@@ -72,7 +85,7 @@ async def _handle_agent_message(websocket, session_id: str, message: dict):
         direction = message.get("direction", "output")
         terminal_id = message.get("terminal_id")
         terminal = (
-            await _ws.get_session_terminal(session_id, terminal_id)
+            await get_session_terminal(session_id, terminal_id)
             if terminal_id
             else None
         )
@@ -87,7 +100,7 @@ async def _handle_agent_message(websocket, session_id: str, message: dict):
             except Exception:
                 decoded_data = payload
 
-            await _ws.append_history(
+            await append_history(
                 session_id,
                 decoded_data,
                 direction,
@@ -120,7 +133,7 @@ async def _handle_agent_message(websocket, session_id: str, message: dict):
     elif msg_type == MessageType.TERMINAL_CREATED:
         terminal_id = message.get("terminal_id")
         if terminal_id:
-            terminal = await _ws.update_session_terminal_status(
+            terminal = await update_session_terminal_status(
                 session_id,
                 terminal_id,
                 terminal_status="recovering",
@@ -140,7 +153,7 @@ async def _handle_agent_message(websocket, session_id: str, message: dict):
         terminal_id = message.get("terminal_id")
         if terminal_id:
             reason = message.get("reason", "terminal_exit")
-            await _ws.update_session_terminal_status(
+            await update_session_terminal_status(
                 session_id,
                 terminal_id,
                 terminal_status="closed",
@@ -216,16 +229,16 @@ async def _handle_agent_message(websocket, session_id: str, message: dict):
         platform_name = (message.get("platform") or "").strip()
         hostname = (message.get("hostname") or "").strip()
         try:
-            session = await _ws.get_session(session_id)
+            session = await get_session(session_id)
             current_name = (session.get("device", {}).get("name") or "").strip()
-            await _ws.update_session_device_metadata(
+            await update_session_device_metadata(
                 session_id,
                 platform=platform_name or None,
                 hostname=hostname or None,
                 name=hostname if hostname and not current_name else None,
             )
         except Exception as exc:
-            if not _ws._is_degradable_session_state_error(exc):
+            if not _is_degradable_session_state_error(exc):
                 raise
             logger.warning(
                 "Agent metadata persistence degraded: session_id=%s error=%s",

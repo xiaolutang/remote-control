@@ -1,13 +1,18 @@
 """
 Agent 断连清理 — stale 管理 + 资源回收 + TTL 检查
 
-注意：store 函数通过 app.ws.ws_agent 延迟引用，
-以确保测试 patch("app.ws.ws_agent.xxx") 能生效。
+所有依赖直接从源模块导入，不再通过 ws_agent 中转。
 """
 import asyncio
 import logging
 from datetime import datetime, timezone, timedelta
 
+from app.store.session import (
+    get_session,
+    set_session_offline,
+    set_session_offline_recoverable,
+    list_recoverable_session_terminals,
+)
 from app.ws.agent_connection import (
     AgentConnection,
     active_agents,
@@ -27,9 +32,6 @@ from app.ws.agent_request import (
 )
 
 logger = logging.getLogger(__name__)
-
-# 延迟导入入口模块中的 store 函数，保证 mock patch 路径兼容
-import app.ws.ws_agent as _ws  # isort: skip  — 需要 ws_agent 先加载完成
 
 # Stale TTL 配置
 STALE_TTL_SECONDS = 90  # Agent 断开后等待 90 秒才真正 offline
@@ -65,7 +67,7 @@ async def _close_agent_conversation_for_terminal(
 ) -> None:
     """Best-effort cleanup for terminal-bound Agent conversation on Agent close events."""
     try:
-        session = await _ws.get_session(session_id)
+        session = await get_session(session_id)
         user_id = session.get("owner", "")
         device_id = (session.get("device") or {}).get("device_id", "")
         if not user_id or not device_id:
@@ -103,7 +105,7 @@ async def _close_agent_conversation_for_terminal(
 async def _close_agent_conversations_for_session(session_id: str, reason: str) -> None:
     """Best-effort cleanup for all terminal-bound Agent conversations in a session."""
     try:
-        session = await _ws.get_session(session_id)
+        session = await get_session(session_id)
     except Exception:
         logger.warning("Failed to load session for Agent conversation cleanup: %s", session_id, exc_info=True)
         return
@@ -191,7 +193,7 @@ async def _cleanup_agent(
 
     # 先进入 recoverable offline，再等待 TTL 过期
     try:
-        await _ws.set_session_offline_recoverable(
+        await set_session_offline_recoverable(
             session_id,
             reason=reason,
             grace_seconds=STALE_TTL_SECONDS,
@@ -216,7 +218,7 @@ async def _expire_stale_agent(session_id: str):
     # 原子更新：status=offline + agent_online=False + bulk close terminals
     try:
         await _close_agent_conversations_for_session(session_id, CLEANUP_REASON_DEVICE_OFFLINE)
-        await _ws.set_session_offline(session_id, reason=CLEANUP_REASON_DEVICE_OFFLINE)
+        await set_session_offline(session_id, reason=CLEANUP_REASON_DEVICE_OFFLINE)
         logger.info("Agent expired from stale to offline_expired: session_id=%s", session_id)
     except Exception as e:
         logger.error("Failed to expire stale agent: session_id=%s error=%s", session_id, e)
@@ -266,7 +268,7 @@ async def _set_session_offline_immediately(
     _clear_agent_stale(session_id)
     try:
         await _close_agent_conversations_for_session(session_id, reason)
-        await _ws.set_session_offline(session_id, reason=reason)
+        await set_session_offline(session_id, reason=reason)
     except Exception as exc:
         logger.error(
             "Failed to mark session offline_expired: session_id=%s reason=%s error=%s",
@@ -279,7 +281,7 @@ async def _set_session_offline_immediately(
 async def _restore_recoverable_terminals(session_id: str, agent_conn: AgentConnection):
     """在 agent 重连后恢复 grace period 内的 detached terminals。"""
     try:
-        terminals = await _ws.list_recoverable_session_terminals(session_id)
+        terminals = await list_recoverable_session_terminals(session_id)
     except Exception:
         return
 
