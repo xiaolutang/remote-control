@@ -106,25 +106,39 @@ async def get_history(
     if total == 0:
         return []
 
-    # 降级兜底路径，限制最大扫描量防止长 session 内存膨胀
-    max_scan = min(total, 5000)
-    records = [json.loads(r) for r in await redis.lrange(history_key, total - max_scan, total - 1)]
+    # B059: 渐进式窗口策略 — 首次读取 500 条，匹配不足时逐步扩大到 1500→5000
+    needs_terminal_filter = terminal_id is not None
+    needs_direction_filter = direction is not None
+    needs_filter = needs_terminal_filter or needs_direction_filter
 
-    if terminal_id is not None:
-        records = [
-            record for record in records if record.get("terminal_id") == terminal_id
-        ]
+    # 渐进式窗口大小：仅在有过滤需求时使用渐进式策略
+    window_sizes = [500, 1500, 5000] if needs_filter else [5000]
 
-    if direction is not None:
-        records = [
-            record for record in records if record.get("direction") == direction
-        ]
+    all_records: list[dict] = []
+    for window in window_sizes:
+        scan_count = min(total, window)
+        raw_records = await redis.lrange(history_key, total - scan_count, total - 1)
+        all_records = [json.loads(r) for r in raw_records]
 
-    if offset >= len(records):
+        if needs_terminal_filter:
+            all_records = [
+                record for record in all_records if record.get("terminal_id") == terminal_id
+            ]
+
+        if needs_direction_filter:
+            all_records = [
+                record for record in all_records if record.get("direction") == direction
+            ]
+
+        # 匹配数已满足 offset + limit 的需求，无需继续扩大窗口
+        if len(all_records) >= offset + limit or scan_count >= total:
+            break
+
+    if offset >= len(all_records):
         return []
 
-    end = min(offset + limit, len(records))
-    return records[offset:end]
+    end = min(offset + limit, len(all_records))
+    return all_records[offset:end]
 
 
 async def get_terminal_output_history(

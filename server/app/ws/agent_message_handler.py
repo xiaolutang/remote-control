@@ -62,12 +62,22 @@ async def _handle_agent_message(websocket, session_id: str, message: dict):
     msg_type = message.get("type")
 
     if msg_type == MessageType.PING:
-        # 心跳响应
+        # 心跳响应 — B059: 只在 agent_online 状态变化时写入 Redis
         agent_conn = active_agents.get(session_id)
         if agent_conn:
             agent_conn.update_heartbeat()
             try:
-                await update_session_device_heartbeat(session_id, online=True)
+                need_write = True
+                if agent_conn._redis_agent_online is None:
+                    # 首次心跳：读取当前 Redis 状态并缓存
+                    session_data = await get_session(session_id)
+                    agent_conn._redis_agent_online = session_data.get("agent_online", False)
+                # 已知 Redis 中 agent_online=True 时无需重复写入
+                if agent_conn._redis_agent_online is True:
+                    need_write = False
+                if need_write:
+                    await update_session_device_heartbeat(session_id, online=True)
+                    agent_conn._redis_agent_online = True
             except Exception as exc:
                 if not _is_degradable_session_state_error(exc):
                     raise

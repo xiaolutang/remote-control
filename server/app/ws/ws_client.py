@@ -121,10 +121,15 @@ async def client_websocket_handler(
     resolved_device_id = device_id or session.get("device", {}).get("device_id", session_id)
     channel_key = _channel_key(session_id, terminal_id)
 
+    # B059: 从已获取的 session 中提取 terminal 信息，避免额外 Redis 读取
     terminal = None
     agent_online = is_agent_connected(session_id)
     if terminal_id:
-        terminal = await get_session_terminal(session_id, terminal_id)
+        # 直接从 session 数据中查找 terminal，不再单独调用 get_session_terminal
+        for t in session.get("terminals", []):
+            if t.get("terminal_id") == terminal_id:
+                terminal = t
+                break
         if not terminal:
             await websocket.close(code=4004, reason=f"terminal {terminal_id} 不存在")
             return
