@@ -65,7 +65,7 @@ class TestClientConnection:
 
     def test_client_connection_init(self):
         """测试 ClientConnection 初始化"""
-        from app.ws.ws_client import ClientConnection
+        from app.ws.client_connection import ClientConnection
 
         mock_ws = AsyncMock()
         conn = ClientConnection("session-1", mock_ws, terminal_id="term-1", device_id="mbp-01")
@@ -105,7 +105,7 @@ class TestWebSocketHandler:
             with patch('app.ws.agent_message_handler.get_session', return_value={"session_id": "session-1", "owner": "user1"}):
                 with patch('app.ws.ws_agent.set_session_online', new_callable=AsyncMock):
                     with patch('app.ws.agent_message_handler.update_session_device_heartbeat', new_callable=AsyncMock):
-                        with patch('app.ws.ws_client.get_view_counts', return_value={"mobile": 0, "desktop": 0}):
+                        with patch('app.ws.client_presence.get_view_counts', return_value={"mobile": 0, "desktop": 0}):
                             with patch('app.ws.agent_cleanup.list_recoverable_session_terminals', new=AsyncMock(return_value=[])):
                                 try:
                                     from app.ws.ws_agent import agent_websocket_handler
@@ -147,7 +147,7 @@ class TestWebSocketHandler:
                         new_callable=AsyncMock,
                     ):
                         with patch(
-                            "app.ws.ws_client.get_view_counts",
+                            "app.ws.client_presence.get_view_counts",
                             return_value={"mobile": 0, "desktop": 0},
                         ):
                             with patch(
@@ -270,7 +270,7 @@ class TestWebSocketHandler:
             with patch('app.ws.ws_agent.get_session', return_value={"session_id": "session-1", "owner": "user1"}):
                 with patch('app.ws.ws_agent.set_session_online', new_callable=AsyncMock):
                     with patch('app.ws.agent_message_handler.update_session_device_heartbeat', new_callable=AsyncMock):
-                        with patch('app.ws.ws_client.get_view_counts', return_value={"mobile": 0, "desktop": 0}):
+                        with patch('app.ws.client_presence.get_view_counts', return_value={"mobile": 0, "desktop": 0}):
                             with patch('app.ws.agent_cleanup.list_recoverable_session_terminals', new=AsyncMock(return_value=recoverable)):
                                 try:
                                     from app.ws.ws_agent import agent_websocket_handler
@@ -302,7 +302,7 @@ class TestWebSocketHandler:
     @pytest.mark.asyncio
     async def test_client_without_agent(self):
         """Agent 未连接时 Client 连接 - 允许客户端先连接等待 Agent"""
-        from app.ws.ws_client import active_clients
+        from app.ws.client_connection import active_clients
 
         active_clients.clear()
 
@@ -337,7 +337,7 @@ class TestWebSocketHandler:
     @pytest.mark.asyncio
     async def test_client_forwarded_wss_connects_without_aes_key(self):
         """Client 经过本地 wss 网关时，不应被 ws:// 守卫误杀。"""
-        from app.ws.ws_client import active_clients
+        from app.ws.client_connection import active_clients
 
         active_clients.clear()
 
@@ -388,7 +388,8 @@ class TestBroadcast:
     @pytest.mark.asyncio
     async def test_broadcast_to_clients(self):
         """广播消息到客户端"""
-        from app.ws.ws_client import active_clients, broadcast_to_clients, ClientConnection
+        from app.ws.client_connection import active_clients, ClientConnection
+        from app.ws.client_presence import broadcast_to_clients
 
         active_clients.clear()
 
@@ -411,7 +412,8 @@ class TestBroadcast:
     @pytest.mark.asyncio
     async def test_broadcast_to_terminal_scoped_clients(self):
         """terminal 级广播只发给目标 terminal"""
-        from app.ws.ws_client import active_clients, broadcast_to_clients, ClientConnection
+        from app.ws.client_connection import active_clients, ClientConnection
+        from app.ws.client_presence import broadcast_to_clients
 
         active_clients.clear()
 
@@ -465,7 +467,7 @@ class TestConnectionManagement:
 
     def test_get_client_count(self):
         """获取客户端数量"""
-        from app.ws.ws_client import active_clients, get_client_count, ClientConnection
+        from app.ws.client_connection import active_clients, get_client_count, ClientConnection
 
         active_clients.clear()
 
@@ -480,7 +482,8 @@ class TestConnectionManagement:
 
     def test_get_view_counts_for_terminal_scope(self):
         """terminal 级 view 统计"""
-        from app.ws.ws_client import active_clients, get_view_counts, ClientConnection
+        from app.ws.client_connection import active_clients, ClientConnection
+        from app.ws.client_presence import get_view_counts
 
         active_clients.clear()
         mock_ws1 = AsyncMock()
@@ -499,7 +502,7 @@ class TestConnectionManagement:
     async def test_client_message_forwards_terminal_id_to_agent(self):
         """client 输入转发时带 terminal_id"""
         from app.ws.agent_connection import active_agents, AgentConnection
-        from app.ws.ws_client import _handle_client_message
+        from app.ws.client_message_handler import _handle_client_message
 
         active_agents.clear()
         mock_agent_ws = AsyncMock()
@@ -520,14 +523,14 @@ class TestConnectionManagement:
     async def test_mobile_resize_is_ignored_when_desktop_attached(self):
         """非 owner 视图的 resize 不应改全局 PTY。"""
         from app.ws.agent_connection import active_agents, AgentConnection
-        from app.ws.ws_client import _handle_client_message
+        from app.ws.client_message_handler import _handle_client_message
 
         active_agents.clear()
 
         mock_agent_ws = AsyncMock()
         active_agents["session-1"] = AgentConnection("session-1", mock_agent_ws, "test-user")
 
-        with patch("app.ws.ws_client.get_session_terminal", new=AsyncMock(return_value={
+        with patch("app.ws.client_message_handler.get_session_terminal", new=AsyncMock(return_value={
             "terminal_id": "term-1",
             "geometry_owner_view": "desktop",
             "pty": {"rows": 30, "cols": 90},
@@ -546,17 +549,17 @@ class TestConnectionManagement:
     async def test_desktop_resize_updates_terminal_pty_and_broadcasts(self):
         """desktop resize 会更新 terminal PTY 并广播给同 terminal 的其他客户端。"""
         from app.ws.agent_connection import active_agents, AgentConnection
-        from app.ws.ws_client import _handle_client_message
+        from app.ws.client_message_handler import _handle_client_message
 
         active_agents.clear()
 
         mock_agent_ws = AsyncMock()
         active_agents["session-1"] = AgentConnection("session-1", mock_agent_ws, "test-user")
 
-        with patch("app.ws.ws_client.update_session_pty_size", new=AsyncMock()) as update_session_pty:
-            with patch("app.ws.ws_client.update_session_terminal_pty", new=AsyncMock()) as update_terminal_pty:
-                with patch("app.ws.ws_client.broadcast_to_clients", new=AsyncMock()) as broadcast:
-                    with patch("app.ws.ws_client.get_session_terminal", new=AsyncMock(return_value={
+        with patch("app.ws.client_message_handler.update_session_pty_size", new=AsyncMock()) as update_session_pty:
+            with patch("app.ws.client_message_handler.update_session_terminal_pty", new=AsyncMock()) as update_terminal_pty:
+                with patch("app.ws.client_message_handler.broadcast_to_clients", new=AsyncMock()) as broadcast:
+                    with patch("app.ws.client_message_handler.get_session_terminal", new=AsyncMock(return_value={
                         "terminal_id": "term-1",
                         "geometry_owner_view": "desktop",
                         "pty": {"rows": 30, "cols": 90},
@@ -603,34 +606,35 @@ class TestConnectionManagement:
         ))):
             with patch('app.ws.ws_client.get_session_by_device_id', new=AsyncMock(return_value={"session_id": "session-1", "owner": "user1", "device": {"device_id": "mbp-01"}})):
                 with patch('app.ws.ws_client.get_session_terminal', new=AsyncMock(return_value={"terminal_id": "term-1", "status": "detached_recoverable", "pty": {"rows": 42, "cols": 120}, "attach_epoch": 3, "recovery_epoch": 5})):
-                    with patch('app.ws.ws_client.get_terminal_output_history', new=AsyncMock(return_value=[
-                        {"data": "\u001b[?1049hhello"},
-                        {"data": " world"},
-                    ])):
-                        with patch('app.ws.ws_client.request_agent_terminal_snapshot', new=AsyncMock(return_value=None)):
-                            with patch('app.ws.ws_client.is_agent_connected', return_value=True):
-                                with patch('app.ws.ws_client.update_session_view_count', new_callable=AsyncMock):
-                                    with patch('app.ws.ws_client.update_session_terminal_views', new=AsyncMock(return_value={
-                                        "terminal_id": "term-1",
-                                        "status": "live",
-                                        "pty": {"rows": 42, "cols": 120},
-                                        "views": {"mobile": 0, "desktop": 1},
-                                        "geometry_owner_view": "desktop",
-                                        "attach_epoch": 3,
-                                        "recovery_epoch": 5,
-                                    })):
-                                        with patch('app.ws.ws_client._broadcast_presence', new_callable=AsyncMock):
-                                            try:
-                                                from app.ws.ws_client import client_websocket_handler
-                                                await client_websocket_handler(
-                                                    mock_ws,
-                                                    "session-1",
-                                                    view="desktop",
-                                                    device_id="mbp-01",
-                                                    terminal_id="term-1",
-                                                )
-                                            except asyncio.CancelledError:
-                                                pass
+                    with patch('app.ws.client_snapshot.get_session_terminal', new=AsyncMock(return_value={"terminal_id": "term-1", "status": "detached_recoverable", "pty": {"rows": 42, "cols": 120}, "attach_epoch": 3, "recovery_epoch": 5})):
+                        with patch('app.ws.client_snapshot.get_terminal_output_history', new=AsyncMock(return_value=[
+                            {"data": "\u001b[?1049hhello"},
+                            {"data": " world"},
+                        ])):
+                            with patch('app.ws.client_snapshot.request_agent_terminal_snapshot', new=AsyncMock(return_value=None)):
+                                with patch('app.ws.ws_client.is_agent_connected', return_value=True):
+                                    with patch('app.ws.ws_client.update_session_view_count', new_callable=AsyncMock):
+                                        with patch('app.ws.ws_client.update_session_terminal_views', new=AsyncMock(return_value={
+                                            "terminal_id": "term-1",
+                                            "status": "live",
+                                            "pty": {"rows": 42, "cols": 120},
+                                            "views": {"mobile": 0, "desktop": 1},
+                                            "geometry_owner_view": "desktop",
+                                            "attach_epoch": 3,
+                                            "recovery_epoch": 5,
+                                        })):
+                                            with patch('app.ws.ws_client._broadcast_presence', new_callable=AsyncMock):
+                                                try:
+                                                    from app.ws.ws_client import client_websocket_handler
+                                                    await client_websocket_handler(
+                                                        mock_ws,
+                                                        "session-1",
+                                                        view="desktop",
+                                                        device_id="mbp-01",
+                                                        terminal_id="term-1",
+                                                    )
+                                                except asyncio.CancelledError:
+                                                    pass
 
         sent_messages = [call.args[0] for call in mock_ws.send_json.call_args_list]
         assert sent_messages[0]["type"] == "connected"
@@ -663,35 +667,36 @@ class TestConnectionManagement:
         ))):
             with patch('app.ws.ws_client.get_session_by_device_id', new=AsyncMock(return_value={"session_id": "session-1", "owner": "user1", "device": {"device_id": "mbp-01"}})):
                 with patch('app.ws.ws_client.get_session_terminal', new=AsyncMock(return_value={"terminal_id": "term-1", "status": "detached_recoverable", "pty": {"rows": 24, "cols": 80}, "attach_epoch": 4, "recovery_epoch": 8})):
-                    with patch('app.ws.ws_client.get_terminal_output_history', new=AsyncMock(return_value=[])):
-                        with patch('app.ws.ws_client.request_agent_terminal_snapshot', new=AsyncMock(return_value={
-                            "payload": base64.b64encode(b'live snapshot').decode(),
-                            "pty": {"rows": 24, "cols": 80},
-                            "active_buffer": "main",
-                        })):
-                            with patch('app.ws.ws_client.is_agent_connected', return_value=True):
-                                with patch('app.ws.ws_client.update_session_view_count', new_callable=AsyncMock):
-                                    with patch('app.ws.ws_client.update_session_terminal_views', new=AsyncMock(return_value={
-                                        "terminal_id": "term-1",
-                                        "status": "live",
-                                        "pty": {"rows": 24, "cols": 80},
-                                        "views": {"mobile": 0, "desktop": 1},
-                                        "geometry_owner_view": "desktop",
-                                        "attach_epoch": 4,
-                                        "recovery_epoch": 8,
-                                    })):
-                                        with patch('app.ws.ws_client._broadcast_presence', new_callable=AsyncMock):
-                                            try:
-                                                from app.ws.ws_client import client_websocket_handler
-                                                await client_websocket_handler(
-                                                    mock_ws,
-                                                    "session-1",
-                                                    view="desktop",
-                                                    device_id="mbp-01",
-                                                    terminal_id="term-1",
-                                                )
-                                            except asyncio.CancelledError:
-                                                pass
+                    with patch('app.ws.client_snapshot.get_session_terminal', new=AsyncMock(return_value={"terminal_id": "term-1", "status": "detached_recoverable", "pty": {"rows": 24, "cols": 80}, "attach_epoch": 4, "recovery_epoch": 8})):
+                        with patch('app.ws.client_snapshot.get_terminal_output_history', new=AsyncMock(return_value=[])):
+                            with patch('app.ws.client_snapshot.request_agent_terminal_snapshot', new=AsyncMock(return_value={
+                                "payload": base64.b64encode(b'live snapshot').decode(),
+                                "pty": {"rows": 24, "cols": 80},
+                                "active_buffer": "main",
+                            })):
+                                with patch('app.ws.ws_client.is_agent_connected', return_value=True):
+                                    with patch('app.ws.ws_client.update_session_view_count', new_callable=AsyncMock):
+                                        with patch('app.ws.ws_client.update_session_terminal_views', new=AsyncMock(return_value={
+                                            "terminal_id": "term-1",
+                                            "status": "live",
+                                            "pty": {"rows": 24, "cols": 80},
+                                            "views": {"mobile": 0, "desktop": 1},
+                                            "geometry_owner_view": "desktop",
+                                            "attach_epoch": 4,
+                                            "recovery_epoch": 8,
+                                        })):
+                                            with patch('app.ws.ws_client._broadcast_presence', new_callable=AsyncMock):
+                                                try:
+                                                    from app.ws.ws_client import client_websocket_handler
+                                                    await client_websocket_handler(
+                                                        mock_ws,
+                                                        "session-1",
+                                                        view="desktop",
+                                                        device_id="mbp-01",
+                                                        terminal_id="term-1",
+                                                    )
+                                                except asyncio.CancelledError:
+                                                    pass
 
         sent_messages = [call.args[0] for call in mock_ws.send_json.call_args_list]
         assert sent_messages[0]["type"] == "connected"
@@ -704,7 +709,8 @@ class TestConnectionManagement:
     @pytest.mark.asyncio
     async def test_cleanup_does_not_override_closed_terminal(self):
         """terminal 已关闭时，client cleanup 不应回写 detached。"""
-        from app.ws.ws_client import _cleanup_client, ClientConnection, active_clients
+        from app.ws.ws_client import _cleanup_client
+        from app.ws.client_connection import ClientConnection, active_clients
 
         active_clients.clear()
         conn = ClientConnection("session-1", AsyncMock(), "mobile", terminal_id="term-1")
@@ -871,7 +877,7 @@ class TestTerminalsChangedBroadcast:
         """terminal_created 消息应广播到 session 级别（所有客户端）"""
         from app.ws.agent_message_handler import _handle_agent_message
         from app.ws.agent_connection import active_agents, AgentConnection
-        from app.ws.ws_client import active_clients, ClientConnection
+        from app.ws.client_connection import active_clients, ClientConnection
 
         active_agents.clear()
         active_clients.clear()
@@ -948,7 +954,7 @@ class TestTerminalsChangedBroadcast:
         """terminal_closed 消息应广播到 session 级别"""
         from app.ws.agent_message_handler import _handle_agent_message
         from app.ws.agent_connection import active_agents, AgentConnection
-        from app.ws.ws_client import active_clients, ClientConnection
+        from app.ws.client_connection import active_clients, ClientConnection
 
         active_agents.clear()
         active_clients.clear()
@@ -984,7 +990,7 @@ class TestTerminalsChangedBroadcast:
         """terminals_changed 消息应包含时间戳"""
         from app.ws.agent_message_handler import _handle_agent_message
         from app.ws.agent_connection import active_agents, AgentConnection
-        from app.ws.ws_client import active_clients, ClientConnection
+        from app.ws.client_connection import active_clients, ClientConnection
 
         active_agents.clear()
         active_clients.clear()
@@ -1020,7 +1026,7 @@ class TestTerminalsChangedBroadcast:
         """terminal_id 缺失时不应广播"""
         from app.ws.agent_message_handler import _handle_agent_message
         from app.ws.agent_connection import active_agents, AgentConnection
-        from app.ws.ws_client import active_clients, ClientConnection
+        from app.ws.client_connection import active_clients, ClientConnection
 
         active_agents.clear()
         active_clients.clear()
@@ -1048,7 +1054,7 @@ class TestTerminalsChangedBroadcast:
         """广播应发送给 session 级别的所有客户端"""
         from app.ws.agent_message_handler import _handle_agent_message
         from app.ws.agent_connection import active_agents, AgentConnection
-        from app.ws.ws_client import active_clients, ClientConnection
+        from app.ws.client_connection import active_clients, ClientConnection
 
         active_agents.clear()
         active_clients.clear()
@@ -1096,7 +1102,7 @@ class TestTerminalsChangedBroadcast:
         """广播不应发送给其他 session 的客户端"""
         from app.ws.agent_message_handler import _handle_agent_message
         from app.ws.agent_connection import active_agents, AgentConnection
-        from app.ws.ws_client import active_clients, ClientConnection
+        from app.ws.client_connection import active_clients, ClientConnection
 
         active_agents.clear()
         active_clients.clear()
@@ -1154,7 +1160,7 @@ class TestTerminalsChangedBroadcast:
             AgentConnection,
         )
         from app.ws.agent_request import pending_terminal_creates
-        from app.ws.ws_client import active_clients
+        from app.ws.client_connection import active_clients
 
         active_agents.clear()
         active_clients.clear()
@@ -1192,7 +1198,7 @@ class TestTerminalsChangedBroadcast:
             AgentConnection,
         )
         from app.ws.agent_request import pending_terminal_closes
-        from app.ws.ws_client import active_clients
+        from app.ws.client_connection import active_clients
 
         active_agents.clear()
         active_clients.clear()
@@ -1239,7 +1245,7 @@ class TestTerminalsChangedBroadcast:
             "recovery_epoch": 9,
         })):
             with patch("app.ws.agent_message_handler.append_history", new=AsyncMock()):
-                with patch("app.ws.ws_client.broadcast_to_clients", new=AsyncMock()) as broadcast:
+                with patch("app.ws.client_presence.broadcast_to_clients", new=AsyncMock()) as broadcast:
                     await _handle_agent_message(
                         mock_agent_ws,
                         "session-1",

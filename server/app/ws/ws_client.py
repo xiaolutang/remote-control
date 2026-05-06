@@ -1,33 +1,29 @@
 """
 WebSocket Client 连接路由
+
+拆分后的入口模块，负责 handler 注册和生命周期管理。
+所有子模块（client_connection、client_message_handler、client_snapshot、client_presence）
+直接从源模块导入依赖，不再通过本模块 re-export 中转。
 """
-import asyncio
-import base64
 import json
 import logging
-import os
 from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import WebSocketDisconnect, HTTPException
 
-from app.infra.crypto import get_crypto_manager, encrypt_message, decrypt_message, should_encrypt
+from app.infra.crypto import get_crypto_manager, decrypt_message, should_encrypt
 from app.infra.message_types import MessageType
 from app.store.session import (
     get_session,
     get_session_by_device_id,
     get_session_terminal,
-    get_terminal_output_history,
     update_session_view_count,
-    update_session_pty_size,
-    update_session_terminal_pty,
     update_session_terminal_views,
 )
 from app.ws.agent_connection import (
-    get_agent_connection,
     is_agent_connected,
 )
-from app.ws.agent_request import request_agent_terminal_snapshot
 from app.ws.ws_auth import (
     wait_for_ws_auth,
     http_to_ws_code,
@@ -35,77 +31,28 @@ from app.ws.ws_auth import (
     is_secure_websocket_transport,
 )
 
+# 子模块导入：handler 自身使用
+from app.ws.client_connection import (
+    ClientConnection,
+    active_clients,
+    MAX_CLIENTS_PER_SESSION,
+    _channel_key,
+    _unregister_client,
+    _find_client_by_view_type,
+)
+from app.ws.client_message_handler import (
+    _handle_client_message,
+)
+from app.ws.client_snapshot import (
+    _send_terminal_snapshot,
+)
+from app.ws.client_presence import (
+    get_view_counts,
+    broadcast_to_clients,
+    _broadcast_presence,
+)
+
 logger = logging.getLogger(__name__)
-
-
-# 活跃的 Client 连接
-active_clients: dict[str, list] = {}  # channel_key -> [ClientConnection,...]
-
-# 最大客户端数量
-MAX_CLIENTS_PER_SESSION = 100
-
-
-def _channel_key(session_id: str, terminal_id: Optional[str] = None) -> str:
-    return f"{session_id}:{terminal_id}" if terminal_id else session_id
-
-
-class ClientConnection:
-    """Client 连接状态"""
-
-    def __init__(
-        self,
-        session_id: str,
-        websocket,
-        view_type: str = "mobile",
-        terminal_id: Optional[str] = None,
-        device_id: Optional[str] = None,
-    ):
-        self.session_id = session_id
-        self.terminal_id = terminal_id
-        self.device_id = device_id
-        self.websocket = websocket
-        self.view_type = view_type  # mobile 或 desktop
-        self.connected_at = datetime.now(timezone.utc)
-        self.aes_key: Optional[bytes] = None  # 该连接的 AES 会话密钥
-
-    async def send(self, message: dict):
-        """发送消息到 Client（自动加密）"""
-        try:
-            msg_type = message.get("type", "")
-            if self.aes_key and should_encrypt(msg_type):
-                message = encrypt_message(self.aes_key, message)
-            await self.websocket.send_json(message)
-        except Exception:
-            pass
-
-
-def _matches_session(channel_key: str, session_id: str) -> bool:
-    """判断 channel_key 是否属于指定 session（session_id 或 session_id:xxx）"""
-    return channel_key == session_id or channel_key.startswith(f"{session_id}:")
-
-
-def _unregister_client(channel_key: str, client_conn: ClientConnection):
-    """从 active_clients 中移除 client，列表为空时删除 key"""
-    if channel_key not in active_clients:
-        return
-    try:
-        active_clients[channel_key].remove(client_conn)
-    except ValueError:
-        pass
-    if not active_clients[channel_key]:
-        del active_clients[channel_key]
-
-
-def _find_client_by_view_type(
-    channel_key: str,
-    view_type: str,
-    exclude_conn: Optional[ClientConnection] = None,
-) -> Optional[ClientConnection]:
-    """在同一 channel 内查找同 view_type 的已有 Client。"""
-    for client in active_clients.get(channel_key, []):
-        if client.view_type == view_type and client is not exclude_conn:
-            return client
-    return None
 
 
 async def client_websocket_handler(
@@ -356,157 +303,6 @@ async def client_websocket_handler(
         await _cleanup_client(session_id, client_conn, view, terminal_id=terminal_id)
 
 
-async def _handle_client_message(
-    websocket,
-    session_id: str,
-    message: dict,
-    view: str = "mobile",
-    terminal_id: Optional[str] = None,
-):
-    """
-    处理 Client 发来的消息
-
-    Args:
-        websocket: WebSocket 连接
-        session_id: 会话 ID
-        message: 消息内容
-        view: 视图类型
-    """
-    msg_type = message.get("type")
-
-    if msg_type == MessageType.DATA:
-        # 用户输入数据，转发给 Agent
-        payload = message.get("payload", "")
-
-        # 获取 Agent 连接
-        agent_conn = get_agent_connection(session_id)
-        if agent_conn:
-            await agent_conn.send({
-                "type": MessageType.DATA,
-                "source_view": view,
-                "terminal_id": terminal_id,
-                "payload": payload,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            })
-
-    elif msg_type == MessageType.RESIZE:
-        # 终端窗口大小变化，转发给 Agent
-        agent_conn = get_agent_connection(session_id)
-        if agent_conn:
-            if terminal_id:
-                terminal = await get_session_terminal(session_id, terminal_id)
-                if not terminal:
-                    return
-                geometry_owner_view = terminal.get("geometry_owner_view")
-                if geometry_owner_view and geometry_owner_view != view:
-                    return
-            else:
-                # session 级 PTY（无 terminal_id）为共享资源，
-                # 桌面端优先控制尺寸，移动端在桌面端在线时让出
-                view_counts = get_view_counts(session_id, terminal_id)
-                if view == "mobile" and view_counts.get("desktop", 0) > 0:
-                    return
-            rows = message.get("rows", 24)
-            cols = message.get("cols", 80)
-            await update_session_pty_size(session_id, rows=rows, cols=cols)
-            if terminal_id:
-                await update_session_terminal_pty(
-                    session_id,
-                    terminal_id,
-                    rows=rows,
-                    cols=cols,
-                )
-            await agent_conn.send({
-                "type": MessageType.RESIZE,
-                "source_view": view,
-                "terminal_id": terminal_id,
-                "rows": rows,
-                "cols": cols,
-            })
-            await broadcast_to_clients(
-                session_id,
-                {
-                    "type": MessageType.RESIZE,
-                    "terminal_id": terminal_id,
-                    "rows": rows,
-                    "cols": cols,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                },
-                terminal_id=terminal_id,
-            )
-
-    else:
-        # 未知消息类型
-        await websocket.send_json({
-            "type": MessageType.ERROR,
-            "message": f"Unknown message type: {msg_type}",
-        })
-
-
-async def _send_terminal_snapshot(websocket, session_id: str, terminal_id: str) -> None:
-    terminal = await get_session_terminal(session_id, terminal_id)
-    attach_epoch = int((terminal or {}).get("attach_epoch", 0) or 0)
-    recovery_epoch = int((terminal or {}).get("recovery_epoch", 0) or 0)
-
-    await websocket.send_json({
-        "type": MessageType.SNAPSHOT_START,
-        "terminal_id": terminal_id,
-        "attach_epoch": attach_epoch,
-        "recovery_epoch": recovery_epoch,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    })
-
-    snapshot_data = await request_agent_terminal_snapshot(session_id, terminal_id)
-    if snapshot_data:
-        await websocket.send_json({
-            "type": MessageType.SNAPSHOT_CHUNK,
-            "terminal_id": terminal_id,
-            "attach_epoch": attach_epoch,
-            "recovery_epoch": recovery_epoch,
-            "payload": snapshot_data["payload"],
-            "pty": snapshot_data.get("pty"),
-            "active_buffer": snapshot_data.get("active_buffer", "main"),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
-    else:
-        # history 只作为诊断级降级兜底，不再是主恢复源
-        records = await get_terminal_output_history(session_id, terminal_id, limit=2000)
-        chunk = ""
-        max_chunk_size = 32 * 1024
-        for record in records:
-            data = record.get("data", "")
-            if not data:
-                continue
-            if len(chunk) + len(data) > max_chunk_size and chunk:
-                await websocket.send_json({
-                    "type": MessageType.SNAPSHOT_CHUNK,
-                    "terminal_id": terminal_id,
-                    "attach_epoch": attach_epoch,
-                    "recovery_epoch": recovery_epoch,
-                    "payload": base64.b64encode(chunk.encode("utf-8")).decode("utf-8"),
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                })
-                chunk = ""
-            chunk += data
-
-        if chunk:
-            await websocket.send_json({
-                "type": MessageType.SNAPSHOT_CHUNK,
-                "terminal_id": terminal_id,
-                "attach_epoch": attach_epoch,
-                "recovery_epoch": recovery_epoch,
-                "payload": base64.b64encode(chunk.encode("utf-8")).decode("utf-8"),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            })
-    await websocket.send_json({
-        "type": MessageType.SNAPSHOT_COMPLETE,
-        "terminal_id": terminal_id,
-        "attach_epoch": attach_epoch,
-        "recovery_epoch": recovery_epoch,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    })
-
-
 async def _cleanup_client(
     session_id: str,
     client_conn: ClientConnection,
@@ -541,92 +337,3 @@ async def _cleanup_client(
 
     # 广播 presence 更新
     await _broadcast_presence(session_id, terminal_id)
-
-
-async def broadcast_to_clients(session_id: str, message: dict, terminal_id: Optional[str] = None):
-    """
-    广播消息到所有连接的 Client
-
-    Args:
-        session_id: 会话 ID
-        message: 消息内容
-        terminal_id: 终端 ID，如果为 None 则广播到该 session 下的所有客户端
-    """
-    logger.debug(f"[broadcast_to_clients] session={session_id} terminal_id={terminal_id} msg_type={message.get('type')} active_channels={list(active_clients.keys())}")
-    if terminal_id is None:
-        # 广播到该 session 下的所有频道（包括 session 级别和所有终端级别）
-        sent_clients = set()
-        for channel_key, clients in active_clients.items():
-            if _matches_session(channel_key, session_id):
-                logger.debug(f"[broadcast_to_clients] matched channel={channel_key} clients={len(clients)}")
-                for client in clients:
-                    # 避免重复发送（同一个客户端可能在多个频道）
-                    if client not in sent_clients:
-                        await client.send(message)
-                        sent_clients.add(client)
-        logger.debug(f"[broadcast_to_clients] sent to {len(sent_clients)} unique clients")
-    else:
-        # 只广播到特定终端频道
-        clients = active_clients.get(_channel_key(session_id, terminal_id), [])
-        for client in clients:
-            await client.send(message)
-
-
-def get_client_count(session_id: str, terminal_id: Optional[str] = None) -> int:
-    """
-    获取连接的 Client 数量
-
-    Args:
-        session_id: 会话 ID
-
-    Returns:
-        Client 数量
-    """
-    return len(active_clients.get(_channel_key(session_id, terminal_id), []))
-
-
-def get_view_counts(session_id: str, terminal_id: Optional[str] = None) -> dict:
-    """
-    获取各视图类型的连接数
-
-    Args:
-        session_id: 会话 ID
-
-    Returns:
-        {"mobile": count, "desktop": count}
-    """
-    clients = active_clients.get(_channel_key(session_id, terminal_id), [])
-    counts = {"mobile": 0, "desktop": 0}
-    for client in clients:
-        view_type = getattr(client, "view_type", "mobile")
-        if view_type in counts:
-            counts[view_type] += 1
-    return counts
-
-
-async def _broadcast_presence(session_id: str, terminal_id: Optional[str] = None):
-    """
-    广播 presence 更新到所有客户端
-
-    Args:
-        session_id: 会话 ID
-    """
-    view_counts = get_view_counts(session_id, terminal_id)
-    geometry_owner_view = None
-    if terminal_id:
-        terminal = await get_session_terminal(session_id, terminal_id)
-        if terminal:
-            geometry_owner_view = terminal.get("geometry_owner_view")
-    message = {
-        "type": MessageType.PRESENCE,
-        "terminal_id": terminal_id,
-        "views": view_counts,
-        "geometry_owner_view": geometry_owner_view,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
-    await broadcast_to_clients(session_id, message, terminal_id)
-
-    # 同时通知 Agent
-    agent_conn = get_agent_connection(session_id)
-    if agent_conn:
-        await agent_conn.send(message)

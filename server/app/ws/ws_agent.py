@@ -173,7 +173,7 @@ async def agent_websocket_handler(
 
     try:
         # 获取当前视图连接数
-        from app.ws.ws_client import get_view_counts
+        from app.ws.client_presence import get_view_counts
         view_counts = get_view_counts(session_id)
 
         # 发送连接成功消息（符合 CONTRACT-002）

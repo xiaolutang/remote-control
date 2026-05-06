@@ -84,7 +84,7 @@ class TestIntegrationClientConnection:
     @pytest.mark.asyncio
     async def test_client_connect_with_valid_token(self):
         """Client 使用有效 token 连接"""
-        from app.ws.ws_client import active_clients
+        from app.ws.client_connection import active_clients
         from app.infra.auth import generate_token
 
         # 清理
@@ -116,7 +116,7 @@ class TestIntegrationClientConnection:
     @pytest.mark.asyncio
     async def test_client_connect_desktop_view(self):
         """Client 使用 desktop 视图连接"""
-        from app.ws.ws_client import active_clients
+        from app.ws.client_connection import active_clients
         from app.infra.auth import generate_token
 
         # 清理
@@ -148,12 +148,8 @@ class TestIntegrationMultiView:
     @pytest.mark.asyncio
     async def test_presence_sync_between_views(self):
         """测试多视图 presence 同步"""
-        from app.ws.ws_client import (
-            active_clients,
-            ClientConnection,
-            get_view_counts,
-            _broadcast_presence,
-        )
+        from app.ws.client_connection import active_clients, ClientConnection
+        from app.ws.client_presence import get_view_counts, _broadcast_presence
 
         active_clients.clear()
 
@@ -186,7 +182,8 @@ class TestIntegrationMessageForwarding:
     async def test_agent_output_broadcasts_to_clients(self):
         """Agent 输出广播到所有客户端"""
         from app.ws.agent_connection import active_agents, AgentConnection
-        from app.ws.ws_client import active_clients, ClientConnection, broadcast_to_clients
+        from app.ws.client_connection import active_clients, ClientConnection
+        from app.ws.client_presence import broadcast_to_clients
 
         active_agents.clear()
         active_clients.clear()
@@ -216,7 +213,7 @@ class TestIntegrationMessageForwarding:
     async def test_client_input_forwards_to_agent(self):
         """Client 输入转发到 Agent"""
         from app.ws.agent_connection import active_agents, AgentConnection
-        from app.ws.ws_client import active_clients, ClientConnection
+        from app.ws.client_connection import active_clients, ClientConnection
 
         active_agents.clear()
         active_clients.clear()
@@ -233,7 +230,7 @@ class TestIntegrationMessageForwarding:
         ]
 
         # 客户端发送输入消息
-        from app.ws.ws_client import _handle_client_message
+        from app.ws.client_message_handler import _handle_client_message
         message = {"type": "data", "payload": "dGVNsbGl0"}
         await _handle_client_message(
             mock_client_ws, "session-1", message, view="mobile"
@@ -2672,7 +2669,7 @@ class TestIntegrationContracts:
     @pytest.mark.asyncio
     async def test_contract_003_client_connected_message(self):
         """验证 CONTRACT-003: Client connected 消息格式"""
-        from app.ws.ws_client import active_clients
+        from app.ws.client_connection import active_clients
         from app.infra.auth import generate_token
 
         active_clients.clear()
@@ -2708,7 +2705,7 @@ class TestTerminalsChangedBroadcastIntegration:
         """terminal_created 应广播到 session 级别的所有客户端"""
         from app.ws.agent_message_handler import _handle_agent_message
         from app.ws.agent_connection import active_agents, AgentConnection
-        from app.ws.ws_client import active_clients, ClientConnection
+        from app.ws.client_connection import active_clients, ClientConnection
 
         active_agents.clear()
         active_clients.clear()
@@ -2776,7 +2773,7 @@ class TestTerminalsChangedBroadcastIntegration:
         """terminal_closed 应广播到 session 级别的所有客户端"""
         from app.ws.agent_message_handler import _handle_agent_message
         from app.ws.agent_connection import active_agents, AgentConnection
-        from app.ws.ws_client import active_clients, ClientConnection
+        from app.ws.client_connection import active_clients, ClientConnection
 
         active_agents.clear()
         active_clients.clear()
@@ -2813,7 +2810,7 @@ class TestTerminalsChangedBroadcastIntegration:
         """广播应该隔离在不同 session 之间"""
         from app.ws.agent_message_handler import _handle_agent_message
         from app.ws.agent_connection import active_agents, AgentConnection
-        from app.ws.ws_client import active_clients, ClientConnection
+        from app.ws.client_connection import active_clients, ClientConnection
 
         active_agents.clear()
         active_clients.clear()
@@ -2874,7 +2871,7 @@ class TestTerminalsChangedBroadcastIntegration:
             pending_terminal_creates,
             pending_terminal_closes,
         )
-        from app.ws.ws_client import active_clients
+        from app.ws.client_connection import active_clients
 
         active_agents.clear()
         active_clients.clear()
@@ -2922,7 +2919,7 @@ class TestTerminalsChangedBroadcastIntegration:
         """验证 terminals_changed 消息格式"""
         from app.ws.agent_message_handler import _handle_agent_message
         from app.ws.agent_connection import active_agents, AgentConnection
-        from app.ws.ws_client import active_clients, ClientConnection
+        from app.ws.client_connection import active_clients, ClientConnection
 
         active_agents.clear()
         active_clients.clear()
@@ -2964,7 +2961,7 @@ class TestTerminalsChangedBroadcastIntegration:
         """terminal_id 缺失时不应广播"""
         from app.ws.agent_message_handler import _handle_agent_message
         from app.ws.agent_connection import active_agents, AgentConnection
-        from app.ws.ws_client import active_clients, ClientConnection
+        from app.ws.client_connection import active_clients, ClientConnection
 
         active_agents.clear()
         active_clients.clear()

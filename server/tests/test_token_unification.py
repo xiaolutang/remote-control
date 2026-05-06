@@ -11,7 +11,8 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.infra.auth import TokenVerificationError
-from app.ws.ws_client import client_websocket_handler, ClientConnection, active_clients
+from app.ws.client_connection import ClientConnection, active_clients
+from app.ws.ws_client import client_websocket_handler
 from app.ws.ws_agent import agent_websocket_handler
 
 
@@ -311,7 +312,7 @@ class TestWSAgentOldTokenAccepted:
                 with patch('app.ws.ws_agent.set_session_online', new_callable=AsyncMock):
                     with patch('app.ws.agent_message_handler.update_session_device_heartbeat', new_callable=AsyncMock):
                         with patch('app.ws.ws_agent._restore_recoverable_terminals', new_callable=AsyncMock):
-                            with patch('app.ws.ws_client.get_view_counts', return_value={"mobile": 0, "desktop": 0}):
+                            with patch('app.ws.client_presence.get_view_counts', return_value={"mobile": 0, "desktop": 0}):
                                 try:
                                     await agent_websocket_handler(mock_ws)
                                 except asyncio.CancelledError:

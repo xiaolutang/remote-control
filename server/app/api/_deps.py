@@ -50,7 +50,7 @@ from app.ws.agent_request import (  # noqa: F401
     send_lookup_knowledge,
     send_tool_call,
 )
-from app.ws.ws_client import get_view_counts  # noqa: F401
+from app.ws.client_presence import get_view_counts  # noqa: F401
 
 # ---- app.services ----
 from app.services.agent_session_manager import get_agent_session_manager  # noqa: F401

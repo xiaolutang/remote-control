@@ -433,7 +433,7 @@ async def get_session_state(
         raise
 
     # 获取当前视图连接数
-    from app.ws.ws_client import get_view_counts
+    from app.ws.client_presence import get_view_counts
     from app.ws.agent_connection import is_agent_connected
 
     view_counts = get_view_counts(session_id)

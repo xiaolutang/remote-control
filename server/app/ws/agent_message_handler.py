@@ -57,7 +57,7 @@ async def _handle_agent_message(websocket, session_id: str, message: dict):
         message: 消息内容
     """
     # 延迟导入避免循环依赖，但只在函数顶部导入一次
-    from app.ws.ws_client import broadcast_to_clients
+    from app.ws.client_presence import broadcast_to_clients
 
     msg_type = message.get("type")
 
