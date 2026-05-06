@@ -69,6 +69,15 @@ async def lifespan(app: FastAPI):
     # 启动时创建 TTL checker 后台任务
     _ttl_checker_task = asyncio.create_task(_stale_agent_ttl_checker())
     logger.info("Stale agent TTL checker started")
+
+    # 启动时 backfill user_session 反向索引
+    try:
+        from app.store.session import backfill_user_session_index
+        indexed = await backfill_user_session_index()
+        logger.info("User session index backfill completed: %d sessions", indexed)
+    except Exception as exc:
+        logger.warning("User session index backfill failed: %s", exc)
+
     yield
     # 关闭时取消后台任务
     if _ttl_checker_task:

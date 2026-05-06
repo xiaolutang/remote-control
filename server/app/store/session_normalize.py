@@ -77,32 +77,69 @@ def _validate_session_id(session_id: str) -> None:
 # ─── session 数据规范化 ───
 
 def _normalize_session_data(session_id: str, session_data: dict) -> dict:
-    """兼容旧 session 结构，补齐 device 相关字段。"""
+    """兼容旧 session 结构，补齐 device 相关字段。
+
+    返回 (normalized_dict, changed: bool) 元组。
+    changed=True 表示 normalize 期间产生了实际差异，需要回写 Redis。
+    """
+    changed = False
     normalized = dict(session_data)
+
+    # ── status ──
     normalized.setdefault("status", "pending")
-    normalized["status"] = _normalize_session_status(normalized["status"])
-    normalized.setdefault("agent_online", False)
-    normalized.setdefault("views", {"mobile": 0, "desktop": 0})
+    new_status = _normalize_session_status(normalized["status"])
+    if normalized["status"] != new_status:
+        normalized["status"] = new_status
+        changed = True
+
+    # ── scalar defaults ──
+    for key, default in (("agent_online", False),):
+        if key not in normalized:
+            normalized[key] = default
+            changed = True
+
+    # ── views ──
+    if "views" not in normalized:
+        normalized["views"] = {"mobile": 0, "desktop": 0}
+        changed = True
+
+    # ── pty ──
     normalized.setdefault("pty", {"rows": 24, "cols": 80})
-    normalized.setdefault("terminals", [])
     normalized_terminal_pty = {
         "rows": max(1, int(normalized["pty"].get("rows", 24))),
         "cols": max(1, int(normalized["pty"].get("cols", 80))),
     }
-    normalized["pty"] = normalized_terminal_pty
+    if normalized["pty"] != normalized_terminal_pty:
+        normalized["pty"] = normalized_terminal_pty
+        changed = True
 
+    # ── terminals ──
+    normalized.setdefault("terminals", [])
     normalized_terminals = []
+    terminal_changed = False
     for terminal in normalized["terminals"]:
         terminal_copy = dict(terminal)
-        terminal_copy["status"] = _normalize_terminal_status(terminal_copy.get("status", "recovering"))
-        terminal_copy.setdefault("views", {"mobile": 0, "desktop": 0})
+        new_t_status = _normalize_terminal_status(terminal_copy.get("status", "recovering"))
+        if terminal_copy.get("status") != new_t_status:
+            terminal_copy["status"] = new_t_status
+            terminal_changed = True
+        if "views" not in terminal_copy:
+            terminal_copy["views"] = {"mobile": 0, "desktop": 0}
+            terminal_changed = True
         owner_view = terminal_copy.get("geometry_owner_view")
-        terminal_copy["geometry_owner_view"] = (
-            owner_view if owner_view in {"mobile", "desktop"} else None
-        )
-        terminal_copy["attach_epoch"] = max(0, int(terminal_copy.get("attach_epoch", 0) or 0))
-        terminal_copy["recovery_epoch"] = max(0, int(terminal_copy.get("recovery_epoch", 0) or 0))
-        terminal_copy["pty"] = {
+        valid_owner = owner_view if owner_view in {"mobile", "desktop"} else None
+        if terminal_copy.get("geometry_owner_view") != valid_owner:
+            terminal_copy["geometry_owner_view"] = valid_owner
+            terminal_changed = True
+        new_epoch = max(0, int(terminal_copy.get("attach_epoch", 0) or 0))
+        if terminal_copy.get("attach_epoch") != new_epoch:
+            terminal_copy["attach_epoch"] = new_epoch
+            terminal_changed = True
+        new_rec_epoch = max(0, int(terminal_copy.get("recovery_epoch", 0) or 0))
+        if terminal_copy.get("recovery_epoch") != new_rec_epoch:
+            terminal_copy["recovery_epoch"] = new_rec_epoch
+            terminal_changed = True
+        new_pty = {
             "rows": max(
                 1,
                 int((terminal_copy.get("pty") or normalized_terminal_pty).get("rows", 24)),
@@ -112,18 +149,30 @@ def _normalize_session_data(session_id: str, session_data: dict) -> dict:
                 int((terminal_copy.get("pty") or normalized_terminal_pty).get("cols", 80)),
             ),
         }
+        if terminal_copy.get("pty") != new_pty:
+            terminal_copy["pty"] = new_pty
+            terminal_changed = True
         normalized_terminals.append(terminal_copy)
-    normalized["terminals"] = normalized_terminals
+    if terminal_changed:
+        normalized["terminals"] = normalized_terminals
+        changed = True
 
+    # ── device ──
     device = dict(normalized.get("device") or {})
     defaults = _default_device_state(session_id)
+    device_changed = False
     for key, value in defaults.items():
-        device.setdefault(key, value)
-    if not device.get("max_terminals_configured", False):
+        if key not in device:
+            device[key] = value
+            device_changed = True
+    if not device.get("max_terminals_configured", False) and device.get("max_terminals") != DEFAULT_MAX_TERMINALS:
         device["max_terminals"] = DEFAULT_MAX_TERMINALS
-    normalized["device"] = device
+        device_changed = True
+    if device_changed:
+        normalized["device"] = device
+        changed = True
 
-    return normalized
+    return normalized, changed
 
 
 # ─── terminal 辅助 ───

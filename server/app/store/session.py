@@ -27,6 +27,8 @@ from app.store.session_types import (  # noqa: F401
     HISTORY_KEY_PREFIX,
     _session_key,
     _history_key,
+    _user_sessions_key,
+    _USER_SESSIONS_PREFIX,
     _default_device_state,
     _default_terminal_state,
     _SessionLockManager,
@@ -102,6 +104,80 @@ from app.store.session_crud import (  # noqa: F401
 logger = logging.getLogger(__name__)
 
 
+# ─── user_id 反向索引 ───
+
+
+async def backfill_user_session_index() -> int:
+    """启动时遍历全部 session，构建 user_id → session_ids 反向索引。
+
+    返回 backfill 的 session 数量。
+    Redis 不可用时抛出 503（fail-closed）。
+    """
+    redis = await redis_conn.get_redis()
+    pattern = f"{KEY_PREFIX}:*"
+    cursor = 0
+    count = 0
+
+    # 先清理旧索引
+    idx_cursor = 0
+    while True:
+        idx_cursor, idx_keys = await redis.scan(idx_cursor, match=f"{_USER_SESSIONS_PREFIX}*", count=100)
+        if idx_keys:
+            await redis.delete(*idx_keys)
+        if idx_cursor == 0:
+            break
+
+    while True:
+        cursor, keys = await redis.scan(cursor, match=pattern, count=100)
+        for key in keys:
+            data = await redis.get(key)
+            if not data:
+                continue
+            session_data = json.loads(data)
+            uid = session_data.get("user_id")
+            if uid:
+                await redis.sadd(_user_sessions_key(uid), key.replace(f"{KEY_PREFIX}:", ""))
+                count += 1
+        if cursor == 0:
+            break
+
+    if count > 0:
+        logger.info("User session index backfilled: %d sessions indexed", count)
+    return count
+
+
+async def _ensure_user_index(redis, user_id: str) -> None:
+    """lazy self-heal：如果反向索引不存在（空），走 SCAN 补齐后写入索引。"""
+    idx_key = _user_sessions_key(user_id)
+    exists = await redis.exists(idx_key)
+    if exists:
+        return
+
+    # index 缺失，走 SCAN 补齐
+    pattern = f"{KEY_PREFIX}:*"
+    cursor = 0
+    session_ids: list[str] = []
+    while True:
+        cursor, keys = await redis.scan(cursor, match=pattern, count=100)
+        for key in keys:
+            session_id = key.replace(f"{KEY_PREFIX}:", "")
+            data = await redis.get(key)
+            if not data:
+                continue
+            session_data = json.loads(data)
+            if session_data.get("user_id") == user_id:
+                session_ids.append(session_id)
+        if cursor == 0:
+            break
+
+    if session_ids:
+        await redis.sadd(idx_key, *session_ids)
+        logger.info("Lazy self-heal: indexed %d sessions for user %s", len(session_ids), user_id)
+    else:
+        # 即使没有 session 也标记索引存在，避免反复 SCAN
+        await redis.sadd(idx_key, "__empty__")
+
+
 # ─── SCAN 查询（需要 KEY_PREFIX / json / normalize 等多项依赖） ───
 
 
@@ -140,39 +216,44 @@ async def get_session_by_name(name: str) -> Optional[dict]:
                 if data:
                     session_data = json.loads(data)
                     if session_data.get("name") == name:
-                        return {"id": session_id, **_normalize_session_data(session_id, session_data)}
+                        normalized, _ = _normalize_session_data(session_id, session_data)
+                        return {"id": session_id, **normalized}
         if cursor == 0:
             break
     return None
 
 
 async def list_sessions_for_user(user_id: str) -> list[dict]:
-    """列出某个用户拥有的全部 session。"""
+    """列出某个用户拥有的全部 session。优先使用 user_id 反向索引 O(N)。"""
     if not user_id:
         return []
 
     redis = await redis_conn.get_redis()
-    pattern = f"{KEY_PREFIX}:*"
-    cursor = 0
-    sessions: list[dict] = []
 
-    while True:
-        cursor, keys = await redis.scan(cursor, match=pattern, count=100)
-        for key in keys:
-            session_id = key.replace(f"{KEY_PREFIX}:", "")
+    # lazy self-heal：确保索引存在
+    await _ensure_user_index(redis, user_id)
+
+    idx_key = _user_sessions_key(user_id)
+    session_ids = await redis.smembers(idx_key)
+
+    # 过滤占位符
+    session_ids = {sid for sid in session_ids if sid != "__empty__"}
+
+    sessions: list[dict] = []
+    for session_id in session_ids:
+        try:
             async with _session_locks.get_lock(session_id):
-                data = await redis.get(key)
-                if not data:
-                    continue
-                session_data = _normalize_session_data(session_id, json.loads(data))
+                session_data = await _get_session_raw(session_id)
                 changed = _reconcile_terminals(session_data.get("terminals", []))
                 if changed:
                     session_data["updated_at"] = datetime.now(timezone.utc).isoformat()
-                    await redis.set(key, json.dumps(session_data))
-                if session_data.get("user_id") == user_id:
-                    sessions.append({"session_id": session_id, **session_data})
-        if cursor == 0:
-            break
+                    await _save_session(session_id, session_data)
+        except HTTPException:
+            # session 已被删除，清理索引
+            await redis.srem(idx_key, session_id)
+            continue
+        sessions.append({"session_id": session_id, **session_data})
+
     return sessions
 
 
@@ -199,9 +280,9 @@ async def get_session_by_device_id(device_id: str, user_id: Optional[str] = None
                 data = await redis.get(key)
                 if not data:
                     continue
-                session_data = _normalize_session_data(session_id, json.loads(data))
+                session_data, norm_changed = _normalize_session_data(session_id, json.loads(data))
                 changed = _reconcile_terminals(session_data.get("terminals", []))
-                if changed:
+                if changed or norm_changed:
                     session_data["updated_at"] = datetime.now(timezone.utc).isoformat()
                     await redis.set(key, json.dumps(session_data))
                 if session_data.get("device", {}).get("device_id") == device_id:
