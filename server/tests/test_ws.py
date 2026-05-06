@@ -174,8 +174,9 @@ class TestWebSocketHandler:
         mock_ws = AsyncMock()
         active_agents["session-1"] = AgentConnection("session-1", mock_ws, "user1")
 
-        with patch('app.ws.agent_message_handler.update_session_device_heartbeat', new_callable=AsyncMock) as mock_heartbeat:
-            await _handle_agent_message(mock_ws, "session-1", {"type": "ping"})
+        with patch('app.ws.agent_message_handler.get_session', new=AsyncMock(return_value={"agent_online": False})):
+            with patch('app.ws.agent_message_handler.update_session_device_heartbeat', new_callable=AsyncMock) as mock_heartbeat:
+                await _handle_agent_message(mock_ws, "session-1", {"type": "ping"})
 
         mock_heartbeat.assert_awaited_once_with("session-1", online=True)
         mock_ws.send_json.assert_called_once()
@@ -190,11 +191,12 @@ class TestWebSocketHandler:
         mock_ws = AsyncMock()
         active_agents["session-1"] = AgentConnection("session-1", mock_ws, "user1")
 
-        with patch(
-            "app.ws.agent_message_handler.update_session_device_heartbeat",
-            new=AsyncMock(side_effect=HTTPException(status_code=503, detail="Redis down")),
-        ):
-            await _handle_agent_message(mock_ws, "session-1", {"type": "ping"})
+        with patch('app.ws.agent_message_handler.get_session', new=AsyncMock(return_value={"agent_online": False})):
+            with patch(
+                "app.ws.agent_message_handler.update_session_device_heartbeat",
+                new=AsyncMock(side_effect=HTTPException(status_code=503, detail="Redis down")),
+            ):
+                await _handle_agent_message(mock_ws, "session-1", {"type": "ping"})
 
         assert "session-1" in active_agents
         mock_ws.send_json.assert_called_once_with({"type": "pong"})
@@ -217,7 +219,7 @@ class TestWebSocketHandler:
             {"session_id": "session-1", "sub": "user1"},
             {"type": "auth", "token": "valid-token"},
         ))):
-            with patch('app.ws.ws_client.get_session_by_device_id', new=AsyncMock(return_value={"session_id": "session-1", "owner": "user1", "agent_online": False, "device": {"device_id": "mbp-01"}})):
+            with patch('app.ws.ws_client.get_session_by_device_id', new=AsyncMock(return_value={"session_id": "session-1", "owner": "user1", "agent_online": False, "device": {"device_id": "mbp-01"}, "terminals": [{"terminal_id": "term-1", "status": "detached"}]})):
                 with patch('app.ws.ws_client.get_session_terminal', new=AsyncMock(return_value={"terminal_id": "term-1", "status": "detached"})):
                     with patch('app.ws.ws_client.is_agent_connected', return_value=True):
                         with patch('app.ws.ws_client.update_session_view_count', new_callable=AsyncMock):
@@ -604,7 +606,7 @@ class TestConnectionManagement:
             {"session_id": "session-1", "sub": "user1"},
             {"type": "auth", "token": "valid-token"},
         ))):
-            with patch('app.ws.ws_client.get_session_by_device_id', new=AsyncMock(return_value={"session_id": "session-1", "owner": "user1", "device": {"device_id": "mbp-01"}})):
+            with patch('app.ws.ws_client.get_session_by_device_id', new=AsyncMock(return_value={"session_id": "session-1", "owner": "user1", "device": {"device_id": "mbp-01"}, "terminals": [{"terminal_id": "term-1", "status": "detached_recoverable", "pty": {"rows": 42, "cols": 120}, "attach_epoch": 3, "recovery_epoch": 5}]})):
                 with patch('app.ws.ws_client.get_session_terminal', new=AsyncMock(return_value={"terminal_id": "term-1", "status": "detached_recoverable", "pty": {"rows": 42, "cols": 120}, "attach_epoch": 3, "recovery_epoch": 5})):
                     with patch('app.ws.client_snapshot.get_session_terminal', new=AsyncMock(return_value={"terminal_id": "term-1", "status": "detached_recoverable", "pty": {"rows": 42, "cols": 120}, "attach_epoch": 3, "recovery_epoch": 5})):
                         with patch('app.ws.client_snapshot.get_terminal_output_history', new=AsyncMock(return_value=[
@@ -665,7 +667,7 @@ class TestConnectionManagement:
             {"session_id": "session-1", "sub": "user1"},
             {"type": "auth", "token": "valid-token"},
         ))):
-            with patch('app.ws.ws_client.get_session_by_device_id', new=AsyncMock(return_value={"session_id": "session-1", "owner": "user1", "device": {"device_id": "mbp-01"}})):
+            with patch('app.ws.ws_client.get_session_by_device_id', new=AsyncMock(return_value={"session_id": "session-1", "owner": "user1", "device": {"device_id": "mbp-01"}, "terminals": [{"terminal_id": "term-1", "status": "detached_recoverable", "pty": {"rows": 24, "cols": 80}, "attach_epoch": 4, "recovery_epoch": 8}]})):
                 with patch('app.ws.ws_client.get_session_terminal', new=AsyncMock(return_value={"terminal_id": "term-1", "status": "detached_recoverable", "pty": {"rows": 24, "cols": 80}, "attach_epoch": 4, "recovery_epoch": 8})):
                     with patch('app.ws.client_snapshot.get_session_terminal', new=AsyncMock(return_value={"terminal_id": "term-1", "status": "detached_recoverable", "pty": {"rows": 24, "cols": 80}, "attach_epoch": 4, "recovery_epoch": 8})):
                         with patch('app.ws.client_snapshot.get_terminal_output_history', new=AsyncMock(return_value=[])):

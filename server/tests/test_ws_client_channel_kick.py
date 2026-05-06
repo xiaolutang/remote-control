@@ -55,6 +55,7 @@ async def test_same_view_different_terminals_do_not_kick_each_other():
             "session_id": "session-1",
             "owner": "user1",
             "device": {"device_id": "mbp-01"},
+            "terminals": [{"terminal_id": "term-2", "status": "live", "pty": {"rows": 24, "cols": 80}}],
         }):
             with patch("app.ws.ws_client.get_session_terminal", new=AsyncMock(return_value={
                 "terminal_id": "term-2",
@@ -141,6 +142,7 @@ async def test_same_view_same_terminal_still_kicks_old_client():
             "session_id": "session-1",
             "owner": "user1",
             "device": {"device_id": "mbp-01"},
+            "terminals": [{"terminal_id": "term-1", "status": "live", "pty": {"rows": 24, "cols": 80}}],
         }):
             with patch("app.ws.ws_client.get_session_terminal", new=AsyncMock(return_value={
                 "terminal_id": "term-1",
