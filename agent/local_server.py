@@ -284,7 +284,7 @@ class LocalServer:
 
     async def _handle_skills(self, request: web.Request) -> web.Response:
         """GET /skills — 返回所有已发现 skill 列表及启用状态"""
-        from app.skill_registry import discover_skills
+        from app.tools.skill_registry import discover_skills
 
         entries = discover_skills()
         skills = []
@@ -300,7 +300,7 @@ class LocalServer:
 
     async def _handle_skills_toggle(self, request: web.Request) -> web.Response:
         """POST /skills/toggle — 切换指定 skill 启用/禁用"""
-        from app.skill_registry import (
+        from app.tools.skill_registry import (
             discover_skills,
             load_skill_registry,
             save_skill_registry,
@@ -346,7 +346,7 @@ class LocalServer:
 
     async def _handle_knowledge(self, request: web.Request) -> web.Response:
         """GET /knowledge — 返回所有知识文件列表及启用状态"""
-        from app.knowledge_tool import load_knowledge_config, _scan_all_knowledge_files
+        from app.tools.knowledge_tool import load_knowledge_config, _scan_all_knowledge_files
 
         config = load_knowledge_config()
         all_files = _scan_all_knowledge_files()
@@ -362,7 +362,7 @@ class LocalServer:
 
     async def _handle_knowledge_toggle(self, request: web.Request) -> web.Response:
         """POST /knowledge/toggle — 切换指定知识文件启用/禁用"""
-        from app.knowledge_tool import (
+        from app.tools.knowledge_tool import (
             load_knowledge_config,
             save_knowledge_config,
             _scan_all_knowledge_files,

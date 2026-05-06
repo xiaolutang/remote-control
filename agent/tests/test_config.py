@@ -5,7 +5,7 @@ import os
 import tempfile
 import pytest
 
-from app.config import Config, load_config
+from app.core.config import Config, load_config
 
 
 class TestConfigEnvFallback:

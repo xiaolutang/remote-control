@@ -11,10 +11,10 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from app.config import Config, load_config, save_config, get_config_path, normalize_config_path
-from app.websocket_client import WebSocketClient
-from app.auth_service import AuthService
-from app.log_adapter import init_logging as _init_logging, close_logging as _close_logging
+from app.core.config import Config, load_config, save_config, get_config_path, normalize_config_path
+from app.transport.websocket_client import WebSocketClient
+from app.security.auth_service import AuthService
+from app.core.log_adapter import init_logging as _init_logging, close_logging as _close_logging, _log as _log_agent
 
 
 logger = logging.getLogger(__name__)
@@ -46,13 +46,6 @@ class Context:
         self.config: Optional[Config] = None
         self.config_path: Optional[Path] = None
         self.client: Optional[WebSocketClient] = None
-
-
-def _log_agent(message: str) -> None:
-    """Agent 日志输出到终端"""
-    if os.environ.get("FLUTTER_TEST"):
-        return
-    print(f"[Agent] {message}", file=sys.stderr, flush=True)
 
 
 @click.group(invoke_without_command=True)

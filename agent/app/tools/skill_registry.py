@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+from app.core.config import DEFAULT_CONFIG_DIR
+
 logger = logging.getLogger(__name__)
 
 # Skill manifest 必填字段
@@ -22,7 +24,7 @@ _SUPPORTED_TRANSPORTS = {"stdio"}
 
 def _get_agent_data_dir() -> Path:
     """获取 Agent 数据目录。"""
-    config_dir = os.environ.get("RC_AGENT_CONFIG_DIR", "~/.rc-agent")
+    config_dir = os.environ.get("RC_AGENT_CONFIG_DIR", DEFAULT_CONFIG_DIR)
     return Path(config_dir).expanduser()
 
 

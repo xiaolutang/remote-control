@@ -11,7 +11,7 @@ from unittest.mock import patch, AsyncMock
 
 import pytest
 
-from app.mcp_client import MCPClientManager, MAX_TOOL_RESULT_SIZE
+from app.tools.mcp_client import MCPClientManager, MAX_TOOL_RESULT_SIZE
 
 
 # fake_skill 路径
@@ -23,7 +23,7 @@ class TestMCPToolCatalog:
 
     def test_build_catalog_from_fake_skill(self):
         """验证 fake_skill 能被正确解析并构建 catalog。"""
-        from app.skill_registry import _parse_skill_json
+        from app.tools.skill_registry import _parse_skill_json
         manifest = _parse_skill_json(Path(_FAKE_SKILL_DIR))
         assert manifest is not None
         assert manifest.name == "fake_skill"
@@ -31,7 +31,7 @@ class TestMCPToolCatalog:
 
     def test_broken_skill_manifest_rejected(self):
         """malformed skill.json 应被跳过。"""
-        from app.skill_registry import _parse_skill_json
+        from app.tools.skill_registry import _parse_skill_json
         manifest = _parse_skill_json(Path(_FAKE_SKILL_BROKEN_DIR))
         assert manifest is not None  # JSON 合法，但命令不存在
 
@@ -39,8 +39,8 @@ class TestMCPToolCatalog:
         """工具名应为 skill_name.tool_name 格式。"""
         manager = MCPClientManager()
         # 手动注入一个模拟状态
-        from app.mcp_client import MCPServerState, MCPToolInfo
-        from app.skill_registry import SkillManifest
+        from app.tools.mcp_client import MCPServerState, MCPToolInfo
+        from app.tools.skill_registry import SkillManifest
         state = MCPServerState(
             skill_name="test_skill",
             manifest=SkillManifest(name="test_skill", command="echo"),
@@ -67,7 +67,7 @@ class TestMCPToolCall:
         """使用 fake_skill 验证端到端工具调用。"""
         manager = MCPClientManager()
 
-        from app.skill_registry import SkillManifest
+        from app.tools.skill_registry import SkillManifest
         manifest = SkillManifest(
             name="fake_skill",
             version="1.0.0",
@@ -117,7 +117,7 @@ class TestMCPToolCall:
         """缺少 required 参数应返回 invalid_args 错误。"""
         manager = MCPClientManager()
 
-        from app.skill_registry import SkillManifest
+        from app.tools.skill_registry import SkillManifest
         manifest = SkillManifest(
             name="fake_skill",
             command="python3",
@@ -140,7 +140,7 @@ class TestMCPToolCall:
         """启动失败的 Skill 不应阻塞其他 Skill。"""
         manager = MCPClientManager()
 
-        from app.skill_registry import SkillManifest
+        from app.tools.skill_registry import SkillManifest
         broken_manifest = SkillManifest(
             name="broken_skill",
             command="nonexistent_command_xyz",
@@ -203,9 +203,9 @@ class TestMCPToolCall:
             registry = Path(tmpdir) / "skill-registry.json"
             registry.write_text(json.dumps({"skills": [{"name": "fake_skill", "enabled": True}]}))
 
-            with patch("app.skill_registry._get_skills_dir", return_value=skills_dir), \
-                 patch("app.skill_registry._get_registry_path", return_value=registry), \
-                 patch("app.skill_registry._get_agent_data_dir", return_value=Path(tmpdir)):
+            with patch("app.tools.skill_registry._get_skills_dir", return_value=skills_dir), \
+                 patch("app.tools.skill_registry._get_registry_path", return_value=registry), \
+                 patch("app.tools.skill_registry._get_agent_data_dir", return_value=Path(tmpdir)):
                 await manager.start_all()
 
             assert "fake_skill" in manager._servers
@@ -221,8 +221,8 @@ class TestMCPServerCrash:
     async def test_crashed_server_removed_from_catalog(self):
         """MCP Server 崩溃后应从工具目录中移除。"""
         manager = MCPClientManager()
-        from app.skill_registry import SkillManifest
-        from app.mcp_client import MCPServerState
+        from app.tools.skill_registry import SkillManifest
+        from app.tools.mcp_client import MCPServerState
 
         manifest = SkillManifest(
             name="fake_skill",
@@ -256,7 +256,7 @@ class TestMCPArgFiltering:
 
     def test_filter_known_args_strips_extra(self):
         """额外参数应在调用前被剥离。"""
-        from app.mcp_client import MCPToolInfo
+        from app.tools.mcp_client import MCPToolInfo
         manager = MCPClientManager()
         tool_info = MCPToolInfo(
             skill_name="test",
@@ -275,7 +275,7 @@ class TestMCPArgFiltering:
 
     def test_filter_known_args_keeps_all_when_no_properties(self):
         """无 properties 时不做过滤。"""
-        from app.mcp_client import MCPToolInfo
+        from app.tools.mcp_client import MCPToolInfo
         manager = MCPClientManager()
         tool_info = MCPToolInfo(
             skill_name="test",
@@ -289,7 +289,7 @@ class TestMCPArgFiltering:
 
     def test_filter_known_args_empty_schema(self):
         """空 schema 时不做过滤。"""
-        from app.mcp_client import MCPToolInfo
+        from app.tools.mcp_client import MCPToolInfo
         manager = MCPClientManager()
         tool_info = MCPToolInfo(
             skill_name="test",

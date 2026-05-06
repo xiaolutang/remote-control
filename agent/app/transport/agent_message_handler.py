@@ -15,20 +15,13 @@ from app.security.command_validator import (
     MAX_STDERR_LEN,
     DEFAULT_COMMAND_TIMEOUT,
 )
+from app.core.log_adapter import _log
 from app.core.message_types import MessageType
 from app.tools.knowledge_tool import lookup_knowledge
 from app.transport.agent_protocol import TerminalSpec
 
 logger = logging.getLogger(__name__)
 
-
-def _log(message: str) -> None:
-    """Agent 日志输出到 stderr + logging"""
-    import sys
-    if os.environ.get("FLUTTER_TEST"):
-        return
-    print(f"[Agent] {message}", file=sys.stderr, flush=True)
-    logger.info(message)
 
 
 def _validate_terminal_input(command, cwd, env):

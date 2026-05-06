@@ -16,6 +16,7 @@ import websockets
 from websockets import ClientConnection
 
 from app.core.config import Config, ssl_context_for_websockets
+from app.core.log_adapter import _log
 from app.core.message_types import MessageType
 from app.security.crypto import agent_crypto
 from app.tools.knowledge_tool import (
@@ -41,13 +42,6 @@ __all__ = [
     "_validate_terminal_input",
 ]
 
-
-def _log(message: str) -> None:
-    """Agent 日志输出到 stderr + logging"""
-    if os.environ.get("FLUTTER_TEST"):
-        return
-    print(f"[Agent] {message}", file=sys.stderr, flush=True)
-    logger.info(message)
 
 
 class AgentSnapshotManager:

@@ -13,6 +13,15 @@ logger = logging.getLogger(__name__)
 _handler: Optional[object] = None
 
 
+def _log(message: str) -> None:
+    """Agent 日志输出到 stderr + logging。FLUTTER_TEST 模式下静默。"""
+    import sys
+    if os.environ.get("FLUTTER_TEST"):
+        return
+    print(f"[Agent] {message}", file=sys.stderr, flush=True)
+    logger.info(message)
+
+
 def init_logging(
     component: str = "agent",
     service_name: str = "remote-control",

@@ -3,7 +3,7 @@
 """
 import pytest
 
-from app.websocket_client import WebSocketClient
+from app.transport.websocket_client import WebSocketClient
 
 
 class TestReconnect:

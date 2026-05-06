@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app.skill_registry import (
+from app.tools.skill_registry import (
     SkillEntry,
     SkillManifest,
     discover_skills,
@@ -26,7 +26,7 @@ from app.skill_registry import (
 class TestLoadSkillRegistry:
 
     def test_missing_file_returns_empty(self, tmp_path):
-        with patch("app.skill_registry._get_registry_path", return_value=tmp_path / "nonexistent.json"):
+        with patch("app.tools.skill_registry._get_registry_path", return_value=tmp_path / "nonexistent.json"):
             result = load_skill_registry()
             assert result == {}
 
@@ -38,21 +38,21 @@ class TestLoadSkillRegistry:
                 {"name": "code_review", "enabled": False},
             ]
         }))
-        with patch("app.skill_registry._get_registry_path", return_value=registry_file):
+        with patch("app.tools.skill_registry._get_registry_path", return_value=registry_file):
             result = load_skill_registry()
             assert result == {"git_helper": True, "code_review": False}
 
     def test_malformed_json_returns_empty(self, tmp_path):
         registry_file = tmp_path / "skill-registry.json"
         registry_file.write_text("not json{")
-        with patch("app.skill_registry._get_registry_path", return_value=registry_file):
+        with patch("app.tools.skill_registry._get_registry_path", return_value=registry_file):
             result = load_skill_registry()
             assert result == {}
 
     def test_empty_skills_returns_empty(self, tmp_path):
         registry_file = tmp_path / "skill-registry.json"
         registry_file.write_text(json.dumps({"skills": []}))
-        with patch("app.skill_registry._get_registry_path", return_value=registry_file):
+        with patch("app.tools.skill_registry._get_registry_path", return_value=registry_file):
             result = load_skill_registry()
             assert result == {}
 
@@ -61,7 +61,7 @@ class TestSaveSkillRegistry:
 
     def test_save_and_load_roundtrip(self, tmp_path):
         registry_file = tmp_path / "skill-registry.json"
-        with patch("app.skill_registry._get_registry_path", return_value=registry_file):
+        with patch("app.tools.skill_registry._get_registry_path", return_value=registry_file):
             save_skill_registry({"test": True, "other": False})
             result = load_skill_registry()
             assert result == {"test": True, "other": False}
@@ -136,8 +136,8 @@ class TestDiscoverSkills:
             "transport": "stdio",
         }))
 
-        with patch("app.skill_registry._get_skills_dir", return_value=skills_dir), \
-             patch("app.skill_registry.load_skill_registry", return_value={}):
+        with patch("app.tools.skill_registry._get_skills_dir", return_value=skills_dir), \
+             patch("app.tools.skill_registry.load_skill_registry", return_value={}):
             entries = discover_skills()
             assert len(entries) == 1
             assert entries[0].name == "test_skill"
@@ -154,8 +154,8 @@ class TestDiscoverSkills:
             "transport": "stdio",
         }))
 
-        with patch("app.skill_registry._get_skills_dir", return_value=skills_dir), \
-             patch("app.skill_registry.load_skill_registry", return_value={"disabled_skill": False}):
+        with patch("app.tools.skill_registry._get_skills_dir", return_value=skills_dir), \
+             patch("app.tools.skill_registry.load_skill_registry", return_value={"disabled_skill": False}):
             entries = discover_skills()
             assert len(entries) == 1
             assert entries[0].enabled is False
@@ -163,14 +163,14 @@ class TestDiscoverSkills:
     def test_empty_skills_dir(self, tmp_path):
         skills_dir = tmp_path / "empty_skills"
         skills_dir.mkdir()
-        with patch("app.skill_registry._get_skills_dir", return_value=skills_dir), \
-             patch("app.skill_registry.load_skill_registry", return_value={}):
+        with patch("app.tools.skill_registry._get_skills_dir", return_value=skills_dir), \
+             patch("app.tools.skill_registry.load_skill_registry", return_value={}):
             entries = discover_skills()
             assert entries == []
 
     def test_nonexistent_skills_dir(self, tmp_path):
-        with patch("app.skill_registry._get_skills_dir", return_value=tmp_path / "nope"), \
-             patch("app.skill_registry.load_skill_registry", return_value={}):
+        with patch("app.tools.skill_registry._get_skills_dir", return_value=tmp_path / "nope"), \
+             patch("app.tools.skill_registry.load_skill_registry", return_value={}):
             entries = discover_skills()
             assert entries == []
 
@@ -179,7 +179,7 @@ class TestEnsureSkillsDir:
 
     def test_creates_dir(self, tmp_path):
         target = tmp_path / "skills"
-        with patch("app.skill_registry._get_skills_dir", return_value=target):
+        with patch("app.tools.skill_registry._get_skills_dir", return_value=target):
             result = ensure_skills_dir()
             assert result == target
             assert target.is_dir()

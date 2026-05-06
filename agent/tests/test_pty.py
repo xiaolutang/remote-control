@@ -6,7 +6,7 @@ import os
 import time
 import pytest
 
-from app.pty_wrapper import PTYWrapper, PTYConfig
+from app.core.pty_wrapper import PTYWrapper, PTYConfig
 
 
 class TestPTYWrapper:

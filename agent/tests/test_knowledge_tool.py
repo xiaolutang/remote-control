@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app.knowledge_tool import (
+from app.tools.knowledge_tool import (
     KnowledgeConfig,
     load_knowledge_config,
     lookup_knowledge,
@@ -48,14 +48,14 @@ class TestKnowledgeConfig:
 class TestLoadKnowledgeConfig:
 
     def test_missing_file_returns_default(self, tmp_path):
-        with patch("app.knowledge_tool._get_knowledge_config_path", return_value=tmp_path / "nonexistent.json"):
+        with patch("app.tools.knowledge_tool._get_knowledge_config_path", return_value=tmp_path / "nonexistent.json"):
             config = load_knowledge_config()
             assert config.disabled_files == set()
 
     def test_valid_config(self, tmp_path):
         config_file = tmp_path / "knowledge_config.json"
         config_file.write_text(json.dumps({"disabled_files": ["test.md"]}))
-        with patch("app.knowledge_tool._get_knowledge_config_path", return_value=config_file):
+        with patch("app.tools.knowledge_tool._get_knowledge_config_path", return_value=config_file):
             config = load_knowledge_config()
             assert config.is_enabled("test.md") is False
             assert config.is_enabled("other.md") is True
@@ -63,14 +63,14 @@ class TestLoadKnowledgeConfig:
     def test_malformed_json_defaults_all_enabled(self, tmp_path):
         config_file = tmp_path / "knowledge_config.json"
         config_file.write_text("not json{")
-        with patch("app.knowledge_tool._get_knowledge_config_path", return_value=config_file):
+        with patch("app.tools.knowledge_tool._get_knowledge_config_path", return_value=config_file):
             config = load_knowledge_config()
             assert config.disabled_files == set()
 
     def test_empty_disabled_files(self, tmp_path):
         config_file = tmp_path / "knowledge_config.json"
         config_file.write_text(json.dumps({"disabled_files": []}))
-        with patch("app.knowledge_tool._get_knowledge_config_path", return_value=config_file):
+        with patch("app.tools.knowledge_tool._get_knowledge_config_path", return_value=config_file):
             config = load_knowledge_config()
             assert config.disabled_files == set()
 
@@ -94,9 +94,9 @@ class TestLookupKnowledge:
             "claude_code.md": "# Claude Code 使用技巧\n启动命令: claude\n交互式编程",
             "other.md": "# 其他\n无关内容",
         })
-        with patch("app.knowledge_tool._get_builtin_knowledge_dir", return_value=knowledge_dir), \
-             patch("app.knowledge_tool._get_user_knowledge_dir", return_value=tmp_path / "empty_user"), \
-             patch("app.knowledge_tool.load_knowledge_config", return_value=KnowledgeConfig()):
+        with patch("app.tools.knowledge_tool._get_builtin_knowledge_dir", return_value=knowledge_dir), \
+             patch("app.tools.knowledge_tool._get_user_knowledge_dir", return_value=tmp_path / "empty_user"), \
+             patch("app.tools.knowledge_tool.load_knowledge_config", return_value=KnowledgeConfig()):
             result = lookup_knowledge("Claude Code")
             assert "Claude Code" in result
             assert "claude" in result
@@ -105,9 +105,9 @@ class TestLookupKnowledge:
         knowledge_dir = self._setup_knowledge_dir(tmp_path, {
             "scenario_tips.md": "# 场景化编程建议\n## 代码重构\n请帮我重构模块",
         })
-        with patch("app.knowledge_tool._get_builtin_knowledge_dir", return_value=knowledge_dir), \
-             patch("app.knowledge_tool._get_user_knowledge_dir", return_value=tmp_path / "empty_user"), \
-             patch("app.knowledge_tool.load_knowledge_config", return_value=KnowledgeConfig()):
+        with patch("app.tools.knowledge_tool._get_builtin_knowledge_dir", return_value=knowledge_dir), \
+             patch("app.tools.knowledge_tool._get_user_knowledge_dir", return_value=tmp_path / "empty_user"), \
+             patch("app.tools.knowledge_tool.load_knowledge_config", return_value=KnowledgeConfig()):
             result = lookup_knowledge("重构")
             assert "重构" in result
 
@@ -115,9 +115,9 @@ class TestLookupKnowledge:
         knowledge_dir = self._setup_knowledge_dir(tmp_path, {
             "test.md": "# 测试\n一些测试内容",
         })
-        with patch("app.knowledge_tool._get_builtin_knowledge_dir", return_value=knowledge_dir), \
-             patch("app.knowledge_tool._get_user_knowledge_dir", return_value=tmp_path / "empty_user"), \
-             patch("app.knowledge_tool.load_knowledge_config", return_value=KnowledgeConfig()):
+        with patch("app.tools.knowledge_tool._get_builtin_knowledge_dir", return_value=knowledge_dir), \
+             patch("app.tools.knowledge_tool._get_user_knowledge_dir", return_value=tmp_path / "empty_user"), \
+             patch("app.tools.knowledge_tool.load_knowledge_config", return_value=KnowledgeConfig()):
             result = lookup_knowledge("完全不存在的主题 xyz123")
             assert result == "未找到相关知识"
 
@@ -133,9 +133,9 @@ class TestLookupKnowledge:
         user_dir.mkdir()
         (user_dir / "custom.md").write_text("# 自定义\n我的自定义知识", encoding="utf-8")
 
-        with patch("app.knowledge_tool._get_builtin_knowledge_dir", return_value=builtin_dir), \
-             patch("app.knowledge_tool._get_user_knowledge_dir", return_value=user_dir), \
-             patch("app.knowledge_tool.load_knowledge_config", return_value=KnowledgeConfig()):
+        with patch("app.tools.knowledge_tool._get_builtin_knowledge_dir", return_value=builtin_dir), \
+             patch("app.tools.knowledge_tool._get_user_knowledge_dir", return_value=user_dir), \
+             patch("app.tools.knowledge_tool.load_knowledge_config", return_value=KnowledgeConfig()):
             result = lookup_knowledge("自定义")
             assert "自定义" in result
 
@@ -143,9 +143,9 @@ class TestLookupKnowledge:
         files = {f"file{i}.md": f"# 文件{i}\n关键词匹配测试内容" for i in range(5)}
         knowledge_dir = self._setup_knowledge_dir(tmp_path, files)
 
-        with patch("app.knowledge_tool._get_builtin_knowledge_dir", return_value=knowledge_dir), \
-             patch("app.knowledge_tool._get_user_knowledge_dir", return_value=tmp_path / "empty_user"), \
-             patch("app.knowledge_tool.load_knowledge_config", return_value=KnowledgeConfig()):
+        with patch("app.tools.knowledge_tool._get_builtin_knowledge_dir", return_value=knowledge_dir), \
+             patch("app.tools.knowledge_tool._get_user_knowledge_dir", return_value=tmp_path / "empty_user"), \
+             patch("app.tools.knowledge_tool.load_knowledge_config", return_value=KnowledgeConfig()):
             result = lookup_knowledge("关键词匹配")
             # 应该只有 3 个文件的分隔符（2 个 ---）
             assert result.count("---") == 2  # 3 个文件 = 2 个分隔符
@@ -156,9 +156,9 @@ class TestLookupKnowledge:
             "long.md": f"# 长文件\n{long_content}",
         })
 
-        with patch("app.knowledge_tool._get_builtin_knowledge_dir", return_value=knowledge_dir), \
-             patch("app.knowledge_tool._get_user_knowledge_dir", return_value=tmp_path / "empty_user"), \
-             patch("app.knowledge_tool.load_knowledge_config", return_value=KnowledgeConfig()):
+        with patch("app.tools.knowledge_tool._get_builtin_knowledge_dir", return_value=knowledge_dir), \
+             patch("app.tools.knowledge_tool._get_user_knowledge_dir", return_value=tmp_path / "empty_user"), \
+             patch("app.tools.knowledge_tool.load_knowledge_config", return_value=KnowledgeConfig()):
             result = lookup_knowledge("长文件")
             assert "[已截断]" in result or len(result) <= MAX_CHARS_PER_FILE + 100
 
@@ -169,9 +169,9 @@ class TestLookupKnowledge:
         })
         config = KnowledgeConfig(disabled_files={"disabled.md"})
 
-        with patch("app.knowledge_tool._get_builtin_knowledge_dir", return_value=knowledge_dir), \
-             patch("app.knowledge_tool._get_user_knowledge_dir", return_value=tmp_path / "empty_user"), \
-             patch("app.knowledge_tool.load_knowledge_config", return_value=config):
+        with patch("app.tools.knowledge_tool._get_builtin_knowledge_dir", return_value=knowledge_dir), \
+             patch("app.tools.knowledge_tool._get_user_knowledge_dir", return_value=tmp_path / "empty_user"), \
+             patch("app.tools.knowledge_tool.load_knowledge_config", return_value=config):
             result = lookup_knowledge("关键词")
             assert "禁用" not in result
             assert "重要" in result
@@ -268,7 +268,7 @@ class TestEnsureUserKnowledgeDir:
 
     def test_creates_dir(self, tmp_path):
         target = tmp_path / "user_knowledge"
-        with patch("app.knowledge_tool._get_user_knowledge_dir", return_value=target):
+        with patch("app.tools.knowledge_tool._get_user_knowledge_dir", return_value=target):
             result = ensure_user_knowledge_dir()
             assert result == target
             assert target.is_dir()
