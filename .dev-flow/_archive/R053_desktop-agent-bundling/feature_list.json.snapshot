@@ -1,0 +1,151 @@
+{
+  "version": "1.4",
+  "project": "remote-control",
+  "updated_at": "2026-04-30T18:15:00+08:00",
+  "status": "active",
+  "workflow": {
+    "name": "R053-desktop-agent-bundling",
+    "mode": "B",
+    "runtime": "skill_orchestrated",
+    "review_provider": "codex_plugin",
+    "audit_provider": "codex_plugin",
+    "risk_provider": "codex_plugin"
+  },
+  "active_requirement_cycle": {
+    "id": "R053",
+    "name": "desktop-agent-bundling",
+    "branch": "feat/R053-desktop-agent-bundling",
+    "status": "executing",
+    "started_at": "2026-04-30"
+  },
+  "summary": {
+    "total_tasks": 3,
+    "by_status": {
+      "completed": 3,
+      "pending": 0,
+      "blocked": 0
+    }
+  },
+  "archived_requirement_cycles": [
+    {"id": "R047", "name": "agent-conversation-interaction-optimization", "status": "completed", "archive_dir": "_archive/R047_agent-conversation-interaction-optimization", "total_tasks": 31},
+    {"id": "R048", "name": "architecture-deep-cleanup", "status": "completed", "archive_dir": "_archive/R048_architecture-deep-cleanup", "total_tasks": 20},
+    {"id": "R049", "name": "brainstorm-bug-fixes", "status": "completed", "archive_dir": "_archive/R049_brainstorm-bug-fixes", "total_tasks": 3},
+    {"id": "R050", "name": "token-usage-optimization", "status": "completed", "archive_dir": "_archive/R050_token-usage-optimization", "total_tasks": 3},
+    {"id": "R051", "name": "eval-architecture-overhaul", "status": "completed", "archive_dir": "_archive/R051_eval-architecture-overhaul", "total_tasks": 11},
+    {"id": "R052", "name": "open-source-release", "status": "completed", "archive_dir": "_archive/R052_open-source-release", "total_tasks": 5}
+  ],
+  "features": [
+    {
+      "id": "S060",
+      "phase": 1,
+      "module": "agent",
+      "name": "PyInstaller Agent 打包配置",
+      "description": "创建 PyInstaller spec 文件，将 Agent 打包为 macOS arm64 独立可执行文件 rc-agent。处理 log-service-sdk 隐式依赖和 cryptography 动态库，验证打包产物可独立运行（不需要系统 Python）。数据目录（skills/、user_knowledge/）统一通过 --config / RC_AGENT_CONFIG_DIR 派生，与桌面端 managed-agent 目录保持一致，不引入新状态根。",
+      "verification": "L3",
+      "depends_on": [],
+      "status": "completed",
+      "acceptance_criteria": [
+        "agent/rc-agent.spec 存在且可执行 pyinstaller rc-agent.spec",
+        "打包构建前执行 pip install -r requirements.txt 确保依赖完整（requirements.txt 为构建依赖源）",
+        "打包产物 dist/rc-agent 可独立运行（不需要系统 Python）",
+        "./dist/rc-agent --help 输出正常",
+        "./dist/rc-agent status 验证无 crash",
+        "log-service-sdk 被正确打包（无 ModuleNotFoundError）",
+        "cryptography 被正确打包（无 ImportError）",
+        "skills/ 和 user_knowledge/ 路径从 --config 参数的父目录派生（与源码模式一致，不引入独立状态根）",
+        "打包后 skills/ 目录不存在时不崩溃（自动在配置目录下创建）",
+        "打包后 user_knowledge/ 目录不存在时不崩溃",
+        "打包后 --config 无效路径时输出明确错误信息而非崩溃",
+        "产物大小 < 50MB"
+      ],
+      "risk_tags": ["startup", "config"],
+      "test_tasks": [
+        "打包后执行 rc-agent --help 验证基本命令",
+        "打包后执行 rc-agent status 验证无 crash",
+        "验证 skills/ 目录不存在时不崩溃（自动在配置目录下创建）",
+        "验证 user_knowledge/ 目录不存在时不崩溃",
+        "验证 --config 参数可正常读取配置文件",
+        "验证 sys._MEIPASS 资源定位正确（cryptography 动态库可加载）",
+        "验证数据目录从 --config 父目录派生，与源码模式路径一致",
+        "验证 --config 指向无效路径时输出明确错误",
+        "验证首次启动无 token 时 login 命令正常提示"
+      ],
+      "files": ["agent/rc-agent.spec"]
+    },
+    {
+      "id": "F108",
+      "phase": 2,
+      "module": "client",
+      "name": "DesktopAgentSupervisor 内嵌 Agent 发现与启动",
+      "description": "修改 DesktopAgentSupervisor，增加对 .app bundle 内嵌 Agent 二进制（Resources/agent/rc-agent）的发现和启动逻辑。优先使用内嵌 Agent 二进制，回退到 python3 源码模式保持向后兼容。状态根保持桌面端 managed-agent 目录不变，打包 Agent 通过 --config 接收同一配置路径。",
+      "status": "completed",
+      "acceptance_criteria": [
+        "_candidateAgentDirs 新增对 bundle 内 Resources/agent/ 路径的检查",
+        "新增 _looksLikeBundledAgent 方法识别含 rc-agent 二进制的目录",
+        "_ensureAgentOnlineInternal 优先使用 rc-agent 二进制启动",
+        "启动命令切换为：{rc-agent路径} --config {path} run",
+        "工作目录使用 rc-agent 二进制所在目录",
+        "配置路径保持桌面端 managed-agent/config.json 不变（状态根统一）",
+        "_isProcessRunning 兼容 rc-agent 进程名（原硬编码 app.cli）",
+        "_listLocalAgentPids 兼容 rc-agent 进程（pgrep 模式匹配 rc-agent）",
+        "找不到内嵌 Agent 时回退到 python3 源码模式（向后兼容开发环境）",
+        "rc-agent 启动失败时向用户展示错误信息并提供重试选项",
+        "现有单元测试不回归",
+        "新增单元测试覆盖内嵌 Agent 发现和启动逻辑"
+      ],
+      "risk_tags": ["first_use", "startup"],
+      "test_tasks": [
+        "单元测试：_candidateAgentDirs 在 .app bundle 路径下能发现内嵌 Agent",
+        "单元测试：_looksLikeBundledAgent 对包含 rc-agent 的目录返回 true",
+        "单元测试：找不到内嵌 Agent 时回退到 python3 模式",
+        "单元测试：启动命令从 python3 -m app.cli 切换为 ./rc-agent",
+        "单元测试：工作目录使用 rc-agent 二进制所在目录",
+        "单元测试：_isProcessRunning 对 rc-agent 进程返回 true（对旧 app.cli 也兼容）",
+        "单元测试：_listLocalAgentPids 能发现 rc-agent 进程",
+        "单元测试：rc-agent 启动失败/崩溃时正确上报错误状态",
+        "回归测试：skills/ 和 user_knowledge/ 路径与源码模式一致（无重复配置问题）",
+        "回归测试：首次安装无 token 时 login 流程正常触发"
+      ],
+      "files": [
+        "client/lib/services/desktop/desktop_agent_supervisor.dart",
+        "client/test/services/desktop_agent_supervisor_test.dart"
+      ]
+    },
+    {
+      "id": "S061",
+      "phase": 3,
+      "module": "deploy",
+      "name": "构建流程集成 + DMG 生成",
+      "description": "创建联合构建脚本 build-desktop.sh，流程：PyInstaller 打包 Agent → Flutter build macos → 复制 rc-agent 到 .app bundle 的 Resources/agent/ → chmod +x → ad-hoc codesign → hdiutil 生成 .dmg。脚本含自动化内容验证步骤。",
+      "verification": "L3",
+      "depends_on": ["F108"],
+      "status": "completed",
+      "priority": "high",
+      "acceptance_criteria": [
+        "build-desktop.sh 脚本存在于项目根目录且可执行",
+        "脚本前置检查：验证 pyinstaller、flutter、hdiutil 可用，失败时输出明确安装指引",
+        "脚本执行顺序：pip install -r requirements.txt → pyinstaller → flutter build macos → 复制 rc-agent → chmod +x → codesign → hdiutil 生成 dmg",
+        "复制 rc-agent 后确保 +x 权限（chmod +x）",
+        "对 .app bundle 执行 ad-hoc code signing（codesign --force --deep --sign -）以避免 Gatekeeper 阻止",
+        "使用 macOS 内置 hdiutil 生成 .dmg（无外部依赖）",
+        "构建脚本含自动化验证：检查 .app bundle 内 rc-agent 存在且有执行权限",
+        "构建脚本含自动化验证：codesign --verify 通过",
+        "构建脚本含自动化验证：hdiutil attach 后验证 .dmg 内容完整",
+        "最终 .dmg 内含 rc_client.app/Contents/Resources/agent/rc-agent 且有执行权限",
+        "dist/ 目录输出 Remote-Control-macOS.dmg",
+        "Agent 在线后可正常创建终端、执行命令"
+      ],
+      "risk_tags": ["first_use", "startup"],
+      "test_tasks": [
+        "手动验证：从 .dmg 安装后打开 App → 登录 → Agent 自动在线",
+        "手动验证：创建终端 → 输入命令 → 输出正常",
+        "手动验证：关闭 App → 重新打开 → Agent 恢复",
+        "手动验证：.dmg 拖拽安装后 Launchpad 出现图标",
+        "验证 .dmg 包含 rc-agent 二进制且可执行（ls -la .app/Contents/Resources/agent/rc-agent）",
+        "验证 .app bundle code signing 通过（codesign --verify）",
+        "脚本在无 pyinstaller/flutter/hdiutil 时输出明确错误和安装指引"
+      ],
+      "files": ["build-desktop.sh"]
+    }
+  ]
+}

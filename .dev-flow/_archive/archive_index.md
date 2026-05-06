@@ -7,3 +7,6 @@
 | R049 | brainstorm-bug-fixes | 2026-04-29 | 1 | 3/3 | _archive/R049_brainstorm-bug-fixes |
 | R050 | token-usage-optimization | 2026-04-29 | 1 | 0/3 | _archive/R050_token-usage-optimization |
 | R051 | eval-architecture-overhaul | 2026-04-30 | 1-4 | 11/11 | _archive/R051_eval-architecture-overhaul |
+| R052 | open-source-release | 2026-05-02 | 1 | 5/5 | _archive/R052_open-source-release |
+| R053 | desktop-agent-bundling | 2026-05-03 | 1 | 3/3 | _archive/R053_desktop-agent-bundling |
+| R054 | code-quality-consolidation | 2026-05-06 | 1-6 | 11/11 | _archive/R054_code-quality-consolidation |
