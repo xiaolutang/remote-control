@@ -29,6 +29,7 @@ def _find_whitelist_path() -> Path:
     优先级：
     1. PyInstaller 打包模式: sys._MEIPASS / command_whitelist.json
     2. 源码运行模式: project_root / shared / command_whitelist.json
+    3. setuptools/pip 安装: 包目录 / command_whitelist.json
     """
     # PyInstaller 打包模式
     if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
@@ -36,7 +37,17 @@ def _find_whitelist_path() -> Path:
 
     # 源码运行模式：从 agent/app/security/ 向上导航到项目根目录
     # agent/app/security/command_validator.py -> agent/ -> project_root
-    return Path(__file__).resolve().parent.parent.parent.parent / "shared" / "command_whitelist.json"
+    source_path = Path(__file__).resolve().parent.parent.parent.parent / "shared" / "command_whitelist.json"
+    if source_path.exists():
+        return source_path
+
+    # setuptools/pip 安装模式：检查包同级目录下的副本
+    pkg_path = Path(__file__).resolve().parent / "command_whitelist.json"
+    if pkg_path.exists():
+        return pkg_path
+
+    # 返回默认路径（会在 _load_whitelist 中给出明确错误）
+    return source_path
 
 
 def _load_whitelist() -> dict:

@@ -51,6 +51,7 @@ from app.ws.client_presence import (
     broadcast_to_clients,
     _broadcast_presence,
 )
+from app.store.session_normalize import _reconcile_terminals
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +126,8 @@ async def client_websocket_handler(
     terminal = None
     agent_online = is_agent_connected(session_id)
     if terminal_id:
+        # 防御性 reconcile：确保过期/detached terminal 被标记为 closed
+        _reconcile_terminals(session.get("terminals", []))
         # 直接从 session 数据中查找 terminal，不再单独调用 get_session_terminal
         for t in session.get("terminals", []):
             if t.get("terminal_id") == terminal_id:

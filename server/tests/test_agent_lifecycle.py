@@ -382,7 +382,7 @@ class TestAgentClientDisconnectBehavior:
     async def test_cleanup_sends_close_1000(self):
         """agent 的 _cleanup() 会以 code 1000 关闭 WebSocket（无参数调用）"""
         try:
-            from app.websocket_client import WebSocketClient
+            from app.transport.websocket_client import WebSocketClient
         except ImportError:
             pytest.skip("agent module not available")
 
@@ -409,7 +409,7 @@ class TestAgentClientDisconnectBehavior:
     async def test_pty_read_exception_breaks_pty_task_only(self):
         """PTY 读取异常只应中断 pty_to_websocket 任务，不应断开 WebSocket"""
         try:
-            from app.websocket_client import WebSocketClient
+            from app.transport.websocket_client import WebSocketClient
         except ImportError:
             pytest.skip("agent module not available")
 
@@ -441,7 +441,7 @@ class TestAgentClientDisconnectBehavior:
     async def test_websocket_recv_error_breaks_ws_task(self):
         """WebSocket 接收错误应中断 _websocket_to_pty 任务"""
         try:
-            from app.websocket_client import WebSocketClient
+            from app.transport.websocket_client import WebSocketClient
         except ImportError:
             pytest.skip("agent module not available")
 
@@ -499,7 +499,7 @@ class TestAgentClientDisconnectBehavior:
         这模拟了"网络中断导致心跳失败"的场景。
         """
         try:
-            from app.websocket_client import WebSocketClient
+            from app.transport.websocket_client import WebSocketClient
             import websockets.exceptions
         except ImportError:
             pytest.skip("agent module not available")
