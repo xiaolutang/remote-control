@@ -10,8 +10,8 @@ import '../constants/message_types.dart';
 
 /// 应用层加密服务：RSA-OAEP + AES-256-GCM + TOFU 公钥信任
 class CryptoService {
-  CryptoService._();
-  static final CryptoService instance = CryptoService._();
+  CryptoService();
+  static final CryptoService instance = CryptoService();
 
   static const _legacyFingerprintPrefsKey = 'rc_server_key_fingerprint';
 

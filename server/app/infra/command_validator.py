@@ -9,14 +9,17 @@ B078: 命令白名单验证器（Server 端）。
 3. 敏感路径过滤：禁止访问 /etc/shadow、.ssh、.env 等
 """
 import json
+import os
 import re
 import shlex
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # 从 shared/command_whitelist.json 加载白名单配置
+# 优先使用 SHARED_DIR 环境变量，fallback 到相对路径（4 层上级 → 项目根）
 # ---------------------------------------------------------------------------
-_WHITELIST_PATH = Path(__file__).resolve().parent.parent.parent.parent / "shared" / "command_whitelist.json"
+_SHARED_ROOT = os.environ.get("SHARED_DIR", str(Path(__file__).resolve().parent.parent.parent.parent / "shared"))
+_WHITELIST_PATH = Path(_SHARED_ROOT) / "command_whitelist.json"
 
 
 def _load_whitelist() -> dict:

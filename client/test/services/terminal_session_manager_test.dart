@@ -1447,8 +1447,8 @@ void main() {
       expect(manager.getTerminalState('dev-1', 'term-1'),
           TerminalSessionState.idle);
 
-      // 已经 connected 的现有 transport 只是晚绑定到 UI/coordinator，
-      // 不应伪造 recovering，否则会无期限等待 snapshot_complete。
+      // 已经 connected 的现有 transport 晚绑定到 UI/coordinator，
+      // binding 先于 connect 创建，CONNECTED 事件不会丢失。
       manager.testEnsureTerminal(
         'dev-1',
         'term-1',
@@ -1666,7 +1666,7 @@ void main() {
       expect(manager.getTerminalState('dev-1', 'term-1'),
           TerminalSessionState.live);
 
-      // 直接到达 live output，不应被错误缓冲
+      // live output 直达终端
       mock.debugHandleMessage(jsonEncode({
         'type': 'output',
         'payload': base64Encode(utf8.encode('live output')),

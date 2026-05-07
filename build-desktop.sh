@@ -39,7 +39,8 @@ DIST_DIR="$PROJECT_ROOT/dist"
 
 APP_BUNDLE_NAME="rc_client.app"
 FLUTTER_APP_PATH="$CLIENT_DIR/build/macos/Build/Products/Release/$APP_BUNDLE_NAME"
-AGENT_BINARY="$AGENT_DIR/dist/rc-agent"
+AGENT_DIST_DIR="$AGENT_DIR/dist/rc-agent"
+AGENT_BINARY="$AGENT_DIST_DIR/rc-agent"
 BUNDLE_AGENT_DIR="$FLUTTER_APP_PATH/Contents/Resources/agent"
 
 DMG_NAME="Remote-Control-macOS.dmg"
@@ -183,34 +184,27 @@ else
 fi
 
 # ===========================================================================
-# Step 3: 复制 rc-agent 到 .app bundle
+# Step 3: 复制 rc-agent (onedir) 到 .app bundle
 # ===========================================================================
-log_step "3" "复制 Agent 到 .app bundle"
+log_step "3" "复制 Agent 到 .app bundle (onedir)"
 
 mkdir -p "$BUNDLE_AGENT_DIR"
-cp "$AGENT_BINARY" "$BUNDLE_AGENT_DIR/rc-agent"
-log_ok "复制完成: $BUNDLE_AGENT_DIR/rc-agent"
-
-# ===========================================================================
-# Step 4: chmod +x
-# ===========================================================================
-log_step "4" "设置执行权限"
-
+cp -R "$AGENT_DIST_DIR/." "$BUNDLE_AGENT_DIR/"
 chmod +x "$BUNDLE_AGENT_DIR/rc-agent"
-log_ok "chmod +x 完成"
+log_ok "复制完成: $BUNDLE_AGENT_DIR/ ($(du -sh "$BUNDLE_AGENT_DIR" | cut -f1))"
 
 # ===========================================================================
-# Step 5: Ad-hoc code signing
+# Step 4: Ad-hoc code signing
 # ===========================================================================
-log_step "5" "Ad-hoc code signing (.app bundle)"
+log_step "4" "Ad-hoc code signing (.app bundle)"
 
 codesign --force --deep --sign - "$FLUTTER_APP_PATH"
 log_ok "Ad-hoc code signing 完成"
 
 # ===========================================================================
-# Step 6: 生成 DMG
+# Step 5: 生成 DMG
 # ===========================================================================
-log_step "6" "生成 DMG"
+log_step "5" "生成 DMG"
 
 mkdir -p "$DIST_DIR"
 
@@ -247,25 +241,38 @@ log_ok "DMG 生成完成: $DMG_OUTPUT ($DMG_SIZE)"
 rm -rf "$DMG_STAGING"
 
 # ===========================================================================
-# Step 7: 自动化验证
+# Step 6: 自动化验证
 # ===========================================================================
-log_step "7" "自动化验证"
+log_step "6" "自动化验证"
 
 VERIFY_OK=1
 
-# --- 验证 1: .app bundle 内 rc-agent 存在且有执行权限 ---
-log_info "验证 1: .app bundle 内 rc-agent 存在且有执行权限"
-if [[ -f "$BUNDLE_AGENT_DIR/rc-agent" ]]; then
-    if [[ -x "$BUNDLE_AGENT_DIR/rc-agent" ]]; then
-        log_ok "rc-agent 存在且有执行权限"
+# --- 验证辅助函数 ---
+verify_agent_onedir() {
+    local dir="$1"
+    local label="$2"
+    if [[ -f "$dir/rc-agent" ]]; then
+        if [[ -x "$dir/rc-agent" ]]; then
+            log_ok "$label rc-agent 二进制存在且有执行权限"
+        else
+            log_error "$label rc-agent 存在但无执行权限"
+            VERIFY_OK=0
+        fi
     else
-        log_error "rc-agent 存在但无执行权限"
+        log_error "$label rc-agent 不存在于 $dir"
         VERIFY_OK=0
     fi
-else
-    log_error "rc-agent 不存在于 $BUNDLE_AGENT_DIR"
-    VERIFY_OK=0
-fi
+    if [[ -d "$dir/_internal" ]]; then
+        log_ok "$label _internal 目录存在 ($(ls "$dir/_internal" | wc -l | tr -d ' ') 项)"
+    else
+        log_error "$label _internal 目录缺失（onedir 模式必需）"
+        VERIFY_OK=0
+    fi
+}
+
+# --- 验证 1: .app bundle 内 rc-agent onedir 完整性 ---
+log_info "验证 1: .app bundle 内 rc-agent onedir 完整性"
+verify_agent_onedir "$BUNDLE_AGENT_DIR" ".app bundle"
 
 # --- 验证 2: codesign --verify ---
 log_info "验证 2: codesign --verify"
@@ -289,19 +296,9 @@ if hdiutil attach "$DMG_OUTPUT" -mountpoint "$DMG_MOUNT" -nobrowse -quiet; then
         VERIFY_OK=0
     fi
 
-    # 检查 rc-agent 存在且可执行
-    DMG_AGENT="$DMG_MOUNT/$APP_BUNDLE_NAME/Contents/Resources/agent/rc-agent"
-    if [[ -f "$DMG_AGENT" ]]; then
-        if [[ -x "$DMG_AGENT" ]]; then
-            log_ok "DMG 内 rc-agent 存在且有执行权限"
-        else
-            log_error "DMG 内 rc-agent 无执行权限"
-            VERIFY_OK=0
-        fi
-    else
-        log_error "DMG 内未找到 rc-agent: $DMG_AGENT"
-        VERIFY_OK=0
-    fi
+    # 检查 rc-agent onedir 存在且可执行
+    DMG_AGENT_DIR="$DMG_MOUNT/$APP_BUNDLE_NAME/Contents/Resources/agent"
+    verify_agent_onedir "$DMG_AGENT_DIR" "DMG"
 
     # 检查 Applications 符号链接
     if [[ -L "$DMG_MOUNT/Applications" ]]; then

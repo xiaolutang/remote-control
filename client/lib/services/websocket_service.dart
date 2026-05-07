@@ -38,7 +38,7 @@ class WebSocketService extends ChangeNotifier {
   final LoggerService? _logger;
 
   // 加密服务
-  final CryptoService _crypto = CryptoService.instance;
+  final CryptoService _crypto = CryptoService();
   final Future<void> Function(String httpBaseUrl)? _publicKeyFetcher;
   final bool Function()? _hasPublicKeyChecker;
   bool _encryptionEnabled = false;

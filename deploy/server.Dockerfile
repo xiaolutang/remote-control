@@ -43,6 +43,8 @@ RUN if [ "$RUN_USER" != "root" ]; then chown -R appuser:appuser /app; fi
 ENV PATH="/app/.venv/bin:$PATH"
 ENV LOG_SERVICE_URL=http://log-service:8001
 ENV LOG_LEVEL=INFO
+# 本地开发时 command_validator 通过相对路径找 shared/；Docker 部署通过 SHARED_DIR 指定
+ENV SHARED_DIR=/app/shared
 
 USER ${RUN_USER}
 

@@ -242,11 +242,24 @@ class TerminalSessionManager extends ChangeNotifier
     if (currentRows != null && currentCols != null) {
       state.applyRemotePtySize(currentRows, currentCols);
     }
+    // Create binding FIRST so the event subscription is active before
+    // any state transitions that depend on receiving events.
+    final generation = (_bindingGenerations[key] ?? 0) + 1;
+    _bindingGenerations[key] = generation;
+    _terminalBindings[key] = _createTerminalBinding(
+      service: service,
+      generation: generation,
+      key: key,
+      state: state,
+      bindingGenerations: _bindingGenerations,
+    );
+    service.addListener(_terminalBindings[key]!.statusListener);
+
     if (existing == null && service.status == ConnectionStatus.connected) {
-      // Late-binding to an already-live transport should not fabricate a
-      // recovery window. Recovery is only entered by a fresh connected event
-      // or an explicit rebind, otherwise live output would stay buffered
-      // forever waiting for a snapshot_complete that will never arrive.
+      // Service 已连接且无旧 binding。这可能在 resumeAll 或
+      // 非标准路径下发生。直接标记为 live，等待后续事件。
+      // 注意：如果 CONNECTED 事件已在 binding 之前发出，
+      // live output 仍然可以正常流到终端。
       state._setSessionState(TerminalSessionState.live);
     } else if (existing != null &&
         service.status == ConnectionStatus.connected) {
@@ -259,16 +272,6 @@ class TerminalSessionManager extends ChangeNotifier
         state._setSessionState(TerminalSessionState.live);
       }
     }
-    final generation = (_bindingGenerations[key] ?? 0) + 1;
-    _bindingGenerations[key] = generation;
-    _terminalBindings[key] = _createTerminalBinding(
-      service: service,
-      generation: generation,
-      key: key,
-      state: state,
-      bindingGenerations: _bindingGenerations,
-    );
-    service.addListener(_terminalBindings[key]!.statusListener);
   }
 
   Future<void> deactivateConflictingTerminalSessions(

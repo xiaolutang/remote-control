@@ -75,4 +75,98 @@ void main() {
       expect(hitCount, 2);
     });
   });
+
+  group('CryptoService AES key isolation', () {
+    /// 回归测试：每个 CryptoService 实例应有独立的 AES 密钥。
+    /// 根因：CryptoService.instance 单例的 clearAesKey() 会清除所有连接的密钥，
+    /// 导致第二个终端无法解密消息。
+    test('separate instances have independent AES keys', () {
+      final cryptoA = CryptoService();
+      final cryptoB = CryptoService();
+
+      // 各自生成密钥
+      final keyA = cryptoA.generateAesKey();
+      final keyB = cryptoB.generateAesKey();
+
+      // 密钥不同
+      expect(keyA, isNot(equals(keyB)));
+
+      // 各自加密/解密正常
+      final message = {'type': 'data', 'payload': 'hello'};
+      final encryptedA = cryptoA.encryptMessage(message);
+      final encryptedB = cryptoB.encryptMessage(message);
+
+      expect(encryptedA['encrypted'], isTrue);
+      expect(encryptedB['encrypted'], isTrue);
+
+      final decryptedA = cryptoA.decryptMessage(
+        Map<String, dynamic>.from(encryptedA),
+      );
+      final decryptedB = cryptoB.decryptMessage(
+        Map<String, dynamic>.from(encryptedB),
+      );
+      expect(decryptedA['payload'], 'hello');
+      expect(decryptedB['payload'], 'hello');
+
+      // 关键：清除 A 的密钥不影响 B
+      cryptoA.clearAesKey();
+      expect(
+        () => cryptoA.decryptMessage(Map<String, dynamic>.from(encryptedA)),
+        throwsStateError,
+      );
+
+      // B 仍可正常解密
+      final decryptedBAgain = cryptoB.decryptMessage(
+        Map<String, dynamic>.from(encryptedB),
+      );
+      expect(decryptedBAgain['payload'], 'hello');
+    });
+
+    test('clearAesKey on one instance does not affect another', () {
+      final cryptoA = CryptoService();
+      final cryptoB = CryptoService();
+
+      cryptoA.generateAesKey();
+      cryptoB.generateAesKey();
+
+      // A 断开 → 清除密钥
+      cryptoA.clearAesKey();
+
+      // B 仍能加密
+      final message = {'type': 'data', 'payload': 'test'};
+      final encrypted = cryptoB.encryptMessage(message);
+      expect(encrypted['encrypted'], isTrue);
+
+      // B 仍能解密
+      final decrypted = cryptoB.decryptMessage(
+        Map<String, dynamic>.from(encrypted),
+      );
+      expect(decrypted['payload'], 'test');
+    });
+
+    test('generateAesKey overwrites previous key within same instance', () {
+      final crypto = CryptoService();
+      final key1 = crypto.generateAesKey();
+
+      final message = {'type': 'data', 'payload': 'old'};
+      final encrypted1 = crypto.encryptMessage(message);
+
+      // 重连场景：生成新密钥
+      final key2 = crypto.generateAesKey();
+      expect(key1, isNot(equals(key2)));
+
+      // 旧密文无法解密（因为密钥已被覆盖）
+      expect(
+        () => crypto.decryptMessage(Map<String, dynamic>.from(encrypted1)),
+        throwsA(isA<Exception>()),
+      );
+
+      // 新密钥正常工作
+      final encrypted2 = crypto.encryptMessage({'type': 'data', 'payload': 'new'});
+      final decrypted = crypto.decryptMessage(
+        Map<String, dynamic>.from(encrypted2),
+      );
+      expect(decrypted['payload'], 'new');
+    });
+  });
 }

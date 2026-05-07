@@ -421,13 +421,15 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
     if (result == null || !mounted) {
       return;
     }
-    // 建立 WebSocket 连接，不注入 postCreateInput
-    final service = sessionManager.getOrCreate(
+    // 仅注册 service 到 session manager，不提前 connect。
+    // 连接由 TerminalScreen.connectToServer() 发起，
+    // 此时 bindTerminalOutput() 已创建 binding subscription，
+    // CONNECTED/SNAPSHOT 事件不会因 broadcast stream 无 listener 而丢失。
+    sessionManager.getOrCreate(
       controller.selectedDeviceId,
       result.terminalId,
       () => controller.buildTerminalService(result),
     );
-    await service.connect();
     _workspaceController.selectTerminal(result.terminalId);
   }
 

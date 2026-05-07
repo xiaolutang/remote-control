@@ -57,3 +57,6 @@ eval_report*.html
 client/ohos/package.json
 client/ohos/package-lock.json
 client/ohos/node_modules/
+
+# 本地面试复习资料
+docs/_local_interview_notes/

@@ -56,6 +56,7 @@ a = Analysis(
         'app.core.pty_types',
         'app.core.pty_process',
         'app.core.message_types',
+        'app.core.env_compat',
         'app.security',
         'app.security.auth_service',
         'app.security.crypto',
@@ -125,14 +126,14 @@ a = Analysis(
 pyz = PYZ(a.pure, cipher=block_cipher)
 
 # ---------------------------------------------------------------------------
-# EXE — single-file bundle
+# EXE — onedir 模式可执行文件（不含嵌入资源）
+# onedir 比 single-file 快 30 倍（0.2s vs 6s），且退出干净无挂起。
 # ---------------------------------------------------------------------------
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name='rc-agent',
     debug=False,
     bootloader_ignore_signals=False,
@@ -142,4 +143,17 @@ exe = EXE(
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch='arm64',
+)
+
+# ---------------------------------------------------------------------------
+# COLLECT — onedir 输出目录（dist/rc-agent/）
+# ---------------------------------------------------------------------------
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip_binaries=True,
+    upx_binaries=False,
+    upx_dir=None,
+    name='rc-agent',
 )
