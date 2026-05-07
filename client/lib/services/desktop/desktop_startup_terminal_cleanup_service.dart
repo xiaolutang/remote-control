@@ -25,12 +25,14 @@ class DesktopStartupTerminalCleanupService {
   Future<void> cleanup({
     required String token,
     required String deviceId,
+    bool forceCleanup = false,
   }) async {
     if (!_isDesktopPlatform) {
       return;
     }
 
-    if (await _exitPolicyService.keepAgentRunningInBackground()) {
+    if (!forceCleanup &&
+        await _exitPolicyService.keepAgentRunningInBackground()) {
       return;
     }
 

@@ -106,7 +106,11 @@ Future<void> _cleanupServerTerminals(
     final cleanupService = DesktopStartupTerminalCleanupService(
       serverUrl: serverUrl,
     );
-    await cleanupService.cleanup(token: token, deviceId: deviceId);
+    await cleanupService.cleanup(
+      token: token,
+      deviceId: deviceId,
+      forceCleanup: true,
+    );
   } catch (e) {
     _log('服务端终端清理失败: $e');
   }
