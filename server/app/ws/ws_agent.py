@@ -239,7 +239,11 @@ async def agent_websocket_handler(
                 if timeout_reason:
                     cleanup_reason = timeout_reason
             except Exception:
-                pass
+                logger.debug(
+                    "Heartbeat task raised exception: session_id=%s",
+                    session_id,
+                    exc_info=True,
+                )
         await _cleanup_agent(session_id, cleanup_reason)
         if heartbeat_task:
             heartbeat_task.cancel()

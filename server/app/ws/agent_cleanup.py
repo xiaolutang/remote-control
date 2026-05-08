@@ -283,6 +283,11 @@ async def _restore_recoverable_terminals(session_id: str, agent_conn: AgentConne
     try:
         terminals = await list_recoverable_session_terminals(session_id)
     except Exception:
+        logger.error(
+            "Failed to restore recoverable terminals: session_id=%s",
+            session_id,
+            exc_info=True,
+        )
         return
 
     for terminal in terminals:

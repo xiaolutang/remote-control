@@ -43,7 +43,11 @@ class ClientConnection:
                 message = encrypt_message(self.aes_key, message)
             await self.websocket.send_json(message)
         except Exception:
-            pass
+            logger.warning(
+                "Failed to send message to client: session_id=%s terminal_id=%s",
+                self.session_id, self.terminal_id,
+                exc_info=True,
+            )
 
 
 def _channel_key(session_id: str, terminal_id: Optional[str] = None) -> str:

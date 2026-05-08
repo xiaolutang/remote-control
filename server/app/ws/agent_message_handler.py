@@ -108,6 +108,10 @@ async def _handle_agent_message(websocket, session_id: str, message: dict):
             try:
                 decoded_data = base64.b64decode(payload).decode("utf-8", errors="replace")
             except Exception:
+                logger.debug(
+                    "Base64 decode failed, using raw payload: session_id=%s terminal_id=%s",
+                    session_id, terminal_id,
+                )
                 decoded_data = payload
 
             await append_history(

@@ -61,6 +61,11 @@ class ExecutionStoreMixin:
                 row = await cursor.fetchone()
                 return row[0] > 0
         except Exception:
+            logger.error(
+                "Failed to save agent execution report: session_id=%s user_id=%s device_id=%s",
+                session_id, user_id, device_id,
+                exc_info=True,
+            )
             return False
 
     async def get_agent_execution_report(

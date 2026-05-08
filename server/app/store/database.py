@@ -68,7 +68,7 @@ class Database(
                 try:
                     await db.execute(stmt)
                 except Exception:
-                    pass  # 已存在则忽略
+                    logger.debug("Migration statement skipped (likely exists): %s", stmt)
             await db.commit()
             logger.info(f"Database initialized: {self.db_path}")
 

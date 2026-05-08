@@ -27,5 +27,5 @@ async def close_shared_http_client() -> None:
         try:
             await _http_client.aclose()
         except Exception:
-            pass
+            logger.warning("Failed to close shared HTTP client", exc_info=True)
         _http_client = None

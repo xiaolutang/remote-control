@@ -4,11 +4,14 @@
 日志存储在 Redis List 中，每个会话最多保留 1000 条日志。
 """
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any, Literal
 from fastapi import HTTPException, status
 
 from app.store.session import redis_conn, _validate_session_id
+
+logger = logging.getLogger(__name__)
 
 # 日志键名前缀
 LOG_KEY_PREFIX = "rc:logs"
@@ -306,4 +309,8 @@ async def notify_log_subscribers(session_id: str, log_record: dict):
         try:
             await callback(log_record)
         except Exception:
-            pass
+            logger.warning(
+                "Log subscriber callback failed: session_id=%s",
+                session_id,
+                exc_info=True,
+            )

@@ -205,7 +205,11 @@ async def client_websocket_handler(
             })
             await existing_client.websocket.close(code=4011, reason="replaced by new device")
         except Exception:
-            pass  # 旧 Client 可能已经断开
+            logger.debug(
+                "Failed to kick old client: session_id=%s view=%s old_device=%s",
+                session_id, view, existing_client.device_id,
+                exc_info=True,
+            )
 
     # --- 同端设备在线限制结束 ---
 

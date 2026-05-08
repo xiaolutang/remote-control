@@ -48,5 +48,5 @@ def close_logging() -> None:
         _handler.close()
         logger.info("远程日志 handler 已关闭")
     except Exception:
-        pass
+        logger.warning("Failed to close log handler", exc_info=True)
     _handler = None
