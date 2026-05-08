@@ -31,7 +31,6 @@ from app.api.agent_conversation_helpers import (
     _append_and_publish_conversation_event,
     _build_agent_conversation_projection,
     _build_agent_message_history_from_events,
-    _conversation_stream_key,
     _conversation_stream_subscribers,
     _find_conversation_event_by_client_event_id,
     _get_owned_active_terminal,
@@ -87,7 +86,8 @@ async def stream_terminal_agent_conversation(
     await _get_owned_active_terminal(device_id, terminal_id, user_id)
 
     async def _event_stream():
-        stream_key = _conversation_stream_key(user_id, device_id, terminal_id)
+        from app.infra import event_bus
+        stream_key = event_bus.conversation_stream_key(user_id, device_id, terminal_id)
         queue: asyncio.Queue = asyncio.Queue()
         _conversation_stream_subscribers.setdefault(stream_key, set()).add(queue)
         last_index = int(after_index)
