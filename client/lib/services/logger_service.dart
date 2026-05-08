@@ -239,7 +239,9 @@ class LoggerService extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       _uid = prefs.getString('rc_username') ?? '';
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[LoggerService] _loadUid failed: $e');
+    }
   }
 
   /// 从本地加载缓存
@@ -261,7 +263,9 @@ class LoggerService extends ChangeNotifier {
               timestamp: DateTime.parse(data['timestamp']),
               metadata: data['metadata'],
             ));
-          } catch (_) {}
+          } catch (e) {
+            debugPrint('[LoggerService] _loadCache parse entry failed: $e');
+          }
         }
 
         if (_cache.isNotEmpty) {

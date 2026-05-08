@@ -556,7 +556,8 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
         });
         return false;
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[AgentPanel] _submitFeedback failed: $e');
       if (!mounted) return false;
       setState(() {
         _feedbackSubmittingKey = null;

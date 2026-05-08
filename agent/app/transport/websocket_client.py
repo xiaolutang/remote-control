@@ -254,45 +254,45 @@ class WebSocketClient:
             except websockets.exceptions.ConnectionClosedError as e:
                 close_code = e.rcvd.code if e.rcvd else None
                 if close_code in NON_RECOVERABLE_CODES:
-                    _log(f"不可恢复错误 (code={close_code})，停止重连: {e}")
+                    logger.error("不可恢复错误 (code=%s)，停止重连: %s", close_code, e)
                     await self._cleanup()
                     self._running = False
                     _should_exit = True
                     break
-                _log(f"连接关闭: code={close_code}")
+                logger.warning("连接关闭: code=%s", close_code)
                 if not self.auto_reconnect or not self._running:
                     break
                 if self._retry_count >= self.max_retries:
-                    _log(f"超过最大重试次数 ({self.max_retries})，停止重连")
+                    logger.error("超过最大重试次数 (%s)，停止重连", self.max_retries)
                     await self._cleanup()
                     _should_exit = True
                     break
                 delay = min(self.retry_delay * (2 ** self._retry_count), 60.0)
-                _log(f"将在 {delay} 秒后重连 (第 {self._retry_count + 1} 次)")
+                logger.info("将在 %s 秒后重连 (第 %s 次)", delay, self._retry_count + 1)
                 await asyncio.sleep(delay)
                 self._retry_count += 1
             except Exception as e:
-                _log(f"连接错误: {e}")
+                logger.error("连接错误: %s", e)
                 if not self.auto_reconnect or not self._running:
                     break
                 if self._retry_count >= self.max_retries:
-                    _log(f"超过最大重试次数 ({self.max_retries})，停止重连")
+                    logger.error("超过最大重试次数 (%s)，停止重连", self.max_retries)
                     await self._cleanup()
                     _should_exit = True
                     break
                 delay = min(self.retry_delay * (2 ** self._retry_count), 60.0)
-                _log(f"将在 {delay} 秒后重连 (第 {self._retry_count + 1} 次)")
+                logger.info("将在 %s 秒后重连 (第 %s 次)", delay, self._retry_count + 1)
                 await asyncio.sleep(delay)
                 self._retry_count += 1
 
         if _should_exit:
-            _log("Agent 进程即将退出 (sys.exit)")
+            logger.info("Agent 进程即将退出 (sys.exit)")
             sys.exit(1)
 
     async def _connect_and_run(self):
         """连接服务器并运行主循环"""
         ws_url = f"{self.server_url}/ws/agent"
-        _log(f"正在连接服务器: {self.server_url}")
+        logger.info("正在连接服务器: %s", self.server_url)
 
         if self.server_url.startswith("ws://") and not agent_crypto.has_public_key:
             http_base = self.server_url.replace("ws://", "http://")
@@ -313,7 +313,7 @@ class WebSocketClient:
             ) as ws:
                 self.ws = ws
                 self._connected = True
-                _log("已连接到服务器")
+                logger.info("已连接到服务器")
 
                 try:
                     # auth 消息
@@ -327,7 +327,7 @@ class WebSocketClient:
                         try:
                             agent_crypto.generate_aes_key()
                             auth_msg["encrypted_aes_key"] = agent_crypto.get_encrypted_aes_key_b64()
-                            _log("AES key generated and encrypted")
+                            logger.info("AES key generated and encrypted")
                         except Exception as e:
                             logger.error("AES key exchange failed: %s", e)
                             agent_crypto.clear_aes_key()
@@ -341,7 +341,7 @@ class WebSocketClient:
                     if data.get("type") == MessageType.CONNECTED:
                         self._session_id = data.get("session_id")
                         self._retry_count = 0
-                        _log(f"会话已建立: {self._session_id}")
+                        logger.info("会话已建立: %s", self._session_id)
                     else:
                         raise Exception(f"意外的消息类型: {data.get('type')}")
 
@@ -366,11 +366,11 @@ class WebSocketClient:
                     self.pty = PTYWrapper(self.command)
                     if not self.pty.start():
                         raise Exception("无法启动 PTY")
-                    _log(f"PTY 已启动: {self.command}")
+                    logger.info("PTY 已启动: %s", self.command)
 
                     if self.local_display:
-                        _log("本地终端显示已启用（本地键盘可直接操作）")
-                        _log("-" * 40)
+                        logger.info("本地终端显示已启用（本地键盘可直接操作）")
+                        logger.info("-" * 40)
 
                     self._tasks = [
                         asyncio.create_task(self._pty_to_websocket()),
@@ -385,7 +385,7 @@ class WebSocketClient:
                 except asyncio.CancelledError:
                     pass
                 except Exception as e:
-                    _log(f"运行错误: {e}")
+                    logger.error("运行错误: %s", e)
                     raise
                 finally:
                     await self._cleanup()
@@ -416,7 +416,7 @@ class WebSocketClient:
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 })
             except Exception as e:
-                _log(f"PTY 读取错误: {e}")
+                logger.error("PTY 读取错误: %s", e)
                 if isinstance(e, (websockets.exceptions.ConnectionClosedError,
                                   websockets.exceptions.ConnectionClosedOK)):
                     self._connected = False
@@ -467,7 +467,7 @@ class WebSocketClient:
             except asyncio.TimeoutError:
                 continue
             except Exception as e:
-                _log(f"WebSocket 接收错误: {e}")
+                logger.error("WebSocket 接收错误: %s", e)
                 self._connected = False
                 break
 
@@ -506,7 +506,7 @@ class WebSocketClient:
                 except Exception:
                     break
         except Exception as e:
-            _log(f"本地输入读取错误: {e}")
+            logger.error("本地输入读取错误: %s", e)
 
     async def _heartbeat_loop(self):
         """心跳循环"""
@@ -515,7 +515,7 @@ class WebSocketClient:
                 await self._send_ws_message({"type": MessageType.PING})
                 await asyncio.sleep(30)
             except Exception as e:
-                _log(f"心跳发送错误: {e}")
+                logger.error("心跳发送错误: %s", e)
                 self._connected = False
                 break
 
@@ -527,11 +527,11 @@ class WebSocketClient:
             success = await self._local_server.start()
             if success:
                 self._local_port = self._local_server.port
-                _log(f"本地控制服务已启动，端口: {self._local_port}")
+                logger.info("本地控制服务已启动，端口: %s", self._local_port)
             else:
-                _log("本地控制服务启动失败，继续运行（无本地控制能力）")
+                logger.warning("本地控制服务启动失败，继续运行（无本地控制能力）")
         except Exception as e:
-            _log(f"启动本地控制服务异常: {e}")
+            logger.error("启动本地控制服务异常: %s", e)
             self._local_server = None
 
     async def _stop_local_server(self):
@@ -560,7 +560,7 @@ class WebSocketClient:
                 except asyncio.CancelledError:
                     status = "cancelled"
             task_states.append(f"{task.get_name()}={status}")
-        _log(f"断连原因排查 — 任务状态: {', '.join(task_states)}")
+        logger.info("断连原因排查 — 任务状态: %s", ', '.join(task_states))
 
         for task in self._tasks:
             task.cancel()
@@ -594,4 +594,4 @@ class WebSocketClient:
         """停止客户端"""
         self._running = False
         await self._cleanup()
-        _log("客户端已停止")
+        logger.info("客户端已停止")

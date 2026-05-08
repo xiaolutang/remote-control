@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import '../models/runtime_device.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'auth_service.dart';
 import 'config_service.dart';
@@ -69,7 +70,8 @@ class AppStartupCoordinator {
       savedSession = await _authService.getSavedSession(
         includeRefreshToken: false,
       );
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[AppStartupCoordinator] getSavedSession failed: $e');
       savedSession = null;
     }
 
@@ -86,7 +88,8 @@ class AppStartupCoordinator {
         );
       } on AuthException {
         // Saved session invalid; fall through to password auto-login.
-      } catch (_) {
+      } catch (e) {
+        debugPrint('[AppStartupCoordinator] restoreWorkspace failed: $e');
         return const AppStartupResult.login();
       }
     }
@@ -94,7 +97,8 @@ class AppStartupCoordinator {
     Map<String, String>? savedCredentials;
     try {
       savedCredentials = await _authService.getSavedCredentials();
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[AppStartupCoordinator] getSavedCredentials failed: $e');
       return const AppStartupResult.login();
     }
 
@@ -118,7 +122,8 @@ class AppStartupCoordinator {
         username: savedCredentials['username']!,
         deviceId: sessionId,
       );
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[AppStartupCoordinator] login failed: $e');
       return const AppStartupResult.login();
     }
   }

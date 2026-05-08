@@ -58,7 +58,7 @@ class AgentMessageHandler:
     async def dispatch(self, data: dict):
         """分发消息到对应处理器。"""
         msg_type = data.get("type")
-        _log(f"收到消息 type={msg_type} data={json.dumps(data, ensure_ascii=False)[:200]}")
+        logger.info("收到消息 type=%s data=%s", msg_type, json.dumps(data, ensure_ascii=False)[:200])
 
         if msg_type == MessageType.DATA:
             await self._handle_data(data)
@@ -79,7 +79,7 @@ class AgentMessageHandler:
         elif msg_type == MessageType.PONG:
             pass
         elif msg_type == MessageType.ERROR:
-            _log(f"服务器错误: {data.get('message')}")
+            logger.warning("服务器错误: %s", data.get('message'))
 
     async def _handle_data(self, data: dict):
         """处理 data 消息 — 写入 PTY。"""
@@ -95,17 +95,17 @@ class AgentMessageHandler:
             if target:
                 write_ok = target.write(decoded)
                 if not write_ok:
-                    _log(
-                        f"终端输入写入失败: terminal_id={terminal_id or 'session'} "
-                        f"bytes={len(decoded)}"
+                    logger.warning(
+                        "终端输入写入失败: terminal_id=%s bytes=%s",
+                        terminal_id or 'session', len(decoded),
                     )
                 elif len(decoded) >= 1024:
-                    _log(
-                        f"终端输入已写入: terminal_id={terminal_id or 'session'} "
-                        f"bytes={len(decoded)}"
+                    logger.info(
+                        "终端输入已写入: terminal_id=%s bytes=%s",
+                        terminal_id or 'session', len(decoded),
                     )
         except Exception as e:
-            _log(f"数据写入失败: {e}")
+            logger.error("数据写入失败: %s", e)
 
     async def _handle_resize(self, data: dict):
         """处理 resize 消息。"""
@@ -121,7 +121,7 @@ class AgentMessageHandler:
                         terminal_id, int(rows), int(cols),
                     )
         except Exception as e:
-            _log(f"终端大小调整失败: {e}")
+            logger.error("终端大小调整失败: %s", e)
 
     async def _handle_create_terminal(self, data: dict):
         """处理 create_terminal 消息。"""
@@ -134,7 +134,7 @@ class AgentMessageHandler:
         env = data.get("env", {}) or {}
         validation_error = _validate_terminal_input(command, cwd, env)
         if validation_error:
-            _log(f"Terminal {terminal_id} 输入校验失败: {validation_error}")
+            logger.warning("Terminal %s 输入校验失败: %s", terminal_id, validation_error)
             await self._client._send_ws_message(
                 self._client.runtime_manager.build_terminal_closed_event(
                     terminal_id, reason=f"validation_failed: {validation_error}"
@@ -161,7 +161,7 @@ class AgentMessageHandler:
                 self._client.runtime_manager.build_terminal_created_event(terminal_id)
             )
         except Exception as e:
-            _log(f"Terminal {terminal_id} 创建失败: {e}")
+            logger.error("Terminal %s 创建失败: %s", terminal_id, e)
             try:
                 await self._client._send_ws_message(
                     self._client.runtime_manager.build_terminal_closed_event(
@@ -185,7 +185,7 @@ class AgentMessageHandler:
                     task.cancel()
                 await self._client._send_ws_message(event)
         except Exception as e:
-            _log(f"Terminal {terminal_id} 关闭失败: {e}")
+            logger.error("Terminal %s 关闭失败: %s", terminal_id, e)
 
     async def _handle_snapshot_request(self, data: dict):
         """处理 snapshot_request 消息。"""
@@ -215,7 +215,7 @@ class AgentMessageHandler:
 
         valid, reason = validate_command(command)
         if not valid:
-            _log(f"execute_command 拒绝: {reason} command={command[:100]}")
+            logger.warning("execute_command 拒绝: %s command=%s", reason, command[:100])
             await self._client._send_ws_message({
                 "type": MessageType.EXECUTE_COMMAND_RESULT,
                 "request_id": request_id,
@@ -277,7 +277,7 @@ class AgentMessageHandler:
                 "timed_out": timed_out,
             })
         except Exception as e:
-            _log(f"execute_command 执行异常: {e}")
+            logger.error("execute_command 执行异常: %s", e)
             await self._client._send_ws_message({
                 "type": MessageType.EXECUTE_COMMAND_RESULT,
                 "request_id": request_id,
@@ -300,7 +300,7 @@ class AgentMessageHandler:
                 "result": result,
             })
         except Exception as e:
-            _log(f"lookup_knowledge 检索异常: {e}")
+            logger.error("lookup_knowledge 检索异常: %s", e)
             await self._client._send_ws_message({
                 "type": MessageType.LOOKUP_KNOWLEDGE_RESULT,
                 "request_id": request_id,
@@ -342,7 +342,7 @@ class AgentMessageHandler:
                 response["fallback_hint"] = result["fallback_hint"]
             await self._client._send_ws_message(response)
         except Exception as e:
-            _log(f"tool_call 异常: {e}")
+            logger.error("tool_call 异常: %s", e)
             await self._client._send_ws_message({
                 "type": MessageType.TOOL_RESULT,
                 "call_id": call_id,

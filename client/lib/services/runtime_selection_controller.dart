@@ -539,7 +539,8 @@ class RuntimeSelectionController extends ChangeNotifier {
       );
       await _persistProjectContextSnapshot(snapshot);
       return snapshot;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[RuntimeSelectionController] loadProjectContextSnapshot failed: $e');
       _projectContextSnapshot = _config.projectContextSnapshots[deviceId];
       return _projectContextSnapshot;
     } finally {
@@ -568,7 +569,8 @@ class RuntimeSelectionController extends ChangeNotifier {
       );
       await _persistProjectContextSnapshot(snapshot);
       return snapshot;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[RuntimeSelectionController] refreshProjectContextSnapshot failed: $e');
       return _projectContextSnapshot;
     } finally {
       _loadingProjectContextSnapshot = false;
@@ -754,7 +756,8 @@ class RuntimeSelectionController extends ChangeNotifier {
     }
     try {
       return Platform.localHostname;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[RuntimeSelectionController] _resolveLocalHostname failed: $e');
       return null;
     }
   }
@@ -846,8 +849,9 @@ class RuntimeSelectionController extends ChangeNotifier {
       );
     } on AuthException {
       rethrow;
-    } catch (_) {
+    } catch (e) {
       // 执行结果同步失败不影响本地终端进入，只在后续 UI 版本再做显式状态提示。
+      debugPrint('[RuntimeSelectionController] reportAssistantExecution failed: $e');
     }
   }
 
