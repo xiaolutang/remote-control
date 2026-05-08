@@ -46,10 +46,6 @@ def _invalidate_projection_cache(user_id: str, device_id: str, terminal_id: str)
     _projection_cache.pop(_cache_key(user_id, device_id, terminal_id), None)
 
 
-def _conversation_stream_key(user_id: str, device_id: str, terminal_id: str) -> tuple[str, str, str]:
-    return event_bus.conversation_stream_key(user_id, device_id, terminal_id)
-
-
 async def _publish_conversation_stream_event(
     user_id: str,
     device_id: str,
@@ -66,7 +62,7 @@ async def _publish_conversation_stream_event(
     # 1) 通知本地 SSE queue subscribers（SSE stream 端点）
     subscribers = list(
         _conversation_stream_subscribers.get(
-            _conversation_stream_key(user_id, device_id, terminal_id),
+            event_bus.conversation_stream_key(user_id, device_id, terminal_id),
             set(),
         )
     )

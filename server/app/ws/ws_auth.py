@@ -21,7 +21,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # WS 认证配置
-WS_AUTH_TIMEOUT = 5  # 秒
+WS_AUTH_TIMEOUT = int(os.getenv("WS_AUTH_TIMEOUT", "5"))  # 秒
 MAX_WS_MESSAGE_SIZE = int(os.environ.get("MAX_WS_MESSAGE_SIZE", 1 * 1024 * 1024))  # 1MB
 
 

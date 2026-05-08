@@ -4,11 +4,15 @@
 供 log_api、feedback_api 等需要代理转发的模块复用。
 """
 import logging
+import os
 from typing import Optional, Any
 
 logger = logging.getLogger(__name__)
 
 _http_client: Optional[Any] = None
+
+# HTTP 客户端超时配置
+HTTP_CLIENT_TIMEOUT = float(os.getenv("HTTP_CLIENT_TIMEOUT", "3.0"))  # 秒
 
 
 def get_shared_http_client():
@@ -16,7 +20,7 @@ def get_shared_http_client():
     global _http_client
     if _http_client is None or _http_client.is_closed:
         import httpx
-        _http_client = httpx.AsyncClient(timeout=3.0)
+        _http_client = httpx.AsyncClient(timeout=HTTP_CLIENT_TIMEOUT)
     return _http_client
 
 

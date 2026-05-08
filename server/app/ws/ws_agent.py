@@ -11,7 +11,6 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import WebSocketDisconnect, HTTPException
-from redis.exceptions import RedisError
 
 from app.infra.crypto import get_crypto_manager, decrypt_message
 from app.infra.message_types import MessageType
@@ -48,6 +47,9 @@ from app.ws.agent_cleanup import (
 from app.ws.agent_message_handler import (
     _handle_agent_message,
 )
+from app.ws.ws_common import (
+    is_degradable_session_state_error as _is_degradable_session_state_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -75,13 +77,6 @@ async def _heartbeat_checker(websocket, session_id: str):
             return CLEANUP_REASON_NETWORK_LOST
 
     return None
-
-
-def _is_degradable_session_state_error(exc: Exception) -> bool:
-    """仅将底层存储类故障视为可降级，避免吞掉真实业务错误。"""
-    if isinstance(exc, HTTPException):
-        return exc.status_code >= 500
-    return isinstance(exc, (RedisError, OSError, ConnectionError, TimeoutError))
 
 
 async def _set_session_online_best_effort(session_id: str) -> None:

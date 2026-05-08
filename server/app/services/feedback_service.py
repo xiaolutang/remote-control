@@ -5,20 +5,17 @@
 """
 import asyncio
 import logging
-import os
 from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
 from fastapi import HTTPException, status
 
+from app.infra.constants import LOG_SERVICE_URL as _LOG_SERVICE_URL
 from app.infra.http_client import get_shared_http_client
 from app.services.agent_session_manager import generate_terminal_session_id
 
 logger = logging.getLogger(__name__)
-
-# log-service 基地址（模块级常量，避免每处重复读取环境变量）
-_LOG_SERVICE_URL = os.environ.get("LOG_SERVICE_URL", "http://localhost:8001")
 
 # description 最大长度
 MAX_DESCRIPTION_LENGTH = 10000

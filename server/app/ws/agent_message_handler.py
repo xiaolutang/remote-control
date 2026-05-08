@@ -7,9 +7,6 @@ import base64
 import logging
 from datetime import datetime, timezone
 
-from fastapi import HTTPException
-from redis.exceptions import RedisError
-
 from app.infra.crypto import decrypt_message
 from app.infra.message_types import MessageType
 from app.store.session import (
@@ -36,15 +33,11 @@ from app.ws.agent_request import (
 from app.ws.agent_cleanup import (
     _close_agent_conversation_for_terminal,
 )
+from app.ws.ws_common import (
+    is_degradable_session_state_error as _is_degradable_session_state_error,
+)
 
 logger = logging.getLogger(__name__)
-
-
-def _is_degradable_session_state_error(exc: Exception) -> bool:
-    """仅将底层存储类故障视为可降级，避免吞掉真实业务错误。"""
-    if isinstance(exc, HTTPException):
-        return exc.status_code >= 500
-    return isinstance(exc, (RedisError, OSError, ConnectionError, TimeoutError))
 
 
 async def _handle_agent_message(websocket, session_id: str, message: dict):

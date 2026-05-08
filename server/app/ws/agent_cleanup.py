@@ -5,6 +5,7 @@ Agent 断连清理 — stale 管理 + 资源回收 + TTL 检查
 """
 import asyncio
 import logging
+import os
 from datetime import datetime, timezone, timedelta
 
 from app.store.session import (
@@ -34,7 +35,8 @@ from app.ws.agent_request import (
 logger = logging.getLogger(__name__)
 
 # Stale TTL 配置
-STALE_TTL_SECONDS = 90  # Agent 断开后等待 90 秒才真正 offline
+STALE_TTL_SECONDS = int(os.getenv("STALE_TTL_SECONDS", "90"))  # Agent 断开后等待的秒数
+STALE_CHECK_INTERVAL = int(os.getenv("STALE_CHECK_INTERVAL", "10"))  # TTL 检查间隔（秒）
 
 CLEANUP_REASON_AGENT_SHUTDOWN = "agent_shutdown"
 CLEANUP_REASON_NETWORK_LOST = "network_lost"
@@ -231,7 +233,7 @@ async def _stale_agent_ttl_checker():
     定期检查 stale_agents 中的 Agent 是否过期，过期则设为 offline
     """
     while True:
-        await asyncio.sleep(10)  # 每 10 秒检查一次
+        await asyncio.sleep(STALE_CHECK_INTERVAL)
 
         now = datetime.now(timezone.utc)
         expired_sessions = []

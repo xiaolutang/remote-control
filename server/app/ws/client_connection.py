@@ -2,6 +2,7 @@
 Client 连接管理 — ClientConnection 类 + 连接注册/查询
 """
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -13,7 +14,7 @@ logger = logging.getLogger(__name__)
 active_clients: dict[str, list] = {}  # channel_key -> [ClientConnection,...]
 
 # 最大客户端数量
-MAX_CLIENTS_PER_SESSION = 100
+MAX_CLIENTS_PER_SESSION = int(os.getenv("MAX_CLIENTS_PER_SESSION", "100"))
 
 
 class ClientConnection:
