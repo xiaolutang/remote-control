@@ -1,5 +1,3 @@
-// ignore_for_file: deprecated_member_use_from_same_package
-
 part of 'smart_terminal_side_panel.dart';
 
 /// 侧滑面板内部内容：会话消息流 + 意图输入框。
@@ -61,11 +59,11 @@ class _SmartTerminalSidePanelContentState
   @override
   String _phaseDescription = ''; // 当前 phase 的描述文字
   @override
-  final List<AgentTraceEvent> _traces = [];
+  final List<ToolStepEvent> _traces = [];
   @override
   final List<_TurnEventType> _turnEventOrder = [];
   @override
-  final List<AgentAssistantMessageEvent> _assistantMessages = [];
+  final List<StreamingTextEvent> _assistantMessages = [];
   @override
   final StringBuffer _streamingTextBuffer = StringBuffer(); // F108: streaming text
   @override

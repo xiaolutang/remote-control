@@ -1,4 +1,4 @@
-// ignore_for_file: annotate_overrides, deprecated_member_use_from_same_package
+// ignore_for_file: annotate_overrides
 
 part of 'smart_terminal_side_panel.dart';
 
@@ -41,14 +41,14 @@ mixin _PanelWidgetsMixin on _PanelStateFields {
         ]]));
   }
 
-  Widget _buildAgentTraceItem(AgentTraceEvent trace, ColorScheme colorScheme) {
+  Widget _buildAgentTraceItem(ToolStepEvent trace, ColorScheme colorScheme) {
     return _buildAssistantBubble(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [_SidePanelStagePill(stage: 'tool'), const SizedBox(width: 8),
-        Expanded(child: Text(trace.tool, style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600)))]),
+        Expanded(child: Text(trace.toolName, style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600)))]),
       const SizedBox(height: 4),
-      Text(trace.inputSummary, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant, height: 1.4)),
-      if (trace.outputSummary.isNotEmpty) ...[const SizedBox(height: 2),
-        Text(trace.outputSummary, style: Theme.of(context).textTheme.bodySmall?.copyWith(
+      Text(trace.description, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant, height: 1.4)),
+      if (trace.resultSummary != null && trace.resultSummary!.isNotEmpty) ...[const SizedBox(height: 2),
+        Text(trace.resultSummary!, style: Theme.of(context).textTheme.bodySmall?.copyWith(
             color: colorScheme.onSurfaceVariant.withValues(alpha: 0.7), height: 1.3),
           maxLines: 5, overflow: TextOverflow.ellipsis)],
     ]));

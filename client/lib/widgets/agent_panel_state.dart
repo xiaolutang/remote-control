@@ -1,4 +1,4 @@
-// ignore_for_file: annotate_overrides, deprecated_member_use_from_same_package, unused_element
+// ignore_for_file: annotate_overrides, unused_element
 
 part of 'smart_terminal_side_panel.dart';
 
@@ -35,9 +35,9 @@ class _AgentHistoryEntry {
     this.error,
   });
   final String intent;
-  final List<AgentTraceEvent> traces;
+  final List<ToolStepEvent> traces;
   final List<_TurnEventType> turnEventOrder;
-  final List<AgentAssistantMessageEvent> assistantMessages;
+  final List<StreamingTextEvent> assistantMessages;
   final List<_AgentAnswerEntry> answers;
   final AgentResultEvent? result;
   final AgentErrorEvent? error;
@@ -71,9 +71,9 @@ class _AgentRenderState {
   final String phaseDescription;
   final List<_AgentHistoryEntry> history;
   final String? intent;
-  final List<AgentTraceEvent> traces;
+  final List<ToolStepEvent> traces;
   final List<_TurnEventType> turnEventOrder;
-  final List<AgentAssistantMessageEvent> assistantMessages;
+  final List<StreamingTextEvent> assistantMessages;
   final List<_AgentAnswerEntry> answers;
   final AgentQuestionEvent? currentQuestion;
   final AgentResultEvent? result;
@@ -96,9 +96,9 @@ mixin _PanelStateFields on State<_SmartTerminalSidePanelContent> {
   set _currentPhase(AgentPhase v);
   String get _phaseDescription;
   set _phaseDescription(String v);
-  List<AgentTraceEvent> get _traces;
+  List<ToolStepEvent> get _traces;
   List<_TurnEventType> get _turnEventOrder;
-  List<AgentAssistantMessageEvent> get _assistantMessages;
+  List<StreamingTextEvent> get _assistantMessages;
   StringBuffer get _streamingTextBuffer;
   List<ToolStepEvent> get _toolSteps;
   AgentQuestionEvent? get _currentQuestion;
@@ -238,7 +238,7 @@ mixin _PanelStateFields on State<_SmartTerminalSidePanelContent> {
   Widget _buildBlinkingCursor(ColorScheme colorScheme);
   Widget _buildToolStepCard(ToolStepEvent step, ColorScheme colorScheme);
   Widget _buildAgentTraceExpansionTile(ColorScheme colorScheme);
-  Widget _buildAgentTraceItem(AgentTraceEvent trace, ColorScheme colorScheme);
+  Widget _buildAgentTraceItem(ToolStepEvent trace, ColorScheme colorScheme);
   Widget _buildUsageSection(ColorScheme colorScheme);
 
   // _PanelResultViewsMixin
@@ -351,13 +351,21 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
     final sseActive = _eventSubscription != null;
     if (sseActive) { _terminalConversationClosed = false; _terminalClosedReason = null; return; }
     if (event.type == 'trace') {
-      _traces.add(AgentTraceEvent.fromJson(Map<String, dynamic>.from(event.payload)));
+      final p = Map<String, dynamic>.from(event.payload);
+      _traces.add(ToolStepEvent(
+        toolName: (p['tool'] as String? ?? '').trim(),
+        description: (p['input_summary'] as String? ?? '').trim(),
+        status: 'done',
+        resultSummary: (p['output_summary'] as String?)?.trim(),
+      ));
       _terminalConversationClosed = false; _terminalClosedReason = null;
       if (_currentPhase != AgentPhase.confirming) _currentPhase = AgentPhase.exploring;
       return;
     }
     if (event.type == 'assistant_message') {
-      _assistantMessages.add(AgentAssistantMessageEvent.fromJson(Map<String, dynamic>.from(event.payload)));
+      _assistantMessages.add(StreamingTextEvent(
+        textDelta: (event.payload['content'] as String? ?? '').trim(),
+      ));
       _turnEventOrder.add(_TurnEventType.assistantMessage);
       _terminalConversationClosed = false; _terminalClosedReason = null;
       if (_currentPhase == AgentPhase.idle) _currentPhase = AgentPhase.exploring;
@@ -394,9 +402,9 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
 
   _AgentRenderState _deriveAgentRenderState(List<AgentConversationEventItem> events) {
     final history = <_AgentHistoryEntry>[];
-    final traces = <AgentTraceEvent>[];
+    final traces = <ToolStepEvent>[];
     final turnEventOrder = <_TurnEventType>[];
-    final assistantMessages = <AgentAssistantMessageEvent>[];
+    final assistantMessages = <StreamingTextEvent>[];
     final answers = <_AgentAnswerEntry>[];
     String? activeIntent, lastQuestionText;
     AgentQuestionEvent? currentQuestion;
@@ -425,11 +433,19 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
           resultEventId = null; errorEventId = null;
           state = AgentPhase.thinking; phaseDescription = '正在分析你的意图...';
         case 'trace':
-          traces.add(AgentTraceEvent.fromJson(Map<String, dynamic>.from(event.payload)));
+          final p = Map<String, dynamic>.from(event.payload);
+          traces.add(ToolStepEvent(
+            toolName: (p['tool'] as String? ?? '').trim(),
+            description: (p['input_summary'] as String? ?? '').trim(),
+            status: 'done',
+            resultSummary: (p['output_summary'] as String?)?.trim(),
+          ));
           result = null; error = null; state = AgentPhase.exploring;
           phaseDescription = '正在执行工具调用...';
         case 'assistant_message':
-          assistantMessages.add(AgentAssistantMessageEvent.fromJson(Map<String, dynamic>.from(event.payload)));
+          assistantMessages.add(StreamingTextEvent(
+            textDelta: (event.payload['content'] as String? ?? '').trim(),
+          ));
           turnEventOrder.add(_TurnEventType.assistantMessage);
           result = null; error = null; state = AgentPhase.responding;
         case 'question':
@@ -557,7 +573,7 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
         return false;
       }
     } catch (e) {
-      debugPrint('[AgentPanel] _submitFeedback failed: $e');
+      AppLogger('AgentPanel').error('_submitFeedback failed: $e');
       if (!mounted) return false;
       setState(() {
         _feedbackSubmittingKey = null;

@@ -1,4 +1,4 @@
-// ignore_for_file: annotate_overrides, deprecated_member_use_from_same_package
+// ignore_for_file: annotate_overrides
 
 part of 'smart_terminal_side_panel.dart';
 
@@ -300,26 +300,6 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
           }
         });
         _scheduleScrollToLatest();
-      case AgentTraceEvent trace:
-        setState(() {
-          _traces.add(trace);
-          if (_currentPhase == AgentPhase.idle ||
-              _currentPhase == AgentPhase.confirming) {
-            _currentPhase = AgentPhase.exploring;
-            _phaseDescription = '正在执行工具调用...';
-          }
-        });
-        _scheduleScrollToLatest();
-      case AgentAssistantMessageEvent assistantMsg:
-        setState(() {
-          _assistantMessages.add(assistantMsg);
-          _turnEventOrder.add(_TurnEventType.assistantMessage);
-          if (_currentPhase == AgentPhase.idle) {
-            _currentPhase = AgentPhase.responding;
-            _phaseDescription = '正在生成回复...';
-          }
-        });
-        _scheduleScrollToLatest();
       case AgentQuestionEvent question:
         setState(() {
           _currentQuestion = question;
@@ -546,8 +526,8 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
         });
         return;
       }
-      debugPrint(
-        '[AgentPanel] inject ai_prompt terminal=${service.terminalId} '
+      AppLogger('AgentPanel').debug(
+        'inject ai_prompt terminal=${service.terminalId} '
         'status=${service.status.name} '
         'canSend=${service.canSend} '
         'bracketedPaste=${service.bracketedPasteModeEnabled} '

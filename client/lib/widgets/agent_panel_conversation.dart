@@ -1,5 +1,3 @@
-// ignore_for_file: deprecated_member_use_from_same_package
-
 part of 'smart_terminal_side_panel.dart';
 
 /// 对话 UI 构建（历史对话、轮次编排、气泡布局）
@@ -267,7 +265,7 @@ mixin _PanelConversationMixin on _PanelStateFields {
   List<Widget> _buildOrderedTurnEvents({
     required List<_TurnEventType> order,
     required List<_AgentAnswerEntry> answers,
-    required List<AgentAssistantMessageEvent> assistantMessages,
+    required List<StreamingTextEvent> assistantMessages,
     required ColorScheme colorScheme,
     int? historyIndex,
     bool isLive = false,
@@ -301,7 +299,7 @@ mixin _PanelConversationMixin on _PanelStateFields {
           if (msgIdx < assistantMessages.length) {
             widgets.add(_buildAssistantBubble(
               Text(
-                assistantMessages[msgIdx].content,
+                assistantMessages[msgIdx].textDelta,
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
             ));
