@@ -304,8 +304,8 @@ class DesktopAgentSupervisor {
       await _saveManagedAgentPid(process.pid);
       _logDesktopAgent('ensureAgentOnline started pid=${process.pid}');
       unawaited(_captureManagedRuntimeOutput(process));
-    } catch (_) {
-      _logDesktopAgent('ensureAgentOnline process start threw');
+    } catch (e) {
+      _logDesktopAgent('ensureAgentOnline process start failed: $e');
       return false;
     }
 
@@ -470,7 +470,8 @@ class DesktopAgentSupervisor {
         }
       }
       return false;
-    } catch (_) {
+    } catch (e) {
+      _logDesktopAgent('_tryHttpStop failed: $e');
       return false;
     }
   }
@@ -573,7 +574,8 @@ class DesktopAgentSupervisor {
     try {
       await File(configPath).delete();
       _logDesktopAgent('deleteManagedAgentConfig: deleted $configPath');
-    } on FileSystemException catch (_) {
+    } on FileSystemException catch (e) {
+      _logDesktopAgent('deleteManagedAgentConfig file not found: $e');
       // 文件不存在，无需处理
     } catch (e) {
       _logDesktopAgent('deleteManagedAgentConfig: error - $e');
@@ -651,7 +653,8 @@ class DesktopAgentSupervisor {
       if (result.exitCode != 0) return false;
       final output = result.stdout.toString().trim();
       return isAgentRunCommand(output);
-    } catch (_) {
+    } catch (e) {
+      _logDesktopAgent('_isProcessRunning failed: $e');
       return false;
     }
   }
@@ -729,7 +732,8 @@ class DesktopAgentSupervisor {
       }
 
       return pids;
-    } catch (_) {
+    } catch (e) {
+      _logDesktopAgent('_listLocalAgentPids failed: $e');
       return const [];
     }
   }
@@ -758,7 +762,8 @@ class DesktopAgentSupervisor {
         if (isAgentRunCommand(commandLine)) {
           pids.add(pid);
         }
-      } catch (_) {
+      } catch (e) {
+        _logDesktopAgent('_verifyAndAddPids ps failed for pid=$pid: $e');
         // ps 调用失败，跳过此 PID
       }
     }
@@ -789,7 +794,9 @@ class DesktopAgentSupervisor {
             .transform(const LineSplitter())
             .forEach((line) => _logManagedRuntime('stdout $line')),
       );
-    } catch (_) {}
+    } catch (e) {
+      _logManagedRuntime('_captureManagedRuntimeOutput stdout failed: $e');
+    }
     try {
       unawaited(
         process.stderr
@@ -797,7 +804,9 @@ class DesktopAgentSupervisor {
             .transform(const LineSplitter())
             .forEach((line) => _logManagedRuntime('stderr $line')),
       );
-    } catch (_) {}
+    } catch (e) {
+      _logManagedRuntime('_captureManagedRuntimeOutput stderr failed: $e');
+    }
   }
 
   Directory? _resolveAgentWorkdir({String? preferredWorkdir}) {
@@ -861,7 +870,9 @@ class DesktopAgentSupervisor {
       if (executable.existsSync()) {
         return executable.parent;
       }
-    } catch (_) {}
+    } catch (e) {
+      _logDesktopAgent('_resolveExecutableDirectory failed: $e');
+    }
     return null;
   }
 
@@ -896,7 +907,8 @@ class DesktopAgentSupervisor {
       if (stat.type != FileSystemEntityType.file) return false;
       // 校验可执行权限（Unix: owner/group/other 任一有 x 位）
       return (stat.mode & 0x111) != 0;
-    } catch (_) {
+    } catch (e) {
+      _logDesktopAgent('_looksLikeBundledAgent stat failed: $e');
       return false;
     }
   }
@@ -923,7 +935,9 @@ class DesktopAgentSupervisor {
           return resourcesAgentDir;
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      _logDesktopAgent('_resolveBundledAgentDir failed: $e');
+    }
     return null;
   }
 }
