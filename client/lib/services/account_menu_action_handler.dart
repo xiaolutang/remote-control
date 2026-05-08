@@ -108,9 +108,11 @@ Future<void> _confirmAndLogout(
     return;
   }
 
-  await logoutAndNavigate(
-    context: context,
-    destinationBuilder: destinationBuilder,
+  await performSessionTeardown(context: context);
+  if (!context.mounted) return;
+  Navigator.of(context).pushAndRemoveUntil(
+    MaterialPageRoute(builder: destinationBuilder),
+    (_) => false,
   );
 }
 

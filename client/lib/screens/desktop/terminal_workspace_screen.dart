@@ -8,6 +8,7 @@ import '../../models/runtime_terminal.dart';
 import '../../navigation/account_menu_actions.dart';
 import '../../services/account_menu_action_handler.dart';
 import '../../services/auth_service.dart';
+import '../../services/app_logger.dart';
 import '../../services/config_service.dart';
 import '../../services/desktop/desktop_agent_bootstrap_service.dart';
 import '../../services/desktop/desktop_agent_manager.dart';
@@ -805,8 +806,7 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
     BuildContext context,
     AuthException authError,
   ) async {
-    debugPrint(
-        '[Workspace] auth error: code=${authError.code} msg=${authError.message}');
+    AppLogger('Workspace').error('auth error: code=${authError.code} msg=${authError.message}');
     final isReplaced = authError.code == AuthErrorCode.tokenReplaced;
     final title = isReplaced ? '您已在其他设备登录' : '登录已过期';
     final message = isReplaced ? '您的账号已在其他设备登录，当前设备已被迫下线。' : '您的登录凭证已过期，请重新登录。';
@@ -827,9 +827,11 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
     );
 
     if (!context.mounted) return;
-    await logoutAndNavigate(
-      context: context,
-      destinationBuilder: (_) => const LoginScreen(),
+    await performSessionTeardown(context: context);
+    if (!context.mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      (_) => false,
     );
   }
 }

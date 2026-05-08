@@ -1,8 +1,9 @@
 import 'dart:io';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 
+import 'app_logger.dart';
 import 'auth_service.dart';
 import 'desktop/desktop_agent_manager.dart';
 import 'desktop/desktop_startup_terminal_cleanup_service.dart';
@@ -35,7 +36,7 @@ Future<void> performSessionTeardown({
       try {
         await agentManager.onLogout();
       } catch (e) {
-        _log('Agent 关闭失败: $e');
+        _log.error('Agent 关闭失败: $e');
       }
     }(),
     // 断开终端连接
@@ -43,7 +44,7 @@ Future<void> performSessionTeardown({
       try {
         await sessionManager.disconnectAll();
       } catch (e) {
-        _log('断开终端失败: $e');
+        _log.error('断开终端失败: $e');
       }
     }(),
     // 清除 token
@@ -51,38 +52,13 @@ Future<void> performSessionTeardown({
       try {
         await authService.logout();
       } catch (e) {
-        _log('清除 token 失败: $e');
+        _log.error('清除 token 失败: $e');
       }
     }(),
   ]);
 }
 
-Future<void> performLogout({
-  required BuildContext context,
-}) async {
-  await performSessionTeardown(context: context);
-}
-
-/// 退出登录后跳转到指定页面
-///
-/// 封装 performLogout + Navigator.pushAndRemoveUntil 的完整流程。
-/// [destinationBuilder] 返回退出后要跳转到的目标页面。
-Future<void> logoutAndNavigate({
-  required BuildContext context,
-  required WidgetBuilder destinationBuilder,
-}) async {
-  await performSessionTeardown(context: context);
-  if (!context.mounted) return;
-  Navigator.of(context).pushAndRemoveUntil(
-    MaterialPageRoute(builder: destinationBuilder),
-    (_) => false,
-  );
-}
-
-void _log(String message) {
-  if (Platform.environment.containsKey('FLUTTER_TEST')) return;
-  debugPrint('[performLogout] $message');
-}
+final AppLogger _log = AppLogger('performLogout');
 
 /// 清理服务端残留终端，与 App 启动行为对齐。
 /// Best-effort，失败不阻塞登出流程。
@@ -112,6 +88,6 @@ Future<void> _cleanupServerTerminals(
       forceCleanup: true,
     );
   } catch (e) {
-    _log('服务端终端清理失败: $e');
+    _log.error('服务端终端清理失败: $e');
   }
 }

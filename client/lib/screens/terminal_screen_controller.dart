@@ -397,9 +397,11 @@ class TerminalScreenController extends ChangeNotifier {
   /// 处理 token 过期确认操作（UI 层在弹窗确定按钮调用）
   Future<void> confirmTokenExpired(BuildContext context) async {
     clearAuthDialog();
-    await logoutAndNavigate(
-      context: context,
-      destinationBuilder: (_) => const LoginScreen(),
+    await performSessionTeardown(context: context);
+    if (!context.mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      (_) => false,
     );
   }
 
