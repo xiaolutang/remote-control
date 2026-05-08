@@ -18,15 +18,71 @@
     "summary": "系统性技术债务清理：静默异常修复、日志统一、重复代码消除、死代码/deprecated 清理、测试补充"
   },
   "archived_requirement_cycles": [
-    {"id": "R047", "name": "agent-conversation-interaction-optimization", "status": "completed", "archive_dir": "_archive/R047_agent-conversation-interaction-optimization", "total_tasks": 31},
-    {"id": "R048", "name": "architecture-deep-cleanup", "status": "completed", "archive_dir": "_archive/R048_architecture-deep-cleanup", "total_tasks": 20},
-    {"id": "R049", "name": "brainstorm-bug-fixes", "status": "completed", "archive_dir": "_archive/R049_brainstorm-bug-fixes", "total_tasks": 3},
-    {"id": "R050", "name": "token-usage-optimization", "status": "completed", "archive_dir": "_archive/R050_token-usage-optimization", "total_tasks": 3},
-    {"id": "R051", "name": "eval-architecture-overhaul", "status": "completed", "archive_dir": "_archive/R051_eval-architecture-overhaul", "total_tasks": 11},
-    {"id": "R052", "name": "open-source-release", "status": "completed", "archive_dir": "_archive/R052_open-source-release", "total_tasks": 5},
-    {"id": "R053", "name": "desktop-agent-bundling", "status": "completed", "archive_dir": "_archive/R053_desktop-agent-bundling", "total_tasks": 3},
-    {"id": "R054", "name": "code-quality-consolidation", "status": "completed", "archive_dir": "_archive/R054_code-quality-consolidation", "total_tasks": 11, "completed_at": "2026-05-06"},
-    {"id": "R056", "name": "auth-connection-optimize", "status": "completed", "archive_dir": "_archive/R056_auth-connection-optimize", "total_tasks": 2, "completed_at": "2026-05-07"}
+    {
+      "id": "R047",
+      "name": "agent-conversation-interaction-optimization",
+      "status": "completed",
+      "archive_dir": "_archive/R047_agent-conversation-interaction-optimization",
+      "total_tasks": 31
+    },
+    {
+      "id": "R048",
+      "name": "architecture-deep-cleanup",
+      "status": "completed",
+      "archive_dir": "_archive/R048_architecture-deep-cleanup",
+      "total_tasks": 20
+    },
+    {
+      "id": "R049",
+      "name": "brainstorm-bug-fixes",
+      "status": "completed",
+      "archive_dir": "_archive/R049_brainstorm-bug-fixes",
+      "total_tasks": 3
+    },
+    {
+      "id": "R050",
+      "name": "token-usage-optimization",
+      "status": "completed",
+      "archive_dir": "_archive/R050_token-usage-optimization",
+      "total_tasks": 3
+    },
+    {
+      "id": "R051",
+      "name": "eval-architecture-overhaul",
+      "status": "completed",
+      "archive_dir": "_archive/R051_eval-architecture-overhaul",
+      "total_tasks": 11
+    },
+    {
+      "id": "R052",
+      "name": "open-source-release",
+      "status": "completed",
+      "archive_dir": "_archive/R052_open-source-release",
+      "total_tasks": 5
+    },
+    {
+      "id": "R053",
+      "name": "desktop-agent-bundling",
+      "status": "completed",
+      "archive_dir": "_archive/R053_desktop-agent-bundling",
+      "total_tasks": 3
+    },
+    {
+      "id": "R054",
+      "name": "code-quality-consolidation",
+      "status": "completed",
+      "archive_dir": "_archive/R054_code-quality-consolidation",
+      "total_tasks": 11,
+      "completed_at": "2026-05-06"
+    },
+    {
+      "id": "R056",
+      "name": "auth-connection-optimize",
+      "status": "completed",
+      "archive_dir": "_archive/R056_auth-connection-optimize",
+      "total_tasks": 2,
+      "completed_at": "2026-05-07"
+    }
   ],
   "archived_phases": [],
   "features": [
@@ -38,7 +94,7 @@
       "description": "修复 server/app 中 10 处静默异常处理。HIGH: execution_store.py:63 except Exception return False（无日志）、client_connection.py:45 except Exception pass（send_json 静默）、agent_cleanup.py:285 except Exception return（恢复 terminal 静默）。MEDIUM: log_adapter.py:50、http_client.py:29、log_service.py:308、ws_agent.py:241、agent_message_handler.py:110、ws_client.py:207、database.py:70。全部补充 logger.warning/error 日志。",
       "verification": "L1",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": 0,
       "acceptance_criteria": [
         "所有 except Exception: pass/return 补充日志记录",
@@ -66,7 +122,7 @@
       "description": "统一 server 日志为 lazy % 格式化。涉及：ws_auth.py（3处 f-string）、ws_client.py（5处）、database.py（2处）、client_presence.py（3处），共约 13 处 logger.xxx(f\"...\") → logger.xxx(\"...\", arg)。",
       "verification": "L1",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": 1,
       "acceptance_criteria": [
         "所有 logger 调用使用 lazy % 格式化，无 f-string",
@@ -87,7 +143,7 @@
       "description": "4 处重复代码消除：1) _is_degradable_session_state_error 在 ws_agent.py 和 agent_message_handler.py 重复定义 → 提取到 ws/ 共享模块；2) conversation_stream_key 在 event_bus.py 和 agent_conversation_helpers.py 重复 → 统一使用 event_bus 版本；3) _cache_key 在 agent_conversation_helpers.py 和 session_terminal.py 重复 → 统一；4) LOG_SERVICE_URL 在 3 个文件硬编码 → 提取到单一常量。",
       "verification": "L1",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": 1,
       "acceptance_criteria": [
         "_is_degradable_session_state_error 只定义一次",
@@ -115,7 +171,7 @@
       "description": "将散布的硬编码配置值集中到 config 或常量模块：agent_cleanup.py STALE_TTL_SECONDS=90、asyncio.sleep(10) 间隔、client_connection.py MAX_CLIENTS_PER_SESSION=100、ws_auth.py WS_AUTH_TIMEOUT=5、http_client.py timeout=3.0。提取到环境变量或集中常量。",
       "verification": "L1",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": 2,
       "acceptance_criteria": [
         "所有魔法数字提取为命名常量或环境变量",
@@ -137,14 +193,16 @@
       "description": "cli.py 中 run 命令（~258-292）和 start 命令（~314-347）的 SIGTERM 处理、KeyboardInterrupt 捕获、signal 恢复逻辑完全重复约 30 行。提取为 _run_agent_with_signals(agent_client, config, config_path) 公共函数。",
       "verification": "L1",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": 0,
       "acceptance_criteria": [
         "SIGTERM + KeyboardInterrupt + signal 恢复逻辑只定义一次",
         "run 和 start 命令调用共享函数",
         "agent 全量 pytest 通过"
       ],
-      "files": ["agent/app/cli.py"]
+      "files": [
+        "agent/app/cli.py"
+      ]
     },
     {
       "id": "S406",
@@ -154,7 +212,7 @@
       "description": "agent/app 层同时使用 from app.core.log_adapter import _log（stderr + logger）和 logger = logging.getLogger(__name__)，且用法不一致。websocket_client.py 和 agent_message_handler.py 主要用 _log；mcp_client.py、skill_registry.py、auth_service.py 主要用 logger。统一为 logger 标准方案，_log 降级为仅 FLUTTER_TEST 静默的薄封装。",
       "verification": "L1",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": 1,
       "acceptance_criteria": [
         "所有模块使用 logger = logging.getLogger(__name__) 作为主要日志接口",
@@ -175,7 +233,7 @@
       "description": "1) config.py 中 reconnect_max_attempts、reconnect_base_delay、heartbeat_interval、api_url 4 个字段从未被引用，删除；2) auth_service.py verify_token 中 username=test 是硬编码 hack，改为使用 config.username 或实际传入参数；3) 评估 config.token 向后兼容字段的 5 处同步写入，简化为必要时才写入。",
       "verification": "L1",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": 1,
       "acceptance_criteria": [
         "删除 4 个未使用的 Config 字段",
@@ -185,7 +243,9 @@
         "verify_token：未配置 username 时正常回退",
         "agent 全量 pytest 通过"
       ],
-      "risk_tags": ["config"],
+      "risk_tags": [
+        "config"
+      ],
       "files": [
         "agent/app/core/config.py",
         "agent/app/security/auth_service.py"
@@ -199,13 +259,15 @@
       "description": "knowledge_tool.py 中 _scan_knowledge_files 和 _scan_all_knowledge_files 逻辑几乎相同（仅差 config.is_enabled 过滤），合并为 _scan_knowledge_files(config, include_disabled=False) 一个函数。",
       "verification": "L1",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": 2,
       "acceptance_criteria": [
         "两个扫描函数合并为一个带参数的函数",
         "agent 全量 pytest 通过"
       ],
-      "files": ["agent/app/tools/knowledge_tool.py"]
+      "files": [
+        "agent/app/tools/knowledge_tool.py"
+      ]
     },
     {
       "id": "S409",
@@ -214,8 +276,10 @@
       "name": "Agent RC_AGENT_CONFIG_DIR 读取逻辑集中",
       "description": "3 个文件重复实现 os.environ.get('RC_AGENT_CONFIG_DIR', DEFAULT_CONFIG_DIR) + Path(...).expanduser()：config.py:73、knowledge_tool.py:26、skill_registry.py:27。提取到 config 模块提供 get_config_dir() 统一函数。",
       "verification": "L1",
-      "depends_on": ["S407"],
-      "status": "pending",
+      "depends_on": [
+        "S407"
+      ],
+      "status": "completed",
       "priority": 2,
       "acceptance_criteria": [
         "config_dir 读取逻辑只定义一次",
@@ -225,7 +289,9 @@
         "managed-agent 路径（桌面端）不受影响",
         "agent 全量 pytest 通过"
       ],
-      "risk_tags": ["config"],
+      "risk_tags": [
+        "config"
+      ],
       "files": [
         "agent/app/core/config.py",
         "agent/app/tools/knowledge_tool.py",
@@ -240,7 +306,7 @@
       "description": "desktop_agent_supervisor.dart 中 16 处 catch (_) {} / catch (_) { return false; }，异常信息完全丢失。关键方法如 _captureManagedRuntimeOutput、_resolveExecutableDirectory 等的异常被静默吞掉。全部补充 _logDesktopAgent 或 LoggerService 日志记录。",
       "verification": "F1",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": 0,
       "acceptance_criteria": [
         "16 处 catch (_) 补充日志记录",
@@ -248,8 +314,12 @@
         "桌面启动失败后用户可见反馈（状态正确更新）",
         "flutter test 通过"
       ],
-      "risk_tags": ["startup"],
-      "files": ["client/lib/services/desktop/desktop_agent_supervisor.dart"]
+      "risk_tags": [
+        "startup"
+      ],
+      "files": [
+        "client/lib/services/desktop/desktop_agent_supervisor.dart"
+      ]
     },
     {
       "id": "S411",
@@ -259,7 +329,7 @@
       "description": "修复 client/lib 中除 desktop_agent_supervisor 外的静默 catch：runtime_selection_controller.dart（4处）、app_startup_coordinator.dart（4处）、logger_service.dart（3处）、agent_panel_state.dart（1处）、secure_storage_service.dart（1处）。全部补充日志。",
       "verification": "F1",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": 0,
       "acceptance_criteria": [
         "11 处 catch (_) 补充日志记录",
@@ -281,7 +351,7 @@
       "description": "client/lib 中约 50+ 处 debugPrint 分布在 15+ 文件。项目已有 LoggerService。策略：核心服务（ws_message_parser、auth_service、network_diagnostic）迁移到 LoggerService；桌面辅助函数（_logDesktopAgent 等）保持 debugPrint 但统一封装；UI 层 debugPrint 保留。",
       "verification": "F1",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": 1,
       "acceptance_criteria": [
         "ws_message_parser.dart debugPrint → LoggerService",
@@ -305,7 +375,7 @@
       "description": "desktop_agent_http_client.dart 中 10 处 'http://127.0.0.1:$port/...' 硬编码 URL。提取 baseUrl 常量 + endpoint 路径常量，方法内使用拼接。同时统一 kAgentPortRange、kStateFilePath* 等已有常量的使用方式。",
       "verification": "F1",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": 1,
       "acceptance_criteria": [
         "所有 URL 使用 baseUrl + endpoint 常量拼接",
@@ -314,8 +384,12 @@
         "端口不可用时回退到下一个端口",
         "flutter test 通过"
       ],
-      "risk_tags": ["config"],
-      "files": ["client/lib/services/desktop/desktop_agent_http_client.dart"]
+      "risk_tags": [
+        "config"
+      ],
+      "files": [
+        "client/lib/services/desktop/desktop_agent_http_client.dart"
+      ]
     },
     {
       "id": "S414",
@@ -325,7 +399,7 @@
       "description": "同一语义的超时值在不同文件中重复定义：Duration(seconds: 10) 在 crypto_service、network_diagnostic、auth_service；Duration(seconds: 30) 在 config.dart、ws_connection_manager。提取到 config.dart 或 TerminalConfig 作为命名常量。",
       "verification": "F1",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": 2,
       "acceptance_criteria": [
         "超时常量集中定义，消除重复 Duration(seconds: N)",
@@ -348,13 +422,15 @@
       "description": "terminal_workspace_screen.dart:565 约 15 行被注释掉的 SwitchListTile 代码残留在生产代码中（后台保持电脑在线功能暂时屏蔽）。移除注释代码，必要时用 feature flag 替代。",
       "verification": "F1",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": 2,
       "acceptance_criteria": [
         "生产代码中无注释掉的代码块",
         "flutter test 通过"
       ],
-      "files": ["client/lib/screens/desktop/terminal_workspace_screen.dart"]
+      "files": [
+        "client/lib/screens/desktop/terminal_workspace_screen.dart"
+      ]
     },
     {
       "id": "S416",
@@ -364,14 +440,16 @@
       "description": "logout_helper.dart 作为 service 层直接操作 Navigator（导航到登录页），违反分层原则。将导航逻辑移到调用方（UI 层），logout_helper 只负责清理逻辑和返回结果。",
       "verification": "F1",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": 2,
       "acceptance_criteria": [
         "logout_helper 不再直接引用 Navigator",
         "导航逻辑由调用方（UI 层）负责",
         "flutter test 通过"
       ],
-      "files": ["client/lib/services/logout_helper.dart"]
+      "files": [
+        "client/lib/services/logout_helper.dart"
+      ]
     },
     {
       "id": "S417",
@@ -381,7 +459,7 @@
       "description": "AgentTraceEvent 和 AgentAssistantMessageEvent 标注 @Deprecated('F108 移除')，但 7 个 widget 文件通过 ignore_for_file: deprecated_member_use_from_same_package 压制警告。迁移到 ToolStepEvent 和 StreamingTextEvent，消除所有 ignore_for_file: deprecated_member_use_from_same_package。",
       "verification": "F2",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": 2,
       "acceptance_criteria": [
         "7 个 widget 文件不再使用 deprecated 类型",
@@ -407,8 +485,11 @@
       "name": "Agent agent_message_handler 单元测试",
       "description": "AgentMessageHandler 的 dispatch 和各 handler 方法（handle_terminal_create、handle_execute_command、handle_terminal_resize 等）无直接单元测试，仅在 test_forwarding.py 间接覆盖。补充独立单测。",
       "verification": "L1",
-      "depends_on": ["S405", "S406"],
-      "status": "pending",
+      "depends_on": [
+        "S405",
+        "S406"
+      ],
+      "status": "completed",
       "priority": 0,
       "acceptance_criteria": [
         "test_agent_message_handler.py 覆盖所有 handler 方法",
@@ -427,8 +508,12 @@
       "name": "Server WS 模块测试补充",
       "description": "补充 server WS 子模块测试：agent_cleanup.py（299行无测试）、agent_request.py（仅 registry 部分测试）。重点覆盖 stale agent 清理逻辑和 pending request 超时/取消。",
       "verification": "L1",
-      "depends_on": ["S401", "S403", "S404"],
-      "status": "pending",
+      "depends_on": [
+        "S401",
+        "S403",
+        "S404"
+      ],
+      "status": "completed",
       "priority": 0,
       "acceptance_criteria": [
         "test_agent_cleanup.py 覆盖 stale TTL、terminal 恢复、异常路径",
@@ -447,8 +532,10 @@
       "name": "Client ws_message_parser 单元测试",
       "description": "ws_message_parser.dart 是核心消息解析路径（UTF-8 流式解码、加密解密、snapshot 拼接、bracketed paste 跟踪），仅有 websocket_service_test.dart 间接覆盖。补充独立单测。",
       "verification": "L1",
-      "depends_on": ["S412"],
-      "status": "pending",
+      "depends_on": [
+        "S412"
+      ],
+      "status": "completed",
       "priority": 1,
       "acceptance_criteria": [
         "测试 StreamingUtf8Decoder 的完整 UTF-8 序列、截断序列、reset",
@@ -468,8 +555,10 @@
       "name": "Client secure_storage 测试",
       "description": "desktop_permissions/secure_storage_service.dart 无测试。补充 macOS keychain 存取、token 保存/读取/删除的 mock 测试。",
       "verification": "F1",
-      "depends_on": ["S411"],
-      "status": "pending",
+      "depends_on": [
+        "S411"
+      ],
+      "status": "completed",
       "priority": 1,
       "acceptance_criteria": [
         "测试 save/load/delete 正常路径",
@@ -488,8 +577,30 @@
       "name": "验证：三模块测试全量通过",
       "description": "运行三个模块的全量测试确认无回归：server pytest、agent pytest、client flutter test。更新 project_spec.md。",
       "verification": "L4",
-      "depends_on": ["S401", "S402", "S403", "S404", "S405", "S406", "S407", "S408", "S409", "S410", "S411", "S412", "S413", "S414", "S415", "S416", "S417", "S418", "S419", "S420", "S421"],
-      "status": "pending",
+      "depends_on": [
+        "S401",
+        "S402",
+        "S403",
+        "S404",
+        "S405",
+        "S406",
+        "S407",
+        "S408",
+        "S409",
+        "S410",
+        "S411",
+        "S412",
+        "S413",
+        "S414",
+        "S415",
+        "S416",
+        "S417",
+        "S418",
+        "S419",
+        "S420",
+        "S421"
+      ],
+      "status": "completed",
       "priority": 0,
       "acceptance_criteria": [
         "server pytest 全量通过",
@@ -497,7 +608,9 @@
         "client flutter test 通过",
         "project_spec.md 更新到 R057"
       ],
-      "files": [".dev-flow/project_spec.md"]
+      "files": [
+        ".dev-flow/project_spec.md"
+      ]
     },
     {
       "id": "S423",
@@ -506,8 +619,13 @@
       "name": "需求包级 Smoke 验证",
       "description": "手工验证 R057 改动后的完整用户旅程：冷启动 macOS 桌面端 → 登录 → Agent 自动上线 → 创建终端 → 执行命令 → 输出正常。验证 S407/S409/S410/S413 改动不破坏启动、登录、Agent 管理、终端 I/O 链路。",
       "verification": "L4",
-      "depends_on": ["S407", "S409", "S410", "S413"],
-      "status": "pending",
+      "depends_on": [
+        "S407",
+        "S409",
+        "S410",
+        "S413"
+      ],
+      "status": "completed",
       "priority": 0,
       "acceptance_criteria": [
         "macOS 桌面端冷启动正常",
@@ -520,5 +638,9 @@
       "smoke_required": true,
       "files": []
     }
-  ]
+  ],
+  "summary": {
+    "total": 23,
+    "completed": 23
+  }
 }
