@@ -67,7 +67,7 @@ Future<bool> _wsConnect(WebSocketService s) async {
         authMessage['encrypted_aes_key'] = s._crypto.getEncryptedAesKeyBase64();
         aesKeyExchanged = true;
       } catch (e) {
-        debugPrint('[WebSocketService] AES key exchange failed: $e');
+        _log.error('AES key exchange failed: $e');
         s._crypto.clearAesKey();
       }
     }
@@ -119,7 +119,7 @@ Future<bool> _wsConnect(WebSocketService s) async {
     );
 
     return await completer.future.timeout(
-      const Duration(seconds: 30),
+      TimingConstants.wsConnectionTimeout,
       onTimeout: () => throw TimeoutException('Connection timeout'),
     );
   } catch (e) {
@@ -301,18 +301,18 @@ void _wsCaptureCloseCode(WebSocketService s) {
     if (closeCode != null) {
       s._lastCloseCode = closeCode;
       s._lastCloseReason = closeReason;
-      debugPrint(
-        '[WebSocketService] WS closed: code=$closeCode reason=$closeReason',
+      _log.info(
+        'WS closed: code=$closeCode reason=$closeReason',
       );
     }
   } catch (e) {
-    debugPrint('[WebSocketService] error capturing close code: $e');
+    _log.error('error capturing close code: $e');
   }
 }
 
 void _wsStartHeartbeat(WebSocketService s) {
   _wsStopHeartbeat(s);
-  s._heartbeatTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+  s._heartbeatTimer = Timer.periodic(TimingConstants.heartbeatInterval, (_) {
     if (s._status == ConnectionStatus.connected && s._channel != null) {
       s._channel!.sink.add(jsonEncode({'type': MessageType.ping}));
     }

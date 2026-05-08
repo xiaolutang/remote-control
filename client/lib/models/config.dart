@@ -3,6 +3,21 @@ import 'recent_launch_context.dart';
 import 'shortcut_item.dart';
 import 'terminal_shortcut.dart';
 
+/// 统一超时/间隔常量，消除各服务文件中重复的 Duration 定义。
+abstract final class TimingConstants {
+  /// HTTP 连接超时
+  static const Duration httpConnectionTimeout = Duration(seconds: 10);
+
+  /// WebSocket 连接超时
+  static const Duration wsConnectionTimeout = Duration(seconds: 30);
+
+  /// 心跳间隔（默认值，实际由 AppConfig.heartbeatInterval 控制）
+  static const Duration heartbeatInterval = Duration(seconds: 30);
+
+  /// 重连延迟（默认值）
+  static const Duration reconnectDelay = Duration(seconds: 1);
+}
+
 enum AppThemeMode {
   system,
   light,

@@ -7,6 +7,7 @@ import 'package:asn1lib/asn1lib.dart' as asn1;
 import 'package:pointycastle/export.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/message_types.dart';
+import '../models/config.dart';
 
 /// 应用层加密服务：RSA-OAEP + AES-256-GCM + TOFU 公钥信任
 class CryptoService {
@@ -64,7 +65,7 @@ class CryptoService {
     final uri = Uri.parse('$httpBaseUrl/api/public-key');
     final client = HttpClient();
     try {
-      client.connectionTimeout = const Duration(seconds: 10);
+      client.connectionTimeout = TimingConstants.httpConnectionTimeout;
       if (trustAllCertificates) {
         client.badCertificateCallback = (_, __, ___) => true;
       }

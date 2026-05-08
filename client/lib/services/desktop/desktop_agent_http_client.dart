@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
+import '../app_logger.dart';
 
 /// 默认端口范围
 const List<int> kAgentPortRange = [18765, 18766, 18767, 18768, 18769];
@@ -17,12 +17,10 @@ const String kStateFilePathLinux = '.local/share/remote-control/agent-state.json
 /// 状态文件路径（Windows）
 const String kStateFilePathWindows = 'remote-control\\agent-state.json';
 
-void _logHttpClient(String message) {
-  if (Platform.environment.containsKey('FLUTTER_TEST')) {
-    return;
-  }
-  debugPrint('[DesktopAgentHttpClient] $message');
-}
+/// 本地 Agent HTTP 基地址
+const String kLocalAgentHost = 'http://127.0.0.1';
+
+final AppLogger _log = AppLogger('DesktopAgentHttpClient');
 
 /// F089: 技能条目
 class SkillItem {
@@ -137,18 +135,18 @@ class DesktopAgentHttpClient {
     // 1. 尝试通过状态文件发现
     final statusFromStateFile = await _discoverViaStateFile();
     if (statusFromStateFile != null) {
-      _logHttpClient('discovered agent via state file: port=${statusFromStateFile.port}');
+      _log.info('discovered agent via state file: port=${statusFromStateFile.port}');
       return statusFromStateFile;
     }
 
     // 2. 扫描端口范围
     final statusFromPortScan = await _discoverViaPortScan();
     if (statusFromPortScan != null) {
-      _logHttpClient('discovered agent via port scan: port=${statusFromPortScan.port}');
+      _log.info('discovered agent via port scan: port=${statusFromPortScan.port}');
       return statusFromPortScan;
     }
 
-    _logHttpClient('no local agent found');
+    _log.info('no local agent found');
     return null;
   }
 
@@ -157,7 +155,7 @@ class DesktopAgentHttpClient {
     try {
       final client = await _getClient();
       final request = await client
-          .getUrl(Uri.parse('http://127.0.0.1:$port/health'))
+          .getUrl(Uri.parse('$kLocalAgentHost:$port/health'))
           .timeout(_timeout);
       final response = await request.close().timeout(_timeout);
       if (response.statusCode == 200) {
@@ -167,7 +165,7 @@ class DesktopAgentHttpClient {
       }
       return false;
     } catch (e) {
-      _logHttpClient('checkHealth failed: $e');
+      _log.info('checkHealth failed: $e');
       return false;
     }
   }
@@ -177,7 +175,7 @@ class DesktopAgentHttpClient {
     try {
       final client = await _getClient();
       final request = await client
-          .getUrl(Uri.parse('http://127.0.0.1:$port/status'))
+          .getUrl(Uri.parse('$kLocalAgentHost:$port/status'))
           .timeout(_timeout);
       final response = await request.close().timeout(_timeout);
       if (response.statusCode == 200) {
@@ -187,7 +185,7 @@ class DesktopAgentHttpClient {
       }
       return null;
     } catch (e) {
-      _logHttpClient('getStatus failed: $e');
+      _log.info('getStatus failed: $e');
       return null;
     }
   }
@@ -197,7 +195,7 @@ class DesktopAgentHttpClient {
     try {
       final client = await _getClient();
       final request = await client
-          .postUrl(Uri.parse('http://127.0.0.1:$port/stop'))
+          .postUrl(Uri.parse('$kLocalAgentHost:$port/stop'))
           .timeout(_timeout);
       request.headers.contentType = ContentType.json;
       final payload = jsonEncode({'grace_timeout': graceTimeout});
@@ -210,7 +208,7 @@ class DesktopAgentHttpClient {
       }
       return false;
     } catch (e) {
-      _logHttpClient('sendStop failed: $e');
+      _log.info('sendStop failed: $e');
       return false;
     }
   }
@@ -220,7 +218,7 @@ class DesktopAgentHttpClient {
     try {
       final client = await _getClient();
       final request = await client
-          .postUrl(Uri.parse('http://127.0.0.1:$port/config'))
+          .postUrl(Uri.parse('$kLocalAgentHost:$port/config'))
           .timeout(_timeout);
       request.headers.contentType = ContentType.json;
       final payload = jsonEncode({
@@ -235,7 +233,7 @@ class DesktopAgentHttpClient {
       }
       return false;
     } catch (e) {
-      _logHttpClient('updateConfig failed: $e');
+      _log.info('updateConfig failed: $e');
       return false;
     }
   }
@@ -245,7 +243,7 @@ class DesktopAgentHttpClient {
     try {
       final client = await _getClient();
       final request = await client
-          .getUrl(Uri.parse('http://127.0.0.1:$port/skills'))
+          .getUrl(Uri.parse('$kLocalAgentHost:$port/skills'))
           .timeout(_timeout);
       final response = await request.close().timeout(_timeout);
       if (response.statusCode == 200) {
@@ -259,7 +257,7 @@ class DesktopAgentHttpClient {
       }
       return [];
     } catch (e) {
-      _logHttpClient('getSkills failed: $e');
+      _log.info('getSkills failed: $e');
       return [];
     }
   }
@@ -269,7 +267,7 @@ class DesktopAgentHttpClient {
     try {
       final client = await _getClient();
       final request = await client
-          .postUrl(Uri.parse('http://127.0.0.1:$port/skills/toggle'))
+          .postUrl(Uri.parse('$kLocalAgentHost:$port/skills/toggle'))
           .timeout(_timeout);
       request.headers.contentType = ContentType.json;
       final payload = jsonEncode({'name': name, 'enabled': enabled});
@@ -282,7 +280,7 @@ class DesktopAgentHttpClient {
       }
       return false;
     } catch (e) {
-      _logHttpClient('toggleSkill failed: $e');
+      _log.info('toggleSkill failed: $e');
       return false;
     }
   }
@@ -292,7 +290,7 @@ class DesktopAgentHttpClient {
     try {
       final client = await _getClient();
       final request = await client
-          .getUrl(Uri.parse('http://127.0.0.1:$port/knowledge'))
+          .getUrl(Uri.parse('$kLocalAgentHost:$port/knowledge'))
           .timeout(_timeout);
       final response = await request.close().timeout(_timeout);
       if (response.statusCode == 200) {
@@ -306,7 +304,7 @@ class DesktopAgentHttpClient {
       }
       return [];
     } catch (e) {
-      _logHttpClient('getKnowledge failed: $e');
+      _log.info('getKnowledge failed: $e');
       return [];
     }
   }
@@ -316,7 +314,7 @@ class DesktopAgentHttpClient {
     try {
       final client = await _getClient();
       final request = await client
-          .postUrl(Uri.parse('http://127.0.0.1:$port/knowledge/toggle'))
+          .postUrl(Uri.parse('$kLocalAgentHost:$port/knowledge/toggle'))
           .timeout(_timeout);
       request.headers.contentType = ContentType.json;
       final payload = jsonEncode({'filename': filename, 'enabled': enabled});
@@ -329,7 +327,7 @@ class DesktopAgentHttpClient {
       }
       return false;
     } catch (e) {
-      _logHttpClient('toggleKnowledge failed: $e');
+      _log.info('toggleKnowledge failed: $e');
       return false;
     }
   }
@@ -339,7 +337,7 @@ class DesktopAgentHttpClient {
     try {
       final client = await _getClient();
       final request = await client
-          .getUrl(Uri.parse('http://127.0.0.1:$port/terminals'))
+          .getUrl(Uri.parse('$kLocalAgentHost:$port/terminals'))
           .timeout(_timeout);
       final response = await request.close().timeout(_timeout);
       if (response.statusCode == 200) {
@@ -350,7 +348,7 @@ class DesktopAgentHttpClient {
       }
       return [];
     } catch (e) {
-      _logHttpClient('getTerminals failed: $e');
+      _log.info('getTerminals failed: $e');
       return [];
     }
   }
@@ -386,7 +384,7 @@ class DesktopAgentHttpClient {
 
       // 检查进程是否存活
       if (!await _isProcessAlive(pid)) {
-        _logHttpClient('state file process $pid is not alive');
+        _log.info('state file process $pid is not alive');
         return null;
       }
 
@@ -396,7 +394,7 @@ class DesktopAgentHttpClient {
       }
       return null;
     } catch (e) {
-      _logHttpClient('read state file failed: $e');
+      _log.info('read state file failed: $e');
       return null;
     }
   }

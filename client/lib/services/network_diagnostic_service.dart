@@ -1,7 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/foundation.dart';
 import '../models/server_endpoint_profile.dart';
+import '../models/config.dart';
+import 'app_logger.dart';
 
 class NetworkDiagnosticCheck {
   const NetworkDiagnosticCheck({
@@ -255,7 +256,7 @@ class NetworkDiagnosticService {
 
   HttpClient _createClient(bool useSystemProxy, bool trustAllCertificates) {
     final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 10);
+      ..connectionTimeout = TimingConstants.httpConnectionTimeout;
     client.findProxy =
         useSystemProxy ? HttpClient.findProxyFromEnvironment : (_) => 'DIRECT';
     if (trustAllCertificates) {
@@ -311,12 +312,11 @@ class NetworkDiagnosticService {
   }
 
   void _logReport(NetworkDiagnosticReport report) {
-    debugPrint('[NetworkDiagnostic] serverUrl=${report.serverUrl}');
-    debugPrint('[NetworkDiagnostic] httpUrl=${report.httpUrl}');
+    final log = AppLogger('NetworkDiagnostic');
+    log.info('serverUrl=${report.serverUrl}');
+    log.info('httpUrl=${report.httpUrl}');
     for (final check in report.checks) {
-      debugPrint(
-        '[NetworkDiagnostic] ${check.title} success=${check.success} detail=${check.detail}',
-      );
+      log.info('${check.title} success=${check.success} detail=${check.detail}');
     }
   }
 }

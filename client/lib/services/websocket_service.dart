@@ -10,11 +10,15 @@ import 'http_client_factory.dart';
 import 'logger_service.dart';
 import 'crypto_service.dart';
 import '../constants/message_types.dart';
+import 'app_logger.dart';
+import '../models/config.dart';
 
 export '../models/terminal_protocol.dart';
 
 part 'ws_message_parser.dart';
 part 'ws_connection_manager.dart';
+
+final AppLogger _log = AppLogger('WebSocketService');
 
 /// WebSocket 服务
 class WebSocketService extends ChangeNotifier {

@@ -7,9 +7,11 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'http_client_factory.dart';
 import 'logger_service.dart';
 import '../models/server_endpoint_profile.dart';
+import '../models/config.dart';
 import 'secure_storage_service.dart';
 import 'user_info_service.dart';
 import 'crypto_service.dart';
+import 'app_logger.dart';
 
 /// 根据运行平台判断 view 参数
 String get currentView {
@@ -205,7 +207,7 @@ class AuthService {
       return;
     }
 
-    debugPrint('[AuthService] login primary client failed: $originalError');
+    AppLogger('AuthService').debug('login primary client failed: $originalError');
     await _debugRawHttpProbe(
       label: 'system-proxy',
       uri: uri,
@@ -230,7 +232,7 @@ class AuthService {
     required bool useSystemProxy,
   }) async {
     final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 10);
+      ..connectionTimeout = TimingConstants.httpConnectionTimeout;
     if (kDebugMode) {
       client.badCertificateCallback = (_, __, ___) => true;
     }
@@ -248,12 +250,12 @@ class AuthService {
       }));
       final response = await request.close();
       final body = await response.transform(SystemEncoding().decoder).join();
-      debugPrint(
-        '[AuthService] raw probe($label) '
+      AppLogger('AuthService').debug(
+        'raw probe($label) '
         'status=${response.statusCode} body=$body',
       );
     } catch (e) {
-      debugPrint('[AuthService] raw probe($label) failed: $e');
+      AppLogger('AuthService').debug('raw probe($label) failed: $e');
     } finally {
       client.close(force: true);
     }
