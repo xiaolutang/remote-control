@@ -23,8 +23,8 @@ TRUNCATION_MARKER = "\n[已截断]"
 
 def _get_agent_data_dir() -> Path:
     """获取 Agent 数据目录（存放 user_knowledge/、knowledge_config.json 等）。"""
-    config_dir = os.environ.get("RC_AGENT_CONFIG_DIR", DEFAULT_CONFIG_DIR)
-    return Path(config_dir).expanduser()
+    from app.core.config import get_config_dir
+    return get_config_dir()
 
 
 def _get_builtin_knowledge_dir() -> Path:
@@ -77,36 +77,12 @@ def ensure_user_knowledge_dir() -> Path:
     return user_dir
 
 
-def _scan_knowledge_files(config: KnowledgeConfig) -> list[tuple[str, Path]]:
-    """扫描所有知识文件，返回 [(文件名, 路径)] 列表，跳过禁用文件。"""
-    files = []
-    seen_names: set[str] = set()
+def _scan_knowledge_files(config: KnowledgeConfig, include_disabled: bool = False) -> list[tuple[str, Path]]:
+    """扫描所有知识文件，返回 [(文件名, 路径)] 列表。
 
-    # 内置知识优先
-    builtin_dir = _get_builtin_knowledge_dir()
-    if builtin_dir.is_dir():
-        for p in sorted(builtin_dir.glob("*.md")):
-            name = p.name
-            if name not in seen_names and config.is_enabled(name):
-                files.append((name, p))
-                seen_names.add(name)
-
-    # 用户自定义知识
-    user_dir = _get_user_knowledge_dir()
-    if user_dir.is_dir():
-        for p in sorted(user_dir.glob("*.md")):
-            name = p.name
-            if name not in seen_names and config.is_enabled(name):
-                files.append((name, p))
-                seen_names.add(name)
-
-    return files
-
-
-def _scan_all_knowledge_files() -> list[tuple[str, Path]]:
-    """扫描所有知识文件，返回 [(文件名, 路径)] 列表，不跳过禁用文件。
-
-    B095: 用于 /knowledge API，需要列出所有文件及其启用状态。
+    Args:
+        config: 知识配置，用于判断文件是否启用
+        include_disabled: True 时跳过启用检查（用于 /knowledge API 列出全部文件）
     """
     files = []
     seen_names: set[str] = set()
@@ -116,7 +92,7 @@ def _scan_all_knowledge_files() -> list[tuple[str, Path]]:
     if builtin_dir.is_dir():
         for p in sorted(builtin_dir.glob("*.md")):
             name = p.name
-            if name not in seen_names:
+            if name not in seen_names and (include_disabled or config.is_enabled(name)):
                 files.append((name, p))
                 seen_names.add(name)
 
@@ -125,11 +101,16 @@ def _scan_all_knowledge_files() -> list[tuple[str, Path]]:
     if user_dir.is_dir():
         for p in sorted(user_dir.glob("*.md")):
             name = p.name
-            if name not in seen_names:
+            if name not in seen_names and (include_disabled or config.is_enabled(name)):
                 files.append((name, p))
                 seen_names.add(name)
 
     return files
+
+
+def _scan_all_knowledge_files() -> list[tuple[str, Path]]:
+    """扫描所有知识文件（含禁用），用于 /knowledge API。"""
+    return _scan_knowledge_files(load_knowledge_config(), include_disabled=True)
 
 
 def save_knowledge_config(config: KnowledgeConfig) -> None:

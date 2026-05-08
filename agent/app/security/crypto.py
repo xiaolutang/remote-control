@@ -41,8 +41,8 @@ class AgentCrypto:
         """延迟解析状态目录，确保 --config 桥接的 RC_AGENT_CONFIG_DIR 已生效。"""
         if self._explicit_state_dir is not None:
             return self._explicit_state_dir
-        config_dir = os.getenv("RC_AGENT_CONFIG_DIR", DEFAULT_CONFIG_DIR)
-        return Path(config_dir).expanduser()
+        from app.core.config import get_config_dir
+        return get_config_dir()
 
     # ---- 公钥管理 ----
 

@@ -63,10 +63,15 @@ class Config(BaseModel):
         return bool(self.username and self.password)
 
 
+def get_config_dir() -> Path:
+    """获取配置目录路径（单一来源）。"""
+    config_dir = os.environ.get("RC_AGENT_CONFIG_DIR", DEFAULT_CONFIG_DIR)
+    return Path(config_dir).expanduser()
+
+
 def get_config_path() -> Path:
     """获取配置文件路径"""
-    config_dir = os.environ.get("RC_AGENT_CONFIG_DIR", DEFAULT_CONFIG_DIR)
-    return Path(config_dir).expanduser() / "config.json"
+    return get_config_dir() / "config.json"
 
 
 def normalize_config_path(config_path: Optional[Path | str] = None) -> Path:

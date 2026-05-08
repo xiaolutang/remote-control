@@ -24,8 +24,8 @@ _SUPPORTED_TRANSPORTS = {"stdio"}
 
 def _get_agent_data_dir() -> Path:
     """获取 Agent 数据目录。"""
-    config_dir = os.environ.get("RC_AGENT_CONFIG_DIR", DEFAULT_CONFIG_DIR)
-    return Path(config_dir).expanduser()
+    from app.core.config import get_config_dir
+    return get_config_dir()
 
 
 def _get_skills_dir() -> Path:
