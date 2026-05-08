@@ -4,12 +4,15 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:xterm/xterm.dart';
 
+import 'app_logger.dart';
 import 'websocket_service.dart';
 import '../utils/terminal_escape_utils.dart';
 
 part 'terminal_session_types.dart';
 part 'renderer_adapter.dart';
 part 'terminal_recovery_state.dart';
+
+final AppLogger _log = AppLogger('TerminalSessionManager');
 
 class TerminalSessionManager extends ChangeNotifier
     with WidgetsBindingObserver {
@@ -85,7 +88,7 @@ class TerminalSessionManager extends ChangeNotifier
           // ignore: discarded_futures — disconnect 内部异步，无需 await
           entry.value.disconnect();
         } catch (e) {
-          debugPrint('[TerminalSessionManager] disconnect error: $e');
+          _log.error('disconnect error: $e');
         }
       }
     }
@@ -133,8 +136,8 @@ class TerminalSessionManager extends ChangeNotifier
       // 说明上次退出时未正确清理缓存，自动丢弃并重建。
       // 正常断开（如网络波动、Agent 离线）不在此列，应复用现有服务。
       if (existing.isAuthFailed) {
-        debugPrint(
-          '[TerminalSessionManager] evicting auth-failed session: '
+        _log.warning(
+          'evicting auth-failed session: '
           'key=$key closeCode=${existing.lastCloseCode}',
         );
         _sessions.remove(key);
@@ -450,15 +453,15 @@ class TerminalSessionManager extends ChangeNotifier
         _networkRetryCount.remove(key);
       } else {
         // 连接未成功，延迟后重试
-        debugPrint(
-          '[TerminalSessionManager] recovery connect returned but not connected for $key',
+        _log.warning(
+          'recovery connect returned but not connected for $key',
         );
         await Future.delayed(_networkRetryDelay);
         await recoverWithRetry(deviceId, terminalId);
       }
     } catch (e) {
-      debugPrint(
-        '[TerminalSessionManager] network recovery retry $retryCount for $key: $e',
+      _log.error(
+        'network recovery retry $retryCount for $key: $e',
       );
       // 延迟后重试
       await Future.delayed(_networkRetryDelay);

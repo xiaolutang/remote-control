@@ -9,6 +9,7 @@ import '../models/agent_session_event.dart';
 import '../models/command_sequence_draft.dart';
 import '../models/terminal_launch_plan.dart';
 import '../services/agent_session_service.dart';
+import '../services/app_logger.dart';
 import '../services/http_client_factory.dart';
 import '../services/runtime_selection_controller.dart';
 import '../services/server_url_helper.dart';

@@ -73,8 +73,8 @@ class _TerminalState {
       _sessionState = newState;
       _stateNotifier.value = newState;
     } else {
-      debugPrint(
-        '[TerminalSessionState] illegal transition: '
+      _log.warning(
+        'illegal transition: '
         '$_sessionState -> $newState',
       );
     }
@@ -96,8 +96,8 @@ class _TerminalState {
       _recoveryTimeoutTimer?.cancel();
       _recoveryTimeoutTimer = Timer(_recoveryTimeout, () {
         if (_recovering) {
-          debugPrint(
-            '[TerminalSessionState] recovery timeout — auto-finishing recovery',
+          _log.warning(
+            'recovery timeout — auto-finishing recovery',
           );
           finishRecovery();
         }
@@ -115,8 +115,8 @@ class _TerminalState {
     _recoveryTimeoutTimer?.cancel();
     _recoveryTimeoutTimer = Timer(_recoveryTimeout, () {
       if (_recovering) {
-        debugPrint(
-          '[TerminalSessionState] recovery timeout — auto-finishing recovery',
+        _log.warning(
+          'recovery timeout — auto-finishing recovery',
         );
         finishRecovery();
       }
@@ -277,8 +277,8 @@ class _TerminalState {
   }) {
     if (_shouldPreserveLocalTerminal(data, activeBuffer: activeBuffer)) {
       if (kDebugMode) {
-        debugPrint(
-          '[TerminalSessionState] dropping unsafe recovery snapshot '
+        _log.debug(
+          'dropping unsafe recovery snapshot '
           'buffer=${activeBuffer.name} seq=${summarizeTerminalSequences(data)}',
         );
       }

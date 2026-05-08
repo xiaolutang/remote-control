@@ -4,18 +4,14 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import '../../models/runtime_terminal.dart';
+import '../app_logger.dart';
 import '../config_service.dart';
 import 'desktop_agent_manager.dart';
 import 'desktop_agent_bootstrap_service.dart';
 import 'desktop_exit_policy_service.dart';
 import '../runtime_selection_controller.dart';
 
-void _logWorkspaceAction(String message) {
-  if (Platform.environment.containsKey("FLUTTER_TEST")) {
-    return;
-  }
-  debugPrint("[WorkspaceAction] $message");
-}
+final AppLogger _log = AppLogger('WorkspaceAction');
 
 enum WorkspaceStateKind {
   bootstrappingAgent,
@@ -124,10 +120,10 @@ class DesktopWorkspaceController extends ChangeNotifier {
     final runtime = _runtimeController;
     final device = runtime?.selectedDevice;
     if (runtime == null || device == null) {
-      _logWorkspaceAction('startLocalAgent skipped runtime_or_device_null');
+      _log.info('startLocalAgent skipped runtime_or_device_null');
       return;
     }
-    _logWorkspaceAction(
+    _log.info(
       'startLocalAgent device=${device.deviceId} state=${state.kind.name}',
     );
     _desktopActionInFlight = true;
@@ -141,7 +137,7 @@ class DesktopWorkspaceController extends ChangeNotifier {
       token: token,
       deviceId: device.deviceId,
     );
-    _logWorkspaceAction(
+    _log.info(
       'startLocalAgent result=$_desktopAgentState',
     );
     // 如果启动失败，保留失败状态，不刷新（避免覆盖失败状态）
@@ -179,12 +175,12 @@ class DesktopWorkspaceController extends ChangeNotifier {
     final runtime = _runtimeController;
     final device = runtime?.selectedDevice;
     if (runtime == null || device == null) {
-      _logWorkspaceAction('createTerminal skipped runtime_or_device_null');
+      _log.info('createTerminal skipped runtime_or_device_null');
       return null;
     }
 
     final stateBeforeCreate = state;
-    _logWorkspaceAction(
+    _log.info(
       'createTerminal start device=${device.deviceId} state=${stateBeforeCreate.kind.name} deviceReady=${stateBeforeCreate.deviceReady}',
     );
     var effectiveDevice = device;
@@ -202,14 +198,14 @@ class DesktopWorkspaceController extends ChangeNotifier {
           token: token,
           deviceId: device.deviceId,
         );
-        _logWorkspaceAction(
+        _log.info(
           'createTerminal bootstrap result=${_desktopAgentState?.kind.name}',
         );
         final recovered = _desktopAgentState?.online ?? false;
         await runtime.loadDevices();
         final refreshed = runtime.selectedDevice;
         if (!recovered || refreshed == null || !refreshed.agentOnline) {
-          _logWorkspaceAction(
+          _log.info(
             'createTerminal abort after bootstrap recovered=$recovered refreshedOnline=${refreshed?.agentOnline}',
           );
           _desktopActionInFlight = false;
@@ -225,14 +221,14 @@ class DesktopWorkspaceController extends ChangeNotifier {
         if (refreshed != null) {
           effectiveDevice = refreshed;
         }
-        _logWorkspaceAction(
+        _log.info(
           'createTerminal refreshed deviceOnline=${effectiveDevice.agentOnline} active=${effectiveDevice.activeTerminals}/${effectiveDevice.maxTerminals}',
         );
       }
     }
 
     if (!effectiveDevice.canCreateTerminal) {
-      _logWorkspaceAction(
+      _log.info(
         'createTerminal denied canCreate=false deviceOnline=${effectiveDevice.agentOnline} active=${effectiveDevice.activeTerminals}/${effectiveDevice.maxTerminals}',
       );
       notifyListeners();
@@ -245,7 +241,7 @@ class DesktopWorkspaceController extends ChangeNotifier {
       cwd: cwd,
       command: command,
     );
-    _logWorkspaceAction(
+    _log.info(
       'createTerminal result=${terminal?.terminalId ?? "null"}',
     );
     if (terminal != null) {
@@ -297,7 +293,7 @@ class DesktopWorkspaceController extends ChangeNotifier {
 
   void _syncDesktopState(RuntimeSelectionController controller) {
     final device = controller.selectedDevice;
-    _logWorkspaceAction(
+    _log.info(
       '_syncDesktopState called isDesktop=${controller.isDesktopPlatform} '
       'device=${device?.deviceId} agentOnline=${device?.agentOnline} '
       '_desktopAgentState=${_desktopAgentState?.kind.name} '
@@ -313,12 +309,12 @@ class DesktopWorkspaceController extends ChangeNotifier {
       if (deviceChanged || onlineChanged) {
         _lastKnownDeviceId = device?.deviceId;
         _lastKnownAgentOnline = agentOnline;
-        _logWorkspaceAction(
+        _log.info(
           '_syncDesktopState: mobile state changed deviceChanged=$deviceChanged onlineChanged=$onlineChanged agentOnline=$agentOnline',
         );
         notifyListeners();
       }
-      _logWorkspaceAction(
+      _log.info(
           '_syncDesktopState: early return - not desktop or no device');
       return;
     }
@@ -327,7 +323,7 @@ class DesktopWorkspaceController extends ChangeNotifier {
         _lastKnownDeviceId != device.deviceId ||
         _desktopAgentState?.online != device.agentOnline;
     if (shouldRefresh) {
-      _logWorkspaceAction(
+      _log.info(
           '_syncDesktopState: refreshing desktop state for device ${device.deviceId} '
           '(cached=${_desktopAgentState?.online}, api=${device.agentOnline})');
       unawaited(_refreshDesktopState(controller, device.deviceId));

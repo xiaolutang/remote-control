@@ -1,10 +1,10 @@
 import 'dart:convert';
 import 'dart:io' show Platform;
 
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/feedback_model.dart';
+import 'app_logger.dart';
 import 'http_client_factory.dart';
 import 'server_url_helper.dart';
 
@@ -15,6 +15,8 @@ class FeedbackService {
   final String sessionId;
 
   final http.Client _client;
+
+  static final AppLogger _log = AppLogger('Feedback');
 
   FeedbackService({
     required this.serverUrl,
@@ -54,7 +56,7 @@ class FeedbackService {
       appVersion: _appVersion,
     );
 
-    debugPrint('[Feedback] Submitting ${category.name}: $description');
+    _log.info('Submitting ${category.name}: $description');
 
     final response = await _client.post(
       Uri.parse('$httpUrl/api/feedback'),
@@ -68,10 +70,10 @@ class FeedbackService {
     final data = jsonDecode(response.body) as Map<String, dynamic>;
 
     if (response.statusCode == 200) {
-      debugPrint('[Feedback] Submitted successfully: ${data['feedback_id']}');
+      _log.info('Submitted successfully: ${data['feedback_id']}');
       return FeedbackResponse.fromJson(data);
     } else {
-      debugPrint('[Feedback] Submit failed: ${response.statusCode}');
+      _log.error('Submit failed: ${response.statusCode}');
       throw Exception(data['detail'] ?? '反馈提交失败');
     }
   }

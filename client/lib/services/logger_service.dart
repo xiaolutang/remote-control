@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'server_url_helper.dart';
+import 'app_logger.dart';
 
 /// 日志级别
 enum LogLevel {
@@ -44,6 +45,8 @@ class LogRecord {
 /// - 批量上报（10 条或 5 秒触发）
 /// - 网络失败时本地缓存
 /// - 重试机制
+final AppLogger _loggerLog = AppLogger('Logger');
+
 class LoggerService extends ChangeNotifier {
   final String serverUrl;
   final String sessionId;
@@ -75,7 +78,7 @@ class LoggerService extends ChangeNotifier {
     _startFlushTimer();
     _loadCache();
     _loadUid();
-    debugPrint('[Logger] Service started for session: $sessionId');
+    _loggerLog.info('Service started for session: $sessionId');
   }
 
   /// 停止服务
@@ -83,7 +86,7 @@ class LoggerService extends ChangeNotifier {
     _flushTimer?.cancel();
     _flushTimer = null;
     await flush();
-    debugPrint('[Logger] Service stopped');
+    _loggerLog.info('Service stopped');
   }
 
   /// 记录 debug 日志
@@ -129,8 +132,7 @@ class LoggerService extends ChangeNotifier {
 
     // 控制台输出（调试用）
     if (kDebugMode) {
-      final levelStr = level.name.toUpperCase().padRight(5);
-      debugPrint('[$levelStr] $message');
+      _loggerLog.debug('${level.name.toUpperCase()} $message');
     }
   }
 
@@ -169,11 +171,11 @@ class LoggerService extends ChangeNotifier {
 
       if (success) {
         await _clearCache();
-        debugPrint('[Logger] Uploaded ${logs.length} logs');
+        _loggerLog.info('Uploaded ${logs.length} logs');
       } else {
         // 上传失败，存入缓存
         _addToCache(logs);
-        debugPrint('[Logger] Upload failed, cached ${logs.length} logs');
+        _loggerLog.warning('Upload failed, cached ${logs.length} logs');
       }
     } finally {
       _isUploading = false;
@@ -201,7 +203,7 @@ class LoggerService extends ChangeNotifier {
 
       return response.statusCode == 200;
     } catch (e) {
-      debugPrint('[Logger] Upload error: $e');
+      _loggerLog.error('Upload error: $e');
       return false;
     }
   }
@@ -230,7 +232,7 @@ class LoggerService extends ChangeNotifier {
       final cacheData = _cache.map((l) => jsonEncode(l.toJson())).toList();
       await prefs.setStringList('rc_log_cache_$sessionId', cacheData);
     } catch (e) {
-      debugPrint('[Logger] Save cache error: $e');
+      _loggerLog.error('Save cache error: $e');
     }
   }
 
@@ -240,7 +242,7 @@ class LoggerService extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       _uid = prefs.getString('rc_username') ?? '';
     } catch (e) {
-      debugPrint('[LoggerService] _loadUid failed: $e');
+      _loggerLog.error('_loadUid failed: $e');
     }
   }
 
@@ -264,16 +266,16 @@ class LoggerService extends ChangeNotifier {
               metadata: data['metadata'],
             ));
           } catch (e) {
-            debugPrint('[LoggerService] _loadCache parse entry failed: $e');
+            _loggerLog.error('_loadCache parse entry failed: $e');
           }
         }
 
         if (_cache.isNotEmpty) {
-          debugPrint('[Logger] Loaded ${_cache.length} cached logs');
+          _loggerLog.info('Loaded ${_cache.length} cached logs');
         }
       }
     } catch (e) {
-      debugPrint('[Logger] Load cache error: $e');
+      _loggerLog.error('Load cache error: $e');
     }
   }
 
@@ -283,7 +285,7 @@ class LoggerService extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('rc_log_cache_$sessionId');
     } catch (e) {
-      debugPrint('[Logger] Clear cache error: $e');
+      _loggerLog.error('Clear cache error: $e');
     }
   }
 

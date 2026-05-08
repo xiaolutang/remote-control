@@ -7,16 +7,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../models/agent_lifecycle_state.dart';
 import '../../models/config.dart';
+import '../app_logger.dart';
 import '../config_service.dart';
 import 'desktop_exit_policy_service.dart';
 import 'desktop_agent_supervisor.dart';
 
-void _logDesktopAgentManager(String message) {
-  if (Platform.environment.containsKey('FLUTTER_TEST')) {
-    return;
-  }
-  debugPrint('[DesktopAgentManager] $message');
-}
+final AppLogger _log = AppLogger('DesktopAgentManager');
 
 enum DesktopAgentStateKind {
   unsupported,
@@ -171,7 +167,7 @@ class DesktopAgentManager extends ChangeNotifier {
   }) {
     if (_state.recoveryState != DesktopAgentRecoveryState.none) return;
 
-    _logDesktopAgentManager(
+    _log.info(
       'onAgentDisconnect: reason=$reason isProcessAlive=$isProcessAlive',
     );
 
@@ -195,12 +191,12 @@ class DesktopAgentManager extends ChangeNotifier {
     // expired/recoveryFailed 是终态，不再接受重连回调
     if (_state.recoveryState == DesktopAgentRecoveryState.expired ||
         _state.recoveryState == DesktopAgentRecoveryState.recoveryFailed) {
-      _logDesktopAgentManager(
+      _log.info(
         'onAgentReconnected: ignored in terminal state ${_state.recoveryState}',
       );
       return;
     }
-    _logDesktopAgentManager('onAgentReconnected: recovery restored');
+    _log.info('onAgentReconnected: recovery restored');
     _recoveryEpoch++;
     _recoveryTimer?.cancel();
     _recoveryTimer = null;
@@ -225,7 +221,7 @@ class DesktopAgentManager extends ChangeNotifier {
   }
 
   void _onRecoveryExpired() {
-    _logDesktopAgentManager('onRecoveryExpired: TTL exceeded');
+    _log.info('onRecoveryExpired: TTL exceeded');
     _recoveryEpoch++; // 使 in-flight recovery 失效，expired 成为终态
     _recoveryAttempts = 0;
     _updateState(_state.copyWith(
@@ -240,7 +236,7 @@ class DesktopAgentManager extends ChangeNotifier {
 
   Future<void> _attemptRecovery() async {
     if (_recoveryAttempts >= maxRecoveryAttempts) {
-      _logDesktopAgentManager(
+      _log.info(
         '_attemptRecovery: max attempts ($maxRecoveryAttempts) reached',
       );
       _recoveryTimer?.cancel();
@@ -261,7 +257,7 @@ class DesktopAgentManager extends ChangeNotifier {
 
     final epoch = _recoveryEpoch;
     _recoveryAttempts++;
-    _logDesktopAgentManager(
+    _log.info(
       '_attemptRecovery: attempt $_recoveryAttempts/$maxRecoveryAttempts',
     );
 
@@ -288,7 +284,7 @@ class DesktopAgentManager extends ChangeNotifier {
       if (_recoveryEpoch != epoch) return;
 
       if (online) {
-        _logDesktopAgentManager('_attemptRecovery: agent online');
+        _log.info('_attemptRecovery: agent online');
         _recoveryTimer?.cancel();
         _recoveryTimer = null;
         _recoveryAttempts = 0;
@@ -298,7 +294,7 @@ class DesktopAgentManager extends ChangeNotifier {
           message: null,
         ));
       } else {
-        _logDesktopAgentManager(
+        _log.info(
           '_attemptRecovery: still offline, retrying in ${recoveryRetryDelay.inSeconds}s',
         );
         // 回到 recoverable 状态等待下次重试
@@ -314,7 +310,7 @@ class DesktopAgentManager extends ChangeNotifier {
       }
     } catch (e) {
       if (_recoveryEpoch != epoch) return;
-      _logDesktopAgentManager('_attemptRecovery: exception - $e');
+      _log.info('_attemptRecovery: exception - $e');
       _recoveryTimer?.cancel();
       _recoveryTimer = null;
       _updateState(_state.copyWith(
@@ -345,7 +341,7 @@ class DesktopAgentManager extends ChangeNotifier {
       return;
     }
 
-    _logDesktopAgentManager(
+    _log.info(
       'onLogin: starting agent for user=$username device=$deviceId',
     );
     _updateState(const DesktopAgentState(kind: DesktopAgentStateKind.starting));
@@ -368,20 +364,20 @@ class DesktopAgentManager extends ChangeNotifier {
         await _saveOwnership(_ownershipInfo!);
         _updateState(
             const DesktopAgentState(kind: DesktopAgentStateKind.managedOnline));
-        _logDesktopAgentManager('onLogin: agent started successfully');
+        _log.info('onLogin: agent started successfully');
       } else {
         _updateState(const DesktopAgentState(
           kind: DesktopAgentStateKind.startFailed,
           message: '本机 Agent 启动失败',
         ));
-        _logDesktopAgentManager('onLogin: agent start failed');
+        _log.info('onLogin: agent start failed');
       }
     } catch (e) {
       _updateState(const DesktopAgentState(
         kind: DesktopAgentStateKind.startFailed,
         message: '本机 Agent 启动失败',
       ));
-      _logDesktopAgentManager(
+      _log.info(
           'onLogin: agent start failed with exception - $e');
     }
   }
@@ -392,7 +388,7 @@ class DesktopAgentManager extends ChangeNotifier {
 
     cancelRecovery(); // F075: 取消恢复状态机
 
-    _logDesktopAgentManager('onLogout: stopping agent');
+    _log.info('onLogout: stopping agent');
     try {
       await _supervisor.stopManagedAgent(
         serverUrl: _serverUrl,
@@ -400,9 +396,9 @@ class DesktopAgentManager extends ChangeNotifier {
         deviceId: _deviceId,
         timeout: const Duration(seconds: 8),
       );
-      _logDesktopAgentManager('onLogout: agent stopped');
+      _log.info('onLogout: agent stopped');
     } catch (e) {
-      _logDesktopAgentManager('onLogout: agent stop failed - $e');
+      _log.info('onLogout: agent stop failed - $e');
     } finally {
       _ownershipInfo = null;
       await _clearSavedOwnership();
@@ -432,7 +428,7 @@ class DesktopAgentManager extends ChangeNotifier {
     _token = token;
     _deviceId = deviceId;
 
-    _logDesktopAgentManager(
+    _log.info(
       'onAppStart: user=$username device=$deviceId',
     );
 
@@ -456,14 +452,14 @@ class DesktopAgentManager extends ChangeNotifier {
           _ownershipInfo = currentOwnership;
           _updateState(const DesktopAgentState(
               kind: DesktopAgentStateKind.managedOnline));
-          _logDesktopAgentManager('onAppStart: reusing existing agent');
+          _log.info('onAppStart: reusing existing agent');
         } else if (!status.managedByDesktop) {
           _ownershipInfo = currentOwnership;
           _updateState(const DesktopAgentState(
               kind: DesktopAgentStateKind.externalOnline));
-          _logDesktopAgentManager('onAppStart: reusing external agent');
+          _log.info('onAppStart: reusing external agent');
         } else {
-          _logDesktopAgentManager(
+          _log.info(
             'onAppStart: agent belongs to different user, restarting',
           );
           await _supervisor.stopManagedAgent(
@@ -479,7 +475,7 @@ class DesktopAgentManager extends ChangeNotifier {
           );
         }
       } else {
-        _logDesktopAgentManager('onAppStart: agent not running, starting');
+        _log.info('onAppStart: agent not running, starting');
         await onLogin(
           serverUrl: serverUrl,
           token: token,
@@ -488,7 +484,7 @@ class DesktopAgentManager extends ChangeNotifier {
         );
       }
     } catch (e) {
-      _logDesktopAgentManager('onAppStart: error - $e, starting new agent');
+      _log.info('onAppStart: error - $e, starting new agent');
       await onLogin(
         serverUrl: serverUrl,
         token: token,
@@ -503,11 +499,11 @@ class DesktopAgentManager extends ChangeNotifier {
     if (!isPlatformSupported) return;
 
     if (await _exitPolicyService.keepAgentRunningInBackground()) {
-      _logDesktopAgentManager('onAppClose: keeping agent running');
+      _log.info('onAppClose: keeping agent running');
       return;
     }
 
-    _logDesktopAgentManager('onAppClose: stopping agent');
+    _log.info('onAppClose: stopping agent');
     await onLogout();
   }
 
@@ -523,7 +519,7 @@ class DesktopAgentManager extends ChangeNotifier {
     final config = await _configService.loadConfig();
     final workdir = _resolveConfiguredWorkdir(config);
 
-    _logDesktopAgentManager(
+    _log.info(
       'loadState device=$_deviceId workdir=${workdir ?? ""}',
     );
 
@@ -548,7 +544,7 @@ class DesktopAgentManager extends ChangeNotifier {
         _serverUrl.isNotEmpty &&
         _token.isNotEmpty &&
         _deviceId.isNotEmpty) {
-      _logDesktopAgentManager('loadState: agent offline, triggering self-heal');
+      _log.info('loadState: agent offline, triggering self-heal');
       try {
         final healed = await _supervisor.syncAndEnsureOnline(
           serverUrl: _serverUrl,
@@ -562,7 +558,7 @@ class DesktopAgentManager extends ChangeNotifier {
           return _state;
         }
       } catch (e) {
-        _logDesktopAgentManager('loadState: self-heal failed - $e');
+        _log.info('loadState: self-heal failed - $e');
       }
     }
 
@@ -585,7 +581,7 @@ class DesktopAgentManager extends ChangeNotifier {
     final config = await _configService.loadConfig();
     final workdir = _resolveConfiguredWorkdir(config);
 
-    _logDesktopAgentManager(
+    _log.info(
       'startAgent device=$_deviceId workdir=${workdir ?? ""}',
     );
 
@@ -652,7 +648,7 @@ class DesktopAgentManager extends ChangeNotifier {
       final json = jsonDecode(jsonStr) as Map<String, dynamic>;
       return AgentOwnershipInfo.fromJson(json);
     } catch (e) {
-      _logDesktopAgentManager('_loadSavedOwnership: error - $e');
+      _log.info('_loadSavedOwnership: error - $e');
       return null;
     }
   }
@@ -662,7 +658,7 @@ class DesktopAgentManager extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_ownershipKey, jsonEncode(ownership.toJson()));
     } catch (e) {
-      _logDesktopAgentManager('_saveOwnership: error - $e');
+      _log.info('_saveOwnership: error - $e');
     }
   }
 
@@ -671,7 +667,7 @@ class DesktopAgentManager extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_ownershipKey);
     } catch (e) {
-      _logDesktopAgentManager('_clearSavedOwnership: error - $e');
+      _log.info('_clearSavedOwnership: error - $e');
     }
   }
 }

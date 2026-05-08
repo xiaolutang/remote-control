@@ -11,12 +11,15 @@ import '../models/recent_launch_context.dart';
 import '../models/runtime_device.dart';
 import '../models/runtime_terminal.dart';
 import '../models/terminal_launch_plan.dart';
+import 'app_logger.dart';
 import 'auth_service.dart';
 import 'config_service.dart';
 import 'planner_provider.dart';
 import 'runtime_device_service.dart';
 import 'terminal_launch_plan_service.dart';
 import 'websocket_service.dart';
+
+final AppLogger _log = AppLogger('RuntimeSelectionController');
 
 class RuntimeSelectionController extends ChangeNotifier {
   RuntimeSelectionController({
@@ -540,7 +543,7 @@ class RuntimeSelectionController extends ChangeNotifier {
       await _persistProjectContextSnapshot(snapshot);
       return snapshot;
     } catch (e) {
-      debugPrint('[RuntimeSelectionController] loadProjectContextSnapshot failed: $e');
+      _log.error('loadProjectContextSnapshot failed: $e');
       _projectContextSnapshot = _config.projectContextSnapshots[deviceId];
       return _projectContextSnapshot;
     } finally {
@@ -570,7 +573,7 @@ class RuntimeSelectionController extends ChangeNotifier {
       await _persistProjectContextSnapshot(snapshot);
       return snapshot;
     } catch (e) {
-      debugPrint('[RuntimeSelectionController] refreshProjectContextSnapshot failed: $e');
+      _log.error('refreshProjectContextSnapshot failed: $e');
       return _projectContextSnapshot;
     } finally {
       _loadingProjectContextSnapshot = false;
@@ -757,7 +760,7 @@ class RuntimeSelectionController extends ChangeNotifier {
     try {
       return Platform.localHostname;
     } catch (e) {
-      debugPrint('[RuntimeSelectionController] _resolveLocalHostname failed: $e');
+      _log.warning('_resolveLocalHostname failed: $e');
       return null;
     }
   }
@@ -851,7 +854,7 @@ class RuntimeSelectionController extends ChangeNotifier {
       rethrow;
     } catch (e) {
       // 执行结果同步失败不影响本地终端进入，只在后续 UI 版本再做显式状态提示。
-      debugPrint('[RuntimeSelectionController] reportAssistantExecution failed: $e');
+      _log.error('reportAssistantExecution failed: $e');
     }
   }
 

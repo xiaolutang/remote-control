@@ -93,8 +93,8 @@ class RendererAdapter {
     if (!kDebugMode) return;
 
     final buffer = _terminal.buffer;
-    debugPrint(
-      '[TerminalTransition] $stage '
+    _log.debug(
+      '$stage '
       'buffer=${_terminal.isUsingAltBuffer ? "alt" : "main"} '
       'cursor=(${buffer.cursorX},${buffer.cursorY}) '
       'absoluteY=${buffer.absoluteCursorY} '

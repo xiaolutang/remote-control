@@ -1,18 +1,12 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
-
+import '../app_logger.dart';
 import 'desktop_agent_manager.dart';
 import 'desktop_agent_supervisor.dart';
 import '../runtime_device_service.dart';
 
-void _logBootstrapAction(String message) {
-  if (Platform.environment.containsKey('FLUTTER_TEST')) {
-    return;
-  }
-  debugPrint('[BootstrapAction] $message');
-}
+final AppLogger _log = AppLogger('BootstrapAction');
 
 class DesktopAgentBootstrapService {
   DesktopAgentBootstrapService({
@@ -47,7 +41,7 @@ class DesktopAgentBootstrapService {
     required String deviceId,
     Duration timeout = const Duration(seconds: 12),
   }) {
-    _logBootstrapAction('startAgent request device=$deviceId');
+    _log.info('startAgent request device=$deviceId');
     final manager = DesktopAgentManager(
       serverUrl: serverUrl,
       token: token,
@@ -55,7 +49,7 @@ class DesktopAgentBootstrapService {
       supervisor: _supervisor ?? DesktopAgentSupervisor(runtimeService: _runtimeService),
     );
     return manager.startAgent(timeout: timeout).then((state) {
-      _logBootstrapAction(
+      _log.info(
         'startAgent result device=$deviceId kind=${state.kind.name}',
       );
       return state;

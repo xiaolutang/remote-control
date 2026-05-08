@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/app_environment_presentation.dart';
+import '../services/app_logger.dart';
 import '../services/auth_service.dart';
 import '../services/desktop/desktop_agent_manager.dart';
 import '../services/environment_service.dart';
@@ -143,7 +144,7 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       );
     } catch (e) {
-      debugPrint('[LoginScreen] submit failed: $e');
+      AppLogger('LoginScreen').error('submit failed: $e');
       setState(() {
         _errorMessage = e.toString().replaceAll('Exception: ', '');
       });

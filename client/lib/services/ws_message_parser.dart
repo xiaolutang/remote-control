@@ -242,7 +242,7 @@ void _wsHandleMessage(WebSocketService s, String message) {
       try {
         data = s._crypto.decryptMessage(data);
       } catch (e) {
-        debugPrint('[WebSocketService] Decrypt failed: $e');
+        _log.error('Decrypt failed: $e');
         return;
       }
     }
@@ -390,24 +390,24 @@ void _wsHandleMessage(WebSocketService s, String message) {
         unawaited(s.disconnect());
         break;
       case MessageType.terminalsChanged:
-        debugPrint(
-          '[WebSocketService] received terminals_changed: '
+        _log.info(
+          'received terminals_changed: '
           'action=${data['action']} terminal_id=${data['terminal_id']}',
         );
         s._terminalsChangedController.add(data);
         break;
       case MessageType.deviceKicked:
-        debugPrint(
-          '[WebSocketService] received device_kicked: reason=${data['reason']}',
+        _log.warning(
+          'received device_kicked: reason=${data['reason']}',
         );
         s._deviceKickedController.add(null);
         break;
       default:
-        debugPrint('[WebSocketService] unknown message type: $type');
+        _log.warning('unknown message type: $type');
         break;
     }
   } catch (e) {
-    debugPrint('Error parsing message: $e');
+    _log.error('Error parsing message: $e');
   }
 }
 

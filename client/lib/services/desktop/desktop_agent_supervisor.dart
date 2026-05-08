@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../models/runtime_device.dart';
+import '../app_logger.dart';
 import 'desktop_agent_http_client.dart';
 import 'desktop_termination_snapshot_service.dart';
 import '../runtime_device_service.dart';
@@ -28,19 +29,8 @@ typedef AgentProcessRunner = Future<ProcessResult> Function(
 typedef AgentPidKiller = bool Function(int pid, ProcessSignal signal);
 typedef AgentProcessLister = Future<List<int>> Function();
 
-void _logDesktopAgent(String message) {
-  if (Platform.environment.containsKey('FLUTTER_TEST')) {
-    return;
-  }
-  debugPrint('[DesktopAgent] $message');
-}
-
-void _logManagedRuntime(String message) {
-  if (Platform.environment.containsKey('FLUTTER_TEST')) {
-    return;
-  }
-  debugPrint('[ManagedRuntime] $message');
-}
+final AppLogger _logAgent = AppLogger('DesktopAgent');
+final AppLogger _logRuntime = AppLogger('ManagedRuntime');
 
 class DesktopAgentStatus {
   const DesktopAgentStatus({
@@ -152,11 +142,11 @@ class DesktopAgentSupervisor {
     String? agentWorkdir,
     String? agentConfigPath,
   }) async {
-    _logDesktopAgent(
+    _logAgent.info(
       'ensureAgentOnline start device=$deviceId supported=$supported workdir_arg=${agentWorkdir ?? ''}',
     );
     if (!supported) {
-      _logDesktopAgent('ensureAgentOnline unsupported platform');
+      _logAgent.info('ensureAgentOnline unsupported platform');
       return false;
     }
 
@@ -165,20 +155,20 @@ class DesktopAgentSupervisor {
 
     final before =
         _findDevice(await runtimeService.listDevices(token), deviceId);
-    _logDesktopAgent(
+    _logAgent.info(
       'ensureAgentOnline before agentOnline=${before?.agentOnline ?? false}',
     );
     if (before?.agentOnline ?? false) {
       await _clearStaleManagedAgentPid();
-      _logDesktopAgent('ensureAgentOnline device already online');
+      _logAgent.info('ensureAgentOnline device already online');
       return true;
     }
 
     final managedPid = await _loadManagedAgentPid();
-    _logDesktopAgent('ensureAgentOnline managedPid=${managedPid ?? -1}');
+    _logAgent.info('ensureAgentOnline managedPid=${managedPid ?? -1}');
     if (managedPid != null) {
       if (await _isProcessRunning(managedPid)) {
-        _logDesktopAgent(
+        _logAgent.info(
             'ensureAgentOnline waiting existing managed pid=$managedPid');
         final recovered = await _waitForAgentOnline(
           runtimeService: runtimeService,
@@ -186,29 +176,29 @@ class DesktopAgentSupervisor {
           deviceId: deviceId,
           timeout: timeout,
         );
-        _logDesktopAgent(
+        _logAgent.info(
           'ensureAgentOnline existing managed wait result=$recovered',
         );
         if (recovered) {
           return true;
         }
-        _logDesktopAgent(
+        _logAgent.info(
           'ensureAgentOnline existing managed pid stale, terminating and restarting',
         );
         await _terminateProcess(managedPid);
         await _clearManagedAgentPid();
       } else {
         await _clearManagedAgentPid();
-        _logDesktopAgent('ensureAgentOnline cleared stale managed pid');
+        _logAgent.info('ensureAgentOnline cleared stale managed pid');
       }
     }
 
     final existingLocalAgents = await _listLocalAgentPids();
-    _logDesktopAgent(
+    _logAgent.info(
       'ensureAgentOnline existingLocalAgents=${existingLocalAgents.join(",")}',
     );
     if (existingLocalAgents.isNotEmpty) {
-      _logDesktopAgent('ensureAgentOnline waiting existing external agent');
+      _logAgent.info('ensureAgentOnline waiting existing external agent');
       return _waitForAgentOnline(
         runtimeService: runtimeService,
         token: token,
@@ -219,21 +209,21 @@ class DesktopAgentSupervisor {
 
     final workdir = _resolveAgentWorkdir(preferredWorkdir: agentWorkdir);
     if (workdir == null) {
-      _logDesktopAgent('ensureAgentOnline no workdir resolved');
+      _logAgent.info('ensureAgentOnline no workdir resolved');
       return false;
     }
-    _logDesktopAgent('ensureAgentOnline resolved workdir=${workdir.path}');
+    _logAgent.info('ensureAgentOnline resolved workdir=${workdir.path}');
 
     // 检测是否为 bundled agent（包含 rc-agent 二进制）
     final isBundled = _isBundledAgentDir(workdir);
-    _logDesktopAgent('ensureAgentOnline isBundled=$isBundled');
+    _logAgent.info('ensureAgentOnline isBundled=$isBundled');
 
     try {
       Process process;
       if (isBundled) {
         // 使用内嵌 rc-agent 二进制启动
         final rcAgentPath = p.join(workdir.path, 'rc-agent');
-        _logDesktopAgent(
+        _logAgent.info(
             'ensureAgentOnline starting bundled agent: $rcAgentPath');
         try {
           process = await _processStarter(
@@ -255,7 +245,7 @@ class DesktopAgentSupervisor {
           );
         } catch (e) {
           // bundled agent 启动失败，回退到源码模式
-          _logDesktopAgent(
+          _logAgent.info(
               'ensureAgentOnline bundled agent failed: $e, falling back to python3');
           process = await _processStarter(
             'python3',
@@ -279,7 +269,7 @@ class DesktopAgentSupervisor {
         }
       } else {
         // 回退到 python3 源码模式（向后兼容开发环境）
-        _logDesktopAgent(
+        _logAgent.info(
             'ensureAgentOnline starting python3 source mode');
         process = await _processStarter(
           'python3',
@@ -302,10 +292,10 @@ class DesktopAgentSupervisor {
         );
       }
       await _saveManagedAgentPid(process.pid);
-      _logDesktopAgent('ensureAgentOnline started pid=${process.pid}');
+      _logAgent.info('ensureAgentOnline started pid=${process.pid}');
       unawaited(_captureManagedRuntimeOutput(process));
     } catch (e) {
-      _logDesktopAgent('ensureAgentOnline process start failed: $e');
+      _logAgent.info('ensureAgentOnline process start failed: $e');
       return false;
     }
 
@@ -315,7 +305,7 @@ class DesktopAgentSupervisor {
       deviceId: deviceId,
       timeout: timeout,
     );
-    _logDesktopAgent('ensureAgentOnline wait result=$online');
+    _logAgent.info('ensureAgentOnline wait result=$online');
     if (!online) {
       await stopManagedAgent(
         serverUrl: serverUrl,
@@ -323,7 +313,7 @@ class DesktopAgentSupervisor {
         deviceId: deviceId,
         timeout: const Duration(seconds: 2),
       );
-      _logDesktopAgent('ensureAgentOnline stopManagedAgent after failed wait');
+      _logAgent.info('ensureAgentOnline stopManagedAgent after failed wait');
     }
     return online;
   }
@@ -344,13 +334,13 @@ class DesktopAgentSupervisor {
       deviceId: deviceId,
       agentWorkdir: agentWorkdir,
       operation: () async {
-        _logDesktopAgent('syncAndEnsureOnline start device=$deviceId');
+        _logAgent.info('syncAndEnsureOnline start device=$deviceId');
         final configPath = await syncManagedAgentConfig(
           serverUrl: serverUrl,
           accessToken: accessToken,
           deviceId: deviceId,
         );
-        _logDesktopAgent(
+        _logAgent.info(
           'syncAndEnsureOnline configPath=${configPath ?? ""}',
         );
         return _ensureAgentOnlineInternal(
@@ -374,7 +364,7 @@ class DesktopAgentSupervisor {
     final key = '$serverUrl|$deviceId|${agentWorkdir ?? ''}';
     final pending = _pendingEnsureFuture;
     if (pending != null && _pendingEnsureKey == key) {
-      _logDesktopAgent('ensure single-flight join existing attempt key=$key');
+      _logAgent.info('ensure single-flight join existing attempt key=$key');
       return pending;
     }
 
@@ -471,7 +461,7 @@ class DesktopAgentSupervisor {
       }
       return false;
     } catch (e) {
-      _logDesktopAgent('_tryHttpStop failed: $e');
+      _logAgent.info('_tryHttpStop failed: $e');
       return false;
     }
   }
@@ -556,10 +546,10 @@ class DesktopAgentSupervisor {
         const JsonEncoder.withIndent('  ').convert(payload),
         flush: true,
       );
-      _logDesktopAgent('syncManagedAgentConfig: wrote $managedConfigFile');
+      _logAgent.info('syncManagedAgentConfig: wrote $managedConfigFile');
       return managedConfigFile.path;
     } catch (e) {
-      _logDesktopAgent('syncManagedAgentConfig: error - $e');
+      _logAgent.info('syncManagedAgentConfig: error - $e');
       return null;
     }
   }
@@ -573,12 +563,12 @@ class DesktopAgentSupervisor {
     final configPath = p.join(home, managedAgentConfigRelativePath);
     try {
       await File(configPath).delete();
-      _logDesktopAgent('deleteManagedAgentConfig: deleted $configPath');
+      _logAgent.info('deleteManagedAgentConfig: deleted $configPath');
     } on FileSystemException catch (e) {
-      _logDesktopAgent('deleteManagedAgentConfig file not found: $e');
+      _logAgent.info('deleteManagedAgentConfig file not found: $e');
       // 文件不存在，无需处理
     } catch (e) {
-      _logDesktopAgent('deleteManagedAgentConfig: error - $e');
+      _logAgent.info('deleteManagedAgentConfig: error - $e');
     }
   }
 
@@ -654,7 +644,7 @@ class DesktopAgentSupervisor {
       final output = result.stdout.toString().trim();
       return isAgentRunCommand(output);
     } catch (e) {
-      _logDesktopAgent('_isProcessRunning failed: $e');
+      _logAgent.info('_isProcessRunning failed: $e');
       return false;
     }
   }
@@ -733,7 +723,7 @@ class DesktopAgentSupervisor {
 
       return pids;
     } catch (e) {
-      _logDesktopAgent('_listLocalAgentPids failed: $e');
+      _logAgent.info('_listLocalAgentPids failed: $e');
       return const [];
     }
   }
@@ -763,7 +753,7 @@ class DesktopAgentSupervisor {
           pids.add(pid);
         }
       } catch (e) {
-        _logDesktopAgent('_verifyAndAddPids ps failed for pid=$pid: $e');
+        _logAgent.info('_verifyAndAddPids ps failed for pid=$pid: $e');
         // ps 调用失败，跳过此 PID
       }
     }
@@ -792,37 +782,37 @@ class DesktopAgentSupervisor {
         process.stdout
             .transform(utf8.decoder)
             .transform(const LineSplitter())
-            .forEach((line) => _logManagedRuntime('stdout $line')),
+            .forEach((line) => _logRuntime.info('stdout $line')),
       );
     } catch (e) {
-      _logManagedRuntime('_captureManagedRuntimeOutput stdout failed: $e');
+      _logRuntime.info('_captureManagedRuntimeOutput stdout failed: $e');
     }
     try {
       unawaited(
         process.stderr
             .transform(utf8.decoder)
             .transform(const LineSplitter())
-            .forEach((line) => _logManagedRuntime('stderr $line')),
+            .forEach((line) => _logRuntime.info('stderr $line')),
       );
     } catch (e) {
-      _logManagedRuntime('_captureManagedRuntimeOutput stderr failed: $e');
+      _logRuntime.info('_captureManagedRuntimeOutput stderr failed: $e');
     }
   }
 
   Directory? _resolveAgentWorkdir({String? preferredWorkdir}) {
-    _logDesktopAgent(
+    _logAgent.info(
         '_resolveAgentWorkdir: preferredWorkdir=$preferredWorkdir');
     for (final candidate
         in _candidateAgentDirs(preferredWorkdir: preferredWorkdir)) {
       final looksLike = _looksLikeAgentDir(candidate);
-      _logDesktopAgent(
+      _logAgent.info(
           '_resolveAgentWorkdir: checking ${candidate.path}, looksLike=$looksLike');
       if (looksLike) {
-        _logDesktopAgent('_resolveAgentWorkdir: resolved ${candidate.path}');
+        _logAgent.info('_resolveAgentWorkdir: resolved ${candidate.path}');
         return candidate;
       }
     }
-    _logDesktopAgent('_resolveAgentWorkdir: no valid workdir found');
+    _logAgent.info('_resolveAgentWorkdir: no valid workdir found');
     return null;
   }
 
@@ -832,15 +822,15 @@ class DesktopAgentSupervisor {
   }
 
   Iterable<Directory> _candidateAgentDirs({String? preferredWorkdir}) sync* {
-    _logDesktopAgent('_candidateAgentDirs: preferredWorkdir=$preferredWorkdir');
-    _logDesktopAgent('_candidateAgentDirs: current=${Directory.current.path}');
-    _logDesktopAgent(
+    _logAgent.info('_candidateAgentDirs: preferredWorkdir=$preferredWorkdir');
+    _logAgent.info('_candidateAgentDirs: current=${Directory.current.path}');
+    _logAgent.info(
         '_candidateAgentDirs: resolvedExecutable=${Platform.resolvedExecutable}');
 
     // 最高优先级：检查 .app bundle 内嵌 Agent（Contents/Resources/agent/）
     final bundledAgentDir = _resolveBundledAgentDir();
     if (bundledAgentDir != null) {
-      _logDesktopAgent(
+      _logAgent.info(
           '_candidateAgentDirs: bundledAgentDir=${bundledAgentDir.path}');
       yield bundledAgentDir;
     }
@@ -855,7 +845,7 @@ class DesktopAgentSupervisor {
     }
 
     final executableDir = _resolveExecutableDirectory();
-    _logDesktopAgent(
+    _logAgent.info(
         '_candidateAgentDirs: executableDir=${executableDir?.path}');
     if (executableDir != null) {
       yield* _searchAgentDirsFrom(executableDir);
@@ -871,7 +861,7 @@ class DesktopAgentSupervisor {
         return executable.parent;
       }
     } catch (e) {
-      _logDesktopAgent('_resolveExecutableDirectory failed: $e');
+      _logAgent.info('_resolveExecutableDirectory failed: $e');
     }
     return null;
   }
@@ -908,7 +898,7 @@ class DesktopAgentSupervisor {
       // 校验可执行权限（Unix: owner/group/other 任一有 x 位）
       return (stat.mode & 0x111) != 0;
     } catch (e) {
-      _logDesktopAgent('_looksLikeBundledAgent stat failed: $e');
+      _logAgent.info('_looksLikeBundledAgent stat failed: $e');
       return false;
     }
   }
@@ -936,7 +926,7 @@ class DesktopAgentSupervisor {
         }
       }
     } catch (e) {
-      _logDesktopAgent('_resolveBundledAgentDir failed: $e');
+      _logAgent.info('_resolveBundledAgentDir failed: $e');
     }
     return null;
   }

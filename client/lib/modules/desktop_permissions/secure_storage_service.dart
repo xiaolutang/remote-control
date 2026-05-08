@@ -1,7 +1,8 @@
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+import '../../services/app_logger.dart';
 
 /// 统一管理敏感凭证的安全存储访问。
 ///
@@ -191,7 +192,7 @@ class SecureStorageService {
           }
         } catch (e) {
           // Ignore a corrupted bundle and fall back to legacy per-key entries.
-          debugPrint('[SecureStorageService] _loadTrackedSnapshot decode failed: $e');
+          AppLogger('SecureStorageService').error('_loadTrackedSnapshot decode failed: $e');
         }
       }
 
