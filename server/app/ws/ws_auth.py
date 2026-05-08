@@ -122,15 +122,15 @@ async def wait_for_ws_auth(websocket) -> Tuple[dict, dict]:
         payload = await async_verify_token(token)
     except TokenVerificationError as e:
         reason = e.error_code if e.error_code else e.detail
-        logger.warning(f"Token verification failed: {reason}")
+        logger.warning("Token verification failed: %s", reason)
         await websocket.close(code=http_to_ws_code(e.status_code), reason=reason)
         raise WebSocketDisconnect(code=http_to_ws_code(e.status_code))
     except HTTPException as e:
-        logger.warning(f"Token verification failed: {e.detail}")
+        logger.warning("Token verification failed: %s", e.detail)
         await websocket.close(code=http_to_ws_code(e.status_code), reason=e.detail)
         raise WebSocketDisconnect(code=http_to_ws_code(e.status_code))
     except Exception as e:
-        logger.warning(f"Token verification error: {type(e).__name__}: {e}")
+        logger.warning("Token verification error: %s: %s", type(e).__name__, e)
         await websocket.close(code=4500, reason=str(e))
         raise WebSocketDisconnect(code=4500)
 

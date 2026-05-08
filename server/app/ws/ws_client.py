@@ -97,7 +97,7 @@ async def client_websocket_handler(
     # 只要 token 有效且能获取到 session_id，就允许连接
     token_session_id = payload.get("session_id")
     if not token_session_id:
-        logger.warning(f"Token missing session_id")
+        logger.warning("Token missing session_id")
         await websocket.close(code=4003, reason="Token missing session_id")
         return
 
@@ -111,11 +111,11 @@ async def client_websocket_handler(
         else:
             session = await get_session(session_id)
     except HTTPException as e:
-        logger.warning(f"Get session failed: {e.detail}")
+        logger.warning("Get session failed: %s", e.detail)
         await websocket.close(code=http_to_ws_code(e.status_code), reason=e.detail)
         return
     except Exception as e:
-        logger.error(f"Get session error: {type(e).__name__}: {e}")
+        logger.error("Get session error: %s: %s", type(e).__name__, e)
         await websocket.close(code=4500, reason=str(e))
         return
 
@@ -230,8 +230,7 @@ async def client_websocket_handler(
         try:
             await update_session_view_count(session_id, view, 1)
         except Exception as e:
-            logger.warning(f"Failed to update view count: {e}")
-
+            logger.warning("Failed to update view count: %s", e)
         if terminal_id:
             terminal = await update_session_terminal_views(
                 session_id,
@@ -336,7 +335,7 @@ async def _cleanup_client(
     try:
         await update_session_view_count(session_id, view, -1)
     except Exception as e:
-        logger.warning(f"Failed to update view count: {e}")
+        logger.warning("Failed to update view count: %s", e)
 
     if terminal_id:
         terminal = await get_session_terminal(session_id, terminal_id)

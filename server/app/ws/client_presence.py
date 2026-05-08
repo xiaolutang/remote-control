@@ -46,19 +46,19 @@ async def broadcast_to_clients(session_id: str, message: dict, terminal_id: Opti
         message: 消息内容
         terminal_id: 终端 ID，如果为 None 则广播到该 session 下的所有客户端
     """
-    logger.debug(f"[broadcast_to_clients] session={session_id} terminal_id={terminal_id} msg_type={message.get('type')} active_channels={list(active_clients.keys())}")
+    logger.debug("[broadcast_to_clients] session=%s terminal_id=%s msg_type=%s active_channels=%s", session_id, terminal_id, message.get('type'), list(active_clients.keys()))
     if terminal_id is None:
         # 广播到该 session 下的所有频道（包括 session 级别和所有终端级别）
         sent_clients = set()
         for channel_key, clients in active_clients.items():
             if _matches_session(channel_key, session_id):
-                logger.debug(f"[broadcast_to_clients] matched channel={channel_key} clients={len(clients)}")
+                logger.debug("[broadcast_to_clients] matched channel=%s clients=%d", channel_key, len(clients))
                 for client in clients:
                     # 避免重复发送（同一个客户端可能在多个频道）
                     if client not in sent_clients:
                         await client.send(message)
                         sent_clients.add(client)
-        logger.debug(f"[broadcast_to_clients] sent to {len(sent_clients)} unique clients")
+        logger.debug("[broadcast_to_clients] sent to %d unique clients", len(sent_clients))
     else:
         # 只广播到特定终端频道
         clients = active_clients.get(_channel_key(session_id, terminal_id), [])

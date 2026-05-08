@@ -70,7 +70,7 @@ class Database(
                 except Exception:
                     logger.debug("Migration statement skipped (likely exists): %s", stmt)
             await db.commit()
-            logger.info(f"Database initialized: {self.db_path}")
+            logger.info("Database initialized: %s", self.db_path)
 
     @asynccontextmanager
     async def _connect(self) -> AsyncIterator[aiosqlite.Connection]:
@@ -108,7 +108,7 @@ async def init_db() -> None:
     try:
         await db.init_db()
     except Exception as e:
-        logger.error(f"Failed to initialize database: {e}")
+        logger.error("Failed to initialize database: %s", e)
         raise
 
 
