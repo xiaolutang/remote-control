@@ -22,6 +22,32 @@ from app.core.env_compat import ensure_shell_path
 logger = logging.getLogger(__name__)
 
 
+def _run_with_signal_handling(client: WebSocketClient, command_label: str) -> None:
+    """Run a WebSocketClient with SIGTERM→KeyboardInterrupt conversion and cleanup."""
+    def _handle_sigterm(signum, frame):
+        text = f"received signal {signum}, converting to KeyboardInterrupt"
+        click.echo(text)
+        _log_agent(text)
+        raise KeyboardInterrupt()
+
+    previous_sigterm = signal.getsignal(signal.SIGTERM)
+    signal.signal(signal.SIGTERM, _handle_sigterm)
+
+    try:
+        asyncio.run(client.run())
+    except KeyboardInterrupt:
+        _log_agent("KeyboardInterrupt path entered, stopping client")
+        click.echo("\n正在断开连接...")
+        asyncio.run(client.stop())
+        click.echo("已断开")
+    except Exception as e:
+        _log_agent(f"{command_label} command exception: {e}")
+        click.echo(f"连接错误: {e}", err=True)
+        sys.exit(1)
+    finally:
+        signal.signal(signal.SIGTERM, previous_sigterm)
+
+
 def _safe_save_config(config, config_path):
     """Wrapper that catches save errors and exits with a clear message."""
     try:
@@ -267,29 +293,7 @@ def run(ctx, command, shell, reconnect, max_retries):
     )
     ctx.obj.client = client
 
-    def _handle_sigterm(signum, frame):
-        text = f"received signal {signum}, converting to KeyboardInterrupt"
-        click.echo(text)
-        _log_agent(text)
-        raise KeyboardInterrupt()
-
-    previous_sigterm = signal.getsignal(signal.SIGTERM)
-    signal.signal(signal.SIGTERM, _handle_sigterm)
-
-    # 启动连接
-    try:
-        asyncio.run(client.run())
-    except KeyboardInterrupt:
-        _log_agent("KeyboardInterrupt path entered, stopping client")
-        click.echo("\n正在断开连接...")
-        asyncio.run(client.stop())
-        click.echo("已断开")
-    except Exception as e:
-        _log_agent(f"run command exception: {e}")
-        click.echo(f"连接错误: {e}", err=True)
-        sys.exit(1)
-    finally:
-        signal.signal(signal.SIGTERM, previous_sigterm)
+    _run_with_signal_handling(client, "run")
 
 
 @cli.command()
@@ -322,29 +326,7 @@ def start(ctx, server, token, command, shell, local_display, reconnect, max_retr
     )
     ctx.obj.client = client
 
-    def _handle_sigterm(signum, frame):
-        text = f"received signal {signum}, converting to KeyboardInterrupt"
-        click.echo(text)
-        _log_agent(text)
-        raise KeyboardInterrupt()
-
-    previous_sigterm = signal.getsignal(signal.SIGTERM)
-    signal.signal(signal.SIGTERM, _handle_sigterm)
-
-    # 启动连接
-    try:
-        asyncio.run(client.run())
-    except KeyboardInterrupt:
-        _log_agent("KeyboardInterrupt path entered, stopping client")
-        click.echo("\n正在断开连接...")
-        asyncio.run(client.stop())
-        click.echo("已断开")
-    except Exception as e:
-        _log_agent(f"start command exception: {e}")
-        click.echo(f"连接错误: {e}", err=True)
-        sys.exit(1)
-    finally:
-        signal.signal(signal.SIGTERM, previous_sigterm)
+    _run_with_signal_handling(client, "start")
 
 
 @cli.command()
