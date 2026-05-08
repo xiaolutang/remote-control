@@ -181,8 +181,11 @@
         "删除 4 个未使用的 Config 字段",
         "verify_token 不再硬编码 username=test",
         "config.token 写入路径简化",
+        "token 兼容：旧配置文件（含已废弃字段）仍可正常加载",
+        "verify_token：未配置 username 时正常回退",
         "agent 全量 pytest 通过"
       ],
+      "risk_tags": ["config"],
       "files": [
         "agent/app/core/config.py",
         "agent/app/security/auth_service.py"
@@ -217,8 +220,12 @@
       "acceptance_criteria": [
         "config_dir 读取逻辑只定义一次",
         "3 个文件统一从 config 模块导入",
+        "数据目录仍从 --config 参数父目录派生，不引入独立状态根（architecture.md 不变量）",
+        "env 缺失时回退到默认路径，expanduser() 正常工作",
+        "managed-agent 路径（桌面端）不受影响",
         "agent 全量 pytest 通过"
       ],
+      "risk_tags": ["config"],
       "files": [
         "agent/app/core/config.py",
         "agent/app/tools/knowledge_tool.py",
@@ -238,8 +245,10 @@
       "acceptance_criteria": [
         "16 处 catch (_) 补充日志记录",
         "关键方法异常不丢失上下文",
+        "桌面启动失败后用户可见反馈（状态正确更新）",
         "flutter test 通过"
       ],
+      "risk_tags": ["startup"],
       "files": ["client/lib/services/desktop/desktop_agent_supervisor.dart"]
     },
     {
@@ -301,8 +310,11 @@
       "acceptance_criteria": [
         "所有 URL 使用 baseUrl + endpoint 常量拼接",
         "无内联 'http://127.0.0.1' 字符串",
+        "本地 HTTP 连接失败时有错误日志",
+        "端口不可用时回退到下一个端口",
         "flutter test 通过"
       ],
+      "risk_tags": ["config"],
       "files": ["client/lib/services/desktop/desktop_agent_http_client.dart"]
     },
     {
@@ -415,7 +427,7 @@
       "name": "Server WS 模块测试补充",
       "description": "补充 server WS 子模块测试：agent_cleanup.py（299行无测试）、agent_request.py（仅 registry 部分测试）。重点覆盖 stale agent 清理逻辑和 pending request 超时/取消。",
       "verification": "L1",
-      "depends_on": ["S401", "S403"],
+      "depends_on": ["S401", "S403", "S404"],
       "status": "pending",
       "priority": 0,
       "acceptance_criteria": [
@@ -435,7 +447,7 @@
       "name": "Client ws_message_parser 单元测试",
       "description": "ws_message_parser.dart 是核心消息解析路径（UTF-8 流式解码、加密解密、snapshot 拼接、bracketed paste 跟踪），仅有 websocket_service_test.dart 间接覆盖。补充独立单测。",
       "verification": "L1",
-      "depends_on": [],
+      "depends_on": ["S412"],
       "status": "pending",
       "priority": 1,
       "acceptance_criteria": [
@@ -456,7 +468,7 @@
       "name": "Client secure_storage 测试",
       "description": "desktop_permissions/secure_storage_service.dart 无测试。补充 macOS keychain 存取、token 保存/读取/删除的 mock 测试。",
       "verification": "F1",
-      "depends_on": [],
+      "depends_on": ["S411"],
       "status": "pending",
       "priority": 1,
       "acceptance_criteria": [
@@ -486,6 +498,27 @@
         "project_spec.md 更新到 R057"
       ],
       "files": [".dev-flow/project_spec.md"]
+    },
+    {
+      "id": "S423",
+      "phase": 4,
+      "module": "全局",
+      "name": "需求包级 Smoke 验证",
+      "description": "手工验证 R057 改动后的完整用户旅程：冷启动 macOS 桌面端 → 登录 → Agent 自动上线 → 创建终端 → 执行命令 → 输出正常。验证 S407/S409/S410/S413 改动不破坏启动、登录、Agent 管理、终端 I/O 链路。",
+      "verification": "L4",
+      "depends_on": ["S407", "S409", "S410", "S413"],
+      "status": "pending",
+      "priority": 0,
+      "acceptance_criteria": [
+        "macOS 桌面端冷启动正常",
+        "登录成功，token 获取正确",
+        "DesktopAgentSupervisor 启动 Agent 成功",
+        "创建新终端成功，命令输入输出正常",
+        "失败场景（Agent 未响应）有可见反馈",
+        "重试恢复正常"
+      ],
+      "smoke_required": true,
+      "files": []
     }
   ]
 }
