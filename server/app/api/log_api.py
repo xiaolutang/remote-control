@@ -6,7 +6,6 @@
 import asyncio
 import json
 import logging
-import os
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any, Literal
 from fastapi import APIRouter, Depends, Query, HTTPException, status
@@ -14,6 +13,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.infra.auth import get_current_payload, get_current_user_id
+from app.infra.constants import LOG_SERVICE_URL
 from app.infra.http_client import get_shared_http_client
 from app.infra.log_service import (
     append_logs_batch,
@@ -240,7 +240,7 @@ async def _forward_to_log_service(session_id: str, logs_data: list[dict], *, uid
     使用 httpx.AsyncClient 异步发送，timeout=3s，失败不重试。
     不影响 Redis 存储和 API 响应。
     """
-    log_service_url = os.environ.get("LOG_SERVICE_URL", "http://localhost:8001")
+    log_service_url = LOG_SERVICE_URL
     if not log_service_url:
         return
 
