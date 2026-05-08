@@ -208,7 +208,7 @@ class AuthService:
             bool Token 是否有效
         """
         t0 = time.monotonic()
-        url = f"{self.base_url}/api/devices?username=test"
+        url = f"{self.base_url}/api/devices"
 
         try:
             session = self._get_session()

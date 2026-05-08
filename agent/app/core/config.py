@@ -49,11 +49,6 @@ class Config(BaseModel):
     # 连接配置
     auto_reconnect: bool = True
     max_retries: int = 60
-    reconnect_max_attempts: int = 10
-    reconnect_base_delay: float = 1.0
-    heartbeat_interval: float = 30.0
-    # 服务端 URL（用于 HTTP API，可能与 WebSocket URL 不同）
-    api_url: Optional[str] = None
 
     def get_access_token(self) -> Optional[str]:
         """获取 access token（优先新字段，向后兼容旧字段）"""

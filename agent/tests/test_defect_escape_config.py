@@ -269,9 +269,6 @@ class TestDuplicateConfigDetection:
                     "shell_mode": False,
                     "auto_reconnect": True,
                     "max_retries": 5,
-                    "reconnect_max_attempts": 10,
-                    "reconnect_base_delay": 1.0,
-                    "heartbeat_interval": 30.0,
                 }, f)
 
             # 不应报错

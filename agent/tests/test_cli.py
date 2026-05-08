@@ -70,8 +70,8 @@ class TestCLI:
 
         assert config.server_url == "ws://localhost:8000"
         assert config.token is None
-        assert config.reconnect_max_attempts == 10
-        assert config.reconnect_base_delay == 1.0
+        assert config.auto_reconnect is True
+        assert config.max_retries == 60
 
     def test_load_config_accepts_string_path(self, config_file):
         """load_config 可接受字符串路径，供 --config 启动链使用"""
