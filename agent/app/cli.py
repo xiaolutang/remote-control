@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 from app.core.config import Config, load_config, save_config, get_config_path, normalize_config_path
-from app.transport.websocket_client import WebSocketClient
+from app.transport.websocket_client import WebSocketClient, ReconnectExhausted
 from app.security.auth_service import AuthService
 from app.core.log_adapter import init_logging as _init_logging, close_logging as _close_logging, _log as _log_agent
 from app.core.env_compat import ensure_shell_path
@@ -40,6 +40,14 @@ def _run_with_signal_handling(client: WebSocketClient, command_label: str) -> No
         click.echo("\n正在断开连接...")
         asyncio.run(client.stop())
         click.echo("已断开")
+    except ReconnectExhausted as e:
+        _log_agent(f"ReconnectExhausted: {e}, performing cleanup")
+        click.echo(f"重连耗尽: {e}")
+        try:
+            asyncio.run(client.stop())
+        except Exception:
+            pass
+        sys.exit(1)
     except Exception as e:
         _log_agent(f"{command_label} command exception: {e}")
         click.echo(f"连接错误: {e}", err=True)

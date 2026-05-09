@@ -37,12 +37,25 @@ from app.transport.agent_message_handler import AgentMessageHandler, _validate_t
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "ReconnectExhausted",
     "AgentSnapshotManager",
     "TerminalRuntimeManager",
     "WebSocketClient",
     "TerminalSpec",
     "_validate_terminal_input",
 ]
+
+
+class ReconnectExhausted(Exception):
+    """重连次数耗尽，Agent 应在顶层捕获后执行清理再退出。"""
+
+    def __init__(self, retry_count: int, max_retries: int, reason: str = "reconnect exhausted"):
+        self.retry_count = retry_count
+        self.max_retries = max_retries
+        self.reason = reason
+        super().__init__(
+            f"{reason} (retries={retry_count}/{max_retries})"
+        )
 
 
 
@@ -288,8 +301,12 @@ class WebSocketClient:
                 self._retry_count += 1
 
         if _should_exit:
-            logger.info("Agent 进程即将退出 (sys.exit)")
-            sys.exit(1)
+            logger.info("Agent 重连耗尽，抛出 ReconnectExhausted")
+            raise ReconnectExhausted(
+                retry_count=self._retry_count,
+                max_retries=self.max_retries,
+                reason="reconnect exhausted",
+            )
 
     async def _connect_and_run(self):
         """连接服务器并运行主循环"""

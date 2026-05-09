@@ -20,6 +20,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.core.config import Config, load_config, normalize_config_path
+from app.transport.websocket_client import ReconnectExhausted
 
 
 class TestTokenSessionConsistency:
@@ -141,17 +142,17 @@ class TestAgentErrorOnInvalidSession:
 
         with patch("app.transport.websocket_client.websockets.connect", FakeConnect4004):
             with patch("asyncio.sleep", new_callable=AsyncMock):
-                with patch("app.transport.websocket_client.sys.exit") as mock_exit:
-                    with patch("app.transport.websocket_client.agent_crypto") as mock_crypto:
-                        mock_crypto.has_public_key = False
-                        mock_crypto.fetch_public_key = AsyncMock()
-                        client = WebSocketClient(
-                            server_url="wss://localhost:8888",
-                            token="invalid_token",
-                            auto_reconnect=True,
-                            max_retries=5,
-                        )
-                        client._start_local_server = AsyncMock()
+                with patch("app.transport.websocket_client.agent_crypto") as mock_crypto:
+                    mock_crypto.has_public_key = False
+                    mock_crypto.fetch_public_key = AsyncMock()
+                    client = WebSocketClient(
+                        server_url="wss://localhost:8888",
+                        token="invalid_token",
+                        auto_reconnect=True,
+                        max_retries=5,
+                    )
+                    client._start_local_server = AsyncMock()
+                    with pytest.raises(ReconnectExhausted):
                         await client.run()
 
         # 修复后：4004 是不可恢复错误，应只连接一次就停止
@@ -159,7 +160,6 @@ class TestAgentErrorOnInvalidSession:
             f"4004 应立即停止，不应重连。实际连接 {reconnect_count} 次"
         )
         assert not client._running
-        mock_exit.assert_called_once_with(1)
 
     @pytest.mark.asyncio
     @pytest.mark.timeout(5)
@@ -194,17 +194,17 @@ class TestAgentErrorOnInvalidSession:
 
         with patch("app.transport.websocket_client.websockets.connect", FakeConnect4004):
             with patch("asyncio.sleep", new_callable=AsyncMock):
-                with patch("app.transport.websocket_client.sys.exit"):
-                    with patch("app.transport.websocket_client.agent_crypto") as mock_crypto:
-                        mock_crypto.has_public_key = False
-                        mock_crypto.fetch_public_key = AsyncMock()
-                        client = WebSocketClient(
-                            server_url="wss://localhost:8888",
-                            token="invalid_token",
-                            auto_reconnect=False,
-                            max_retries=0,
-                        )
-                        client._start_local_server = AsyncMock()
+                with patch("app.transport.websocket_client.agent_crypto") as mock_crypto:
+                    mock_crypto.has_public_key = False
+                    mock_crypto.fetch_public_key = AsyncMock()
+                    client = WebSocketClient(
+                        server_url="wss://localhost:8888",
+                        token="invalid_token",
+                        auto_reconnect=False,
+                        max_retries=0,
+                    )
+                    client._start_local_server = AsyncMock()
+                    with pytest.raises(ReconnectExhausted):
                         await client.run()
 
         # 应该只连接一次就退出
@@ -317,17 +317,17 @@ class TestWebSocketCloseCodeHandling:
 
         with patch("app.transport.websocket_client.websockets.connect", FakeConnect4001):
             with patch("asyncio.sleep", new_callable=AsyncMock):
-                with patch("app.transport.websocket_client.sys.exit") as mock_exit:
-                    with patch("app.transport.websocket_client.agent_crypto") as mock_crypto:
-                        mock_crypto.has_public_key = False
-                        mock_crypto.fetch_public_key = AsyncMock()
-                        client = WebSocketClient(
-                            server_url="wss://localhost:8888",
-                            token="bad_token",
-                            auto_reconnect=True,
-                            max_retries=3,
-                        )
-                        client._start_local_server = AsyncMock()
+                with patch("app.transport.websocket_client.agent_crypto") as mock_crypto:
+                    mock_crypto.has_public_key = False
+                    mock_crypto.fetch_public_key = AsyncMock()
+                    client = WebSocketClient(
+                        server_url="wss://localhost:8888",
+                        token="bad_token",
+                        auto_reconnect=True,
+                        max_retries=3,
+                    )
+                    client._start_local_server = AsyncMock()
+                    with pytest.raises(ReconnectExhausted):
                         await client.run()
 
         # 修复后：4001 是不可恢复错误，只连接一次就停止
@@ -335,7 +335,6 @@ class TestWebSocketCloseCodeHandling:
             f"4001 应立即停止不重连。实际连接 {connect_count} 次"
         )
         assert not client._running
-        mock_exit.assert_called_once_with(1)
 
     @pytest.mark.asyncio
     @pytest.mark.timeout(5)
@@ -362,22 +361,23 @@ class TestWebSocketCloseCodeHandling:
 
         with patch("app.transport.websocket_client.websockets.connect", FakeConnect):
             with patch("asyncio.sleep", new_callable=AsyncMock):
-                with patch("app.transport.websocket_client.sys.exit") as mock_exit:
-                    with patch("app.transport.websocket_client.agent_crypto") as mock_crypto:
-                        mock_crypto.has_public_key = False
-                        mock_crypto.fetch_public_key = AsyncMock()
-                        client = WebSocketClient(
-                            server_url="ws://localhost:8888",
-                            token="good_token",
-                            auto_reconnect=True,
-                            max_retries=3,
-                        )
-                        client._start_local_server = AsyncMock()
+                with patch("app.transport.websocket_client.agent_crypto") as mock_crypto:
+                    mock_crypto.has_public_key = False
+                    mock_crypto.fetch_public_key = AsyncMock()
+                    client = WebSocketClient(
+                        server_url="ws://localhost:8888",
+                        token="good_token",
+                        auto_reconnect=True,
+                        max_retries=3,
+                    )
+                    client._start_local_server = AsyncMock()
+                    with pytest.raises(ReconnectExhausted) as exc_info:
                         await client.run()
 
         # 网络错误应该重连到 max_retries + 1（首次 + 3次重试）
         assert connect_count == 4, (
             f"网络错误应重连，实际连接 {connect_count} 次"
         )
-        # retry 耗尽后应调用 sys.exit(1)
-        mock_exit.assert_called_once_with(1)
+        # retry 耗尽后应抛出 ReconnectExhausted
+        assert exc_info.value.retry_count == 3
+        assert exc_info.value.max_retries == 3
