@@ -51,7 +51,7 @@ def _get_shell_path() -> str | None:
         )
         path = result.stdout.strip()
         # 基本校验：不能为空，不能只包含系统路径
-        if path and "/opt/homebrew" in path or "/usr/local" in path:
+        if path and ("/opt/homebrew" in path or "/usr/local" in path):
             return path
         return None
     except (subprocess.TimeoutExpired, OSError) as exc:
