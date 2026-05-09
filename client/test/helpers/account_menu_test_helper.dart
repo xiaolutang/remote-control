@@ -5,7 +5,7 @@ import 'package:rc_client/navigation/account_menu_actions.dart';
 Future<void> openAccountMenuAndExpectCommonEntries(
   WidgetTester tester,
 ) async {
-  await tester.tap(find.byType(PopupMenuButton<AccountMenuAction>));
+  await tester.tap(find.byIcon(Icons.settings_outlined));
   await tester.pumpAndSettle();
 
   expect(find.text('个人信息'), findsOneWidget);

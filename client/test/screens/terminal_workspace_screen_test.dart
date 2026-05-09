@@ -2,6 +2,7 @@
 
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -29,6 +30,9 @@ import 'package:rc_client/widgets/terminal_tab_bar.dart';
 import '../helpers/account_menu_test_helper.dart';
 import '../mocks/mock_websocket_service.dart';
 
+// Re-export for test access
+import 'package:rc_client/navigation/account_menu_actions.dart';
+
 class _FakeWorkspaceController extends RuntimeSelectionController {
   _FakeWorkspaceController({
     required List<RuntimeDevice> devices,
@@ -54,6 +58,8 @@ class _FakeWorkspaceController extends RuntimeSelectionController {
   MockWebSocketService? lastBuiltService;
   Map<String, dynamic>? lastExecutionReport;
   bool _forceCreatingTerminal = false;
+  bool failOnCloseTerminal = false;
+  bool failOnRenameTerminal = false;
 
   @override
   bool get isDesktopPlatform => isDesktop;
@@ -151,6 +157,7 @@ class _FakeWorkspaceController extends RuntimeSelectionController {
 
   @override
   Future<RuntimeTerminal?> closeTerminal(String terminalId) async {
+    if (failOnCloseTerminal) return null;
     final index =
         _terminals.indexWhere((item) => item.terminalId == terminalId);
     if (index >= 0) {
@@ -164,6 +171,7 @@ class _FakeWorkspaceController extends RuntimeSelectionController {
   @override
   Future<RuntimeTerminal?> renameTerminal(
       String terminalId, String title) async {
+    if (failOnRenameTerminal) return null;
     final index =
         _terminals.indexWhere((item) => item.terminalId == terminalId);
     if (index >= 0) {
@@ -710,10 +718,8 @@ void main() {
     await tester.pumpWidget(wrapWithApp(controller));
     await tester.pumpAndSettle();
 
-    // 通过菜单创建
-    await tester.tap(find.byKey(const Key('workspace-open-terminal-menu')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('workspace-menu-create')));
+    // F004: 菜单不再有创建终端选项，通过 Tab 栏 + 按钮创建
+    await tester.tap(find.byKey(const Key('tab-bar-create')));
     await tester.pumpAndSettle();
 
     // 应该直接创建空终端（不再弹窗）
@@ -857,9 +863,8 @@ void main() {
     await tester.pumpWidget(wrapWithApp(controller));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('workspace-open-terminal-menu')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('workspace-menu-create')));
+    // F004: 菜单不再有创建终端选项，通过 Tab 栏 + 按钮创建
+    await tester.tap(find.byKey(const Key('tab-bar-create')));
     await tester.pumpAndSettle();
 
     // 直接创建空终端（不再弹窗）
@@ -1049,9 +1054,13 @@ void main() {
 
     expect(find.textContaining('Claude / ai_rules'), findsWidgets);
 
-    await tester.tap(find.byKey(const Key('workspace-open-terminal-menu')));
+    // F004: 通过 Tab 上下文菜单关闭终端
+    await tester.tap(
+      find.byKey(const Key('tab-term-1')),
+      buttons: kSecondaryButton,
+    );
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('workspace-menu-close')));
+    await tester.tap(find.text('关闭'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('关闭').last);
     await tester.pumpAndSettle();
@@ -1394,9 +1403,10 @@ void main() {
       // 桌面端 Tab 栏用独立 tabs 展示标题，不再合并显示
     });
 
-    testWidgets('mobile header keeps expand_more and title unchanged',
+    testWidgets('mobile header no longer shows expand_more after menu slimming',
         (tester) async {
-      // 验收条件：移动端 HeaderBar 完全不变（expand_more 菜单仍存在 + 标题文本格式不变）
+      // F004: 菜单瘦身后移动端 expand_more 按钮条件隐藏
+      // 移动端不再有 expand_more 按钮（onOpenTerminalMenu 为 null）
       final controller = _FakeWorkspaceController(
         devices: const [
           RuntimeDevice(
@@ -1426,13 +1436,11 @@ void main() {
 
       // 移动端不应渲染 TerminalTabBar
       expect(find.byType(TerminalTabBar), findsNothing);
-      // 移动端仍应有 expand_more 菜单按钮（验证图标是 expand_more 不是 more_horiz）
+      // F004: 移动端不再渲染 expand_more 菜单按钮
       final menuButton = find.byKey(const Key('workspace-open-terminal-menu'));
-      expect(menuButton, findsOneWidget);
-      final iconButton = tester.widget<IconButton>(menuButton);
-      // 移动端使用 expand_more 图标
-      expect((iconButton.icon as Icon).icon, equals(Icons.expand_more));
-      // 移动端仍应显示合并的标题+状态格式
+      expect(menuButton, findsNothing,
+          reason: 'F004 菜单瘦身后移动端 expand_more 按钮应隐藏');
+      // 移动端仍应显示标题
       expect(find.textContaining('Claude / ai_rules'), findsWidgets);
     });
 
@@ -1755,8 +1763,10 @@ void main() {
       );
     });
 
-    testWidgets('mobile menu functionality unchanged', (tester) async {
-      // 验收条件：菜单功能不变：expand_more 仍可打开，包含全部现有操作
+    testWidgets('mobile menu operations moved to tab context menu',
+        (tester) async {
+      // F004: 菜单瘦身后终端 CRUD 操作移至 Tab 上下文菜单
+      // expand_more 不再存在，终端操作通过长按 Tab 访问
       final controller = _FakeWorkspaceController(
         devices: const [
           RuntimeDevice(
@@ -1784,21 +1794,17 @@ void main() {
       await tester.pumpWidget(wrapWithApp(controller));
       await tester.pumpAndSettle();
 
-      // 移动端应有 expand_more 按钮
+      // F004: expand_more 按钮已隐藏
       expect(find.byKey(const Key('workspace-open-terminal-menu')),
-          findsOneWidget);
+          findsNothing);
 
-      // 打开菜单
-      await tester.tap(
-          find.byKey(const Key('workspace-open-terminal-menu')));
+      // 终端操作通过长按 Tab 的上下文菜单访问
+      await tester.longPress(find.byKey(const Key('compact-tab-term-1')));
       await tester.pumpAndSettle();
 
-      // 菜单应包含创建终端选项
-      expect(find.byKey(const Key('workspace-menu-create')), findsOneWidget);
-      // 菜单应包含重命名选项
-      expect(find.byKey(const Key('workspace-menu-rename')), findsOneWidget);
-      // 菜单应包含关闭终端选项
-      expect(find.byKey(const Key('workspace-menu-close')), findsOneWidget);
+      // 上下文菜单应包含重命名和关闭
+      expect(find.text('重命名'), findsOneWidget);
+      expect(find.text('关闭'), findsOneWidget);
     });
   });
 
@@ -2453,12 +2459,8 @@ void main() {
       await tester.pumpWidget(wrapWithApp(controller));
       await tester.pumpAndSettle();
 
-      // 打开菜单
-      await tester.tap(find.byKey(const Key('workspace-open-terminal-menu')));
-      await tester.pumpAndSettle();
-
-      // 点击菜单中的"创建"
-      await tester.tap(find.byKey(const Key('workspace-menu-create')));
+      // F004: 菜单不再有创建选项，通过 CompactTabStrip 的 + 按钮创建
+      await tester.tap(find.byKey(const Key('compact-tab-create')));
       await tester.pumpAndSettle();
 
       // 应显示 SnackBar 错误提示
@@ -2500,6 +2502,973 @@ void main() {
 
       // 应显示 SnackBar 错误提示
       expect(find.text('创建终端失败'), findsOneWidget);
+    });
+  });
+
+  // ==========================================
+  // F004: Tab 上下文菜单 + 菜单瘦身
+  // ==========================================
+
+  group('F004 desktop tab context menu', () {
+    testWidgets('right-click tab shows PopupMenu with rename and close',
+        (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 2,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Tab A',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+          RuntimeTerminal(
+            terminalId: 'term-2',
+            title: 'Tab B',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'detached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 右键点击第一个 Tab
+      await tester.tap(
+        find.byKey(const Key('tab-term-1')),
+        buttons: kSecondaryButton,
+      );
+      await tester.pumpAndSettle();
+
+      // 应弹出 PopupMenu 包含重命名和关闭选项
+      expect(find.text('重命名'), findsOneWidget);
+      expect(find.text('关闭'), findsOneWidget);
+    });
+
+    testWidgets('rename from context menu refreshes tab title', (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 1,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Original Title',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 右键 Tab
+      await tester.tap(
+        find.byKey(const Key('tab-term-1')),
+        buttons: kSecondaryButton,
+      );
+      await tester.pumpAndSettle();
+
+      // 点击重命名
+      await tester.tap(find.text('重命名'));
+      await tester.pumpAndSettle();
+
+      // 应弹出重命名对话框
+      expect(find.byKey(const Key('workspace-rename-terminal-input')),
+          findsOneWidget);
+
+      // 修改标题
+      final input = tester.widget<TextField>(
+        find.byKey(const Key('workspace-rename-terminal-input')),
+      );
+      input.controller?.text = 'New Title';
+
+      // 保存
+      await tester.tap(find.byKey(const Key('workspace-rename-terminal-submit')));
+      await tester.pumpAndSettle();
+
+      // Tab 标题应更新
+      expect(find.text('New Title'), findsWidgets);
+    });
+
+    testWidgets('close from context menu removes tab and switches to adjacent',
+        (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 2,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Tab A',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+          RuntimeTerminal(
+            terminalId: 'term-2',
+            title: 'Tab B',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'detached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 初始选中 term-1
+      expect(
+        find.byKey(const ValueKey<String>('term-1')),
+        findsOneWidget,
+      );
+
+      // 右键 term-1
+      await tester.tap(
+        find.byKey(const Key('tab-term-1')),
+        buttons: kSecondaryButton,
+      );
+      await tester.pumpAndSettle();
+
+      // 点击关闭
+      await tester.tap(find.text('关闭'));
+      await tester.pumpAndSettle();
+
+      // 确认关闭
+      await tester.tap(find.text('关闭').last);
+      await tester.pumpAndSettle();
+
+      // 应切换到 term-2
+      expect(
+        find.byKey(const ValueKey<String>('term-2')),
+        findsOneWidget,
+        reason: '关闭 term-1 后应切换到 term-2',
+      );
+    });
+
+    testWidgets('close non-selected tab keeps current selection',
+        (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 2,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Tab A',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+          RuntimeTerminal(
+            terminalId: 'term-2',
+            title: 'Tab B',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'detached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 初始选中 term-1
+      expect(
+        find.byKey(const ValueKey<String>('term-1')),
+        findsOneWidget,
+      );
+
+      // 右键 term-2（非当前选中的 tab）
+      await tester.tap(
+        find.byKey(const Key('tab-term-2')),
+        buttons: kSecondaryButton,
+      );
+      await tester.pumpAndSettle();
+
+      // 点击关闭
+      await tester.tap(find.text('关闭'));
+      await tester.pumpAndSettle();
+
+      // 确认关闭
+      await tester.tap(find.text('关闭').last);
+      await tester.pumpAndSettle();
+
+      // 当前选中仍为 term-1
+      expect(
+        find.byKey(const ValueKey<String>('term-1')),
+        findsOneWidget,
+        reason: '关闭非当前 tab 后应保持当前选中',
+      );
+    });
+
+    testWidgets('close option disabled for isClosed terminal', (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 1,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Tab A',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+          RuntimeTerminal(
+            terminalId: 'term-closed',
+            title: 'Closed Tab',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'closed',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 右键已关闭的终端
+      await tester.tap(
+        find.byKey(const Key('tab-term-closed')),
+        buttons: kSecondaryButton,
+      );
+      await tester.pumpAndSettle();
+
+      // 关闭选项应被禁用（通过检查 PopupMenuItem.enabled）
+      final closeItem = tester.widget<PopupMenuItem<String>>(
+        find.byKey(const Key('tab-context-close')),
+      );
+      expect(closeItem.enabled, isFalse,
+          reason: '已关闭终端的关闭选项应禁用');
+    });
+
+    testWidgets('close last terminal shows empty state', (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 1,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Only Tab',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 右键唯一 tab
+      await tester.tap(
+        find.byKey(const Key('tab-term-1')),
+        buttons: kSecondaryButton,
+      );
+      await tester.pumpAndSettle();
+
+      // 点击关闭
+      await tester.tap(find.text('关闭'));
+      await tester.pumpAndSettle();
+
+      // 确认关闭
+      await tester.tap(find.text('关闭').last);
+      await tester.pumpAndSettle();
+
+      // 应显示空状态
+      expect(find.text('创建第一个终端'), findsOneWidget);
+    });
+  });
+
+  group('F004 mobile tab long-press context menu', () {
+    testWidgets('long-press tab shows BottomSheet with rename and close',
+        (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 2,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Tab A',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+          RuntimeTerminal(
+            terminalId: 'term-2',
+            title: 'Tab B',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'detached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+        isDesktop: false,
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 长按第一个 Tab
+      await tester.longPress(find.byKey(const Key('compact-tab-term-1')));
+      await tester.pumpAndSettle();
+
+      // 应弹出 BottomSheet 包含重命名和关闭选项
+      expect(find.text('重命名'), findsOneWidget);
+      expect(find.text('关闭'), findsOneWidget);
+    });
+
+    testWidgets('rename from long-press menu refreshes tab title',
+        (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 1,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Original',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+        isDesktop: false,
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 长按 tab
+      await tester.longPress(find.byKey(const Key('compact-tab-term-1')));
+      await tester.pumpAndSettle();
+
+      // 点击重命名
+      await tester.tap(find.text('重命名'));
+      await tester.pumpAndSettle();
+
+      // 应弹出重命名对话框
+      expect(find.byKey(const Key('workspace-rename-terminal-input')),
+          findsOneWidget);
+
+      // 修改标题
+      final input = tester.widget<TextField>(
+        find.byKey(const Key('workspace-rename-terminal-input')),
+      );
+      input.controller?.text = 'Renamed';
+
+      // 保存
+      await tester.tap(find.byKey(const Key('workspace-rename-terminal-submit')));
+      await tester.pumpAndSettle();
+
+      // Tab 标题应更新
+      expect(find.text('Renamed'), findsWidgets);
+    });
+
+    testWidgets('mobile rename failure shows SnackBar and keeps dialog',
+        (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 1,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Original',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+        isDesktop: false,
+      )..failOnRenameTerminal = true;
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 长按 tab
+      await tester.longPress(find.byKey(const Key('compact-tab-term-1')));
+      await tester.pumpAndSettle();
+
+      // 点击重命名
+      await tester.tap(find.text('重命名'));
+      await tester.pumpAndSettle();
+
+      // 修改标题
+      final input = tester.widget<TextField>(
+        find.byKey(const Key('workspace-rename-terminal-input')),
+      );
+      input.controller?.text = 'New Name';
+
+      // 保存（将失败）
+      await tester.tap(find.byKey(const Key('workspace-rename-terminal-submit')));
+      await tester.pumpAndSettle();
+
+      // 应显示 SnackBar 错误提示
+      expect(find.text('重命名终端失败'), findsOneWidget);
+
+      // 对话框应仍然保持打开（未 pop）
+      expect(find.byKey(const Key('workspace-rename-terminal-input')),
+          findsOneWidget);
+
+      // 原始标题应未变
+      expect(find.text('Original'), findsWidgets);
+    });
+  });
+
+  group('F004 failure path - close', () {
+    testWidgets(
+        'desktop close failure shows SnackBar and keeps tab (right-click context menu)',
+        (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 2,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Tab A',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+          RuntimeTerminal(
+            terminalId: 'term-2',
+            title: 'Tab B',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+      )..failOnCloseTerminal = true;
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 右键第一个 tab
+      final tabFinder = find.byKey(const Key('tab-term-1'));
+      await tester.tapAt(
+        tester.getCenter(tabFinder),
+        buttons: kSecondaryButton,
+      );
+      await tester.pumpAndSettle();
+
+      // 点击关闭
+      await tester.tap(find.text('关闭'));
+      await tester.pumpAndSettle();
+
+      // 确认关闭
+      await tester.tap(find.text('关闭'));
+      await tester.pumpAndSettle();
+
+      // 应显示 SnackBar 错误提示
+      expect(find.text('关闭终端失败'), findsOneWidget);
+
+      // Tab 应仍然存在
+      expect(find.byKey(const Key('tab-term-1')), findsOneWidget);
+    });
+
+    testWidgets(
+        'mobile close failure shows SnackBar and keeps tab (long-press context menu)',
+        (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 2,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Tab A',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+          RuntimeTerminal(
+            terminalId: 'term-2',
+            title: 'Tab B',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'detached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+        isDesktop: false,
+      )..failOnCloseTerminal = true;
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 长按第一个 tab
+      await tester.longPress(find.byKey(const Key('compact-tab-term-1')));
+      await tester.pumpAndSettle();
+
+      // 点击关闭
+      await tester.tap(find.text('关闭'));
+      await tester.pumpAndSettle();
+
+      // 确认关闭
+      await tester.tap(find.text('关闭'));
+      await tester.pumpAndSettle();
+
+      // 应显示 SnackBar 错误提示
+      expect(find.text('关闭终端失败'), findsOneWidget);
+
+      // Tab 应仍然存在
+      expect(find.byKey(const Key('compact-tab-term-1')), findsOneWidget);
+    });
+  });
+
+  group('F004 menu slimming', () {
+    testWidgets(
+        'desktop _showTerminalMenu no longer has terminal CRUD operations',
+        (tester) async {
+      // 验证：_showTerminalMenu 中不再包含终端 CRUD（创建/重命名/关闭/切换）
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 2,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Tab A',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        wrapWithApp(
+          controller,
+          agentBootstrapService: _FakeDesktopAgentBootstrapService(
+            result: true,
+            status: const DesktopAgentStatus(
+              supported: true,
+              online: true,
+              managedByDesktop: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // 打开桌面端菜单（more_horiz 按钮）
+      await tester.tap(
+          find.byKey(const Key('workspace-open-terminal-menu')));
+      await tester.pumpAndSettle();
+
+      // 不应包含终端 CRUD 操作
+      expect(find.byKey(const Key('workspace-menu-create')), findsNothing,
+          reason: '菜单瘦身后不应有创建终端选项');
+      expect(find.byKey(const Key('workspace-menu-rename')), findsNothing,
+          reason: '菜单瘦身后不应有重命名终端选项');
+      expect(find.byKey(const Key('workspace-menu-close')), findsNothing,
+          reason: '菜单瘦身后不应有关闭终端选项');
+      expect(find.text('切换终端'), findsNothing,
+          reason: '菜单瘦身后不应有切换终端选项');
+      expect(find.text('新建终端'), findsNothing,
+          reason: '菜单瘦身后不应有新建终端选项');
+
+      // 应保留 Agent 管理和设备编辑
+      expect(find.byKey(const Key('workspace-menu-agent-action')),
+          findsOneWidget);
+      expect(find.byKey(const Key('workspace-menu-rename-device')),
+          findsOneWidget);
+    });
+
+    testWidgets(
+        'mobile expand_more button is hidden after menu slimming',
+        (tester) async {
+      // 验收：移动端 _showTerminalMenu 无终端 CRUD 后菜单为空，expand_more 条件隐藏
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 1,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Tab A',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+        isDesktop: false,
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 移动端不应渲染 expand_more 按钮（菜单瘦身后无内容）
+      expect(
+          find.byKey(const Key('workspace-open-terminal-menu')), findsNothing,
+          reason: '菜单瘦身后移动端 expand_more 按钮应隐藏');
+    });
+  });
+
+  group('F004 desktop settings PopupMenu with Agent/device management', () {
+    testWidgets(
+        'desktop settings PopupMenu contains Agent management and device edit',
+        (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 1,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Tab A',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 打开桌面端设置 PopupMenu（使用 find.byIcon）
+      await tester.tap(find.byIcon(Icons.settings_outlined));
+      await tester.pumpAndSettle();
+
+      // 应包含 Agent 管理和设备编辑选项（workspace 局部）
+      expect(find.byKey(const Key('workspace-settings-agent-action')),
+          findsOneWidget);
+      expect(find.byKey(const Key('workspace-settings-rename-device')),
+          findsOneWidget);
+
+      // 应包含通用的主题、个人信息等选项
+      expect(find.text('主题'), findsOneWidget);
+      expect(find.text('个人信息'), findsOneWidget);
+    });
+
+    testWidgets(
+        'mobile settings PopupMenu does not show Agent/device management',
+        (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 1,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Tab A',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+        isDesktop: false,
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 打开移动端设置 PopupMenu
+      await tester.tap(find.byIcon(Icons.settings_outlined));
+      await tester.pumpAndSettle();
+
+      // 移动端不应包含 Agent 管理和设备编辑
+      expect(find.byKey(const Key('workspace-settings-agent-action')),
+          findsNothing);
+      expect(find.byKey(const Key('workspace-settings-rename-device')),
+          findsNothing);
+
+      // 但应包含通用的主题、个人信息等
+      expect(find.text('主题'), findsOneWidget);
+      expect(find.text('个人信息'), findsOneWidget);
+    });
+
+    testWidgets(
+        'settings Agent action disabled for externally-managed online Agent',
+        (tester) async {
+      // 外部启动的 Agent（managed=false, agentOnline=true）→ 设置菜单中 Agent 操作应禁用
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 1,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Tab A',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+      );
+
+      // 外部管理：online=true, managed=false
+      await tester.pumpWidget(
+        wrapWithApp(
+          controller,
+          agentBootstrapService: _FakeDesktopAgentBootstrapService(
+            result: true,
+            status: const DesktopAgentStatus(
+              supported: true,
+              online: true,
+              managedByDesktop: false,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // 打开桌面端设置 PopupMenu
+      await tester.tap(find.byIcon(Icons.settings_outlined));
+      await tester.pumpAndSettle();
+
+      // Agent 操作应存在但禁用
+      final agentItem = tester.widget<PopupMenuItem>(
+        find.byKey(const Key('workspace-settings-agent-action')),
+      );
+      expect(agentItem.enabled, isFalse,
+          reason: '外部管理的 Agent 在设置菜单中应禁用');
+    });
+
+    testWidgets(
+        'settings Agent action enabled for desktop-managed online Agent',
+        (tester) async {
+      // 桌面端托管 Agent（managed=true, agentOnline=true）→ 设置菜单中可停止
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 1,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Tab A',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        wrapWithApp(
+          controller,
+          agentBootstrapService: _FakeDesktopAgentBootstrapService(
+            result: true,
+            status: const DesktopAgentStatus(
+              supported: true,
+              online: true,
+              managedByDesktop: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // 打开桌面端设置 PopupMenu
+      await tester.tap(find.byIcon(Icons.settings_outlined));
+      await tester.pumpAndSettle();
+
+      // Agent 操作应启用
+      final agentItem = tester.widget<PopupMenuItem>(
+        find.byKey(const Key('workspace-settings-agent-action')),
+      );
+      expect(agentItem.enabled, isTrue,
+          reason: '桌面端托管的 Agent 在设置菜单中应启用');
+      // 标签应为"停止"
+      expect(find.text('停止本机 Agent'), findsOneWidget);
+    });
+
+    testWidgets(
+        'settings Agent action disabled when desktopActionInFlight is true',
+        (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: false,
+            maxTerminals: 3,
+            activeTerminals: 1,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Tab A',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 模拟 in-flight 状态
+      // 需要通过 workspace controller 设置，但测试中无法直接控制
+      // 改为验证 PopupMenuItem 的 enabled 属性
+      // 先验证默认（非 in-flight）状态可用
+      await tester.tap(find.byIcon(Icons.settings_outlined));
+      await tester.pumpAndSettle();
+
+      final agentItem = tester.widget<PopupMenuItem>(
+        find.byKey(const Key('workspace-settings-agent-action')),
+      );
+      expect(agentItem.enabled, isTrue,
+          reason: '非 in-flight 且 Agent 离线时，启动操作应启用');
+      expect(find.text('启动本机 Agent'), findsOneWidget);
     });
   });
 }

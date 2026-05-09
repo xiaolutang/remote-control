@@ -241,15 +241,14 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
                   state: workspaceState,
                   onOpenTerminalMenu: device == null
                       ? null
-                      : () => _showTerminalMenu(
-                            context,
-                            controller,
-                            device,
-                            terminals,
-                            selectedTerminal,
-                            _workspaceController.desktopAgentState,
-                            context.read<TerminalSessionManager>(),
-                          ),
+                      : controller.isDesktopPlatform
+                          ? () => _showTerminalMenu(
+                                context,
+                                controller,
+                                device,
+                                _workspaceController.desktopAgentState,
+                              )
+                          : null,
                   onRefresh: _workspaceController.refresh,
                   onTheme: () => showThemePickerSheet(context),
                   onProfile: () => _handleAccountAction(
@@ -279,6 +278,30 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
                   onCreateTerminal: () {
                     unawaited(_createEmptyTerminal(context, controller));
                   },
+                  // F004: 桌面端右键 Tab 上下文菜单
+                  onTabContextMenu: (terminalId, position) {
+                    _showTabContextMenu(
+                      context,
+                      controller,
+                      terminalId,
+                      position,
+                    );
+                  },
+                  // F004: 桌面端设置菜单 Agent 管理/设备编辑
+                  onAgentAction: () {
+                    final agentOnline = device?.agentOnline ?? false;
+                    if (agentOnline) {
+                      unawaited(_handleStopLocalAgent(context));
+                    } else {
+                      unawaited(_handleStartLocalAgent(context));
+                    }
+                  },
+                  onEditDevice: () {
+                    unawaited(_showRenameDeviceDialog(
+                        context, controller, device!));
+                  },
+                  desktopActionInFlight:
+                      _workspaceController.desktopActionInFlight,
                 ),
                 Expanded(
                   child: _buildBody(
@@ -401,6 +424,14 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
                             snackBarOnError: true,
                           ));
                         },
+                        // F004: 移动端长按 Tab 上下文菜单
+                        onLongPress: (terminalId) {
+                          _showMobileTabContextMenu(
+                            context,
+                            controller,
+                            terminalId,
+                          );
+                        },
                         // 设备在线但达到上限或创建中时禁用；设备离线时 CompactTabStrip 不会渲染
                         // （_buildBody 在 deviceOffline 分支返回 WorkspaceEmptyState）
                         createDisabled: !device.canCreateTerminal ||
@@ -439,11 +470,24 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
     );
     if (confirmed != true || !mounted) return;
 
+    final closed =
+        await controller.closeTerminal(terminal.terminalId);
+    if (!mounted) return;
+    if (closed == null) {
+      // API 失败 → Tab 保留 + SnackBar 错误提示
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('关闭终端失败'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
     await sessionManager.disconnectTerminal(
       controller.selectedDeviceId,
       terminal.terminalId,
     );
-    await controller.closeTerminal(terminal.terminalId);
     if (!mounted) return;
     await _workspaceController.onTerminalClosed(terminal.terminalId);
   }
@@ -558,9 +602,20 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
             FilledButton(
               key: const Key('workspace-rename-terminal-submit'),
               onPressed: () async {
-                await controller.renameTerminal(
+                final renamed = await controller.renameTerminal(
                     terminal.terminalId, titleController.text);
                 if (!context.mounted) return;
+                if (renamed == null) {
+                  // 重命名失败 → 保持对话框 + SnackBar 提示
+                  ScaffoldMessenger.of(context).clearSnackBars();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('重命名终端失败'),
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                  return;
+                }
                 Navigator.of(context).pop();
               },
               child: const Text('保存'),
@@ -579,241 +634,219 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
     BuildContext context,
     RuntimeSelectionController controller,
     RuntimeDevice device,
-    List<RuntimeTerminal> terminals,
-    RuntimeTerminal? selectedTerminal,
     DesktopAgentState? desktopAgentState,
-    TerminalSessionManager sessionManager,
   ) async {
-    // 设备在线状态统一从 RuntimeSelectionController 获取（唯一真实来源）
-    // controller 中的 device.agentOnline 已由 WebSocket 连接实时同步
+    // F004: 菜单瘦身 - 仅保留桌面端管理功能（Agent 管理 + 设备编辑）
+    // 终端 CRUD（创建/重命名/关闭/切换）已移至 Tab 上下文菜单
     final agentOnline = device.agentOnline;
+    final managedByDesktop = desktopAgentState?.managed ?? false;
 
-    final selectedAction = await showModalBottomSheet<_TerminalMenuAction>(
+    await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            final desktopMode = controller.isDesktopPlatform;
-            // agentOnline 已在方法开头从 device.agentOnline 获取（唯一真实来源）
-            final managedByDesktop = desktopAgentState?.managed ?? false;
-            return SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '终端菜单',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
-                    ),
-                    const SizedBox(height: 8),
-                    if (desktopMode) ...[
-                      // TODO: 后台保持电脑在线功能暂时屏蔽，开关打开时 agent 仍会被关闭
-                      // SwitchListTile.adaptive(
-                      //   key: const Key('workspace-keep-agent-running-switch'),
-                      //   contentPadding: EdgeInsets.zero,
-                      //   title: const Text('后台保持电脑在线'),
-                      //   subtitle: Text(
-                      //     _workspaceController.keepAgentRunningInBackground
-                      //         ? '退出桌面端后保留本机 Agent 继续后台运行'
-                      //         : '退出桌面端时同时停止桌面端托管的 Agent',
-                      //   ),
-                      //   value: _workspaceController.keepAgentRunningInBackground,
-                      //   onChanged: (value) {
-                      //     setModalState(() {});
-                      //     unawaited(_workspaceController.setKeepAgentRunningInBackground(value));
-                      //   },
-                      // ),
-                      ListTile(
-                        key: const Key('workspace-menu-agent-action'),
-                        enabled: !_workspaceController.desktopActionInFlight &&
-                            (managedByDesktop || !agentOnline),
-                        contentPadding: EdgeInsets.zero,
-                        leading: _workspaceController.desktopActionInFlight
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : Icon(agentOnline
-                                ? Icons.stop_circle_outlined
-                                : Icons.play_circle_outline),
-                        title: Text(agentOnline ? '停止本机 Agent' : '启动本机 Agent'),
-                        subtitle: Text(
-                          agentOnline
-                              ? (managedByDesktop
-                                  ? '当前 Agent 由桌面端托管'
-                                  : '当前 Agent 由外部方式启动，桌面端不会误杀')
-                              : '启动后当前电脑即可创建并承载 terminal',
-                        ),
-                        onTap: !_workspaceController.desktopActionInFlight &&
-                                (managedByDesktop || !agentOnline)
-                            ? () {
-                                Navigator.of(context).pop();
-                                if (agentOnline) {
-                                  unawaited(_handleStopLocalAgent(context));
-                                } else {
-                                  unawaited(_handleStartLocalAgent(context));
-                                }
-                              }
-                            : null,
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '管理菜单',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
                       ),
-                      ListTile(
-                        key: const Key('workspace-menu-rename-device'),
-                        contentPadding: EdgeInsets.zero,
-                        leading: const Icon(Icons.edit_outlined),
-                        title: const Text('编辑设备名称'),
-                        onTap: () {
-                          Navigator.of(context).pop();
-                          unawaited(_showRenameDeviceDialog(
-                              context, controller, device));
-                        },
-                      ),
-                      const Divider(height: 24),
-                    ],
-                    ListTile(
-                      key: const Key('workspace-menu-create'),
-                      enabled: device.canCreateTerminal &&
-                          !controller.creatingTerminal,
-                      contentPadding: EdgeInsets.zero,
-                      leading: controller.creatingTerminal
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.add_circle_outline),
-                      title: const Text('新建终端'),
-                      subtitle: Text(
-                        device.canCreateTerminal
-                            ? '当前 ${device.activeTerminals}/${device.maxTerminals} 个 terminal'
-                            : '电脑离线或已达到 terminal 上限',
-                      ),
-                      onTap: device.canCreateTerminal &&
-                              !controller.creatingTerminal
-                          ? () => Navigator.of(context)
-                              .pop(const _TerminalMenuAction.create())
-                          : null,
-                    ),
-                    if (selectedTerminal != null) ...[
-                      ListTile(
-                        key: const Key('workspace-menu-rename'),
-                        contentPadding: EdgeInsets.zero,
-                        leading: const Icon(Icons.edit_outlined),
-                        title: const Text('重命名当前终端'),
-                        onTap: () => Navigator.of(context)
-                            .pop(const _TerminalMenuAction.rename()),
-                      ),
-                      ListTile(
-                        key: const Key('workspace-menu-close'),
-                        enabled: !selectedTerminal.isClosed,
-                        contentPadding: EdgeInsets.zero,
-                        leading: const Icon(Icons.close),
-                        title: const Text('关闭当前终端'),
-                        onTap: selectedTerminal.isClosed
-                            ? null
-                            : () => Navigator.of(context)
-                                .pop(const _TerminalMenuAction.close()),
-                      ),
-                    ],
-                    if (agentOnline) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        '切换终端',
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
-                      ),
-                      const SizedBox(height: 8),
-                      Flexible(
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxHeight: 320),
-                          child: ListView.separated(
-                            shrinkWrap: true,
-                            itemCount: terminals.length,
-                            separatorBuilder: (_, __) =>
-                                const Divider(height: 1),
-                            itemBuilder: (context, index) {
-                              final terminal = terminals[index];
-                              return ListTile(
-                                key: Key(
-                                    'workspace-menu-terminal-${terminal.terminalId}'),
-                                enabled: terminal.canAttach,
-                                contentPadding: EdgeInsets.zero,
-                                leading: Icon(
-                                  terminal.terminalId ==
-                                          selectedTerminal?.terminalId
-                                      ? Icons.radio_button_checked
-                                      : Icons.radio_button_unchecked,
-                                  color: terminal.terminalId ==
-                                          selectedTerminal?.terminalId
-                                      ? Theme.of(context).colorScheme.primary
-                                      : null,
-                                ),
-                                title: Text(terminal.title),
-                                subtitle: Text(
-                                    '${terminal.cwd} · ${terminal.status}'),
-                                onTap: terminal.canAttach
-                                    ? () => Navigator.of(context).pop(
-                                          _TerminalMenuAction.switchTo(
-                                              terminal.terminalId),
-                                        )
-                                    : null,
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-                    ] else ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        '电脑离线，当前不可切换或连接已有 terminal。',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurfaceVariant,
-                            ),
-                      ),
-                    ],
-                  ],
                 ),
-              ),
-            );
-          },
+                const SizedBox(height: 8),
+                ListTile(
+                  key: const Key('workspace-menu-agent-action'),
+                  enabled: !_workspaceController.desktopActionInFlight &&
+                      (managedByDesktop || !agentOnline),
+                  contentPadding: EdgeInsets.zero,
+                  leading: _workspaceController.desktopActionInFlight
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(agentOnline
+                          ? Icons.stop_circle_outlined
+                          : Icons.play_circle_outline),
+                  title: Text(agentOnline ? '停止本机 Agent' : '启动本机 Agent'),
+                  subtitle: Text(
+                    agentOnline
+                        ? (managedByDesktop
+                            ? '当前 Agent 由桌面端托管'
+                            : '当前 Agent 由外部方式启动，桌面端不会误杀')
+                        : '启动后当前电脑即可创建并承载 terminal',
+                  ),
+                  onTap: !_workspaceController.desktopActionInFlight &&
+                          (managedByDesktop || !agentOnline)
+                      ? () {
+                          Navigator.of(context).pop();
+                          if (agentOnline) {
+                            unawaited(_handleStopLocalAgent(context));
+                          } else {
+                            unawaited(_handleStartLocalAgent(context));
+                          }
+                        }
+                      : null,
+                ),
+                ListTile(
+                  key: const Key('workspace-menu-rename-device'),
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.edit_outlined),
+                  title: const Text('编辑设备名称'),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    unawaited(_showRenameDeviceDialog(
+                        context, controller, device));
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// F004: 桌面端右键 Tab → PopupMenu（重命名/关闭）
+  void _showTabContextMenu(
+    BuildContext context,
+    RuntimeSelectionController controller,
+    String terminalId,
+    Offset position,
+  ) {
+    final terminal = controller.terminals
+        .where((t) => t.terminalId == terminalId)
+        .firstOrNull;
+    if (terminal == null) return;
+
+    final overlay = Overlay.of(context);
+    showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        position.dx,
+        position.dy,
+        position.dx + 1,
+        position.dy + 1,
+      ),
+      items: [
+        PopupMenuItem<String>(
+          value: 'rename',
+          child: Row(
+            children: const [
+              Icon(Icons.edit_outlined, size: 20),
+              SizedBox(width: 12),
+              Text('重命名'),
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
+          key: const Key('tab-context-close'),
+          value: 'close',
+          enabled: !terminal.isClosed,
+          child: Row(
+            children: [
+              Icon(Icons.close, size: 20,
+                  color: terminal.isClosed
+                      ? Theme.of(context).disabledColor
+                      : null),
+              const SizedBox(width: 12),
+              Text('关闭',
+                  style: terminal.isClosed
+                      ? TextStyle(color: Theme.of(context).disabledColor)
+                      : null),
+            ],
+          ),
+        ),
+      ],
+    ).then((value) {
+      if (value == null) return;
+      switch (value) {
+        case 'rename':
+          unawaited(_showRenameTerminalDialog(
+              context, controller, terminal));
+          break;
+        case 'close':
+          unawaited(_confirmCloseTerminal(
+              context, controller, terminal));
+          break;
+      }
+    });
+  }
+
+  /// F004: 移动端长按 Tab → BottomSheet（重命名/关闭）
+  Future<void> _showMobileTabContextMenu(
+    BuildContext context,
+    RuntimeSelectionController controller,
+    String terminalId,
+  ) async {
+    final terminal = controller.terminals
+        .where((t) => t.terminalId == terminalId)
+        .firstOrNull;
+    if (terminal == null) return;
+
+    final selectedAction = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  terminal.title,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 8),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.edit_outlined),
+                  title: const Text('重命名'),
+                  onTap: () => Navigator.of(context).pop('rename'),
+                ),
+                ListTile(
+                  key: const Key('tab-context-close'),
+                  contentPadding: EdgeInsets.zero,
+                  enabled: !terminal.isClosed,
+                  leading: Icon(Icons.close,
+                      color: terminal.isClosed
+                          ? Theme.of(context).disabledColor
+                          : null),
+                  title: Text('关闭',
+                      style: terminal.isClosed
+                          ? TextStyle(
+                              color: Theme.of(context).disabledColor)
+                          : null),
+                  onTap: terminal.isClosed
+                      ? null
+                      : () => Navigator.of(context).pop('close'),
+                ),
+              ],
+            ),
+          ),
         );
       },
     );
 
-    if (!mounted || !context.mounted || selectedAction == null) {
-      return;
-    }
-    switch (selectedAction.kind) {
-      case _TerminalMenuActionKind.create:
-        await _createEmptyTerminal(
-          context,
-          controller,
-          snackBarOnError: !controller.isDesktopPlatform,
-        );
+    if (!mounted || selectedAction == null) return;
+    switch (selectedAction) {
+      case 'rename':
+        await _showRenameTerminalDialog(context, controller, terminal);
         break;
-      case _TerminalMenuActionKind.rename:
-        if (selectedTerminal != null) {
-          await _showRenameTerminalDialog(
-              context, controller, selectedTerminal);
-        }
-        break;
-      case _TerminalMenuActionKind.close:
-        if (selectedTerminal != null) {
-          await _confirmCloseTerminal(context, controller, selectedTerminal);
-        }
-        break;
-      case _TerminalMenuActionKind.switchTerminal:
-        _workspaceController.selectTerminal(selectedAction.terminalId);
+      case 'close':
+        await _confirmCloseTerminal(context, controller, terminal);
         break;
     }
   }
@@ -888,19 +921,4 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
       (_) => false,
     );
   }
-}
-
-enum _TerminalMenuActionKind { create, rename, close, switchTerminal }
-
-class _TerminalMenuAction {
-  const _TerminalMenuAction._(this.kind, [this.terminalId]);
-
-  const _TerminalMenuAction.create() : this._(_TerminalMenuActionKind.create);
-  const _TerminalMenuAction.rename() : this._(_TerminalMenuActionKind.rename);
-  const _TerminalMenuAction.close() : this._(_TerminalMenuActionKind.close);
-  const _TerminalMenuAction.switchTo(String terminalId)
-      : this._(_TerminalMenuActionKind.switchTerminal, terminalId);
-
-  final _TerminalMenuActionKind kind;
-  final String? terminalId;
 }

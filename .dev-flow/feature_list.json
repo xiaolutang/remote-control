@@ -168,10 +168,11 @@
       "phase": "context-menu",
       "module": "client/screens/desktop",
       "name": "Tab 上下文菜单 + 菜单瘦身",
+      "status": "completed",
+      "started_at": "2026-05-10T21:30:00+08:00",
       "description": "为桌面端 TerminalTabBar 添加右键上下文菜单，为移动端 CompactTabStrip 添加长按上下文菜单（均含重命名/关闭）。完成后从 _showTerminalMenu 移除全部终端 CRUD 操作，移动端 expand_more 按钮因菜单空化而条件隐藏（F003 底部 Tab 栏已替代其全部终端操作入口）。将 Agent 管理/设备编辑新增到桌面端 WorkspaceHeaderBar 设置 PopupMenuButton（保持在 workspace 局部，不扩展共享 account_menu_actions.dart）。此时 F002+F003 已完成，两端都有 Tab 栏替代入口，菜单瘦身不会导致能力丢失。",
       "verification": "F2",
       "depends_on": ["F002", "F003"],
-      "status": "pending",
       "priority": "P1",
       "acceptance_criteria": [
         "桌面端右键 Tab → PopupMenu 含重命名和关闭",
