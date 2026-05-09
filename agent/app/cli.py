@@ -390,7 +390,7 @@ def configure(ctx, server, username, access_token, refresh_token, command, shell
     if reconnect is not None:
         config.auto_reconnect = reconnect
         click.echo(f"自动重连已更新: {reconnect}")
-    if max_retries:
+    if max_retries is not None:
         config.max_retries = max_retries
         click.echo(f"最大重试次数已更新: {max_retries}")
 
