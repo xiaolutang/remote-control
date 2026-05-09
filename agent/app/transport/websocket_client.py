@@ -275,30 +275,14 @@ class WebSocketClient:
                     _should_exit = True
                     break
                 logger.warning("连接关闭: code=%s", close_code)
-                if not self.auto_reconnect or not self._running:
+                _should_exit = await self._handle_reconnect()
+                if _should_exit is not None:
                     break
-                if self._retry_count >= self.max_retries:
-                    logger.error("超过最大重试次数 (%s)，停止重连", self.max_retries)
-                    await self._cleanup(network_lost=True)
-                    _should_exit = True
-                    break
-                delay = min(self.retry_delay * (2 ** self._retry_count), 60.0)
-                logger.info("将在 %s 秒后重连 (第 %s 次)", delay, self._retry_count + 1)
-                await asyncio.sleep(delay)
-                self._retry_count += 1
             except Exception as e:
                 logger.error("连接错误: %s", e)
-                if not self.auto_reconnect or not self._running:
+                _should_exit = await self._handle_reconnect()
+                if _should_exit is not None:
                     break
-                if self._retry_count >= self.max_retries:
-                    logger.error("超过最大重试次数 (%s)，停止重连", self.max_retries)
-                    await self._cleanup(network_lost=True)
-                    _should_exit = True
-                    break
-                delay = min(self.retry_delay * (2 ** self._retry_count), 60.0)
-                logger.info("将在 %s 秒后重连 (第 %s 次)", delay, self._retry_count + 1)
-                await asyncio.sleep(delay)
-                self._retry_count += 1
 
         if _should_exit:
             logger.info("Agent 重连耗尽，抛出 ReconnectExhausted")
@@ -307,6 +291,26 @@ class WebSocketClient:
                 max_retries=self.max_retries,
                 reason="reconnect exhausted",
             )
+
+    async def _handle_reconnect(self) -> Optional[bool]:
+        """处理重连逻辑。
+
+        Returns:
+            True  — 重连耗尽，应设置 _should_exit 并 break
+            None  — 将继续重连（已 sleep + 递增计数）
+            不返回 False — 未自动重连或已停止运行时也返回 None 让调用方 break
+        """
+        if not self.auto_reconnect or not self._running:
+            return None
+        if self._retry_count >= self.max_retries:
+            logger.error("超过最大重试次数 (%s)，停止重连", self.max_retries)
+            await self._cleanup(network_lost=True)
+            return True
+        delay = min(self.retry_delay * (2 ** self._retry_count), 60.0)
+        logger.info("将在 %s 秒后重连 (第 %s 次)", delay, self._retry_count + 1)
+        await asyncio.sleep(delay)
+        self._retry_count += 1
+        return None
 
     async def _connect_and_run(self):
         """连接服务器并运行主循环"""
