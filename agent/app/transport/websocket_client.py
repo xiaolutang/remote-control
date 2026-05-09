@@ -442,8 +442,8 @@ class WebSocketClient:
                     try:
                         sys.stdout.buffer.write(data)
                         sys.stdout.buffer.flush()
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("local stdout write failed: %s", e)  # Expected: stdout may be piped/closed
                 payload = base64.b64encode(data).decode("utf-8")
                 await self._send_ws_message({
                     "type": MessageType.DATA, "payload": payload,
@@ -539,6 +539,7 @@ class WebSocketClient:
                 except asyncio.TimeoutError:
                     continue
                 except Exception:
+                    logger.debug("local stdin read error, breaking loop")  # Expected: stdin closed/EOF
                     break
         except Exception as e:
             logger.error("本地输入读取错误: %s", e)
@@ -619,8 +620,8 @@ class WebSocketClient:
             for event in close_events:
                 try:
                     await self._send_ws_message(event)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("cleanup send close event failed: %s", e)  # Expected: WS may already be closed
 
         if self.pty:
             self.pty.stop()
@@ -629,11 +630,12 @@ class WebSocketClient:
         if self.ws:
             try:
                 await self.ws.close(code=ws_close_code, reason=close_reason)
-            except Exception:
+            except Exception as e:
+                logger.debug("WS close with code failed: %s", e)  # Expected: connection may already be lost
                 try:
                     await self.ws.close()
-                except Exception:
-                    pass
+                except Exception as e2:
+                    logger.debug("WS force close failed: %s", e2)  # Expected: connection may already be lost
             self.ws = None
 
         if self._local_server and not self._local_server.keep_running_in_background:

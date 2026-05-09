@@ -46,7 +46,7 @@ def _run_with_signal_handling(client: WebSocketClient, command_label: str) -> No
         try:
             asyncio.run(client.stop())
         except Exception:
-            pass
+            pass  # Expected: cleanup during shutdown — suppress secondary errors
         sys.exit(1)
     except Exception as e:
         _log_agent(f"{command_label} command exception: {e}")

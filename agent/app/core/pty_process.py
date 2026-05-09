@@ -38,12 +38,12 @@ def configure_child_process(wrapper: "PTYWrapper", exec_pipe_w: int) -> None:
         try:
             os.write(exec_pipe_w, struct.pack("i", exc.errno or 1))
         except Exception:
-            pass
+            pass  # Expected: child process — no logger available, pipe write best-effort
         os.close(exec_pipe_w)
         os._exit(1)
     except Exception:
         os.close(exec_pipe_w)
-        os._exit(1)
+        os._exit(1)  # Expected: child process unrecoverable — just exit
 
 
 def wait_for_termination(pid: int, timeout: float, poll_interval: float) -> bool:
@@ -74,7 +74,7 @@ def cleanup_wrapper(wrapper: "PTYWrapper") -> None:
                 wrapper._original_sigwinch_handler,
             )
         except Exception:
-            pass
+            pass  # Expected: signal handler restore in cleanup — non-critical
         wrapper._original_sigwinch_handler = None
 
     if wrapper.master_fd is not None:

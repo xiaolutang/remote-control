@@ -90,6 +90,7 @@ class AgentMessageHandler:
         try:
             decoded = base64.b64decode(payload)
         except Exception:
+            # Expected: payload may be raw UTF-8 text (non-base64)
             decoded = payload.encode("utf-8")
 
         try:
@@ -171,8 +172,8 @@ class AgentMessageHandler:
                         terminal_id, reason="create_failed"
                     )
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("send terminal_closed event failed: %s", e)  # Expected: WS may already be closed
 
     async def _handle_close_terminal(self, data: dict):
         """处理 close_terminal 消息。"""

@@ -247,8 +247,8 @@ class MCPClientManager:
             except asyncio.TimeoutError:
                 state.process.kill()
                 await state.process.wait()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("MCP stop %s terminate failed: %s", state.skill_name, e)  # Expected: process may have already exited
             state.process = None
 
     async def stop_all(self) -> None:

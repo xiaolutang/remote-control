@@ -69,8 +69,8 @@ class AuthService:
         if self._session is not None and not self._session.closed:
             try:
                 await self._session.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("session close failed: %s", e)  # Expected: session may already be closed
             self._session = None
 
     async def __aenter__(self):

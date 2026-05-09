@@ -167,8 +167,8 @@ class PTYWrapper:
             # 获取当前终端大小
             rows, cols = self._get_terminal_size()
             self._set_window_size(rows, cols)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("SIGWINCH resize failed: %s", e)  # Expected: terminal may have closed
 
     def _get_terminal_size(self) -> tuple[int, int]:
         """获取当前终端大小"""
@@ -177,6 +177,7 @@ class PTYWrapper:
             rows, cols, _, _ = struct.unpack("hhhh", result)
             return rows, cols
         except Exception:
+            # Expected: ioctl may fail if no controlling terminal (e.g. daemon mode)
             return self.config.rows, self.config.cols
 
     def _set_window_size(self, rows: int, cols: int):
@@ -188,8 +189,8 @@ class PTYWrapper:
             # 设置窗口大小
             winsize = struct.pack("HHHH", rows, cols, 0, 0)
             fcntl.ioctl(self.master_fd, termios.TIOCSWINSZ, winsize)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("set_window_size failed: %s", e)  # Expected: master_fd may be closed
 
     def resize(self, rows: int, cols: int):
         """
@@ -245,7 +246,8 @@ class PTYWrapper:
                 except InterruptedError:
                     continue
             return True
-        except Exception:
+        except Exception as e:
+            logger.debug("PTY write failed: %s", e)  # Expected: PTY process may have exited
             return False
 
     async def read(self) -> Optional[bytes]:
@@ -263,7 +265,8 @@ class PTYWrapper:
             loop = asyncio.get_event_loop()
             data = await loop.run_in_executor(None, self._sync_read)
             return data
-        except Exception:
+        except Exception as e:
+            logger.debug("PTY async read failed: %s", e)  # Expected: PTY may be closing
             return None
 
     def _sync_read(self) -> Optional[bytes]:
@@ -276,7 +279,8 @@ class PTYWrapper:
             return data
         except BlockingIOError:
             return None
-        except Exception:
+        except Exception as e:
+            logger.debug("PTY sync read failed: %s", e)  # Expected: master_fd may be closed
             return None
 
     def is_running(self) -> bool:
