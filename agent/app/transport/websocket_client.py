@@ -324,11 +324,8 @@ class WebSocketClient:
         self._retry_count += 1
         return None
 
-    async def _connect_and_run(self):
-        """连接服务器并运行主循环"""
-        ws_url = f"{self.server_url}/ws/agent"
-        logger.info("正在连接服务器: %s", self.server_url)
-
+    async def _fetch_public_key_if_needed(self) -> None:
+        """ws:// 连接时预先获取服务器公钥（用于后续加密）。"""
         if self.server_url.startswith("ws://") and not agent_crypto.has_public_key:
             http_base = self.server_url.replace("ws://", "http://")
             try:
@@ -336,6 +333,81 @@ class WebSocketClient:
             except Exception as e:
                 logger.error("ws:// 公钥获取失败: %s", e)
                 raise
+
+    async def _exchange_aes_key(self) -> dict:
+        """生成 AES 密钥并用服务器公钥加密，返回用于附加到 auth 消息的字段。
+
+        Returns:
+            包含 encrypted_aes_key 的 dict（若无公钥则返回空 dict）。
+        Raises:
+            Exception — ws:// 连接且 AES 交换失败时抛出。
+        """
+        ws_needs_encryption = self.server_url.startswith("ws://")
+        extra: dict = {}
+
+        if ws_needs_encryption and not agent_crypto.has_public_key:
+            raise Exception("ws:// 连接必须加密，但公钥未获取")
+
+        if agent_crypto.has_public_key:
+            try:
+                agent_crypto.generate_aes_key()
+                extra["encrypted_aes_key"] = agent_crypto.get_encrypted_aes_key_b64()
+                logger.info("AES key generated and encrypted")
+            except Exception as e:
+                logger.error("AES key exchange failed: %s", e)
+                agent_crypto.clear_aes_key()
+                if ws_needs_encryption:
+                    raise Exception("ws:// 连接 AES 密钥交换失败") from e
+
+        return extra
+
+    async def _authenticate(self, ws: ClientConnection) -> None:
+        """发送 auth 消息并等待服务器确认。
+
+        包含 AES 密钥交换。
+        """
+        auth_msg: dict = {"type": MessageType.AUTH, "token": self.token}
+        aes_extra = await self._exchange_aes_key()
+        auth_msg.update(aes_extra)
+        await ws.send(json.dumps(auth_msg))
+
+        message = await asyncio.wait_for(ws.recv(), timeout=_AUTH_RECV_TIMEOUT)
+        data = json.loads(message)
+        if data.get("type") == MessageType.CONNECTED:
+            self._session_id = data.get("session_id")
+            self._retry_count = 0
+            logger.info("会话已建立: %s", self._session_id)
+        else:
+            raise Exception(f"意外的消息类型: {data.get('type')}")
+
+    async def _report_agent_metadata(self) -> None:
+        """向服务器上报 Agent 元数据（平台、主机名等）。"""
+        await self._send_ws_message({
+            "type": MessageType.AGENT_METADATA,
+            "platform": platform.system().lower(),
+            "hostname": socket.gethostname(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
+    async def _start_tool_services(self) -> None:
+        """初始化知识库目录、启动 MCP 服务，并上报工具目录快照。"""
+        ensure_user_knowledge_dir()
+        await self.mcp_manager.start_all()
+
+        catalog_tools = [get_knowledge_catalog_entry()]
+        catalog_tools.extend(self.mcp_manager.build_tool_catalog())
+        await self._send_ws_message({
+            "type": MessageType.TOOL_CATALOG_SNAPSHOT,
+            "tools": catalog_tools,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
+    async def _connect_and_run(self):
+        """连接服务器并运行主循环 — 编排各阶段子方法。"""
+        ws_url = f"{self.server_url}/ws/agent"
+        logger.info("正在连接服务器: %s", self.server_url)
+
+        await self._fetch_public_key_if_needed()
 
         original_no_proxy = os.environ.get('NO_PROXY', '')
         os.environ['NO_PROXY'] = 'localhost,127.0.0.1,host.docker.internal'
@@ -351,52 +423,9 @@ class WebSocketClient:
                 logger.info("已连接到服务器")
 
                 try:
-                    # auth 消息
-                    auth_msg = {"type": MessageType.AUTH, "token": self.token}
-                    ws_needs_encryption = self.server_url.startswith("ws://")
-
-                    if ws_needs_encryption and not agent_crypto.has_public_key:
-                        raise Exception("ws:// 连接必须加密，但公钥未获取")
-
-                    if agent_crypto.has_public_key:
-                        try:
-                            agent_crypto.generate_aes_key()
-                            auth_msg["encrypted_aes_key"] = agent_crypto.get_encrypted_aes_key_b64()
-                            logger.info("AES key generated and encrypted")
-                        except Exception as e:
-                            logger.error("AES key exchange failed: %s", e)
-                            agent_crypto.clear_aes_key()
-                            if ws_needs_encryption:
-                                raise Exception("ws:// 连接 AES 密钥交换失败") from e
-
-                    await ws.send(json.dumps(auth_msg))
-
-                    message = await asyncio.wait_for(ws.recv(), timeout=_AUTH_RECV_TIMEOUT)
-                    data = json.loads(message)
-                    if data.get("type") == MessageType.CONNECTED:
-                        self._session_id = data.get("session_id")
-                        self._retry_count = 0
-                        logger.info("会话已建立: %s", self._session_id)
-                    else:
-                        raise Exception(f"意外的消息类型: {data.get('type')}")
-
-                    await self._send_ws_message({
-                        "type": MessageType.AGENT_METADATA,
-                        "platform": platform.system().lower(),
-                        "hostname": socket.gethostname(),
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                    })
-
-                    ensure_user_knowledge_dir()
-                    await self.mcp_manager.start_all()
-
-                    catalog_tools = [get_knowledge_catalog_entry()]
-                    catalog_tools.extend(self.mcp_manager.build_tool_catalog())
-                    await self._send_ws_message({
-                        "type": MessageType.TOOL_CATALOG_SNAPSHOT,
-                        "tools": catalog_tools,
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                    })
+                    await self._authenticate(ws)
+                    await self._report_agent_metadata()
+                    await self._start_tool_services()
 
                     self.pty = PTYWrapper(self.command)
                     if not self.pty.start():
