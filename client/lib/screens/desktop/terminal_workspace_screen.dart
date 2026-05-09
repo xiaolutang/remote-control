@@ -268,6 +268,16 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
                       builder: (_) => const SkillConfigScreen(),
                     ),
                   ),
+                  // F002: 桌面端 Tab Bar 集成
+                  isDesktopPlatform: controller.isDesktopPlatform,
+                  terminals: terminals,
+                  selectedTerminalId: selectedTerminal?.terminalId,
+                  onSwitchTerminal: (terminalId) {
+                    _workspaceController.selectTerminal(terminalId);
+                  },
+                  onCreateTerminal: () {
+                    unawaited(_createEmptyTerminal(context, controller));
+                  },
                 ),
                 Expanded(
                   child: _buildBody(
