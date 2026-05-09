@@ -42,6 +42,11 @@ class _TerminalScreenState extends State<TerminalScreen> {
   late final TerminalViewConfig _viewConfig;
   final FocusNode _terminalFocusNode = FocusNode();
 
+  // 缓存 controller 属性快照，避免 ChangeNotifier 每次通知都触发全量 rebuild
+  bool _prevErrorBanner = false;
+  int _prevShortcutHash = 0;
+  int _prevPresenceHash = 0;
+
   @override
   void initState() {
     super.initState();
@@ -66,7 +71,18 @@ class _TerminalScreenState extends State<TerminalScreen> {
 
   void _onControllerChanged() {
     if (!mounted) return;
-    setState(() {});
+    // 仅当影响 build 的属性确实变化时才触发 rebuild
+    final errorBanner = _ctrl.showErrorBanner;
+    final shortcutHash = _ctrl.shortcutLayout.hashCode;
+    final presenceHash = _ctrl.views.hashCode;
+    if (errorBanner != _prevErrorBanner ||
+        shortcutHash != _prevShortcutHash ||
+        presenceHash != _prevPresenceHash) {
+      _prevErrorBanner = errorBanner;
+      _prevShortcutHash = shortcutHash;
+      _prevPresenceHash = presenceHash;
+      setState(() {});
+    }
     if (_ctrl.authDialogShowing) {
       _releaseInputFocus();
       if (_ctrl.isDeviceKicked) {

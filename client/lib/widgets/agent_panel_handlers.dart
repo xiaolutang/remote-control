@@ -6,6 +6,7 @@ part of 'smart_terminal_side_panel.dart';
 mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
   void _handleIntentFocusChanged() {
     if (!mounted) return;
+    // focus 变化影响 build 中的 keyboardInset 计算，必须 rebuild
     setState(() {});
     if (_intentFocusNode.hasFocus) _scheduleScrollToLatest();
   }
@@ -466,7 +467,6 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
         return;
       }
       _intentController.clear();
-      setState(() {});
       _handleAgentRespond(text);
       return;
     }
