@@ -90,7 +90,7 @@ class AuthService {
     } catch (e) {
       // ws:// 必须加密（不变量 #27），公钥获取失败则拒绝注册
       if (serverUrl.startsWith('ws://')) {
-        throw Exception('安全连接建立失败，无法安全注册');
+        throw Exception('安全连接建立失败: $e');
       }
       // wss:// 由 TLS 保护，可回退到明文密码
       body['password'] = password;
@@ -145,7 +145,7 @@ class AuthService {
         _logger?.error(
             'Public key fetch failed on ws://, refusing plaintext login',
             metadata: {'error': e.toString()});
-        throw Exception('安全连接建立失败，无法安全登录');
+        throw Exception('安全连接建立失败: $e');
       }
       // wss:// 由 TLS 保护，可回退到明文密码
       _logger?.warn('Public key fetch failed, TLS protects transport',
