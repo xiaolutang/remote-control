@@ -561,7 +561,8 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
         _usageSummaryError = null;
         _usageSummaryLoading = false;
       });
-    } catch (_) {
+    } catch (e) {
+      AppLogger('AgentPanel').warning('usage summary fetch failed: $e');
       if (!mounted || requestSerial != _usageRefreshSerial) return;
       setState(() {
         _usageSummaryDeviceId = deviceId;

@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import '../app_logger.dart';
 import '../config_service.dart';
 import 'desktop_exit_policy_service.dart';
 import '../runtime_device_service.dart';
@@ -44,8 +45,9 @@ class DesktopStartupTerminalCleanupService {
       try {
         await _runtimeService.closeTerminal(
             token, deviceId, terminal.terminalId);
-      } catch (_) {
-        // Best effort: stale terminal cleanup must not block startup restore.
+      } catch (e) {
+        // Expected: best-effort stale terminal cleanup must not block startup restore.
+        AppLogger('StartupCleanup').debug('closeTerminal failed for ${terminal.terminalId}: $e');
       }
     }
   }

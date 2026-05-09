@@ -639,7 +639,10 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
           terminalId: terminalId,
           sessionId: sessionId,
           token: controller.token);
-    } catch (_) {/* 取消失败不阻塞 UI */}
+    } catch (e) {
+      // Expected: cancel is best-effort, failure must not block UI flow.
+      AppLogger('AgentPanel').debug('cancel session network failed: $e');
+    }
   }
 
   Future<void> _cancelAgentSessionSilent() => _doCancelAgentNetwork();

@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../models/config.dart';
+import '../app_logger.dart';
 import '../config_service.dart';
 
 class DesktopExitPolicyService {
@@ -23,7 +24,8 @@ class DesktopExitPolicyService {
     try {
       final json = jsonDecode(jsonStr) as Map<String, dynamic>;
       return AppConfig.fromJson(json).desktopExitPolicy;
-    } catch (_) {
+    } catch (e) {
+      AppLogger('ExitPolicy').warning('loadPolicy JSON parse failed: $e');
       return DesktopExitPolicy.stopAgentOnExit;
     }
   }

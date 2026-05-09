@@ -6,6 +6,7 @@ import 'package:xterm/xterm.dart';
 
 import '../models/shortcut_item.dart';
 import '../models/terminal_shortcut.dart';
+import '../services/app_logger.dart';
 import '../services/logout_helper.dart';
 import '../services/runtime_device_service.dart';
 import '../services/shortcut_config_service.dart';
@@ -225,8 +226,9 @@ class TerminalScreenController extends ChangeNotifier {
       }
       _views = terminal.views;
       notifyListeners();
-    } catch (_) {
-      // 进入页时以后端快照兜底，不影响主连接流程。
+    } catch (e) {
+      // Expected: presence snapshot is a fallback for initial view count, does not affect main connection.
+      AppLogger('TerminalCtrl').debug('loadPresenceSnapshot failed: $e');
     }
   }
 

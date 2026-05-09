@@ -198,7 +198,9 @@ class _SmartTerminalSidePanelContentState
         body: jsonEncode(payload),
       );
       return response.statusCode == 200;
-    } catch (_) {
+    } catch (e) {
+      // Expected: feedback submission is best-effort, failure returns false to UI.
+      AppLogger('Feedback').debug('submit failed: $e');
       return false;
     }
   }

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import '../../models/config.dart';
 import '../app_logger.dart';
 import 'desktop_agent_manager.dart';
 import 'desktop_agent_supervisor.dart';
@@ -39,7 +40,7 @@ class DesktopAgentBootstrapService {
     required String serverUrl,
     required String token,
     required String deviceId,
-    Duration timeout = const Duration(seconds: 12),
+    Duration timeout = TimingConstants.agentStartTimeout,
   }) {
     _log.info('startAgent request device=$deviceId');
     final manager = DesktopAgentManager(
@@ -60,7 +61,7 @@ class DesktopAgentBootstrapService {
     required String serverUrl,
     required String token,
     required String deviceId,
-    Duration timeout = const Duration(seconds: 12),
+    Duration timeout = TimingConstants.agentStartTimeout,
   }) async {
     final state = await startAgent(
       serverUrl: serverUrl,
@@ -90,7 +91,7 @@ class DesktopAgentBootstrapService {
     required String serverUrl,
     required String token,
     required String deviceId,
-    Duration timeout = const Duration(seconds: 8),
+    Duration timeout = TimingConstants.agentStopTimeout,
   }) async {
     final supervisor =
         _supervisor ??
@@ -126,7 +127,7 @@ class DesktopAgentBootstrapService {
     required String serverUrl,
     required String token,
     required String deviceId,
-    Duration timeout = const Duration(seconds: 8),
+    Duration timeout = TimingConstants.agentStopTimeout,
   }) async {
     final supervisor =
         _supervisor ??
