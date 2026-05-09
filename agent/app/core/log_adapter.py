@@ -59,5 +59,5 @@ def close_logging() -> None:
     try:
         _handler.close()
     except Exception:
-        pass
+        pass  # Expected: logging system shutdown — must not trigger further logging
     _handler = None

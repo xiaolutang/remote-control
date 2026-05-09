@@ -77,6 +77,29 @@ def test_shell_empty_path(monkeypatch, tmp_path):
     assert "/opt/homebrew/bin" in os.environ["PATH"]
 
 
+def test_empty_path_string_no_error(monkeypatch):
+    """PATH 为空字符串时不抛异常，走 fallback。"""
+    os.environ["PATH"] = ""
+    monkeypatch.delenv("SHELL", raising=False)
+    ensure_shell_path()
+    new_path = os.environ["PATH"]
+    assert "/opt/homebrew/bin" in new_path
+    assert "/usr/local/bin" in new_path
+
+
+def test_get_shell_path_empty_string_no_error(monkeypatch, tmp_path):
+    """_get_shell_path 返回空字符串时不抛 TypeError（运算符优先级修复验证）。"""
+    os.environ["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+    # 创建一个返回空字符串的 fake shell，模拟 subprocess 返回空 path
+    fake_shell = tmp_path / "fake_shell_empty"
+    fake_shell.write_text("#!/bin/sh\necho ''\n")
+    fake_shell.chmod(0o755)
+    monkeypatch.setenv("SHELL", str(fake_shell))
+    ensure_shell_path()
+    # 空字符串应触发 fallback，不应抛 TypeError
+    assert "/opt/homebrew/bin" in os.environ["PATH"]
+
+
 def test_idempotent(monkeypatch):
     """重复调用幂等。"""
     os.environ["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"

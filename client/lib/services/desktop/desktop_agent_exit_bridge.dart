@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
+import '../app_logger.dart';
+
 class DesktopAgentExitBridge {
   static const MethodChannel _channel =
       MethodChannel('rc_client/desktop_agent_lifecycle');
@@ -19,8 +21,9 @@ class DesktopAgentExitBridge {
           'managedAgentPid': managedAgentPid,
         },
       );
-    } catch (_) {
-      // Best-effort sync for native shutdown handling.
+    } catch (e) {
+      // Expected: best-effort sync for native shutdown handling, must not throw.
+      AppLogger('DesktopAgentExit').debug('syncTerminationSnapshot failed: $e');
     }
   }
 

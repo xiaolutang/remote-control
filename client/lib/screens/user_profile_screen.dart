@@ -94,7 +94,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       final dt = DateTime.parse(isoTime);
       return '${dt.year}-${_pad(dt.month)}-${_pad(dt.day)} '
           '${_pad(dt.hour)}:${_pad(dt.minute)}';
-    } catch (_) {
+    } catch (e) {
+      // Expected: invalid ISO date format, fall back to display dash.
       return '-';
     }
   }

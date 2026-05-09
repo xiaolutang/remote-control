@@ -394,7 +394,7 @@ class DesktopAgentManager extends ChangeNotifier {
         serverUrl: _serverUrl,
         token: _token,
         deviceId: _deviceId,
-        timeout: const Duration(seconds: 8),
+        timeout: TimingConstants.agentStopTimeout,
       );
       _log.info('onLogout: agent stopped');
     } catch (e) {
@@ -576,7 +576,7 @@ class DesktopAgentManager extends ChangeNotifier {
   }
 
   Future<DesktopAgentState> startAgent({
-    Duration timeout = const Duration(seconds: 12),
+    Duration timeout = TimingConstants.agentStartTimeout,
   }) async {
     final config = await _configService.loadConfig();
     final workdir = _resolveConfiguredWorkdir(config);
@@ -610,7 +610,7 @@ class DesktopAgentManager extends ChangeNotifier {
   }
 
   Future<bool> stopManagedAgent({
-    Duration timeout = const Duration(seconds: 8),
+    Duration timeout = TimingConstants.agentStopTimeout,
   }) {
     return _supervisor.stopManagedAgent(
       serverUrl: _serverUrl,

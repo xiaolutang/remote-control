@@ -22,6 +22,9 @@ from app.transport.agent_protocol import TerminalSpec
 
 logger = logging.getLogger(__name__)
 
+# ── 内部常量 ──
+_LARGE_INPUT_LOG_THRESHOLD = 1024   # 终端输入超过此字节数时记录 info 日志
+
 
 
 def _validate_terminal_input(command, cwd, env):
@@ -87,6 +90,7 @@ class AgentMessageHandler:
         try:
             decoded = base64.b64decode(payload)
         except Exception:
+            # Expected: payload may be raw UTF-8 text (non-base64)
             decoded = payload.encode("utf-8")
 
         try:
@@ -99,7 +103,7 @@ class AgentMessageHandler:
                         "终端输入写入失败: terminal_id=%s bytes=%s",
                         terminal_id or 'session', len(decoded),
                     )
-                elif len(decoded) >= 1024:
+                elif len(decoded) >= _LARGE_INPUT_LOG_THRESHOLD:
                     logger.info(
                         "终端输入已写入: terminal_id=%s bytes=%s",
                         terminal_id or 'session', len(decoded),
@@ -168,8 +172,8 @@ class AgentMessageHandler:
                         terminal_id, reason="create_failed"
                     )
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("send terminal_closed event failed: %s", e)  # Expected: WS may already be closed
 
     async def _handle_close_terminal(self, data: dict):
         """处理 close_terminal 消息。"""

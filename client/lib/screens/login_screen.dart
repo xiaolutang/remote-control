@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -28,8 +29,8 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _usernameController = TextEditingController(text: 'test');
-  final _passwordController = TextEditingController(text: 'test123');
+  final _usernameController = TextEditingController(text: kDebugMode ? 'test' : null);
+  final _passwordController = TextEditingController(text: kDebugMode ? 'test123' : null);
   final _confirmPasswordController = TextEditingController();
 
   bool _isLoginMode = true;

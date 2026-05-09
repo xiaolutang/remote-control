@@ -131,6 +131,71 @@ def generate_token(
     return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
 
 
+def _validate_token_format(token: str, token_label: str = "Token") -> None:
+    """校验 token 基本格式：空值、长度、null bytes。
+
+    Args:
+        token: 待校验的 token 字符串
+        token_label: 错误提示中使用的名称（如 "Token"、"Refresh Token"）
+
+    Raises:
+        HTTPException: 格式不合法时抛出对应状态码
+    """
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"{token_label} 不能为空",
+        )
+
+    if len(token) > 10240:  # 10KB
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"{token_label} 过长",
+        )
+
+    if '\x00' in token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{token_label} 格式错误",
+        )
+
+
+def _decode_and_classify_jwt(token: str, token_label: str = "Token") -> dict:
+    """JWT 解码并分类错误（expired vs invalid）。
+
+    Args:
+        token: 已通过格式校验的 JWT 字符串
+        token_label: 错误提示中使用的名称
+
+    Returns:
+        JWT payload 字典
+
+    Raises:
+        TokenVerificationError: 过期或无效时抛出，含 error_code
+    """
+    try:
+        return jwt.decode(
+            token,
+            JWT_SECRET_KEY,
+            algorithms=[JWT_ALGORITHM]
+        )
+    except JWTError as e:
+        error_msg = str(e).lower()
+
+        if "expired" in error_msg:
+            raise TokenVerificationError(
+                detail=f"{token_label} 已过期",
+                error_code="TOKEN_EXPIRED",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            )
+        else:
+            raise TokenVerificationError(
+                detail=f"{token_label} 无效",
+                error_code="TOKEN_INVALID",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            )
+
+
 def verify_token(token: str) -> dict:
     """
     验证 JWT Token（同步，仅做 JWT 解码校验，不含 Redis 版本校验）。
@@ -147,70 +212,31 @@ def verify_token(token: str) -> dict:
                                 无效时含 error_code=TOKEN_INVALID
         HTTPException: 其他格式错误
     """
-    if not token:
-        raise HTTPException(
+    _validate_token_format(token, "Token")
+
+    payload = _decode_and_classify_jwt(token, "Token")
+
+    session_id = payload.get("sub")
+    if not session_id:
+        raise TokenVerificationError(
+            detail="Token 缺少 session_id",
+            error_code="TOKEN_INVALID",
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token 不能为空",
         )
 
-    # 检查 token 长度
-    if len(token) > 10240:  # 10KB
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="Token 过长",
-        )
+    result = {
+        "session_id": session_id,
+        "exp": payload.get("exp"),
+        "iat": payload.get("iat"),
+    }
 
-    # 检查 null bytes
-    if '\x00' in token:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Token 格式错误",
-        )
+    # 透传 token_version/view_type（如有），供 async_verify_token 使用
+    if "token_version" in payload:
+        result["token_version"] = payload["token_version"]
+    if "view_type" in payload:
+        result["view_type"] = payload["view_type"]
 
-    try:
-        payload = jwt.decode(
-            token,
-            JWT_SECRET_KEY,
-            algorithms=[JWT_ALGORITHM]
-        )
-
-        session_id = payload.get("sub")
-        if not session_id:
-            raise TokenVerificationError(
-                detail="Token 缺少 session_id",
-                error_code="TOKEN_INVALID",
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            )
-
-        result = {
-            "session_id": session_id,
-            "exp": payload.get("exp"),
-            "iat": payload.get("iat"),
-        }
-
-        # 透传 token_version/view_type（如有），供 async_verify_token 使用
-        if "token_version" in payload:
-            result["token_version"] = payload["token_version"]
-        if "view_type" in payload:
-            result["view_type"] = payload["view_type"]
-
-        return result
-
-    except JWTError as e:
-        error_msg = str(e).lower()
-
-        if "expired" in error_msg:
-            raise TokenVerificationError(
-                detail="Token 已过期",
-                error_code="TOKEN_EXPIRED",
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            )
-        else:
-            raise TokenVerificationError(
-                detail="Token 无效",
-                error_code="TOKEN_INVALID",
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            )
+    return result
 
 
 async def async_verify_token(token: str) -> dict:
@@ -354,68 +380,38 @@ def verify_refresh_token(token: str) -> dict:
     Raises:
         HTTPException: token 无效、过期或类型错误时抛出 401
     """
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Refresh Token 不能为空",
-        )
-
-    # 检查 token 长度
-    if len(token) > 10240:  # 10KB
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="Refresh Token 过长",
-        )
-
-    # 检查 null bytes
-    if '\x00' in token:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Refresh Token 格式错误",
-        )
+    _validate_token_format(token, "Refresh Token")
 
     try:
-        payload = jwt.decode(
-            token,
-            JWT_SECRET_KEY,
-            algorithms=[JWT_ALGORITHM]
+        payload = _decode_and_classify_jwt(token, "Refresh Token")
+    except TokenVerificationError as e:
+        # verify_refresh_token 对外保持 HTTPException（不带 error_code）
+        raise HTTPException(
+            status_code=e.status_code,
+            detail=e.detail,
         )
 
-        # 检查 token 类型
-        if payload.get("type") != "refresh":
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token 类型错误",
-            )
+    # 检查 token 类型
+    if payload.get("type") != "refresh":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token 类型错误",
+        )
 
-        session_id = payload.get("sub")
-        if not session_id:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token 缺少 session_id",
-            )
+    session_id = payload.get("sub")
+    if not session_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token 缺少 session_id",
+        )
 
-        return {
-            "session_id": session_id,
-            "type": payload.get("type"),
-            "exp": payload.get("exp"),
-            "iat": payload.get("iat"),
-            "view_type": payload.get("view_type"),
-        }
-
-    except JWTError as e:
-        error_msg = str(e).lower()
-
-        if "expired" in error_msg:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Refresh Token 已过期",
-            )
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Refresh Token 无效",
-            )
+    return {
+        "session_id": session_id,
+        "type": payload.get("type"),
+        "exp": payload.get("exp"),
+        "iat": payload.get("iat"),
+        "view_type": payload.get("view_type"),
+    }
 
 
 # ============ FastAPI 共享鉴权依赖 ============

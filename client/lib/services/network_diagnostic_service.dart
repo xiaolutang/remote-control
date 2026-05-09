@@ -305,6 +305,7 @@ class NetworkDiagnosticService {
         return false;
       }
     } catch (_) {
+      // Expected: malformed JSON body, treat as successful since HTTP status was OK.
       return true;
     }
 

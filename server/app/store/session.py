@@ -3,6 +3,7 @@ Redis 会话存储服务 — 协调入口。
 
 从子模块导入并 re-export，保证 ``from app.store.session import X`` 不变。
 """
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone, timedelta
@@ -29,6 +30,8 @@ from app.store.session_types import (  # noqa: F401
     _history_key,
     _user_sessions_key,
     _USER_SESSIONS_PREFIX,
+    _device_session_key,
+    _DEVICE_SESSION_PREFIX,
     _default_device_state,
     _default_terminal_state,
     _SessionLockManager,
@@ -224,7 +227,7 @@ async def get_session_by_name(name: str) -> Optional[dict]:
 
 
 async def list_sessions_for_user(user_id: str) -> list[dict]:
-    """列出某个用户拥有的全部 session。优先使用 user_id 反向索引 O(N)。"""
+    """列出某个用户拥有的全部 session。使用 pipeline 批量读取优化 N+1 问题。"""
     if not user_id:
         return []
 
@@ -239,37 +242,80 @@ async def list_sessions_for_user(user_id: str) -> list[dict]:
     # 过滤占位符
     session_ids = {sid for sid in session_ids if sid != "__empty__"}
 
+    if not session_ids:
+        return []
+
+    # Pipeline 批量读取所有 session 数据（1 次 Redis 调用）
+    keys = [_session_key(sid) for sid in session_ids]
+    try:
+        pipe = redis.pipeline(transaction=False)
+        for key in keys:
+            pipe.get(key)
+        raw_values = await pipe.execute()
+    except (AttributeError, TypeError):
+        # fallback：逐个读取（兼容测试 mock 中 pipeline 不可用的情况）
+        raw_values = await asyncio.gather(*(redis.get(k) for k in keys))
+
     sessions: list[dict] = []
-    for session_id in session_ids:
-        try:
-            async with _session_locks.get_lock(session_id):
-                session_data = await _get_session_raw(session_id)
-                changed = _reconcile_terminals(session_data.get("terminals", []))
-                if changed:
-                    session_data["updated_at"] = datetime.now(timezone.utc).isoformat()
-                    await _save_session(session_id, session_data)
-        except HTTPException:
-            # session 已被删除，清理索引
-            await redis.srem(idx_key, session_id)
+    stale_ids: list[str] = []
+
+    for session_id, raw in zip(session_ids, raw_values):
+        if raw is None:
+            stale_ids.append(session_id)
             continue
+        session_data = json.loads(raw)
+        changed = _reconcile_terminals(session_data.get("terminals", []))
+        if changed:
+            session_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+            # 批量保存变更的 session
+            try:
+                async with _session_locks.get_lock(session_id):
+                    await _save_session(session_id, session_data)
+            except HTTPException:
+                stale_ids.append(session_id)
+                continue
         sessions.append({"session_id": session_id, **session_data})
+
+    # 清理已删除的 session 索引
+    if stale_ids:
+        await redis.srem(idx_key, *stale_ids)
 
     return sessions
 
 
 async def get_session_by_device_id(device_id: str, user_id: Optional[str] = None) -> Optional[dict]:
-    """通过 device_id 查找 session。"""
+    """通过 device_id 查找 session。优先使用 device_id 反向索引 O(1)，未命中时 fallback SCAN。"""
     if not device_id:
         return None
 
-    sessions = await list_sessions_for_user(user_id) if user_id else []
+    redis = await redis_conn.get_redis()
+
+    # 优先使用 device_id 反向索引（O(1)）
+    idx_key = _device_session_key(device_id)
+    session_id_raw = await redis.get(idx_key)
+    if session_id_raw:
+        sid = session_id_raw if isinstance(session_id_raw, str) else session_id_raw.decode()
+        try:
+            async with _session_locks.get_lock(sid):
+                session_data = await _get_session_raw(sid)
+            return {"session_id": sid, **session_data}
+        except HTTPException:
+            # session 已删除，清理索引
+            await redis.delete(idx_key)
+
+    # 有 user_id 时尝试在用户 session 中查找
     if user_id:
+        sessions = await list_sessions_for_user(user_id)
         for session in sessions:
             if session.get("device", {}).get("device_id") == device_id:
+                # 回填索引
+                sid = session.get("session_id") or session.get("id")
+                if sid:
+                    await redis.set(idx_key, sid, ex=SESSION_TTL_SECONDS)
                 return session
         return None
 
-    redis = await redis_conn.get_redis()
+    # Fallback：SCAN 全库（索引缺失且无 user_id）
     pattern = f"{KEY_PREFIX}:*"
     cursor = 0
     while True:
@@ -286,6 +332,8 @@ async def get_session_by_device_id(device_id: str, user_id: Optional[str] = None
                     session_data["updated_at"] = datetime.now(timezone.utc).isoformat()
                     await redis.set(key, json.dumps(session_data))
                 if session_data.get("device", {}).get("device_id") == device_id:
+                    # 回填索引
+                    await redis.set(idx_key, session_id, ex=SESSION_TTL_SECONDS)
                     return {"session_id": session_id, **session_data}
         if cursor == 0:
             break

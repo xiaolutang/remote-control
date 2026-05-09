@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../models/config.dart';
 import '../../models/runtime_device.dart';
 import '../app_logger.dart';
 import 'desktop_agent_http_client.dart';
@@ -115,7 +116,7 @@ class DesktopAgentSupervisor {
     required String serverUrl,
     required String token,
     required String deviceId,
-    Duration timeout = const Duration(seconds: 12),
+    Duration timeout = TimingConstants.agentStartTimeout,
     String? agentWorkdir,
     String? agentConfigPath,
   }) {
@@ -138,7 +139,7 @@ class DesktopAgentSupervisor {
     required String serverUrl,
     required String token,
     required String deviceId,
-    Duration timeout = const Duration(seconds: 12),
+    Duration timeout = TimingConstants.agentStartTimeout,
     String? agentWorkdir,
     String? agentConfigPath,
   }) async {
@@ -311,7 +312,7 @@ class DesktopAgentSupervisor {
         serverUrl: serverUrl,
         token: token,
         deviceId: deviceId,
-        timeout: const Duration(seconds: 2),
+        timeout: TimingConstants.agentGracePeriod,
       );
       _logAgent.info('ensureAgentOnline stopManagedAgent after failed wait');
     }
@@ -326,7 +327,7 @@ class DesktopAgentSupervisor {
     required String serverUrl,
     required String accessToken,
     required String deviceId,
-    Duration timeout = const Duration(seconds: 12),
+    Duration timeout = TimingConstants.agentStartTimeout,
     String? agentWorkdir,
   }) {
     return _runEnsureSingleFlight(
@@ -384,7 +385,7 @@ class DesktopAgentSupervisor {
     required String serverUrl,
     required String token,
     required String deviceId,
-    Duration timeout = const Duration(seconds: 8),
+    Duration timeout = TimingConstants.agentStopTimeout,
   }) async {
     // Explicit stop cancels any stale in-flight start bookkeeping.
     _pendingEnsureFuture = null;
@@ -418,7 +419,7 @@ class DesktopAgentSupervisor {
         _runtimeService ?? RuntimeDeviceService(serverUrl: serverUrl);
     final deadline = DateTime.now().add(timeout);
     while (DateTime.now().isBefore(deadline)) {
-      await Future<void>.delayed(const Duration(milliseconds: 400));
+      await Future<void>.delayed(TimingConstants.agentStopPollInterval);
       final refreshed =
           _findDevice(await runtimeService.listDevices(token), deviceId);
       if (!(refreshed?.agentOnline ?? false)) {
@@ -453,7 +454,7 @@ class DesktopAgentSupervisor {
       // 等待 Agent 自行退出
       final deadline = DateTime.now().add(timeout);
       while (DateTime.now().isBefore(deadline)) {
-        await Future<void>.delayed(const Duration(milliseconds: 300));
+        await Future<void>.delayed(TimingConstants.agentHttpStopPollInterval);
         final health = await client.checkHealth(status.port);
         if (!health) {
           return true;
@@ -471,7 +472,7 @@ class DesktopAgentSupervisor {
     required String serverUrl,
     required String token,
     required String deviceId,
-    Duration timeout = const Duration(seconds: 8),
+    Duration timeout = TimingConstants.agentStopTimeout,
   }) async {
     if (keepRunningInBackground) {
       return false;
@@ -595,7 +596,7 @@ class DesktopAgentSupervisor {
   }) async {
     final deadline = DateTime.now().add(timeout);
     while (DateTime.now().isBefore(deadline)) {
-      await Future<void>.delayed(const Duration(milliseconds: 600));
+      await Future<void>.delayed(TimingConstants.agentOnlinePollInterval);
       final refreshed =
           _findDevice(await runtimeService.listDevices(token), deviceId);
       if (refreshed?.agentOnline ?? false) {
@@ -761,7 +762,7 @@ class DesktopAgentSupervisor {
 
   Future<void> _terminateProcess(
     int pid, {
-    Duration gracePeriod = const Duration(seconds: 2),
+    Duration gracePeriod = TimingConstants.agentGracePeriod,
   }) async {
     _pidKiller(pid, ProcessSignal.sigterm);
     final deadline = DateTime.now().add(gracePeriod);
@@ -769,7 +770,7 @@ class DesktopAgentSupervisor {
       if (!await _isProcessRunning(pid)) {
         return;
       }
-      await Future<void>.delayed(const Duration(milliseconds: 150));
+      await Future<void>.delayed(TimingConstants.agentTerminatePollInterval);
     }
     if (await _isProcessRunning(pid)) {
       _pidKiller(pid, ProcessSignal.sigkill);

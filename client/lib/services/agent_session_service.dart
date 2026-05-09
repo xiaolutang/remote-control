@@ -391,17 +391,18 @@ class AgentSessionService {
     return controller.stream;
   }
 
-  /// 处理 SSE 流，解析事件并添加到 controller
-  Future<void> _processSSEStream({
-    required http.StreamedResponse response,
-    required StreamController<AgentSessionEvent> controller,
+  /// SSE 行解析公共逻辑。
+  ///
+  /// 从 [lineStream] 中逐行解析 SSE 帧，对每个完整帧调用 [onEvent]。
+  /// 返回 `true` 表示调用方要求提前终止（[onEvent] 返回 `false`）。
+  Future<bool> _parseSSELines(
+    Stream<String> lineStream, {
+    required Future<bool> Function(String event, String data) onEvent,
   }) async {
     String? currentEvent;
     StringBuffer? dataBuffer;
 
-    await for (final line in response.stream
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())) {
+    await for (final line in lineStream) {
       // 注释行（keepalive 等），忽略
       if (line.startsWith(':')) {
         continue;
@@ -414,7 +415,7 @@ class AgentSessionService {
         continue;
       }
 
-      // data: 行
+      // data: 行（支持多行拼接）
       if (line.startsWith('data:')) {
         final dataContent = line.substring(5).trim();
         if (dataBuffer != null) {
@@ -426,7 +427,29 @@ class AgentSessionService {
 
       // 空行表示事件结束
       if (line.isEmpty && currentEvent != null && dataBuffer != null) {
-        final event = _parseEvent(currentEvent, dataBuffer.toString());
+        final shouldStop = await onEvent(currentEvent, dataBuffer.toString());
+        currentEvent = null;
+        dataBuffer = null;
+        if (shouldStop) return true;
+      }
+    }
+
+    return false;
+  }
+
+  /// 处理 SSE 流，解析事件并添加到 controller
+  Future<void> _processSSEStream({
+    required http.StreamedResponse response,
+    required StreamController<AgentSessionEvent> controller,
+  }) async {
+    final lineStream = response.stream
+        .transform(utf8.decoder)
+        .transform(const LineSplitter());
+
+    await _parseSSELines(
+      lineStream,
+      onEvent: (eventType, data) async {
+        final event = _parseEvent(eventType, data);
         if (event != null) {
           // 会话超时检查
           if (event is AgentErrorEvent && event.code == 'SESSION_EXPIRED') {
@@ -438,13 +461,12 @@ class AgentSessionService {
           // result 或 error 事件后关闭流
           if (event is AgentResultEvent || event is AgentErrorEvent) {
             await controller.close();
-            return;
+            return true;
           }
         }
-        currentEvent = null;
-        dataBuffer = null;
-      }
-    }
+        return false;
+      },
+    );
 
     // 流结束，关闭 controller
     if (!controller.isClosed) {
@@ -551,48 +573,31 @@ class AgentSessionService {
     required http.StreamedResponse response,
     required StreamController<AgentConversationEventItem> controller,
   }) async {
-    String? currentEvent;
-    StringBuffer? dataBuffer;
-
-    await for (final line in response.stream
+    final lineStream = response.stream
         .transform(utf8.decoder)
-        .transform(const LineSplitter())) {
-      if (line.startsWith(':')) {
-        continue;
-      }
-      if (line.startsWith('event:')) {
-        currentEvent = line.substring(6).trim();
-        dataBuffer = StringBuffer();
-        continue;
-      }
-      if (line.startsWith('data:')) {
-        final dataContent = line.substring(5).trim();
-        if (dataBuffer != null) {
-          if (dataBuffer.isNotEmpty) dataBuffer.write('\n');
-          dataBuffer.write(dataContent);
-        }
-        continue;
-      }
-      if (line.isEmpty && currentEvent != null && dataBuffer != null) {
-        if (currentEvent == 'conversation_event') {
+        .transform(const LineSplitter());
+
+    await _parseSSELines(
+      lineStream,
+      onEvent: (eventType, data) async {
+        if (eventType == 'conversation_event') {
           try {
-            final decoded = jsonDecode(dataBuffer.toString());
+            final decoded = jsonDecode(data);
             if (decoded is Map<String, dynamic>) {
               final event = AgentConversationEventItem.fromJson(decoded);
               controller.add(event);
               if (event.type == 'closed') {
                 await controller.close();
-                return;
+                return true;
               }
             }
           } on FormatException {
             // Ignore malformed conversation frames.
           }
         }
-        currentEvent = null;
-        dataBuffer = null;
-      }
-    }
+        return false;
+      },
+    );
 
     if (!controller.isClosed) {
       await controller.close();

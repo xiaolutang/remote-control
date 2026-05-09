@@ -430,7 +430,9 @@ class DesktopAgentHttpClient {
     try {
       final result = await Process.run('ps', ['-p', '$pid']);
       return result.exitCode == 0;
-    } catch (_) {
+    } catch (e) {
+      // Expected: ps command may fail on non-Unix or restricted environments.
+      _log.debug('isProcessAlive check failed for pid $pid: $e');
       return false;
     }
   }

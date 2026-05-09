@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/app_environment.dart';
 import '../models/server_endpoint_profile.dart';
+import 'app_logger.dart';
 
 /// 纯状态服务：管理环境选择与 serverUrl 生成。
 ///
@@ -92,8 +93,9 @@ class EnvironmentService {
     if (savedEnv != null) {
       try {
         _cachedEnvironment = AppEnvironment.values.byName(savedEnv);
-      } catch (_) {
-        // 无效的环境名，使用默认值
+      } catch (e) {
+        // Expected: saved environment name is invalid (e.g. after app downgrade).
+        AppLogger('EnvService').warning('invalid saved environment name "$savedEnv": $e');
       }
     }
     _cachedLocalHost = prefs.getString(_keyLocalHost) ?? _defaultLocalHost;

@@ -29,7 +29,9 @@ Future<bool> _wsConnect(WebSocketService s) async {
     if (s._requiresApplicationLayerEncryption && !s._hasPublicKey) {
       try {
         await s._ensurePublicKeyLoaded();
-      } catch (_) {
+      } catch (e) {
+        // Expected: public key load failure is reported to user via error message.
+        _log.warning('public key load failed: $e');
         s._status = ConnectionStatus.error;
         s._errorMessage = '安全连接建立失败';
         s._notify();

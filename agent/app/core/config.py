@@ -49,6 +49,8 @@ class Config(BaseModel):
     # 连接配置
     auto_reconnect: bool = True
     max_retries: int = 60
+    retry_delay: float = 1.0        # 重连基础延迟（秒），指数退避
+    heartbeat_interval: int = 30    # 心跳间隔（秒）
 
     def get_access_token(self) -> Optional[str]:
         """获取 access token（优先新字段，向后兼容旧字段）"""

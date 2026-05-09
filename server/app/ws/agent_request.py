@@ -309,6 +309,55 @@ def _check_rate_limit(session_id: str) -> bool:
 
 # -- Terminal 请求 --
 
+async def _request_agent_with_ack(
+    session_id: str,
+    *,
+    registry_name: str,
+    future_key: tuple[str, str],
+    message: dict,
+    timeout: float,
+    conflict_detail: str,
+    error_label: str,
+) -> None:
+    """向在线 agent 发送请求并等待确认的通用函数。
+
+    完成以下公共步骤：
+    1. 获取 agent 连接（不在线抛 409）
+    2. 创建 tuple-keyed future
+    3. 发送消息
+    4. wait_for 等待并统一处理 RuntimeError / TimeoutError
+
+    调用方在 await 此函数后自行处理成功结果（如查 DB、构造返回值）。
+    """
+    agent_conn = get_agent_connection(session_id)
+    if not agent_conn:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="device offline")
+    future = pending_registry.create_tuple_future(
+        registry_name, future_key,
+        conflict_detail=conflict_detail,
+    )
+    await agent_conn.send(message)
+    try:
+        await asyncio.wait_for(future, timeout=timeout)
+    except RuntimeError as exc:
+        pending_registry.pop_tuple_future(registry_name, future_key)
+        detail = str(exc)
+        if "agent disconnected" in detail or "offline" in detail:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="device offline",
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=detail or f"terminal {future_key[1]} {error_label}失败",
+        ) from exc
+    except asyncio.TimeoutError as exc:
+        pending_registry.pop_tuple_future(registry_name, future_key)
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=f"terminal {future_key[1]} {error_label}超时",
+        ) from exc
+
+
 async def request_agent_create_terminal(
     session_id: str,
     *,
@@ -322,38 +371,19 @@ async def request_agent_create_terminal(
     timeout: float = 5.0,
 ) -> dict:
     """请求在线 agent 创建 terminal，并等待创建确认。关键路径: agent 离线抛 HTTPException。"""
-    agent_conn = get_agent_connection(session_id)
-    if not agent_conn:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="device offline")
-    future_key = (session_id, terminal_id)
-    future = pending_registry.create_tuple_future(
-        "terminal_creates", future_key,
+    await _request_agent_with_ack(
+        session_id,
+        registry_name="terminal_creates",
+        future_key=(session_id, terminal_id),
+        message={
+            "type": MessageType.CREATE_TERMINAL, "terminal_id": terminal_id, "title": title,
+            "cwd": cwd, "command": command, "env": env or {},
+            "rows": rows, "cols": cols, "timestamp": datetime.now(timezone.utc).isoformat(),
+        },
+        timeout=timeout,
         conflict_detail=f"terminal {terminal_id} 正在创建中",
+        error_label="创建",
     )
-    await agent_conn.send({
-        "type": MessageType.CREATE_TERMINAL, "terminal_id": terminal_id, "title": title,
-        "cwd": cwd, "command": command, "env": env or {},
-        "rows": rows, "cols": cols, "timestamp": datetime.now(timezone.utc).isoformat(),
-    })
-    try:
-        await asyncio.wait_for(future, timeout=timeout)
-    except RuntimeError as exc:
-        pending_registry.pop_tuple_future("terminal_creates", future_key)
-        detail = str(exc)
-        if "agent disconnected" in detail or "offline" in detail:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail="device offline",
-            ) from exc
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=detail or f"terminal {terminal_id} 创建失败",
-        ) from exc
-    except asyncio.TimeoutError as exc:
-        pending_registry.pop_tuple_future("terminal_creates", future_key)
-        raise HTTPException(
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail=f"terminal {terminal_id} 创建超时",
-        ) from exc
     terminal = await get_session_terminal(session_id, terminal_id)
     if not terminal:
         raise HTTPException(
@@ -388,39 +418,20 @@ async def request_agent_close_terminal_with_ack(
     timeout: float = 5.0,
 ) -> dict:
     """请求在线 agent 关闭 terminal，并等待关闭确认。关键路径: agent 离线抛 HTTPException。"""
-    agent_conn = get_agent_connection(session_id)
-    if not agent_conn:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="device offline")
-    future_key = (session_id, terminal_id)
-    future = pending_registry.create_tuple_future(
-        "terminal_closes", future_key,
+    await _request_agent_with_ack(
+        session_id,
+        registry_name="terminal_closes",
+        future_key=(session_id, terminal_id),
+        message={
+            "type": MessageType.CLOSE_TERMINAL,
+            "terminal_id": terminal_id,
+            "reason": reason,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        },
+        timeout=timeout,
         conflict_detail=f"terminal {terminal_id} 正在关闭中",
+        error_label="关闭",
     )
-    await agent_conn.send({
-        "type": MessageType.CLOSE_TERMINAL,
-        "terminal_id": terminal_id,
-        "reason": reason,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    })
-    try:
-        await asyncio.wait_for(future, timeout=timeout)
-    except RuntimeError as exc:
-        pending_registry.pop_tuple_future("terminal_closes", future_key)
-        detail = str(exc)
-        if "agent disconnected" in detail or "offline" in detail:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail="device offline",
-            ) from exc
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=detail or f"terminal {terminal_id} 关闭失败",
-        ) from exc
-    except asyncio.TimeoutError as exc:
-        pending_registry.pop_tuple_future("terminal_closes", future_key)
-        raise HTTPException(
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail=f"terminal {terminal_id} 关闭超时",
-        ) from exc
     return {"terminal_id": terminal_id, "reason": reason}
 
 async def request_agent_terminal_snapshot(

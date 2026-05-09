@@ -36,13 +36,36 @@ from app.transport.agent_message_handler import AgentMessageHandler, _validate_t
 
 logger = logging.getLogger(__name__)
 
+# ── 内部常量（不暴露为用户配置） ──────────────────────────────
+_MAX_RETRY_DELAY = 60.0          # 指数退避上限（秒）
+_AUTH_RECV_TIMEOUT = 30          # 等待服务器 auth 响应超时（秒）
+_RECV_POLL_TIMEOUT = 1           # WebSocket recv 轮询超时（秒）
+_STDIN_BUF_SIZE = 1024           # 本地 stdin 单次读取字节数
+_STDIN_READ_TIMEOUT = 0.1        # 本地 stdin 读取超时（秒）
+_PTY_POLL_INTERVAL = 0.01        # PTY 空读时 sleep 间隔（秒）
+_SNAPSHOT_LIMIT_BYTES = 128 * 1024  # 单 terminal 快照上限（128 KB）
+_HEARTBEAT_INTERVAL_DEFAULT = 30    # 心跳间隔默认值（秒）
+
 __all__ = [
+    "ReconnectExhausted",
     "AgentSnapshotManager",
     "TerminalRuntimeManager",
     "WebSocketClient",
     "TerminalSpec",
     "_validate_terminal_input",
 ]
+
+
+class ReconnectExhausted(Exception):
+    """重连次数耗尽，Agent 应在顶层捕获后执行清理再退出。"""
+
+    def __init__(self, retry_count: int, max_retries: int, reason: str = "reconnect exhausted"):
+        self.retry_count = retry_count
+        self.max_retries = max_retries
+        self.reason = reason
+        super().__init__(
+            f"{reason} (retries={retry_count}/{max_retries})"
+        )
 
 
 
@@ -56,7 +79,7 @@ class AgentSnapshotManager:
         b"\x1b[?1049l", b"\x1b[?1047l", b"\x1b[?47l",
     )
 
-    def __init__(self, snapshot_limit_bytes: int = 128 * 1024):
+    def __init__(self, snapshot_limit_bytes: int = _SNAPSHOT_LIMIT_BYTES):
         self._snapshot_limit_bytes = snapshot_limit_bytes
         self._states: dict[str, TerminalSnapshotState] = {}
 
@@ -207,6 +230,7 @@ class WebSocketClient:
         auto_reconnect: bool = True,
         max_retries: int = 60,
         retry_delay: float = 1.0,
+        heartbeat_interval: int = _HEARTBEAT_INTERVAL_DEFAULT,
         local_display: bool = False,
     ):
         self.server_url = server_url
@@ -216,6 +240,7 @@ class WebSocketClient:
         self.auto_reconnect = auto_reconnect
         self.max_retries = max_retries
         self.retry_delay = retry_delay
+        self.heartbeat_interval = heartbeat_interval
         self.local_display = local_display
 
         self.ws: Optional[ClientConnection] = None
@@ -262,40 +287,45 @@ class WebSocketClient:
                     _should_exit = True
                     break
                 logger.warning("连接关闭: code=%s", close_code)
-                if not self.auto_reconnect or not self._running:
+                _should_exit = await self._handle_reconnect()
+                if _should_exit is not None:
                     break
-                if self._retry_count >= self.max_retries:
-                    logger.error("超过最大重试次数 (%s)，停止重连", self.max_retries)
-                    await self._cleanup(network_lost=True)
-                    _should_exit = True
-                    break
-                delay = min(self.retry_delay * (2 ** self._retry_count), 60.0)
-                logger.info("将在 %s 秒后重连 (第 %s 次)", delay, self._retry_count + 1)
-                await asyncio.sleep(delay)
-                self._retry_count += 1
             except Exception as e:
                 logger.error("连接错误: %s", e)
-                if not self.auto_reconnect or not self._running:
+                _should_exit = await self._handle_reconnect()
+                if _should_exit is not None:
                     break
-                if self._retry_count >= self.max_retries:
-                    logger.error("超过最大重试次数 (%s)，停止重连", self.max_retries)
-                    await self._cleanup(network_lost=True)
-                    _should_exit = True
-                    break
-                delay = min(self.retry_delay * (2 ** self._retry_count), 60.0)
-                logger.info("将在 %s 秒后重连 (第 %s 次)", delay, self._retry_count + 1)
-                await asyncio.sleep(delay)
-                self._retry_count += 1
 
         if _should_exit:
-            logger.info("Agent 进程即将退出 (sys.exit)")
-            sys.exit(1)
+            logger.info("Agent 重连耗尽，抛出 ReconnectExhausted")
+            raise ReconnectExhausted(
+                retry_count=self._retry_count,
+                max_retries=self.max_retries,
+                reason="reconnect exhausted",
+            )
 
-    async def _connect_and_run(self):
-        """连接服务器并运行主循环"""
-        ws_url = f"{self.server_url}/ws/agent"
-        logger.info("正在连接服务器: %s", self.server_url)
+    async def _handle_reconnect(self) -> Optional[bool]:
+        """处理重连逻辑。
 
+        Returns:
+            True  — 重连耗尽，应设置 _should_exit 并 break
+            None  — 将继续重连（已 sleep + 递增计数）
+            不返回 False — 未自动重连或已停止运行时也返回 None 让调用方 break
+        """
+        if not self.auto_reconnect or not self._running:
+            return None
+        if self._retry_count >= self.max_retries:
+            logger.error("超过最大重试次数 (%s)，停止重连", self.max_retries)
+            await self._cleanup(network_lost=True)
+            return True
+        delay = min(self.retry_delay * (2 ** self._retry_count), _MAX_RETRY_DELAY)
+        logger.info("将在 %s 秒后重连 (第 %s 次)", delay, self._retry_count + 1)
+        await asyncio.sleep(delay)
+        self._retry_count += 1
+        return None
+
+    async def _fetch_public_key_if_needed(self) -> None:
+        """ws:// 连接时预先获取服务器公钥（用于后续加密）。"""
         if self.server_url.startswith("ws://") and not agent_crypto.has_public_key:
             http_base = self.server_url.replace("ws://", "http://")
             try:
@@ -303,6 +333,81 @@ class WebSocketClient:
             except Exception as e:
                 logger.error("ws:// 公钥获取失败: %s", e)
                 raise
+
+    async def _exchange_aes_key(self) -> dict:
+        """生成 AES 密钥并用服务器公钥加密，返回用于附加到 auth 消息的字段。
+
+        Returns:
+            包含 encrypted_aes_key 的 dict（若无公钥则返回空 dict）。
+        Raises:
+            Exception — ws:// 连接且 AES 交换失败时抛出。
+        """
+        ws_needs_encryption = self.server_url.startswith("ws://")
+        extra: dict = {}
+
+        if ws_needs_encryption and not agent_crypto.has_public_key:
+            raise Exception("ws:// 连接必须加密，但公钥未获取")
+
+        if agent_crypto.has_public_key:
+            try:
+                agent_crypto.generate_aes_key()
+                extra["encrypted_aes_key"] = agent_crypto.get_encrypted_aes_key_b64()
+                logger.info("AES key generated and encrypted")
+            except Exception as e:
+                logger.error("AES key exchange failed: %s", e)
+                agent_crypto.clear_aes_key()
+                if ws_needs_encryption:
+                    raise Exception("ws:// 连接 AES 密钥交换失败") from e
+
+        return extra
+
+    async def _authenticate(self, ws: ClientConnection) -> None:
+        """发送 auth 消息并等待服务器确认。
+
+        包含 AES 密钥交换。
+        """
+        auth_msg: dict = {"type": MessageType.AUTH, "token": self.token}
+        aes_extra = await self._exchange_aes_key()
+        auth_msg.update(aes_extra)
+        await ws.send(json.dumps(auth_msg))
+
+        message = await asyncio.wait_for(ws.recv(), timeout=_AUTH_RECV_TIMEOUT)
+        data = json.loads(message)
+        if data.get("type") == MessageType.CONNECTED:
+            self._session_id = data.get("session_id")
+            self._retry_count = 0
+            logger.info("会话已建立: %s", self._session_id)
+        else:
+            raise Exception(f"意外的消息类型: {data.get('type')}")
+
+    async def _report_agent_metadata(self) -> None:
+        """向服务器上报 Agent 元数据（平台、主机名等）。"""
+        await self._send_ws_message({
+            "type": MessageType.AGENT_METADATA,
+            "platform": platform.system().lower(),
+            "hostname": socket.gethostname(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
+    async def _start_tool_services(self) -> None:
+        """初始化知识库目录、启动 MCP 服务，并上报工具目录快照。"""
+        ensure_user_knowledge_dir()
+        await self.mcp_manager.start_all()
+
+        catalog_tools = [get_knowledge_catalog_entry()]
+        catalog_tools.extend(self.mcp_manager.build_tool_catalog())
+        await self._send_ws_message({
+            "type": MessageType.TOOL_CATALOG_SNAPSHOT,
+            "tools": catalog_tools,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
+    async def _connect_and_run(self):
+        """连接服务器并运行主循环 — 编排各阶段子方法。"""
+        ws_url = f"{self.server_url}/ws/agent"
+        logger.info("正在连接服务器: %s", self.server_url)
+
+        await self._fetch_public_key_if_needed()
 
         original_no_proxy = os.environ.get('NO_PROXY', '')
         os.environ['NO_PROXY'] = 'localhost,127.0.0.1,host.docker.internal'
@@ -318,52 +423,9 @@ class WebSocketClient:
                 logger.info("已连接到服务器")
 
                 try:
-                    # auth 消息
-                    auth_msg = {"type": MessageType.AUTH, "token": self.token}
-                    ws_needs_encryption = self.server_url.startswith("ws://")
-
-                    if ws_needs_encryption and not agent_crypto.has_public_key:
-                        raise Exception("ws:// 连接必须加密，但公钥未获取")
-
-                    if agent_crypto.has_public_key:
-                        try:
-                            agent_crypto.generate_aes_key()
-                            auth_msg["encrypted_aes_key"] = agent_crypto.get_encrypted_aes_key_b64()
-                            logger.info("AES key generated and encrypted")
-                        except Exception as e:
-                            logger.error("AES key exchange failed: %s", e)
-                            agent_crypto.clear_aes_key()
-                            if ws_needs_encryption:
-                                raise Exception("ws:// 连接 AES 密钥交换失败") from e
-
-                    await ws.send(json.dumps(auth_msg))
-
-                    message = await asyncio.wait_for(ws.recv(), timeout=30)
-                    data = json.loads(message)
-                    if data.get("type") == MessageType.CONNECTED:
-                        self._session_id = data.get("session_id")
-                        self._retry_count = 0
-                        logger.info("会话已建立: %s", self._session_id)
-                    else:
-                        raise Exception(f"意外的消息类型: {data.get('type')}")
-
-                    await self._send_ws_message({
-                        "type": MessageType.AGENT_METADATA,
-                        "platform": platform.system().lower(),
-                        "hostname": socket.gethostname(),
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                    })
-
-                    ensure_user_knowledge_dir()
-                    await self.mcp_manager.start_all()
-
-                    catalog_tools = [get_knowledge_catalog_entry()]
-                    catalog_tools.extend(self.mcp_manager.build_tool_catalog())
-                    await self._send_ws_message({
-                        "type": MessageType.TOOL_CATALOG_SNAPSHOT,
-                        "tools": catalog_tools,
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                    })
+                    await self._authenticate(ws)
+                    await self._report_agent_metadata()
+                    await self._start_tool_services()
 
                     self.pty = PTYWrapper(self.command)
                     if not self.pty.start():
@@ -403,14 +465,14 @@ class WebSocketClient:
             try:
                 data = await self.pty.read()
                 if data is None:
-                    await asyncio.sleep(0.01)
+                    await asyncio.sleep(_PTY_POLL_INTERVAL)
                     continue
                 if self.local_display:
                     try:
                         sys.stdout.buffer.write(data)
                         sys.stdout.buffer.flush()
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("local stdout write failed: %s", e)  # Expected: stdout may be piped/closed
                 payload = base64.b64encode(data).decode("utf-8")
                 await self._send_ws_message({
                     "type": MessageType.DATA, "payload": payload,
@@ -432,7 +494,7 @@ class WebSocketClient:
                 if data is None:
                     if not runtime.is_running():
                         break
-                    await asyncio.sleep(0.01)
+                    await asyncio.sleep(_PTY_POLL_INTERVAL)
                     continue
                 payload = base64.b64encode(data).decode("utf-8")
                 self.snapshot_manager.append_output(terminal_id, data)
@@ -454,7 +516,7 @@ class WebSocketClient:
         """WebSocket 消息接收循环 — 委派给 AgentMessageHandler"""
         while self._running and self._connected:
             try:
-                message = await asyncio.wait_for(self.ws.recv(), timeout=1)
+                message = await asyncio.wait_for(self.ws.recv(), timeout=_RECV_POLL_TIMEOUT)
                 data = json.loads(message)
 
                 if data.get("encrypted") and agent_crypto.has_public_key:
@@ -500,12 +562,13 @@ class WebSocketClient:
 
             while self._running and self._connected:
                 try:
-                    data = await asyncio.wait_for(reader.read(1024), timeout=0.1)
+                    data = await asyncio.wait_for(reader.read(_STDIN_BUF_SIZE), timeout=_STDIN_READ_TIMEOUT)
                     if data:
                         self.pty.write(data)
                 except asyncio.TimeoutError:
                     continue
                 except Exception:
+                    logger.debug("local stdin read error, breaking loop")  # Expected: stdin closed/EOF
                     break
         except Exception as e:
             logger.error("本地输入读取错误: %s", e)
@@ -515,7 +578,7 @@ class WebSocketClient:
         while self._running and self._connected:
             try:
                 await self._send_ws_message({"type": MessageType.PING})
-                await asyncio.sleep(30)
+                await asyncio.sleep(self.heartbeat_interval)
             except Exception as e:
                 logger.error("心跳发送错误: %s", e)
                 self._connected = False
@@ -586,8 +649,8 @@ class WebSocketClient:
             for event in close_events:
                 try:
                     await self._send_ws_message(event)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("cleanup send close event failed: %s", e)  # Expected: WS may already be closed
 
         if self.pty:
             self.pty.stop()
@@ -596,11 +659,12 @@ class WebSocketClient:
         if self.ws:
             try:
                 await self.ws.close(code=ws_close_code, reason=close_reason)
-            except Exception:
+            except Exception as e:
+                logger.debug("WS close with code failed: %s", e)  # Expected: connection may already be lost
                 try:
                     await self.ws.close()
-                except Exception:
-                    pass
+                except Exception as e2:
+                    logger.debug("WS force close failed: %s", e2)  # Expected: connection may already be lost
             self.ws = None
 
         if self._local_server and not self._local_server.keep_running_in_background:

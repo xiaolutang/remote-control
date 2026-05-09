@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import 'app_logger.dart';
+
 /// 知识文件信息模型
 class KnowledgeInfo {
   const KnowledgeInfo({
@@ -155,7 +157,8 @@ class SkillConfigService {
       final json = jsonDecode(content) as Map<String, dynamic>;
       final disabled = json['disabled_files'] as List<dynamic>? ?? [];
       return disabled.cast<String>().toList();
-    } catch (_) {
+    } catch (e) {
+      AppLogger('SkillConfig').warning('load disabled knowledge config failed: $e');
       return [];
     }
   }

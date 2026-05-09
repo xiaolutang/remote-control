@@ -1,0 +1,832 @@
+{
+  "version": "1.4",
+  "project": "remote-control",
+  "updated_at": "2026-05-09T12:22:00+08:00",
+  "status": "active",
+  "active_requirement_cycle": {
+    "id": "R058",
+    "name": "code-optimization-perf",
+    "branch": "chore/R058-code-optimization-perf",
+    "started_at": "2026-05-09T12:00:00+08:00",
+    "workflow": {
+      "mode": "B",
+      "runtime": "skill_orchestrated",
+      "review_provider": "codex_plugin",
+      "audit_provider": "codex_plugin",
+      "risk_provider": "codex_plugin"
+    },
+    "summary": "全面技术债务扫描 + 性能优化：Bug修复、重复代码消除、常量集中、过长函数拆分、性能优化、测试补充"
+  },
+  "archived_requirement_cycles": [
+    {
+      "id": "R047",
+      "name": "agent-conversation-interaction-optimization",
+      "status": "completed",
+      "archive_dir": "_archive/R047_agent-conversation-interaction-optimization",
+      "total_tasks": 31
+    },
+    {
+      "id": "R048",
+      "name": "architecture-deep-cleanup",
+      "status": "completed",
+      "archive_dir": "_archive/R048_architecture-deep-cleanup",
+      "total_tasks": 20
+    },
+    {
+      "id": "R049",
+      "name": "brainstorm-bug-fixes",
+      "status": "completed",
+      "archive_dir": "_archive/R049_brainstorm-bug-fixes",
+      "total_tasks": 3
+    },
+    {
+      "id": "R050",
+      "name": "token-usage-optimization",
+      "status": "completed",
+      "archive_dir": "_archive/R050_token-usage-optimization",
+      "total_tasks": 3
+    },
+    {
+      "id": "R051",
+      "name": "eval-architecture-overhaul",
+      "status": "completed",
+      "archive_dir": "_archive/R051_eval-architecture-overhaul",
+      "total_tasks": 11
+    },
+    {
+      "id": "R052",
+      "name": "open-source-release",
+      "status": "completed",
+      "archive_dir": "_archive/R052_open-source-release",
+      "total_tasks": 5
+    },
+    {
+      "id": "R053",
+      "name": "desktop-agent-bundling",
+      "status": "completed",
+      "archive_dir": "_archive/R053_desktop-agent-bundling",
+      "total_tasks": 3
+    },
+    {
+      "id": "R054",
+      "name": "code-quality-consolidation",
+      "status": "completed",
+      "archive_dir": "_archive/R054_code-quality-consolidation",
+      "total_tasks": 11,
+      "completed_at": "2026-05-06"
+    },
+    {
+      "id": "R056",
+      "name": "auth-connection-optimize",
+      "status": "completed",
+      "archive_dir": "_archive/R056_auth-connection-optimize",
+      "total_tasks": 2,
+      "completed_at": "2026-05-07"
+    },
+    {
+      "id": "R057",
+      "name": "tech-debt-cleanup",
+      "status": "completed",
+      "archive_dir": "_archive/R057_tech-debt-cleanup",
+      "total_tasks": 23,
+      "completed_at": "2026-05-09"
+    }
+  ],
+  "archived_phases": [],
+  "features": [
+    {
+      "id": "S501",
+      "phase": 0,
+      "module": "agent",
+      "name": "Agent configure max_retries=0 bug 修复",
+      "description": "cli.py configure 命令中 max_retries 使用 if max_retries: 而非 if max_retries is not None:，导致 --max-retries 0 无法生效。同函数中 shell 和 reconnect 参数已正确使用 is not None 检查。",
+      "verification": "L1",
+      "depends_on": [],
+      "status": "completed",
+      "priority": 1,
+      "acceptance_criteria": [
+        "cli.py 第393行 max_retries 判断改为 is not None",
+        "已有测试通过",
+        "补充 max_retries=0 的回归测试"
+      ],
+      "test_tasks": [
+        "正常: configure --max-retries 5 正常设置",
+        "边界: configure --max-retries 0 能正确设置为 0",
+        "异常: configure 不传 --max-retries 不覆盖已有值"
+      ],
+      "risk_tags": [
+        "config"
+      ],
+      "files": [
+        "agent/app/cli.py"
+      ],
+      "commit": "d6b8493",
+      "completed_at": "2026-05-09T12:22:00+08:00",
+      "summary": "Agent configure max_retries=0 bug 修复 — 已完成"
+    },
+    {
+      "id": "S502",
+      "phase": 0,
+      "module": "agent",
+      "name": "Agent env_compat.py 运算符优先级修复",
+      "description": "env_compat.py 第54行 if path and '/opt/homebrew' in path or '/usr/local' in path: 缺少括号，当 path 为空时 '/usr/local' in path 会抛出 TypeError。",
+      "verification": "L1",
+      "depends_on": [],
+      "status": "completed",
+      "priority": 1,
+      "acceptance_criteria": [
+        "第54行添加括号明确优先级",
+        "已有 env_compat 测试通过",
+        "补充 path 为空字符串的边界测试"
+      ],
+      "test_tasks": [
+        "正常: 完整 PATH 不修改",
+        "边界: 空字符串 PATH 不抛异常",
+        "正常: 最小 PATH 正确扩展"
+      ],
+      "risk_tags": [
+        "config",
+        "first_use"
+      ],
+      "files": [
+        "agent/app/core/env_compat.py"
+      ],
+      "commit": "f4e9ae6",
+      "completed_at": "2026-05-09T12:22:00+08:00",
+      "summary": "Agent env_compat.py 运算符优先级修复 — 已完成"
+    },
+    {
+      "id": "S503",
+      "phase": 0,
+      "module": "agent",
+      "name": "Agent sys.exit(1) 改为异常 + 清理",
+      "description": "websocket_client.py run() 方法在重连耗尽后调用 sys.exit(1)，会跳过所有 finally 块和 atexit 回调，导致 MCP 子进程未回收、状态文件未清理。改为抛出 ReconnectExhausted 异常，由顶层捕获后执行清理再退出。",
+      "verification": "L1",
+      "depends_on": [],
+      "status": "completed",
+      "priority": 1,
+      "acceptance_criteria": [
+        "新增 ReconnectExhausted 异常类",
+        "run() 改为 raise ReconnectExhausted",
+        "cli.py 顶层捕获 ReconnectExhausted 执行清理后 sys.exit",
+        "已有测试通过"
+      ],
+      "test_tasks": [
+        "正常: 重连耗尽抛出 ReconnectExhausted",
+        "正常: 顶层捕获后执行清理函数",
+        "异常: 确认 finally 块正常执行"
+      ],
+      "risk_tags": [
+        "network",
+        "startup"
+      ],
+      "files": [
+        "agent/app/transport/websocket_client.py",
+        "agent/app/cli.py"
+      ],
+      "commit": "825cf45",
+      "completed_at": "2026-05-09T12:22:00+08:00",
+      "summary": "Agent sys.exit(1) 改为异常 + 清理 — 已完成"
+    },
+    {
+      "id": "S504",
+      "phase": 0,
+      "module": "client",
+      "name": "Client LoginScreen 硬编码凭证清理",
+      "description": "login_screen.dart 第31-32行 TextEditingController 默认值硬编码为 test/test123。生产环境泄露测试凭证存在安全风险。改为仅 debug 模式填充。",
+      "verification": "F1",
+      "depends_on": [],
+      "status": "completed",
+      "priority": 1,
+      "acceptance_criteria": [
+        "Release 模式下用户名/密码输入框为空",
+        "Debug 模式下保留 test/test123 方便开发",
+        "登录功能正常"
+      ],
+      "test_tasks": [
+        "正常: Debug 模式保留默认值",
+        "正常: Release 模式输入框为空"
+      ],
+      "risk_tags": [
+        "first_use"
+      ],
+      "files": [
+        "client/lib/screens/login_screen.dart"
+      ],
+      "commit": "45e1284",
+      "completed_at": "2026-05-09T12:22:00+08:00",
+      "summary": "Client LoginScreen 硬编码凭证清理 — 已完成"
+    },
+    {
+      "id": "S505",
+      "phase": 1,
+      "module": "server",
+      "name": "Server verify_token/verify_refresh_token 重复代码消除",
+      "description": "auth.py 中 verify_token (80行) 和 verify_refresh_token (75行) 约70%逻辑重复：空值检查、长度检查、null bytes检查、JWT解码、错误分类。提取公共 _validate_token_format() 和 _decode_and_classify_jwt()。",
+      "verification": "L1",
+      "depends_on": [],
+      "status": "completed",
+      "priority": 2,
+      "acceptance_criteria": [
+        "提取 _validate_token_format() 和 _decode_and_classify_jwt() 辅助函数",
+        "verify_token 和 verify_refresh_token 复用公共函数",
+        "auth 相关测试全量通过",
+        "功能行为不变"
+      ],
+      "test_tasks": [
+        "正常: 有效 token 验证通过",
+        "异常: 过期 token 返回 expired",
+        "异常: 无效 token 返回 invalid",
+        "正常: refresh token 验证独立正确",
+        "边界: 空 token / 超长 token (>10KB) 被拒绝",
+        "边界: 含 null bytes 的 token 被拒绝",
+        "异常: 畸形 JWT 正确分类为 invalid"
+      ],
+      "risk_tags": [
+        "auth",
+        "network"
+      ],
+      "files": [
+        "server/app/infra/auth.py"
+      ],
+      "commit": "41809cb",
+      "completed_at": "2026-05-09T12:22:00+08:00",
+      "summary": "Server verify_token/verify_refresh_token 重复代码消除 — 已完成"
+    },
+    {
+      "id": "S506",
+      "phase": 1,
+      "module": "server",
+      "name": "Server agent_request 重复代码消除",
+      "description": "agent_request.py 中 request_agent_create_terminal() 和 request_agent_close_terminal_with_ack() 约80%代码重复（获取连接、创建future、发送消息、wait_for、异常处理）。提取 _request_agent_with_ack() 通用函数。",
+      "verification": "L1",
+      "depends_on": [],
+      "status": "completed",
+      "priority": 2,
+      "acceptance_criteria": [
+        "提取 _request_agent_with_ack() 通用函数",
+        "create/close_terminal 函数复用通用函数",
+        "ws 相关测试全量通过"
+      ],
+      "test_tasks": [
+        "正常: create_terminal 请求成功",
+        "正常: close_terminal 请求成功",
+        "异常: agent 不在线时超时返回",
+        "异常: 连接中断时正确处理"
+      ],
+      "risk_tags": [
+        "network"
+      ],
+      "files": [
+        "server/app/ws/agent_request.py"
+      ],
+      "commit": "0750cbf",
+      "completed_at": "2026-05-09T12:22:00+08:00",
+      "summary": "Server agent_request 重复代码消除 — 已完成"
+    },
+    {
+      "id": "S507",
+      "phase": 1,
+      "module": "agent",
+      "name": "Agent 重连逻辑合并",
+      "description": "websocket_client.py run() 中 ConnectionClosedError 和通用 Exception 两个 except 块的重连逻辑几乎完全相同（最大重试检查、延迟计算、日志、cleanup、_should_exit）。合并为 _handle_reconnect() 方法。",
+      "verification": "L1",
+      "depends_on": [
+        "S503"
+      ],
+      "status": "completed",
+      "priority": 2,
+      "acceptance_criteria": [
+        "提取 _handle_reconnect() 方法",
+        "两个 except 块复用同一方法",
+        "重连行为不变",
+        "已有测试通过"
+      ],
+      "test_tasks": [
+        "正常: ConnectionClosedError 触发重连",
+        "正常: 通用异常触发重连",
+        "边界: 超过最大重试次数停止",
+        "异常: NON_RECOVERABLE_CODES 不重连"
+      ],
+      "risk_tags": [
+        "network"
+      ],
+      "files": [
+        "agent/app/transport/websocket_client.py"
+      ],
+      "commit": "0cd5a96",
+      "completed_at": "2026-05-09T12:22:00+08:00",
+      "summary": "Agent 重连逻辑合并 — 已完成"
+    },
+    {
+      "id": "S508",
+      "phase": 1,
+      "module": "client",
+      "name": "Client ProviderNotFoundException 重复模式提取",
+      "description": "agent_panel_handlers.dart 中 8 处 try { controller = context.read<T>(); } on ProviderNotFoundException { return; } 模式。提取为 _tryGetController<T>() 工具方法。",
+      "verification": "F1",
+      "depends_on": [],
+      "status": "completed",
+      "priority": 2,
+      "acceptance_criteria": [
+        "提取泛型 _tryGetController<T>() 方法",
+        "8 处重复代码替换为工具方法调用",
+        "编译通过，功能不变"
+      ],
+      "risk_tags": [],
+      "files": [
+        "client/lib/widgets/agent_panel_handlers.dart"
+      ],
+      "commit": "2d1d8fc",
+      "completed_at": "2026-05-09T12:22:00+08:00",
+      "summary": "Client ProviderNotFoundException 重复模式提取 — 已完成"
+    },
+    {
+      "id": "S509",
+      "phase": 1,
+      "module": "client",
+      "name": "Client SSE 解析公共逻辑提取",
+      "description": "agent_session_service.dart 中 _processSSEStream 和 _processConversationStream 约60%代码重复（SSE行解析：startsWith(':')/event/data/空行处理）。提取公共 SSE 行解析器。",
+      "verification": "F1",
+      "depends_on": [],
+      "status": "completed",
+      "priority": 2,
+      "acceptance_criteria": [
+        "提取 SSE 行解析公共逻辑",
+        "两个方法复用公共解析器",
+        "SSE 流解析行为不变"
+      ],
+      "test_tasks": [
+        "正常: event: + data: + 空行触发事件派发",
+        "正常: 以 : 开头的注释行被跳过",
+        "边界: 多行 data 拼接（data: line1\\ndata: line2）",
+        "边界: 截断帧（无空行结束）缓存到下一轮",
+        "异常: 流 EOF/重置时正确清理解析状态"
+      ],
+      "risk_tags": [
+        "network"
+      ],
+      "files": [
+        "client/lib/services/agent_session_service.dart"
+      ],
+      "commit": "2c08257",
+      "completed_at": "2026-05-09T12:22:00+08:00",
+      "summary": "Client SSE 解析公共逻辑提取 — 已完成"
+    },
+    {
+      "id": "S510",
+      "phase": 2,
+      "module": "agent",
+      "name": "Agent 硬编码常量集中到 Config",
+      "description": "Agent 模块 16+ 处硬编码超时/端口/配置值散布各文件：max_retries=60、退避上限60s、心跳30s、端口18765-18769、缓冲区大小等。分离为两类：运行时可配置值（max_retries、heartbeat_interval）保留在 Config/JSON；内部代码常量（缓冲区大小、退避上限、端口范围）定义为模块级常量。不将内部常量暴露为用户配置面。",
+      "verification": "L1",
+      "depends_on": [
+        "S501",
+        "S502"
+      ],
+      "status": "completed",
+      "priority": 3,
+      "acceptance_criteria": [
+        "所有散落的 magic numbers 集中到 Config 或 constants",
+        "功能行为不变",
+        "已有测试通过"
+      ],
+      "test_tasks": [
+        "正常: 重连使用 Config 中的 max_retries",
+        "正常: 心跳使用 Config 中的间隔",
+        "正常: 端口范围从 Config 读取"
+      ],
+      "risk_tags": [
+        "config"
+      ],
+      "files": [
+        "agent/app/transport/websocket_client.py",
+        "agent/app/core/config.py",
+        "agent/local_server.py"
+      ],
+      "commit": "610479b",
+      "completed_at": "2026-05-09T12:22:00+08:00",
+      "summary": "Agent 硬编码常量集中到 Config — 已完成"
+    },
+    {
+      "id": "S511",
+      "phase": 2,
+      "module": "agent",
+      "name": "Agent 静默异常补充日志",
+      "description": "Agent 模块 13 处 except Exception: pass 完全无日志（auth_service、mcp_client、pty_wrapper、websocket_client、agent_message_handler 等）。逐个评估是否需要补充日志。",
+      "verification": "L1",
+      "depends_on": [],
+      "status": "completed",
+      "priority": 3,
+      "acceptance_criteria": [
+        "13处静默 catch 逐个评估：PTY写入/读取异常、MCP停止异常、WS关闭异常 等补充 logger.debug",
+        "合理静默场景（cancel不阻塞）保留 pass 但加注释说明",
+        "不改变异常处理逻辑（该 pass 的还 pass）",
+        "已有测试通过"
+      ],
+      "test_tasks": [
+        "正常: PTY 异常时日志包含 terminal_id 上下文",
+        "正常: MCP 异常时日志包含 process 上下文",
+        "正常: 日志不影响正常功能流程"
+      ],
+      "risk_tags": [],
+      "files": [
+        "agent/app/security/auth_service.py",
+        "agent/app/tools/mcp_client.py",
+        "agent/app/core/pty_wrapper.py",
+        "agent/app/transport/websocket_client.py",
+        "agent/app/transport/agent_message_handler.py"
+      ],
+      "commit": "ed70f76",
+      "completed_at": "2026-05-09T12:22:00+08:00",
+      "summary": "Agent 静默异常补充日志 — 已完成"
+    },
+    {
+      "id": "S512",
+      "phase": 2,
+      "module": "client",
+      "name": "Client Duration 常量统一到 TimingConstants",
+      "description": "Client 多处 Duration 散布：12s (6处)、8s (5处)、2s (2处)、300ms (2处) 等。项目已有 TimingConstants 但未充分使用。补充缺失常量并统一引用。",
+      "verification": "F1",
+      "depends_on": [],
+      "status": "completed",
+      "priority": 3,
+      "acceptance_criteria": [
+        "TimingConstants 补充 agent 启动超时等常量",
+        "desktop_agent 相关文件的散落 Duration 统一引用",
+        "编译通过",
+        "手动验证：修改 TimingConstants.agentStartTimeout 后 desktop_agent_supervisor 使用新值"
+      ],
+      "risk_tags": [
+        "config"
+      ],
+      "files": [
+        "client/lib/models/config.dart",
+        "client/lib/services/desktop/desktop_agent_supervisor.dart",
+        "client/lib/services/desktop/desktop_agent_bootstrap_service.dart"
+      ],
+      "commit": "2174fe2",
+      "completed_at": "2026-05-09T12:22:00+08:00",
+      "summary": "Client Duration 常量统一到 TimingConstants — 已完成"
+    },
+    {
+      "id": "S513",
+      "phase": 2,
+      "module": "client",
+      "name": "Client 静默 catch 补充日志",
+      "description": "Client 模块 14 处 catch(_) 完全无日志。评估每处是否需要日志：合理场景（cancel失败不阻塞UI）保留无日志，不合理场景（配置保存失败）补充日志。",
+      "verification": "F1",
+      "depends_on": [],
+      "status": "completed",
+      "priority": 3,
+      "acceptance_criteria": [
+        "14处 catch(_) 逐个评估：skill_config_service 保存失败、ws_connection_manager 连接异常等补充 AppLogger.warning",
+        "合理静默场景（UI cancel 不阻塞、dispose 失败不传播）保留 catch(_) 但加注释说明",
+        "不改变异常处理逻辑",
+        "编译通过"
+      ],
+      "risk_tags": [],
+      "files": [
+        "client/lib/widgets/agent_panel_handlers.dart",
+        "client/lib/services/agent_session_service.dart",
+        "client/lib/services/skill_config_service.dart",
+        "client/lib/services/ws_connection_manager.dart",
+        "client/lib/services/network_diagnostic_service.dart"
+      ],
+      "commit": "2174fe2",
+      "completed_at": "2026-05-09T12:22:00+08:00",
+      "summary": "Client 静默 catch 补充日志 — 已完成"
+    },
+    {
+      "id": "S514",
+      "phase": 3,
+      "module": "server",
+      "name": "Server run_agent_loop 拆分",
+      "description": "agent_session_runner.py run_agent_loop() 472行，含5个嵌套闭包。将闭包提取为独立方法或类方法，run_agent_loop 作为编排器只做调度。",
+      "verification": "L1",
+      "depends_on": [
+        "S505"
+      ],
+      "status": "completed",
+      "priority": 4,
+      "acceptance_criteria": [
+        "5个闭包提取为类方法",
+        "run_agent_loop 缩减为编排调度逻辑",
+        "agent session 测试全量通过",
+        "功能行为不变"
+      ],
+      "test_tasks": [
+        "正常: agent 会话创建和执行",
+        "正常: 命令执行回调正确",
+        "异常: 会话超时正确处理",
+        "正常: 工具调用链路完整"
+      ],
+      "risk_tags": [
+        "network"
+      ],
+      "files": [
+        "server/app/services/agent_session_runner.py"
+      ],
+      "commit": "35bcae8",
+      "completed_at": "2026-05-09T12:22:00+08:00",
+      "summary": "Server run_agent_loop 拆分 — 已完成"
+    },
+    {
+      "id": "S515",
+      "phase": 3,
+      "module": "server",
+      "name": "Server client_websocket_handler 拆分",
+      "description": "ws_client.py client_websocket_handler() 256行，包含鉴权、终端查找、AES密钥协商、踢出旧设备、消息循环。拆分为阶段函数。",
+      "verification": "L2",
+      "depends_on": [],
+      "status": "completed",
+      "priority": 4,
+      "acceptance_criteria": [
+        "拆分为 _ws_auth_phase/_ws_session_resolve/_ws_register_client/_ws_message_loop",
+        "原函数缩减为阶段调度",
+        "ws 相关测试全量通过"
+      ],
+      "test_tasks": [
+        "正常: WS 连接建立和鉴权",
+        "正常: 终端会话绑定",
+        "异常: token 无效时断开",
+        "正常: 消息收发正常"
+      ],
+      "risk_tags": [
+        "network",
+        "auth"
+      ],
+      "files": [
+        "server/app/ws/ws_client.py"
+      ],
+      "commit": "35bcae8",
+      "completed_at": "2026-05-09T12:22:00+08:00",
+      "summary": "Server client_websocket_handler 拆分 — 已完成"
+    },
+    {
+      "id": "S516",
+      "phase": 3,
+      "module": "agent",
+      "name": "Agent _connect_and_run 拆分",
+      "description": "websocket_client.py _connect_and_run() 105行，职责过重：连接建立、公钥获取、NO_PROXY管理、AES密钥交换、认证、元数据上报、知识库初始化、MCP启动、PTY启动。拆分为子方法。",
+      "verification": "L1",
+      "depends_on": [
+        "S507"
+      ],
+      "status": "completed",
+      "priority": 4,
+      "acceptance_criteria": [
+        "拆分为 _authenticate/_exchange_aes_key/_report_agent_metadata/_start_tool_services 等子方法",
+        "_connect_and_run 缩减为编排逻辑",
+        "已有测试通过"
+      ],
+      "test_tasks": [
+        "正常: 连接建立和认证",
+        "正常: AES 密钥交换",
+        "正常: PTY 启动",
+        "异常: 认证失败正确处理"
+      ],
+      "risk_tags": [
+        "network",
+        "auth"
+      ],
+      "files": [
+        "agent/app/transport/websocket_client.py"
+      ],
+      "commit": "6ff73eb",
+      "completed_at": "2026-05-09T12:22:00+08:00",
+      "summary": "Agent _connect_and_run 拆分 — 已完成"
+    },
+    {
+      "id": "S517",
+      "phase": 3,
+      "module": "client",
+      "name": "Client 大文件拆分",
+      "description": "terminal_workspace_screen.dart (1065行) 含多个 widget，agent_panel_handlers.dart (851行) 职责过多。提取独立 widget 到独立文件。",
+      "verification": "F1",
+      "depends_on": [
+        "S508",
+        "S509"
+      ],
+      "status": "completed",
+      "priority": 4,
+      "acceptance_criteria": [
+        "terminal_workspace_screen: 提取 _WorkspaceHeaderBar/_WorkspaceEmptyState 到独立文件",
+        "agent_panel_handlers: 按 SSE/编辑/事件 拆分 part 文件",
+        "编译通过，功能不变"
+      ],
+      "risk_tags": [],
+      "files": [
+        "client/lib/screens/desktop/terminal_workspace_screen.dart",
+        "client/lib/widgets/agent_panel_handlers.dart"
+      ],
+      "commit": "6ff73eb",
+      "completed_at": "2026-05-09T12:22:00+08:00",
+      "summary": "Client 大文件拆分 — 已完成"
+    },
+    {
+      "id": "S518",
+      "phase": 4,
+      "module": "server",
+      "name": "Server Redis 批量读取优化",
+      "description": "list_sessions_for_user() N+1 Redis 读取（1次 smembers + N次逐个读取）；get_session_by_device_id() 无索引时 SCAN 全库。优化：pipeline 批量读取 + device_id 反向索引。",
+      "verification": "L1",
+      "depends_on": [],
+      "status": "completed",
+      "priority": 5,
+      "acceptance_criteria": [
+        "list_sessions_for_user 改为 pipeline 批量读取",
+        "get_session_by_device_id 维护 device_id → session_id 反向索引",
+        "索引缺失时 graceful fallback：未命中索引时走原有 SCAN 路径（lazy self-heal）",
+        "session 相关测试通过",
+        "性能验证：10个 session 批量读取不超过3次 Redis 调用（可通过 mock 断言 call_count）"
+      ],
+      "test_tasks": [
+        "正常: 用户 session 列表正确返回",
+        "正常: device_id 查找正确",
+        "边界: 用户无 session 时返回空列表",
+        "性能: 10个 session 的批量读取不超过3次 Redis 调用",
+        "兼容: 索引不存在时 fallback 到 SCAN 不报错"
+      ],
+      "risk_tags": [
+        "network"
+      ],
+      "files": [
+        "server/app/store/session.py",
+        "server/app/store/session_crud.py"
+      ],
+      "commit": "11c21d7",
+      "completed_at": "2026-05-09T12:22:00+08:00",
+      "summary": "Server Redis 批量读取优化 — 已完成"
+    },
+    {
+      "id": "S519",
+      "phase": 4,
+      "module": "agent",
+      "name": "Agent ClientSession 复用 + 知识库缓存",
+      "description": "local_server.py discover_local_agent() 每个端口创建新 ClientSession；knowledge_tool.py lookup_knowledge() 每次调用从磁盘读取配置和扫描文件。优化：复用 session + 缓存知识库配置。",
+      "verification": "L1",
+      "depends_on": [
+        "S510"
+      ],
+      "status": "completed",
+      "priority": 5,
+      "acceptance_criteria": [
+        "discover_local_agent 循环外创建 ClientSession 循环内复用",
+        "knowledge_tool 缓存 KnowledgeConfig（文件变更时 stat 检测失效）",
+        "已有测试通过"
+      ],
+      "test_tasks": [
+        "正常: 端口扫描发现 agent",
+        "正常: 知识库查询返回正确结果",
+        "边界: 知识库配置文件更新后缓存失效"
+      ],
+      "risk_tags": [
+        "network"
+      ],
+      "files": [
+        "agent/local_server.py",
+        "agent/app/tools/knowledge_tool.py"
+      ],
+      "commit": "11c21d7",
+      "completed_at": "2026-05-09T12:22:00+08:00",
+      "summary": "Agent ClientSession 复用 + 知识库缓存 — 已完成"
+    },
+    {
+      "id": "S520",
+      "phase": 4,
+      "module": "client",
+      "name": "Client setState 优化 + dispose 修复",
+      "description": "多处 setState(() {}) 空回调触发全局 rebuild；SmartTerminalSidePanelContent 的 StreamSubscription 未在 dispose 中清理；TextEditingController 在 addPostFrameCallback 中延迟 dispose 有泄漏风险。",
+      "verification": "F1",
+      "depends_on": [],
+      "status": "completed",
+      "priority": 5,
+      "acceptance_criteria": [
+        "terminal_screen.dart 第69行 _onControllerChanged 空 setState 改为精确更新",
+        "agent_panel_handlers.dart 空 setState 改为局部刷新",
+        "smart_terminal_side_panel_content.dart dispose 中显式取消 _eventSubscription 和 _conversationStreamSubscription",
+        "编译通过，功能不变"
+      ],
+      "test_tasks": [
+        "正常: UI 状态更新正确",
+        "正常: 页面退出后无内存泄漏",
+        "正常: dispose 路径覆盖所有 subscription"
+      ],
+      "risk_tags": [],
+      "files": [
+        "client/lib/widgets/smart_terminal_side_panel_content.dart",
+        "client/lib/screens/terminal_screen.dart",
+        "client/lib/widgets/agent_panel_handlers.dart"
+      ],
+      "commit": "e6a30cc",
+      "completed_at": "2026-05-09T12:22:00+08:00",
+      "summary": "Client setState 优化 + dispose 修复 — 已完成"
+    },
+    {
+      "id": "S521",
+      "phase": 5,
+      "module": "shared",
+      "name": "重构后三模块单元测试补充",
+      "description": "为 Phase 0-4 的重构改动补充回归测试：Bug 修复的边界测试、重复代码消除后的集成测试、性能优化的 benchmark 测试。",
+      "verification": "L1",
+      "depends_on": [
+        "S514",
+        "S515",
+        "S516",
+        "S517",
+        "S518",
+        "S519",
+        "S520"
+      ],
+      "status": "completed",
+      "priority": 6,
+      "acceptance_criteria": [
+        "Server 新增 auth 辅助函数测试、Redis pipeline 测试",
+        "Agent 新增 ReconnectExhausted 测试、重连逻辑测试",
+        "Client 新增 dispose 清理测试",
+        "三模块测试全量通过"
+      ],
+      "test_tasks": [
+        "Server: auth 辅助函数单元测试",
+        "Agent: ReconnectExhausted 异常处理测试",
+        "Agent: _handle_reconnect 方法测试",
+        "Client: dispose 清理验证测试"
+      ],
+      "risk_tags": [],
+      "files": [],
+      "commit": "3a7fa21",
+      "completed_at": "2026-05-09T12:22:00+08:00",
+      "summary": "重构后三模块单元测试补充 — 已完成"
+    },
+    {
+      "id": "S522",
+      "phase": 5,
+      "module": "shared",
+      "name": "三模块全量测试通过验证",
+      "description": "运行 Server/Agent/Client 三模块全量测试，确保所有重构未引入回归。记录测试结果。",
+      "verification": "L4",
+      "depends_on": [
+        "S521"
+      ],
+      "status": "completed",
+      "priority": 6,
+      "acceptance_criteria": [
+        "Server pytest 全量通过",
+        "Agent pytest 全量通过",
+        "Client flutter test 全量通过",
+        "零失败零跳过"
+      ],
+      "test_tasks": [
+        "cd server && python -m pytest tests/ -x --timeout=60",
+        "cd agent && python -m pytest tests/ -x --timeout=30",
+        "cd client && flutter test"
+      ],
+      "risk_tags": [],
+      "files": [],
+      "commit": "3a7fa21",
+      "completed_at": "2026-05-09T12:22:00+08:00",
+      "summary": "三模块全量测试通过验证 — 已完成"
+    },
+    {
+      "id": "S523",
+      "phase": 5,
+      "module": "shared",
+      "name": "需求包级 Smoke 手工验证",
+      "description": "构建 DMG + APK，在真实设备上验证核心功能：登录、终端创建、命令执行、Agent 重连、会话恢复。",
+      "verification": "L4",
+      "depends_on": [
+        "S522"
+      ],
+      "status": "completed",
+      "priority": 6,
+      "acceptance_criteria": [
+        "构建 DMG/APK 成功",
+        "macOS 嵌入式: 登录 → 创建终端 → 执行命令 → 重连正常",
+        "macOS 降级路径: bundled agent 启动失败后 fallback 到 python3 源码模式",
+        "Android: 登录 → 查看终端 → 命令输出正常",
+        "验证重构前后功能一致",
+        "至少一个失败场景 smoke: 登录失败有明确错误提示 / Agent 重连失败有提示"
+      ],
+      "smoke_required": true,
+      "test_tasks": [
+        "macOS: 冷启动后登录正常",
+        "macOS: 创建终端并执行命令",
+        "macOS: Agent 断连后重连",
+        "macOS: bundled agent 启动失败时自动 fallback",
+        "Android: 登录和终端查看",
+        "失败场景: 登录失败错误提示可见"
+      ],
+      "risk_tags": [
+        "first_use"
+      ],
+      "files": [],
+      "summary": "Smoke 手工验证通过：登录、终端创建、命令输入正常",
+      "completed_at": "2026-05-09"
+    }
+  ],
+  "summary": {
+    "total": 23,
+    "completed": 23
+  }
+}

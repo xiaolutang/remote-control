@@ -4,6 +4,12 @@ WebSocket Client 连接路由
 拆分后的入口模块，负责 handler 注册和生命周期管理。
 所有子模块（client_connection、client_message_handler、client_snapshot、client_presence）
 直接从源模块导入依赖，不再通过本模块 re-export 中转。
+
+S515: 将 client_websocket_handler 拆分为阶段函数：
+- _ws_auth_phase: 鉴权阶段
+- _ws_session_resolve: 终端查找/会话解析阶段
+- _ws_register_client: 客户端注册（AES 密钥协商 + 踢出旧设备）
+- _ws_message_loop: 消息循环
 """
 import json
 import logging
@@ -56,51 +62,59 @@ from app.store.session_normalize import _reconcile_terminals
 logger = logging.getLogger(__name__)
 
 
-async def client_websocket_handler(
-    websocket,
-    session_id: Optional[str],
-    view: str = "mobile",
-    device_id: Optional[str] = None,
-    terminal_id: Optional[str] = None,
-):
+# ---------------------------------------------------------------------------
+# 阶段 1: 鉴权
+# ---------------------------------------------------------------------------
+
+async def _ws_auth_phase(websocket) -> tuple:
+    """WS 鉴权阶段：accept 连接、验证 token。
+
+    Returns:
+        (payload, auth_msg) 元组，鉴权失败返回 (None, None)。
     """
-    Client WebSocket 连接处理器
-
-    Args:
-        websocket: WebSocket 连接
-        session_id: 会话 ID
-        view: 视图类型 (mobile/desktop)
-    """
-    logger.debug(
-        "Client WebSocket connecting: session_id=%s device_id=%s terminal_id=%s view=%s",
-        session_id,
-        device_id,
-        terminal_id,
-        view,
-    )
-
-    # 验证 view 参数
-    if view not in ["mobile", "desktop"]:
-        await websocket.close(code=4400, reason=f"Invalid view type: {view}")
-        return
-
-    # 先 accept 连接
     await websocket.accept()
-
-    # 等待首条 auth 消息并验证 token
     try:
         payload, auth_msg = await wait_for_ws_auth(websocket)
     except (WebSocketDisconnect, Exception):
-        return
+        return None, None
 
-    # 注意：不再强制验证 URL 参数中的 session_id 与 token 中的一致性
-    # 只要 token 有效且能获取到 session_id，就允许连接
     token_session_id = payload.get("session_id")
     if not token_session_id:
         logger.warning("Token missing session_id")
         await websocket.close(code=4003, reason="Token missing session_id")
-        return
+        return None, None
 
+    return payload, auth_msg
+
+
+# ---------------------------------------------------------------------------
+# 阶段 2: 会话/终端查找
+# ---------------------------------------------------------------------------
+
+class _SessionResolveResult:
+    """会话解析结果。"""
+    __slots__ = ("session", "session_id", "device_id", "terminal_id", "terminal")
+
+    def __init__(self, session, session_id, device_id, terminal_id, terminal):
+        self.session = session
+        self.session_id = session_id
+        self.device_id = device_id
+        self.terminal_id = terminal_id
+        self.terminal = terminal
+
+
+async def _ws_session_resolve(
+    websocket,
+    payload: dict,
+    session_id: Optional[str],
+    device_id: Optional[str],
+    terminal_id: Optional[str],
+) -> Optional[_SessionResolveResult]:
+    """WS 会话解析阶段：查找会话和终端信息。
+
+    Returns:
+        _SessionResolveResult 或 None（解析失败时已关闭 websocket）。
+    """
     # 获取会话信息
     try:
         if device_id:
@@ -113,37 +127,59 @@ async def client_websocket_handler(
     except HTTPException as e:
         logger.warning("Get session failed: %s", e.detail)
         await websocket.close(code=http_to_ws_code(e.status_code), reason=e.detail)
-        return
+        return None
     except Exception as e:
         logger.error("Get session error: %s: %s", type(e).__name__, e)
         await websocket.close(code=4500, reason=str(e))
-        return
+        return None
 
     resolved_device_id = device_id or session.get("device", {}).get("device_id", session_id)
-    channel_key = _channel_key(session_id, terminal_id)
 
     # B059: 从已获取的 session 中提取 terminal 信息，避免额外 Redis 读取
     terminal = None
-    agent_online = is_agent_connected(session_id)
     if terminal_id:
         # 防御性 reconcile：确保过期/detached terminal 被标记为 closed
         _reconcile_terminals(session.get("terminals", []))
-        # 直接从 session 数据中查找 terminal，不再单独调用 get_session_terminal
         for t in session.get("terminals", []):
             if t.get("terminal_id") == terminal_id:
                 terminal = t
                 break
         if not terminal:
             await websocket.close(code=4004, reason=f"terminal {terminal_id} 不存在")
-            return
+            return None
         if terminal.get("status") == "closed":
             await websocket.close(code=4009, reason="terminal closed")
-            return
+            return None
 
-    # --- 同端设备在线限制 ---
-    # 新设备连接时，检测同端已有连接，直接踢出旧设备。
-    # token_version 机制已在登录层保证旧设备的 HTTP 请求失效，
-    # 此处仅处理 WS 层面的连接替换。
+    return _SessionResolveResult(
+        session=session,
+        session_id=session_id,
+        device_id=resolved_device_id,
+        terminal_id=terminal_id,
+        terminal=terminal,
+    )
+
+
+# ---------------------------------------------------------------------------
+# 阶段 3: 客户端注册（AES 密钥协商 + 踢出旧设备）
+# ---------------------------------------------------------------------------
+
+async def _ws_register_client(
+    websocket,
+    resolve: _SessionResolveResult,
+    view: str,
+    auth_msg: dict,
+) -> Optional[ClientConnection]:
+    """WS 客户端注册阶段：创建连接对象、AES 密钥协商、踢出旧设备。
+
+    Returns:
+        ClientConnection 或 None（注册失败时已关闭 websocket）。
+    """
+    session_id = resolve.session_id
+    terminal_id = resolve.terminal_id
+    resolved_device_id = resolve.device_id
+
+    channel_key = _channel_key(session_id, terminal_id)
 
     # 检查客户端数量限制
     if channel_key not in active_clients:
@@ -151,9 +187,9 @@ async def client_websocket_handler(
 
     if len(active_clients[channel_key]) >= MAX_CLIENTS_PER_SESSION:
         await websocket.close(code=4503, reason="Too many clients for this session")
-        return
+        return None
 
-    # 创建连接对象并注册
+    # 创建连接对象
     client_conn = ClientConnection(
         session_id,
         websocket,
@@ -175,7 +211,7 @@ async def client_websocket_handler(
     if not is_secure_websocket_transport(websocket) and not client_conn.aes_key:
         logger.warning("ws:// connection rejected: no AES key, session_id=%s", session_id)
         await websocket.close(code=4003, reason="ws:// requires encrypted_aes_key")
-        return
+        return None
 
     active_clients[channel_key].append(client_conn)
     logger.info(
@@ -194,7 +230,6 @@ async def client_websocket_handler(
             "Kicking existing client: session_id=%s view=%s old_device=%s",
             session_id, view, existing_client.device_id,
         )
-        # 先从 active_clients 移除，避免时间窗口内第三个设备重复踢出
         existing_channel = _channel_key(existing_client.session_id, existing_client.terminal_id)
         _unregister_client(existing_channel, existing_client)
         try:
@@ -211,7 +246,26 @@ async def client_websocket_handler(
                 exc_info=True,
             )
 
-    # --- 同端设备在线限制结束 ---
+    return client_conn
+
+
+# ---------------------------------------------------------------------------
+# 阶段 4: 消息循环
+# ---------------------------------------------------------------------------
+
+async def _ws_message_loop(
+    websocket,
+    client_conn: ClientConnection,
+    resolve: _SessionResolveResult,
+    view: str,
+    agent_online: bool,
+    payload: dict,
+) -> None:
+    """WS 消息循环阶段：发送连接成功消息、处理消息、断开时清理。"""
+    session = resolve.session
+    session_id = resolve.session_id
+    terminal_id = resolve.terminal_id
+    terminal = resolve.terminal
 
     try:
         # 获取 owner 信息
@@ -249,7 +303,7 @@ async def client_websocket_handler(
         await websocket.send_json({
             "type": MessageType.CONNECTED,
             "session_id": session_id,
-            "device_id": resolved_device_id,
+            "device_id": resolve.device_id,
             "terminal_id": terminal_id,
             "device_online": agent_online,
             "terminal_status": connected_terminal_status,
@@ -312,6 +366,67 @@ async def client_websocket_handler(
     finally:
         # 清理连接
         await _cleanup_client(session_id, client_conn, view, terminal_id=terminal_id)
+
+
+# ---------------------------------------------------------------------------
+# 编排入口
+# ---------------------------------------------------------------------------
+
+async def client_websocket_handler(
+    websocket,
+    session_id: Optional[str],
+    view: str = "mobile",
+    device_id: Optional[str] = None,
+    terminal_id: Optional[str] = None,
+):
+    """
+    Client WebSocket 连接处理器（S515: 阶段调度编排）。
+
+    阶段:
+        1. 鉴权 (_ws_auth_phase)
+        2. 会话/终端查找 (_ws_session_resolve)
+        3. 客户端注册 (_ws_register_client)
+        4. 消息循环 (_ws_message_loop)
+
+    Args:
+        websocket: WebSocket 连接
+        session_id: 会话 ID
+        view: 视图类型 (mobile/desktop)
+        device_id: 设备 ID
+        terminal_id: 终端 ID
+    """
+    logger.debug(
+        "Client WebSocket connecting: session_id=%s device_id=%s terminal_id=%s view=%s",
+        session_id,
+        device_id,
+        terminal_id,
+        view,
+    )
+
+    # 验证 view 参数
+    if view not in ["mobile", "desktop"]:
+        await websocket.close(code=4400, reason=f"Invalid view type: {view}")
+        return
+
+    # 阶段 1: 鉴权
+    payload, auth_msg = await _ws_auth_phase(websocket)
+    if payload is None:
+        return
+
+    # 阶段 2: 会话/终端查找
+    resolve = await _ws_session_resolve(websocket, payload, session_id, device_id, terminal_id)
+    if resolve is None:
+        return
+
+    agent_online = is_agent_connected(resolve.session_id)
+
+    # 阶段 3: 客户端注册（AES 密钥协商 + 踢出旧设备）
+    client_conn = await _ws_register_client(websocket, resolve, view, auth_msg)
+    if client_conn is None:
+        return
+
+    # 阶段 4: 消息循环
+    await _ws_message_loop(websocket, client_conn, resolve, view, agent_online, payload)
 
 
 async def _cleanup_client(

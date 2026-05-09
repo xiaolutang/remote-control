@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends gcc git && rm -
 COPY server/requirements.txt .
 RUN python -m venv .venv && \
     . .venv/bin/activate && \
-    pip install --no-cache-dir git+https://github.com/xiaolutang/log-service.git@v0.1.0#subdirectory=sdks/python && \
+    pip install --no-cache-dir git+https://github.com/xiaolutang/log-service.git@v0.2.0#subdirectory=sdks/python && \
     pip install --no-cache-dir -r requirements.txt
 
 # ===== Stage 2: Runtime =====

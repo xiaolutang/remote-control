@@ -12,3 +12,4 @@
 | R054 | code-quality-consolidation | 2026-05-06 | 1-6 | 11/11 | _archive/R054_code-quality-consolidation |
 | R056 | auth-connection-optimize | 2026-05-07 | 0-1 | 2/2 | _archive/R056_auth-connection-optimize |
 | R057 | tech-debt-cleanup | 2026-05-09 | 0-4 | 23/23 | _archive/R057_tech-debt-cleanup |
+| R058 | code-optimization-perf | 2026-05-09 | 0-5 | 23/23 | _archive/R058_code-optimization-perf |

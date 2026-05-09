@@ -113,7 +113,8 @@ class TestCreateSession:
         with patch.object(redis_conn, '_redis', mock_redis):
             await create_session("device-session")
 
-        saved = json.loads(mock_redis.set.await_args.args[1])
+        # 第一次 set 是 session 数据（第二次是 device_id 索引）
+        saved = json.loads(mock_redis.set.call_args_list[0].args[1])
         assert saved["device"] == _default_device_state("device-session")
 
     @pytest.mark.asyncio
@@ -1709,7 +1710,8 @@ class TestUserIdReverseIndex:
         }
 
         mock_redis = AsyncMock()
-        mock_redis.get = AsyncMock(return_value=json.dumps(session_data))
+        # 第一次 get 查 device_id 索引（返回 None 表示索引不存在），第二次 get 查 session 数据
+        mock_redis.get = AsyncMock(side_effect=[None, json.dumps(session_data)])
         mock_redis.set = AsyncMock(return_value=True)
         mock_redis.scan = AsyncMock(return_value=(0, ["rc:session:session-scan-1"]))
 

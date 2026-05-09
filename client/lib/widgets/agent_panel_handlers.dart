@@ -6,6 +6,7 @@ part of 'smart_terminal_side_panel.dart';
 mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
   void _handleIntentFocusChanged() {
     if (!mounted) return;
+    // focus 变化影响 build 中的 keyboardInset 计算，必须 rebuild
     setState(() {});
     if (_intentFocusNode.hasFocus) _scheduleScrollToLatest();
   }
@@ -26,13 +27,16 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
     scheduleScrollToLatest(_scrollController);
   }
 
-  String? _currentTerminalId() {
+  /// 安全获取 Provider，不存在时返回 null（替代重复的 try-read-catch 模式）
+  T? _tryGetController<T>() {
     try {
-      return context.read<WebSocketService>().terminalId;
+      return context.read<T>();
     } on ProviderNotFoundException {
       return null;
     }
   }
+
+  String? _currentTerminalId() => _tryGetController<WebSocketService>()?.terminalId;
 
   // --- 投影加载 ---
   Future<void> _loadConversationProjection(
@@ -46,12 +50,8 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
       setState(_resetPanelStateForScopeChange);
       return;
     }
-    RuntimeSelectionController? controller;
-    try {
-      controller = context.read<RuntimeSelectionController>();
-    } on ProviderNotFoundException {
-      return;
-    }
+    final controller = _tryGetController<RuntimeSelectionController>();
+    if (controller == null) return;
     final service = _agentSessionService(controller.serverUrl);
     try {
       final projection = await service.fetchConversation(
@@ -110,12 +110,8 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
   }
 
   void _restartConversationStreamForCurrentScope() {
-    RuntimeSelectionController? controller;
-    try {
-      controller = context.read<RuntimeSelectionController>();
-    } on ProviderNotFoundException {
-      return;
-    }
+    final controller = _tryGetController<RuntimeSelectionController>();
+    if (controller == null) return;
     final deviceId = controller.selectedDeviceId;
     final terminalId = _currentTerminalId();
     if (deviceId == null ||
@@ -136,10 +132,8 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
     if (_agentIntent != null && _agentIntent!.isNotEmpty) {
       _archiveAgentTurn(result: _agentResult, error: _agentError);
     }
-    RuntimeSelectionController? controller;
-    try {
-      controller = context.read<RuntimeSelectionController>();
-    } on ProviderNotFoundException {
+    final controller = _tryGetController<RuntimeSelectionController>();
+    if (controller == null) {
       _presentAgentError(
           code: 'MISSING_CONTROLLER',
           message: '当前页面状态异常，无法启动智能交互，请联系开发者',
@@ -424,12 +418,8 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
     if (_terminalConversationClosed ||
         _pendingReset ||
         _activeSessionId == null) return;
-    RuntimeSelectionController? controller;
-    try {
-      controller = context.read<RuntimeSelectionController>();
-    } on ProviderNotFoundException {
-      return;
-    }
+    final controller = _tryGetController<RuntimeSelectionController>();
+    if (controller == null) return;
     final deviceId = controller.selectedDeviceId;
     if (deviceId == null) return;
     final terminalId = _currentTerminalId();
@@ -477,7 +467,6 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
         return;
       }
       _intentController.clear();
-      setState(() {});
       _handleAgentRespond(text);
       return;
     }
@@ -567,12 +556,8 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
       _pendingReset = false;
     }
     if (savedIntent != null) {
-      RuntimeSelectionController? controller;
-      try {
-        controller = context.read<RuntimeSelectionController>();
-      } on ProviderNotFoundException {
-        return;
-      }
+      final controller = _tryGetController<RuntimeSelectionController>();
+      if (controller == null) return;
       final truncateAfterIndex = _findTruncateAfterIndexForCurrentTurn();
       setState(() {
         _currentPhase = AgentPhase.idle;
@@ -642,12 +627,8 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
       _pendingReset = false;
     }
     if (sessionId == null) return;
-    RuntimeSelectionController? controller;
-    try {
-      controller = context.read<RuntimeSelectionController>();
-    } on ProviderNotFoundException {
-      return;
-    }
+    final controller = _tryGetController<RuntimeSelectionController>();
+    if (controller == null) return;
     final deviceId = controller.selectedDeviceId;
     if (deviceId == null) return;
     final terminalId = _currentTerminalId();
@@ -658,7 +639,10 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
           terminalId: terminalId,
           sessionId: sessionId,
           token: controller.token);
-    } catch (_) {/* 取消失败不阻塞 UI */}
+    } catch (e) {
+      // Expected: cancel is best-effort, failure must not block UI flow.
+      AppLogger('AgentPanel').debug('cancel session network failed: $e');
+    }
   }
 
   Future<void> _cancelAgentSessionSilent() => _doCancelAgentNetwork();

@@ -1,8 +1,8 @@
 {
   "version": "1.4",
   "project": "remote-control",
-  "updated_at": "2026-05-09T08:45:00+08:00",
-  "status": "active",
+  "updated_at": "2026-05-09T14:30:00+08:00",
+  "status": "idle",
   "archived_requirement_cycles": [
     {
       "id": "R047",
@@ -76,12 +76,16 @@
       "archive_dir": "_archive/R057_tech-debt-cleanup",
       "total_tasks": 23,
       "completed_at": "2026-05-09"
+    },
+    {
+      "id": "R058",
+      "name": "code-optimization-perf",
+      "status": "completed",
+      "archive_dir": "_archive/R058_code-optimization-perf",
+      "total_tasks": 23,
+      "completed_at": "2026-05-09"
     }
   ],
   "archived_phases": [],
-  "features": [],
-  "summary": {
-    "total": 0,
-    "completed": 0
-  }
+  "features": []
 }

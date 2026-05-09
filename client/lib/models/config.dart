@@ -16,6 +16,29 @@ abstract final class TimingConstants {
 
   /// 重连延迟（默认值）
   static const Duration reconnectDelay = Duration(seconds: 1);
+
+  // --- Desktop Agent ---
+
+  /// Agent 启动超时（等待 Agent 进程上线）
+  static const Duration agentStartTimeout = Duration(seconds: 12);
+
+  /// Agent 停止超时（等待 Agent 进程退出）
+  static const Duration agentStopTimeout = Duration(seconds: 8);
+
+  /// Agent 进程终止宽限期（SIGTERM → SIGKILL）
+  static const Duration agentGracePeriod = Duration(seconds: 2);
+
+  /// Agent 上线轮询间隔
+  static const Duration agentOnlinePollInterval = Duration(milliseconds: 600);
+
+  /// Agent 停止轮询间隔
+  static const Duration agentStopPollInterval = Duration(milliseconds: 400);
+
+  /// Agent HTTP 停止后健康检查轮询间隔
+  static const Duration agentHttpStopPollInterval = Duration(milliseconds: 300);
+
+  /// Agent 进程终止轮询间隔
+  static const Duration agentTerminatePollInterval = Duration(milliseconds: 150);
 }
 
 enum AppThemeMode {

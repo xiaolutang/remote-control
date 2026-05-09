@@ -20,6 +20,9 @@ MAX_MATCHES = 3
 MAX_CHARS_PER_FILE = 2000
 TRUNCATION_MARKER = "\n[已截断]"
 
+# KnowledgeConfig 缓存（mtime 检测失效）
+_config_cache: dict = {"config": None, "mtime": None}
+
 
 def _get_agent_data_dir() -> Path:
     """获取 Agent 数据目录（存放 user_knowledge/、knowledge_config.json 等）。"""
@@ -53,21 +56,40 @@ class KnowledgeConfig:
 
 
 def load_knowledge_config() -> KnowledgeConfig:
-    """加载知识文件配置。缺失或格式损坏时默认全启用。"""
+    """加载知识文件配置。缺失或格式损坏时默认全启用。
+
+    使用模块级缓存 + stat mtime 检测失效，避免每次调用从磁盘读取。
+    """
     config_path = _get_knowledge_config_path()
-    if not config_path.exists():
-        return KnowledgeConfig()
+    try:
+        stat = config_path.stat()
+        current_mtime = stat.st_mtime
+    except OSError:
+        # 文件不存在
+        _config_cache["config"] = KnowledgeConfig()
+        _config_cache["mtime"] = None
+        return _config_cache["config"]
+
+    # 缓存命中：mtime 未变
+    if _config_cache["mtime"] == current_mtime and _config_cache["config"] is not None:
+        return _config_cache["config"]
+
+    # 缓存失效：重新读取
     try:
         with open(config_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         disabled = set(data.get("disabled_files", []))
-        return KnowledgeConfig(disabled_files=disabled)
+        config = KnowledgeConfig(disabled_files=disabled)
     except (json.JSONDecodeError, TypeError) as e:
         logger.warning("knowledge_config.json 格式损坏，默认全启用: %s", e)
-        return KnowledgeConfig()
+        config = KnowledgeConfig()
     except Exception as e:
         logger.warning("读取 knowledge_config.json 失败，默认全启用: %s", e)
-        return KnowledgeConfig()
+        config = KnowledgeConfig()
+
+    _config_cache["config"] = config
+    _config_cache["mtime"] = current_mtime
+    return config
 
 
 def ensure_user_knowledge_dir() -> Path:
@@ -123,6 +145,9 @@ def save_knowledge_config(config: KnowledgeConfig) -> None:
     data = {"disabled_files": sorted(config.disabled_files)}
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
+    # 清除缓存，确保下次读取使用新数据
+    _config_cache["config"] = None
+    _config_cache["mtime"] = None
 
 
 def _compute_relevance(query: str, name: str, content: str) -> int:

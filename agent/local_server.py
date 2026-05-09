@@ -22,6 +22,10 @@ DEFAULT_PORT = 18765
 PORT_RANGE = range(18765, 18770)  # 5 个候选端口: 18765-18769
 BIND_ADDRESS = "127.0.0.1"
 
+# ── 内部常量 ──
+_DISCOVERY_HEALTH_TIMEOUT = 2   # 通过状态文件发现时的健康检查超时（秒）
+_DISCOVERY_SCAN_TIMEOUT = 1     # 端口扫描时的单端口超时（秒）
+
 
 def _log(message: str) -> None:
     """日志输出到 stderr"""
@@ -475,53 +479,53 @@ async def discover_local_agent() -> Optional[dict]:
     发现本地运行的 Agent
 
     优先通过状态文件发现，如果失败则扫描端口范围。
+    复用单个 ClientSession 减少资源开销。
 
     Returns:
         Agent 状态信息，如果未找到返回 None
     """
     import aiohttp
 
-    # 1. 尝试通过状态文件发现
-    state = read_state_file()
-    if state:
-        port = state.get("port")
-        pid = state.get("pid")
+    async with aiohttp.ClientSession() as session:
+        # 1. 尝试通过状态文件发现
+        state = read_state_file()
+        if state:
+            port = state.get("port")
+            pid = state.get("pid")
 
-        # 检查进程是否存在
-        if pid and is_process_alive(pid):
-            # 健康检查
-            try:
-                async with aiohttp.ClientSession() as session:
+            # 检查进程是否存在
+            if pid and is_process_alive(pid):
+                # 健康检查
+                try:
                     async with session.get(
                         f"http://{BIND_ADDRESS}:{port}/health",
-                        timeout=aiohttp.ClientTimeout(total=2),
+                        timeout=aiohttp.ClientTimeout(total=_DISCOVERY_HEALTH_TIMEOUT),
                     ) as resp:
                         if resp.status == 200:
                             _log(f"通过状态文件发现 Agent: port={port}, pid={pid}")
                             return state
-            except Exception as e:
-                _log(f"状态文件中的 Agent 无响应: {e}")
-        else:
-            _log(f"状态文件中的进程已不存在: pid={pid}")
+                except Exception as e:
+                    _log(f"状态文件中的 Agent 无响应: {e}")
+            else:
+                _log(f"状态文件中的进程已不存在: pid={pid}")
 
-    # 2. 扫描端口范围
-    for port in PORT_RANGE:
-        try:
-            async with aiohttp.ClientSession() as session:
+        # 2. 扫描端口范围
+        for port in PORT_RANGE:
+            try:
                 async with session.get(
                     f"http://{BIND_ADDRESS}:{port}/health",
-                    timeout=aiohttp.ClientTimeout(total=1),
+                    timeout=aiohttp.ClientTimeout(total=_DISCOVERY_SCAN_TIMEOUT),
                 ) as resp:
                     if resp.status == 200:
                         _log(f"通过端口扫描发现 Agent: port={port}")
                         # 获取完整状态
                         async with session.get(
                             f"http://{BIND_ADDRESS}:{port}/status",
-                            timeout=aiohttp.ClientTimeout(total=2),
+                            timeout=aiohttp.ClientTimeout(total=_DISCOVERY_HEALTH_TIMEOUT),
                         ) as status_resp:
                             if status_resp.status == 200:
                                 return await status_resp.json()
-        except Exception:
-            continue
+            except Exception:
+                continue
 
     return None
