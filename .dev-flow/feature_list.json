@@ -1,91 +1,279 @@
 {
   "version": "1.4",
   "project": "remote-control",
-  "updated_at": "2026-05-09T14:30:00+08:00",
-  "status": "idle",
+  "updated_at": "2026-05-10T18:00:00+08:00",
+  "status": "in_progress",
+  "active_requirement_cycle": {
+    "id": "R059",
+    "name": "terminal-tab-bar-ux",
+    "branch": "feat/R059-terminal-tab-bar-ux",
+    "status": "in_progress",
+    "total_tasks": 6
+  },
+  "workflow": {
+    "name": "R059-terminal-tab-bar-ux",
+    "mode": "B",
+    "runtime": "skill_orchestrated",
+    "review_provider": "codex_plugin",
+    "audit_provider": "codex_plugin",
+    "risk_provider": "codex_plugin",
+    "stop_hook_enabled": false
+  },
+  "summary": {
+    "total_tasks": 6,
+    "by_status": { "pending": 5, "done": 1 },
+    "by_priority": { "P0": 3, "P1": 2, "P2": 1 }
+  },
   "archived_requirement_cycles": [
-    {
-      "id": "R047",
-      "name": "agent-conversation-interaction-optimization",
-      "status": "completed",
-      "archive_dir": "_archive/R047_agent-conversation-interaction-optimization",
-      "total_tasks": 31
-    },
-    {
-      "id": "R048",
-      "name": "architecture-deep-cleanup",
-      "status": "completed",
-      "archive_dir": "_archive/R048_architecture-deep-cleanup",
-      "total_tasks": 20
-    },
-    {
-      "id": "R049",
-      "name": "brainstorm-bug-fixes",
-      "status": "completed",
-      "archive_dir": "_archive/R049_brainstorm-bug-fixes",
-      "total_tasks": 3
-    },
-    {
-      "id": "R050",
-      "name": "token-usage-optimization",
-      "status": "completed",
-      "archive_dir": "_archive/R050_token-usage-optimization",
-      "total_tasks": 3
-    },
-    {
-      "id": "R051",
-      "name": "eval-architecture-overhaul",
-      "status": "completed",
-      "archive_dir": "_archive/R051_eval-architecture-overhaul",
-      "total_tasks": 11
-    },
-    {
-      "id": "R052",
-      "name": "open-source-release",
-      "status": "completed",
-      "archive_dir": "_archive/R052_open-source-release",
-      "total_tasks": 5
-    },
-    {
-      "id": "R053",
-      "name": "desktop-agent-bundling",
-      "status": "completed",
-      "archive_dir": "_archive/R053_desktop-agent-bundling",
-      "total_tasks": 3
-    },
-    {
-      "id": "R054",
-      "name": "code-quality-consolidation",
-      "status": "completed",
-      "archive_dir": "_archive/R054_code-quality-consolidation",
-      "total_tasks": 11,
-      "completed_at": "2026-05-06"
-    },
-    {
-      "id": "R056",
-      "name": "auth-connection-optimize",
-      "status": "completed",
-      "archive_dir": "_archive/R056_auth-connection-optimize",
-      "total_tasks": 2,
-      "completed_at": "2026-05-07"
-    },
-    {
-      "id": "R057",
-      "name": "tech-debt-cleanup",
-      "status": "completed",
-      "archive_dir": "_archive/R057_tech-debt-cleanup",
-      "total_tasks": 23,
-      "completed_at": "2026-05-09"
-    },
-    {
-      "id": "R058",
-      "name": "code-optimization-perf",
-      "status": "completed",
-      "archive_dir": "_archive/R058_code-optimization-perf",
-      "total_tasks": 23,
-      "completed_at": "2026-05-09"
-    }
+    { "id": "R047", "name": "agent-conversation-interaction-optimization", "status": "completed", "archive_dir": "_archive/R047_agent-conversation-interaction-optimization", "total_tasks": 31 },
+    { "id": "R048", "name": "architecture-deep-cleanup", "status": "completed", "archive_dir": "_archive/R048_architecture-deep-cleanup", "total_tasks": 20 },
+    { "id": "R049", "name": "brainstorm-bug-fixes", "status": "completed", "archive_dir": "_archive/R049_brainstorm-bug-fixes", "total_tasks": 3 },
+    { "id": "R050", "name": "token-usage-optimization", "status": "completed", "archive_dir": "_archive/R050_token-usage-optimization", "total_tasks": 3 },
+    { "id": "R051", "name": "eval-architecture-overhaul", "status": "completed", "archive_dir": "_archive/R051_eval-architecture-overhaul", "total_tasks": 11 },
+    { "id": "R052", "name": "open-source-release", "status": "completed", "archive_dir": "_archive/R052_open-source-release", "total_tasks": 5 },
+    { "id": "R053", "name": "desktop-agent-bundling", "status": "completed", "archive_dir": "_archive/R053_desktop-agent-bundling", "total_tasks": 3 },
+    { "id": "R054", "name": "code-quality-consolidation", "status": "completed", "archive_dir": "_archive/R054_code-quality-consolidation", "total_tasks": 11, "completed_at": "2026-05-06" },
+    { "id": "R056", "name": "auth-connection-optimize", "status": "completed", "archive_dir": "_archive/R056_auth-connection-optimize", "total_tasks": 2, "completed_at": "2026-05-07" },
+    { "id": "R057", "name": "tech-debt-cleanup", "status": "completed", "archive_dir": "_archive/R057_tech-debt-cleanup", "total_tasks": 23, "completed_at": "2026-05-09" },
+    { "id": "R058", "name": "code-optimization-perf", "status": "completed", "archive_dir": "_archive/R058_code-optimization-perf", "total_tasks": 23, "completed_at": "2026-05-09" }
   ],
   "archived_phases": [],
-  "features": []
+  "features": [
+    {
+      "id": "F001",
+      "phase": "tab-bar-core",
+      "module": "client/widgets",
+      "name": "TerminalTabBar + CompactTabStrip 核心 widget",
+      "status": "done",
+      "started_at": "2026-05-10T19:00:00+08:00",
+      "completed_at": "2026-05-10T20:15:00+08:00",
+      "evidence_file": "F001.md",
+      "execution_notes": "29/29 tests passed, code review pass, audit done",
+      "description": "新建 TerminalTabBar 和 CompactTabStrip 两个独立 widget。TerminalTabBar 接收终端列表、选中态、切换/创建/上下文菜单回调，支持水平滚动和上限禁用。CompactTabStrip 接收终端列表、选中态、切换/创建/长按回调，支持紧凑编号和左右滑动。同时编写 widget 测试。",
+      "verification": "F1",
+      "depends_on": [],
+      "priority": "P0",
+      "acceptance_criteria": [
+        "TerminalTabBar 渲染 N 个 Tab + 选中态视觉区分",
+        "TerminalTabBar 点击 Tab 触发 onSwitch(terminalId)，点击 + 触发 onCreate()",
+        "TerminalTabBar createDisabled=true 时 + 禁用，0 个终端时 + 可点击",
+        "CompactTabStrip 渲染终端编号/标题，点击切换，点击 + 创建",
+        "CompactTabStrip 支持左右滑动切换（仅 widget 自身区域）",
+        "widget 测试全部通过"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        "TerminalTabBar：渲染 N 个 Tab + 选中态",
+        "TerminalTabBar：点击 Tab → onSwitch 正确 terminalId",
+        "TerminalTabBar：点击 + → onCreate 触发",
+        "TerminalTabBar：达到上限时 + 禁用",
+        "TerminalTabBar：0 个终端时 + 可点击",
+        "TerminalTabBar：Tab 文字溢出时不影响布局",
+        "CompactTabStrip：渲染终端编号",
+        "CompactTabStrip：点击 Tab → onSwitch",
+        "CompactTabStrip：左右滑动 → onSwitch 相邻"
+      ],
+      "files": [
+        "client/lib/widgets/terminal_tab_bar.dart",
+        "client/lib/widgets/compact_tab_strip.dart",
+        "client/test/widgets/terminal_tab_bar_test.dart",
+        "client/test/widgets/compact_tab_strip_test.dart"
+      ]
+    },
+    {
+      "id": "F002",
+      "phase": "desktop-integration",
+      "module": "client/screens/desktop",
+      "name": "桌面端 Tab Bar 集成",
+      "description": "重构 WorkspaceHeaderBar：桌面端（isDesktopPlatform=true）时用 TerminalTabBar 替换 expand_more + 终端标题文本。移动端 WorkspaceHeaderBar 保持原样完全不变。不修改 _showTerminalMenu，不修改任何菜单逻辑。此任务完成后桌面端可通过 Tab 栏切换/创建终端，移动端不受影响。",
+      "verification": "F2",
+      "depends_on": ["F001"],
+      "status": "pending",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "桌面端 HeaderBar 渲染 TerminalTabBar（替换 expand_more 和终端标题文本）",
+        "移动端 HeaderBar 完全不变（expand_more 菜单仍存在）",
+        "桌面端点击 Tab 直接切换终端（1 步）",
+        "桌面端点击 + 直接创建新终端",
+        "terminals_changed 事件后 Tab 栏即时同步（新增/移除/重命名）",
+        "远端关闭当前选中终端 → 自动切换到相邻",
+        "_showTerminalMenu 未被修改，所有现有功能保持",
+        "现有 widget 测试适配通过"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        "桌面端：HeaderBar 渲染 TerminalTabBar，无 expand_more",
+        "移动端：HeaderBar 完全不变，expand_more 仍存在",
+        "桌面端：点击 Tab → 切换终端",
+        "桌面端：点击 + → 创建新终端",
+        "terminals_changed 同步 → Tab 即时刷新",
+        "远端关闭当前选中 → 自动切换到相邻",
+        "菜单功能不变：expand_more 仍可打开，包含全部现有操作"
+      ],
+      "files": [
+        "client/lib/screens/desktop/terminal_workspace_header_bar.dart",
+        "client/lib/screens/desktop/terminal_workspace_screen.dart",
+        "client/test/screens/terminal_workspace_screen_test.dart"
+      ]
+    },
+    {
+      "id": "F003",
+      "phase": "mobile-integration",
+      "module": "client/screens/desktop",
+      "name": "移动端底部 Tab 栏集成",
+      "description": "为 TerminalScreen embedded 模式新增 bottomChrome slot（Widget? 参数），TerminalWorkspaceScreen 在移动端时通过该 slot 传入 CompactTabStrip。TerminalScreen 内部 TerminalShortcutBar 保持原位，CompactTabStrip 通过 slot 插入 ShortcutBar 上方。桌面端不传入 bottomChrome。完成后移动端可通过底部 Tab 栏切换/创建终端。",
+      "verification": "F2",
+      "depends_on": ["F001"],
+      "status": "pending",
+      "priority": "P0",
+      "acceptance_criteria": [
+        "TerminalScreen 新增 bottomChrome slot（Widget? 参数，embedded 模式专用）",
+        "移动端 TerminalWorkspaceScreen 通过 bottomChrome 传入 CompactTabStrip",
+        "CompactTabStrip 渲染在 TerminalShortcutBar 上方（slot 位置控制）",
+        "桌面端 bottomChrome 为 null，不影响现有布局",
+        "点击底部 Tab 切换终端，点击 + 创建新终端",
+        "创建失败（离线/上限）时 SnackBar 提示（局部提示，不修改现有 errorMessage + MaterialBanner 通道）",
+        "左右滑动仅在 CompactTabStrip 区域生效（不干扰终端视图手势）",
+        "terminals_changed 事件后底部 Tab 栏即时同步",
+        "空工作区首次创建终端后底部 Tab 栏正确出现",
+        "冷启动恢复已有终端时底部 Tab 栏正确渲染"
+      ],
+      "risk_tags": ["first_use"],
+      "test_tasks": [
+        "移动端渲染 CompactTabStrip，桌面端不渲染",
+        "点击底部 Tab → 切换终端",
+        "点击 + → 创建新终端",
+        "设备离线 → SnackBar 错误提示",
+        "达到上限 → + 按钮禁用",
+        "Tab 栏在 ShortcutBar 上方不重叠",
+        "bottomChrome=null 时不影响现有布局",
+        "滑动隔离：左右滑动仅在 CompactTabStrip 区域生效，不干扰终端视图手势",
+        "空工作区首次创建 → Tab 栏出现并选中",
+        "冷启动恢复 → 已有终端正确渲染在 Tab 栏"
+      ],
+      "files": [
+        "client/lib/widgets/compact_tab_strip.dart",
+        "client/lib/screens/desktop/terminal_workspace_screen.dart",
+        "client/lib/screens/terminal_screen.dart"
+      ]
+    },
+    {
+      "id": "F004",
+      "phase": "context-menu",
+      "module": "client/screens/desktop",
+      "name": "Tab 上下文菜单 + 菜单瘦身",
+      "description": "为桌面端 TerminalTabBar 添加右键上下文菜单，为移动端 CompactTabStrip 添加长按上下文菜单（均含重命名/关闭）。完成后从 _showTerminalMenu 移除全部终端 CRUD 操作，移动端 expand_more 按钮因菜单空化而条件隐藏（F003 底部 Tab 栏已替代其全部终端操作入口）。将 Agent 管理/设备编辑新增到桌面端 WorkspaceHeaderBar 设置 PopupMenuButton（保持在 workspace 局部，不扩展共享 account_menu_actions.dart）。此时 F002+F003 已完成，两端都有 Tab 栏替代入口，菜单瘦身不会导致能力丢失。",
+      "verification": "F2",
+      "depends_on": ["F002", "F003"],
+      "status": "pending",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "桌面端右键 Tab → PopupMenu 含重命名和关闭",
+        "移动端长按 Tab → BottomSheet 含重命名和关闭",
+        "重命名成功 → Tab 标题即时刷新",
+        "重命名 API 失败 → 标题不变 + SnackBar 错误提示",
+        "关闭确认 → Tab 移除 → 选中相邻（controller.onTerminalClosed 驱动）",
+        "关闭非当前选中 Tab → 当前选中不变",
+        "关闭 API 失败 → Tab 保留 + SnackBar 错误提示（局部提示，不修改现有 MaterialBanner 通道）",
+        "关闭最后一个 Tab → 显示空状态",
+        "终端已关闭（isClosed=true）时关闭选项禁用",
+        "_showTerminalMenu 中终端 CRUD 全部移除",
+        "桌面端 WorkspaceHeaderBar 设置 PopupMenuButton 新增 Agent 管理/设备编辑（保持在 workspace 局部，不扩展共享 account_menu_actions.dart）",
+        "移动端设置菜单不显示 Agent/设备管理",
+        "移动端 expand_more 按钮条件隐藏（_showTerminalMenu 无终端 CRUD 后菜单为空，HeaderBar 不渲染 expand_more）"
+      ],
+      "risk_tags": ["network"],
+      "test_tasks": [
+        "桌面端右键 Tab → 弹出 PopupMenu",
+        "移动端长按 Tab → 弹出 BottomSheet",
+        "重命名成功 → Tab 标题刷新",
+        "重命名失败 → 标题不变 + SnackBar 错误提示",
+        "重命名空白输入 → 拒绝或保持原名",
+        "超长标题 → Tab 截断不影响布局",
+        "关闭确认 → Tab 移除 + 选中相邻",
+        "关闭后台 Tab → 当前选中不变",
+        "关闭失败 → Tab 保留 + SnackBar 错误提示",
+        "关闭最后一个 → 空状态",
+        "isClosed 终端关闭选项禁用",
+        "设置菜单含 Agent 管理/设备编辑（桌面端，workspace 局部）",
+        "移动端设置菜单不含 Agent/设备管理",
+        "菜单中不再有终端 CRUD 操作",
+        "移动端 expand_more 按钮不再渲染"
+      ],
+      "files": [
+        "client/lib/widgets/terminal_tab_bar.dart",
+        "client/lib/widgets/compact_tab_strip.dart",
+        "client/lib/screens/desktop/terminal_workspace_screen.dart",
+        "client/lib/screens/desktop/terminal_workspace_header_bar.dart",
+        "client/lib/services/desktop/desktop_workspace_controller.dart"
+      ]
+    },
+    {
+      "id": "F005",
+      "phase": "shortcuts",
+      "module": "client/screens/desktop",
+      "name": "键盘快捷键（桌面端）",
+      "description": "为桌面端添加键盘快捷键：Cmd+1/2/3 切换终端，Cmd+W 关闭当前终端。通过 Shortcuts/Actions widget 集成。仅在桌面端生效。",
+      "verification": "F2",
+      "depends_on": ["F002"],
+      "status": "pending",
+      "priority": "P2",
+      "acceptance_criteria": [
+        "Cmd+1/2/3 切换到第 N 个终端",
+        "Cmd+N 超过终端数量时不触发任何操作",
+        "Cmd+W 弹出关闭确认：确认→关闭，取消→不变",
+        "移动端不响应 Cmd 快捷键"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        "Cmd+1 → 切换到第 1 个终端",
+        "Cmd+2 → 切换到第 2 个终端",
+        "Cmd+N（N > 终端数）→ 不操作",
+        "Cmd+W → 确认 → 关闭成功",
+        "Cmd+W → 取消 → 终端不变",
+        "移动端不响应 Cmd"
+      ],
+      "files": [
+        "client/lib/screens/desktop/terminal_workspace_screen.dart"
+      ]
+    },
+    {
+      "id": "F006",
+      "phase": "smoke",
+      "module": "client/integration_test",
+      "name": "集成测试",
+      "description": "分为自动化集成测试和手工 Smoke 两部分。\n\n【自动化集成测试】在 client/integration_test/ 目录下编写，使用 integration_test 包。前置条件：在线 device + agent（由 DesktopAgentSupervisor 启动）。覆盖桌面端/移动端创建→切换→关闭→空状态、离线错误、上限禁用。\n\n【手工 Smoke】覆盖 Agent 冷启动终端列表恢复和 Agent 启动失败错误提示+重试。需完整部署环境（Server + Agent + Client）。",
+      "verification": "F2",
+      "depends_on": ["F002", "F003", "F004", "F005"],
+      "status": "pending",
+      "priority": "P1",
+      "acceptance_criteria": [
+        "【自动化】集成测试放在 client/integration_test/ 目录",
+        "【自动化】桌面端：创建→Tab出现→切换→内容切换→关闭→选中相邻→全关→空状态",
+        "【自动化】移动端：创建→Tab出现→切换→关闭→空状态",
+        "【自动化】离线创建→错误反馈；达到上限→+禁用",
+        "【手工 Smoke】Agent 冷启动后终端列表恢复正确",
+        "【手工 Smoke】Agent 启动失败时错误提示可见且可重试"
+      ],
+      "risk_tags": ["network", "startup"],
+      "test_tasks": [
+        "【自动化】桌面端：创建 → Tab 出现 + 自动选中",
+        "【自动化】桌面端：切换 → 内容区正确切换",
+        "【自动化】桌面端：关闭 → 选中相邻",
+        "【自动化】桌面端：关闭最后 → 空状态",
+        "【自动化】移动端：创建 → Tab 出现",
+        "【自动化】移动端：切换 → 内容切换",
+        "【自动化】移动端：关闭 → 空状态",
+        "【自动化】离线创建 → SnackBar 错误反馈",
+        "【自动化】上限 → + 禁用",
+        "【自动化】远端关闭当前选中终端 → 自动切换到相邻",
+        "【自动化】远端重命名终端 → Tab 标题即时刷新",
+        "【手工 Smoke】Agent 冷启动 → 终端列表恢复",
+        "【手工 Smoke】Agent 启动失败 → 错误提示 + 重试入口"
+      ],
+      "files": [
+        "client/integration_test/terminal_tab_bar_integration_test.dart"
+      ]
+    }
+  ]
 }
