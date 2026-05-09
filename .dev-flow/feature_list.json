@@ -798,7 +798,7 @@
       "depends_on": [
         "S522"
       ],
-      "status": "pending",
+      "status": "completed",
       "priority": 6,
       "acceptance_criteria": [
         "构建 DMG/APK 成功",
@@ -820,11 +820,13 @@
       "risk_tags": [
         "first_use"
       ],
-      "files": []
+      "files": [],
+      "summary": "Smoke 手工验证通过：登录、终端创建、命令输入正常",
+      "completed_at": "2026-05-09"
     }
   ],
   "summary": {
     "total": 23,
-    "completed": 22
+    "completed": 23
   }
 }
