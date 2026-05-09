@@ -92,6 +92,8 @@ class Context:
 @click.option("--local-display/--no-local-display", default=False, help="是否在本地终端镜像显示 PTY，并允许本地键盘直接操作")
 @click.option("--reconnect/--no-reconnect", default=True, help="自动重连")
 @click.option("--max-retries", default=60, help="最大重试次数")
+@click.option("--retry-delay", default=1.0, type=float, help="重连基础延迟（秒）")
+@click.option("--heartbeat-interval", default=30, type=int, help="心跳间隔（秒）")
 @click.option("--config", "config_path", type=click.Path(), help="配置文件路径")
 @click.version_option(version="1.0.0", prog_name="rc-agent")
 @click.pass_context
@@ -255,8 +257,10 @@ def login(ctx, server, username, password):
 @click.option("--shell", is_flag=True, default=None, help="启动交互式 shell")
 @click.option("--reconnect/--no-reconnect", default=None, help="自动重连")
 @click.option("--max-retries", default=None, help="最大重试次数")
+@click.option("--retry-delay", default=None, type=float, help="重连基础延迟（秒）")
+@click.option("--heartbeat-interval", default=None, type=int, help="心跳间隔（秒）")
 @click.pass_context
-def run(ctx, command, shell, reconnect, max_retries):
+def run(ctx, command, shell, reconnect, max_retries, retry_delay, heartbeat_interval):
     """使用保存的配置启动 Agent（支持自动登录）"""
     setup_agent_logging()
     ensure_shell_path()
@@ -285,6 +289,10 @@ def run(ctx, command, shell, reconnect, max_retries):
         config.auto_reconnect = reconnect
     if max_retries is not None:
         config.max_retries = max_retries
+    if retry_delay is not None:
+        config.retry_delay = retry_delay
+    if heartbeat_interval is not None:
+        config.heartbeat_interval = heartbeat_interval
 
     click.echo(f"正在连接服务器: {config.server_url}")
     click.echo(f"命令: {config.command}")
@@ -297,6 +305,8 @@ def run(ctx, command, shell, reconnect, max_retries):
         shell_mode=config.shell_mode,
         auto_reconnect=config.auto_reconnect,
         max_retries=config.max_retries,
+        retry_delay=config.retry_delay,
+        heartbeat_interval=config.heartbeat_interval,
         local_display=False,
     )
     ctx.obj.client = client
@@ -312,8 +322,10 @@ def run(ctx, command, shell, reconnect, max_retries):
 @click.option("--local-display/--no-local-display", default=False, help="是否在本地终端镜像显示 PTY，并允许本地键盘直接操作")
 @click.option("--reconnect/--no-reconnect", default=True, help="自动重连")
 @click.option("--max-retries", default=60, help="最大重试次数")
+@click.option("--retry-delay", default=1.0, type=float, help="重连基础延迟（秒）")
+@click.option("--heartbeat-interval", default=30, type=int, help="心跳间隔（秒）")
 @click.pass_context
-def start(ctx, server, token, command, shell, local_display, reconnect, max_retries):
+def start(ctx, server, token, command, shell, local_display, reconnect, max_retries, retry_delay, heartbeat_interval):
     """手动指定参数启动 Agent（不保存配置）"""
     setup_agent_logging()
     ensure_shell_path()
@@ -331,6 +343,8 @@ def start(ctx, server, token, command, shell, local_display, reconnect, max_retr
         local_display=local_display,
         auto_reconnect=reconnect,
         max_retries=max_retries,
+        retry_delay=retry_delay,
+        heartbeat_interval=heartbeat_interval,
     )
     ctx.obj.client = client
 
@@ -370,8 +384,10 @@ def status(ctx):
 @click.option("--shell", is_flag=True, default=None, help="启动交互式 shell")
 @click.option("--reconnect/--no-reconnect", default=None, help="自动重连")
 @click.option("--max-retries", type=int, help="最大重试次数")
+@click.option("--retry-delay", type=float, help="重连基础延迟（秒）")
+@click.option("--heartbeat-interval", type=int, help="心跳间隔（秒）")
 @click.pass_context
-def configure(ctx, server, username, access_token, refresh_token, command, shell, reconnect, max_retries):
+def configure(ctx, server, username, access_token, refresh_token, command, shell, reconnect, max_retries, retry_delay, heartbeat_interval):
     """配置 Agent（不启动连接）"""
     config = ctx.obj.config
     config_path = ctx.obj.config_path
@@ -401,6 +417,12 @@ def configure(ctx, server, username, access_token, refresh_token, command, shell
     if max_retries is not None:
         config.max_retries = max_retries
         click.echo(f"最大重试次数已更新: {max_retries}")
+    if retry_delay is not None:
+        config.retry_delay = retry_delay
+        click.echo(f"重连基础延迟已更新: {retry_delay}")
+    if heartbeat_interval is not None:
+        config.heartbeat_interval = heartbeat_interval
+        click.echo(f"心跳间隔已更新: {heartbeat_interval}")
 
     # 保存配置
     _safe_save_config(config, config_path)

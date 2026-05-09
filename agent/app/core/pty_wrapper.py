@@ -19,6 +19,11 @@ from app.core.pty_types import PTYConfig, _create_exec_pipe
 
 logger = logging.getLogger(__name__)
 
+# ── 内部常量 ──
+_EXEC_SYNC_TIMEOUT = 5.0   # exec pipe 同步等待超时（秒）
+_READ_BUF_SIZE = 65536      # PTY 单次读取字节数
+_SIGKILL_WAIT = 1.0         # SIGKILL 后等待进程退出的超时（秒）
+
 
 class PTYWrapper:
     """PTY 包装器，用于创建和管理伪终端"""
@@ -103,7 +108,7 @@ class PTYWrapper:
             os.close(exec_pipe_w)
             try:
                 # 用 select 加超时，防止子进程卡住导致父进程永久阻塞
-                ready, _, _ = select.select([exec_pipe_r], [], [], 5.0)
+                ready, _, _ = select.select([exec_pipe_r], [], [], _EXEC_SYNC_TIMEOUT)
                 if ready:
                     err_data = os.read(exec_pipe_r, 4)
                     if err_data:
@@ -264,7 +269,7 @@ class PTYWrapper:
     def _sync_read(self) -> Optional[bytes]:
         """同步读取"""
         try:
-            data = os.read(self.master_fd, 65536)
+            data = os.read(self.master_fd, _READ_BUF_SIZE)
             if data == b"":
                 self._running = False
                 return None
@@ -326,7 +331,7 @@ class PTYWrapper:
                 logger.warning("PTY process did not exit after SIGTERM: pid=%d", self.pid)
                 try:
                     os.killpg(-self.pid, signal.SIGKILL)
-                    self._wait_for_termination(self.pid, 1.0)  # 最多等待 1 秒
+                    self._wait_for_termination(self.pid, _SIGKILL_WAIT)  # SIGKILL 后等待
                 except ProcessLookupError:
                     pass
                 except ChildProcessError:

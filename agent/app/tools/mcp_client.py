@@ -36,6 +36,9 @@ from app.tools.mcp_types import (
 logger = logging.getLogger(__name__)
 _AGENT_ROOT = Path(__file__).resolve().parents[2]
 
+# ── 内部常量 ──
+_MCP_STOP_TIMEOUT = 5  # 停止 MCP Server 子进程的超时（秒）
+
 
 class MCPClientManager:
     """管理所有 MCP Server 子进程。"""
@@ -240,7 +243,7 @@ class MCPClientManager:
         if state.process:
             try:
                 state.process.terminate()
-                await asyncio.wait_for(state.process.wait(), timeout=5)
+                await asyncio.wait_for(state.process.wait(), timeout=_MCP_STOP_TIMEOUT)
             except asyncio.TimeoutError:
                 state.process.kill()
                 await state.process.wait()

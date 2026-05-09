@@ -36,6 +36,16 @@ from app.transport.agent_message_handler import AgentMessageHandler, _validate_t
 
 logger = logging.getLogger(__name__)
 
+# ── 内部常量（不暴露为用户配置） ──────────────────────────────
+_MAX_RETRY_DELAY = 60.0          # 指数退避上限（秒）
+_AUTH_RECV_TIMEOUT = 30          # 等待服务器 auth 响应超时（秒）
+_RECV_POLL_TIMEOUT = 1           # WebSocket recv 轮询超时（秒）
+_STDIN_BUF_SIZE = 1024           # 本地 stdin 单次读取字节数
+_STDIN_READ_TIMEOUT = 0.1        # 本地 stdin 读取超时（秒）
+_PTY_POLL_INTERVAL = 0.01        # PTY 空读时 sleep 间隔（秒）
+_SNAPSHOT_LIMIT_BYTES = 128 * 1024  # 单 terminal 快照上限（128 KB）
+_HEARTBEAT_INTERVAL_DEFAULT = 30    # 心跳间隔默认值（秒）
+
 __all__ = [
     "ReconnectExhausted",
     "AgentSnapshotManager",
@@ -69,7 +79,7 @@ class AgentSnapshotManager:
         b"\x1b[?1049l", b"\x1b[?1047l", b"\x1b[?47l",
     )
 
-    def __init__(self, snapshot_limit_bytes: int = 128 * 1024):
+    def __init__(self, snapshot_limit_bytes: int = _SNAPSHOT_LIMIT_BYTES):
         self._snapshot_limit_bytes = snapshot_limit_bytes
         self._states: dict[str, TerminalSnapshotState] = {}
 
@@ -220,6 +230,7 @@ class WebSocketClient:
         auto_reconnect: bool = True,
         max_retries: int = 60,
         retry_delay: float = 1.0,
+        heartbeat_interval: int = _HEARTBEAT_INTERVAL_DEFAULT,
         local_display: bool = False,
     ):
         self.server_url = server_url
@@ -229,6 +240,7 @@ class WebSocketClient:
         self.auto_reconnect = auto_reconnect
         self.max_retries = max_retries
         self.retry_delay = retry_delay
+        self.heartbeat_interval = heartbeat_interval
         self.local_display = local_display
 
         self.ws: Optional[ClientConnection] = None
@@ -306,7 +318,7 @@ class WebSocketClient:
             logger.error("超过最大重试次数 (%s)，停止重连", self.max_retries)
             await self._cleanup(network_lost=True)
             return True
-        delay = min(self.retry_delay * (2 ** self._retry_count), 60.0)
+        delay = min(self.retry_delay * (2 ** self._retry_count), _MAX_RETRY_DELAY)
         logger.info("将在 %s 秒后重连 (第 %s 次)", delay, self._retry_count + 1)
         await asyncio.sleep(delay)
         self._retry_count += 1
@@ -359,7 +371,7 @@ class WebSocketClient:
 
                     await ws.send(json.dumps(auth_msg))
 
-                    message = await asyncio.wait_for(ws.recv(), timeout=30)
+                    message = await asyncio.wait_for(ws.recv(), timeout=_AUTH_RECV_TIMEOUT)
                     data = json.loads(message)
                     if data.get("type") == MessageType.CONNECTED:
                         self._session_id = data.get("session_id")
@@ -424,7 +436,7 @@ class WebSocketClient:
             try:
                 data = await self.pty.read()
                 if data is None:
-                    await asyncio.sleep(0.01)
+                    await asyncio.sleep(_PTY_POLL_INTERVAL)
                     continue
                 if self.local_display:
                     try:
@@ -453,7 +465,7 @@ class WebSocketClient:
                 if data is None:
                     if not runtime.is_running():
                         break
-                    await asyncio.sleep(0.01)
+                    await asyncio.sleep(_PTY_POLL_INTERVAL)
                     continue
                 payload = base64.b64encode(data).decode("utf-8")
                 self.snapshot_manager.append_output(terminal_id, data)
@@ -475,7 +487,7 @@ class WebSocketClient:
         """WebSocket 消息接收循环 — 委派给 AgentMessageHandler"""
         while self._running and self._connected:
             try:
-                message = await asyncio.wait_for(self.ws.recv(), timeout=1)
+                message = await asyncio.wait_for(self.ws.recv(), timeout=_RECV_POLL_TIMEOUT)
                 data = json.loads(message)
 
                 if data.get("encrypted") and agent_crypto.has_public_key:
@@ -521,7 +533,7 @@ class WebSocketClient:
 
             while self._running and self._connected:
                 try:
-                    data = await asyncio.wait_for(reader.read(1024), timeout=0.1)
+                    data = await asyncio.wait_for(reader.read(_STDIN_BUF_SIZE), timeout=_STDIN_READ_TIMEOUT)
                     if data:
                         self.pty.write(data)
                 except asyncio.TimeoutError:
@@ -536,7 +548,7 @@ class WebSocketClient:
         while self._running and self._connected:
             try:
                 await self._send_ws_message({"type": MessageType.PING})
-                await asyncio.sleep(30)
+                await asyncio.sleep(self.heartbeat_interval)
             except Exception as e:
                 logger.error("心跳发送错误: %s", e)
                 self._connected = False
