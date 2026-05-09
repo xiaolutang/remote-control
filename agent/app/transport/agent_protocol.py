@@ -31,3 +31,7 @@ class TerminalSnapshotState:
 
 # 不可恢复的 WebSocket close code
 NON_RECOVERABLE_CODES = {4001, 4004, 4009}
+
+# Agent 主动关闭 WS 时使用的 close code（与 Server 端 ws_agent.py 约定）
+WS_CLOSE_NORMAL = 1000            # Agent 正常退出（用户停止）
+WS_CLOSE_RECONNECT_FAILED = 4501  # Agent 重连耗尽后退出（网络丢失）

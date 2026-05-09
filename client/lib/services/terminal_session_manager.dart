@@ -80,18 +80,17 @@ class TerminalSessionManager extends ChangeNotifier
   /// App 进入后台时调用：断开所有已连接的 WebSocket，但保留 session 元数据。
   /// 仅对 status == connected 的 service 调用 disconnect()。
   /// 单个 service disconnect 失败不阻塞其他 service。
-  void pauseAll() {
+  Future<void> pauseAll() async {
+    final futures = <Future>[];
     for (final entry in _sessions.entries) {
       if (entry.value.status == ConnectionStatus.connected) {
         _pausedKeys.add(entry.key);
-        try {
-          // ignore: discarded_futures — disconnect 内部异步，无需 await
-          entry.value.disconnect();
-        } catch (e) {
+        futures.add(entry.value.disconnect().catchError((e) {
           _log.error('disconnect error: $e');
-        }
+        }));
       }
     }
+    await Future.wait(futures);
   }
 
   /// App 回到前台时调用：对暂停前已连接的 service 并行恢复。

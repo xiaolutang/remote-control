@@ -178,21 +178,31 @@ class TerminalScreenController extends ChangeNotifier {
 
   // ─── 连接管理 ──────────────────────────────────────────────────
 
+  /// 防止 didChangeDependencies 重复触发导致多次 connect。
+  bool _connectInProgress = false;
+
   Future<void> connectToServer(
     WebSocketService service,
     TerminalSessionManager sessionManager,
     VoidCallback? onFocusRequest,
   ) async {
-    final terminalId = service.terminalId;
-    if ((terminalId ?? '').isNotEmpty) {
-      await sessionManager.deactivateConflictingTerminalSessions(service);
-      await sessionManager.connectTerminal(service.deviceId, terminalId!);
-    } else {
-      await service.connect();
-    }
+    // 幂等保护：如果已经在连接中，跳过重复调用。
+    if (_connectInProgress) return;
+    _connectInProgress = true;
+    try {
+      final terminalId = service.terminalId;
+      if ((terminalId ?? '').isNotEmpty) {
+        await sessionManager.deactivateConflictingTerminalSessions(service);
+        await sessionManager.connectTerminal(service.deviceId, terminalId!);
+      } else {
+        await service.connect();
+      }
 
-    if (!isMobilePlatform && identical(_webSocketService, service)) {
-      onFocusRequest?.call();
+      if (!isMobilePlatform && identical(_webSocketService, service)) {
+        onFocusRequest?.call();
+      }
+    } finally {
+      _connectInProgress = false;
     }
   }
 

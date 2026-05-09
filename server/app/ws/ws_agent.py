@@ -221,8 +221,16 @@ async def agent_websocket_handler(
 
             await _handle_agent_message(websocket, session_id, message)
 
-    except WebSocketDisconnect:
-        pass
+    except WebSocketDisconnect as e:
+        # Agent 主动 close(code=1000) = 正常退出 → AGENT_SHUTDOWN
+        # Agent 重连失败 close(code=4501) = 网络丢失 → NETWORK_LOST
+        # 无 close frame (code=1006) = 网络中断 → NETWORK_LOST
+        if e.code not in (1000, 1001):
+            cleanup_reason = CLEANUP_REASON_NETWORK_LOST
+            logger.info(
+                "Agent WS closed with code=%s → cleanup_reason=%s session_id=%s",
+                e.code, cleanup_reason, session_id,
+            )
     except Exception as e:
         logger.error("Agent connection error: session_id=%s error=%s", session_id, e, exc_info=True)
         cleanup_reason = CLEANUP_REASON_NETWORK_LOST

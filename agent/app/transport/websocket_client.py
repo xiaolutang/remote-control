@@ -29,6 +29,8 @@ from app.transport.agent_protocol import (
     TerminalSpec,
     TerminalSnapshotState,
     NON_RECOVERABLE_CODES,
+    WS_CLOSE_NORMAL,
+    WS_CLOSE_RECONNECT_FAILED,
 )
 from app.transport.agent_message_handler import AgentMessageHandler, _validate_terminal_input
 
@@ -264,7 +266,7 @@ class WebSocketClient:
                     break
                 if self._retry_count >= self.max_retries:
                     logger.error("超过最大重试次数 (%s)，停止重连", self.max_retries)
-                    await self._cleanup()
+                    await self._cleanup(network_lost=True)
                     _should_exit = True
                     break
                 delay = min(self.retry_delay * (2 ** self._retry_count), 60.0)
@@ -277,7 +279,7 @@ class WebSocketClient:
                     break
                 if self._retry_count >= self.max_retries:
                     logger.error("超过最大重试次数 (%s)，停止重连", self.max_retries)
-                    await self._cleanup()
+                    await self._cleanup(network_lost=True)
                     _should_exit = True
                     break
                 delay = min(self.retry_delay * (2 ** self._retry_count), 60.0)
@@ -540,10 +542,18 @@ class WebSocketClient:
             self._local_server = None
             self._local_port = None
 
-    async def _cleanup(self):
-        """清理资源"""
+    async def _cleanup(self, *, network_lost: bool = False):
+        """清理资源
+
+        Args:
+            network_lost: True 表示因重连失败而退出（终端应进入 recoverable 状态），
+                         False 表示主动退出（终端正常关闭）。
+        """
         if not self._connected and not self._tasks:
             return
+
+        close_reason = "network_lost" if network_lost else "agent_shutdown"
+        ws_close_code = WS_CLOSE_RECONNECT_FAILED if network_lost else WS_CLOSE_NORMAL
 
         self._connected = False
         agent_crypto.clear_aes_key()
@@ -560,7 +570,7 @@ class WebSocketClient:
                 except asyncio.CancelledError:
                     status = "cancelled"
             task_states.append(f"{task.get_name()}={status}")
-        logger.info("断连原因排查 — 任务状态: %s", ', '.join(task_states))
+        logger.info("断连原因排查 — 任务状态: %s, close_reason=%s", ', '.join(task_states), close_reason)
 
         for task in self._tasks:
             task.cancel()
@@ -570,7 +580,7 @@ class WebSocketClient:
             task.cancel()
         self._runtime_tasks = {}
 
-        close_events = self.runtime_manager.close_all()
+        close_events = self.runtime_manager.close_all(reason=close_reason)
         self.snapshot_manager.close_all()
         if self.ws and close_events:
             for event in close_events:
@@ -584,7 +594,13 @@ class WebSocketClient:
             self.pty = None
 
         if self.ws:
-            await self.ws.close()
+            try:
+                await self.ws.close(code=ws_close_code, reason=close_reason)
+            except Exception:
+                try:
+                    await self.ws.close()
+                except Exception:
+                    pass
             self.ws = None
 
         if self._local_server and not self._local_server.keep_running_in_background:
