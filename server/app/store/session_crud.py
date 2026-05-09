@@ -14,13 +14,14 @@ from app.store.session_types import (
     _default_device_state,
     _session_locks,
     _user_sessions_key,
+    _device_session_key,
 )
+from app.store.session_redis_conn import redis_conn
 from app.store.session_normalize import (
     _normalize_session_status,
     _validate_session_status,
     _validate_session_id,
 )
-from app.store.session_redis_conn import redis_conn
 from app.store.session_terminal import _get_session_raw, _save_session
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,11 @@ async def create_session(
     uid = user_id or owner
     if uid:
         await redis.sadd(_user_sessions_key(uid), session_id)
+
+    # 维护 device_id 反向索引（初始 device_id == session_id）
+    device_id = session_data["device"].get("device_id")
+    if device_id:
+        await redis.set(_device_session_key(device_id), session_id, ex=SESSION_TTL_SECONDS)
 
     logger.info("Session created: session_id=%s owner=%s", session_id, owner or user_id)
 
@@ -221,7 +227,13 @@ async def update_session_device_metadata(
         device = session_data["device"]
 
         if device_id is not None:
+            old_device_id = device.get("device_id")
             device["device_id"] = device_id
+            # 维护 device_id 反向索引
+            redis = await redis_conn.get_redis()
+            if old_device_id and old_device_id != device_id:
+                await redis.delete(_device_session_key(old_device_id))
+            await redis.set(_device_session_key(device_id), session_id, ex=SESSION_TTL_SECONDS)
         if name is not None:
             device["name"] = name
         if platform is not None:
@@ -256,8 +268,12 @@ async def update_session_device_heartbeat(
         await _save_session(session_id, session_data)
 
         name = session_data.get("name", "")
-        if name:
+        device_id_val = session_data.get("device", {}).get("device_id", "")
+        if name or device_id_val:
             redis = await redis_conn.get_redis()
-            await redis.expire(f"rc:session_name_idx:{name}", SESSION_TTL_SECONDS)
+            if name:
+                await redis.expire(f"rc:session_name_idx:{name}", SESSION_TTL_SECONDS)
+            if device_id_val:
+                await redis.expire(_device_session_key(device_id_val), SESSION_TTL_SECONDS)
 
         return session_data

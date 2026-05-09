@@ -42,6 +42,7 @@ HISTORY_KEY_PREFIX = "rc:history"
 # ─── 键名辅助 ───
 
 _USER_SESSIONS_PREFIX = "rc:user_sessions:"
+_DEVICE_SESSION_PREFIX = "rc:device_session:"
 
 
 def _session_key(session_id: str) -> str:
@@ -57,6 +58,11 @@ def _history_key(session_id: str) -> str:
 def _user_sessions_key(user_id: str) -> str:
     """生成 user_id 反向索引键"""
     return f"{_USER_SESSIONS_PREFIX}{user_id}"
+
+
+def _device_session_key(device_id: str) -> str:
+    """生成 device_id → session_id 反向索引键"""
+    return f"{_DEVICE_SESSION_PREFIX}{device_id}"
 
 
 # ─── 默认状态工厂 ───
