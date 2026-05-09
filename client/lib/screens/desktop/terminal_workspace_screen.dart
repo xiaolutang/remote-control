@@ -23,6 +23,7 @@ import '../../services/websocket_service.dart';
 import '../login_screen.dart';
 import '../skill_config_screen.dart';
 import '../terminal_screen.dart';
+import '../../widgets/compact_tab_strip.dart';
 import 'terminal_workspace_header_bar.dart';
 import 'terminal_workspace_empty_state.dart';
 
@@ -285,6 +286,7 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
                     controller: controller,
                     device: device,
                     terminal: workspaceState.selectedTerminal,
+                    terminals: terminals,
                     state: workspaceState,
                   ),
                 ),
@@ -301,6 +303,7 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
     required RuntimeSelectionController controller,
     required RuntimeDevice? device,
     required RuntimeTerminal? terminal,
+    required List<RuntimeTerminal> terminals,
     required WorkspaceState state,
   }) {
     if (controller.loadingDevices || controller.loadingTerminals) {
@@ -356,7 +359,11 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
         actionLabel: state.deviceReady ? '新建终端' : '启动并创建终端',
         actionKey: const Key('workspace-empty-create-action'),
         onAction: () {
-          unawaited(_createEmptyTerminal(context, controller));
+          unawaited(_createEmptyTerminal(
+            context,
+            controller,
+            snackBarOnError: !controller.isDesktopPlatform,
+          ));
         },
       );
     }
@@ -377,8 +384,28 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
             value: service,
             child: KeyedSubtree(
               key: ValueKey<String>(terminal.terminalId),
-              child: const TerminalScreen(
+              child: TerminalScreen(
                 embedded: true,
+                bottomChrome: controller.isDesktopPlatform
+                    ? null
+                    : CompactTabStrip(
+                        terminals: terminals,
+                        selectedTerminalId: terminal?.terminalId,
+                        onSwitch: (terminalId) {
+                          _workspaceController.selectTerminal(terminalId);
+                        },
+                        onCreate: () {
+                          unawaited(_createEmptyTerminal(
+                            context,
+                            controller,
+                            snackBarOnError: true,
+                          ));
+                        },
+                        // 设备在线但达到上限或创建中时禁用；设备离线时 CompactTabStrip 不会渲染
+                        // （_buildBody 在 deviceOffline 分支返回 WorkspaceEmptyState）
+                        createDisabled: !device.canCreateTerminal ||
+                            controller.creatingTerminal,
+                      ),
               ),
             ),
           ),
@@ -423,17 +450,28 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
 
   Future<void> _createEmptyTerminal(
     BuildContext context,
-    RuntimeSelectionController controller,
-  ) async {
+    RuntimeSelectionController controller, {
+    bool snackBarOnError = false,
+  }) async {
     final sessionManager = context.read<TerminalSessionManager>();
     final result = await _workspaceController.createTerminal(
       title: '终端',
       cwd: '~',
       command: '/bin/bash',
     );
-    if (result == null || !mounted) {
+    if (result == null) {
+      if (snackBarOnError && mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('创建终端失败'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
       return;
     }
+    if (!mounted) return;
     // 仅注册 service 到 session manager，不提前 connect。
     // 连接由 TerminalScreen.connectToServer() 发起，
     // 此时 bindTerminalOutput() 已创建 binding subscription，
@@ -757,7 +795,11 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
     }
     switch (selectedAction.kind) {
       case _TerminalMenuActionKind.create:
-        await _createEmptyTerminal(context, controller);
+        await _createEmptyTerminal(
+          context,
+          controller,
+          snackBarOnError: !controller.isDesktopPlatform,
+        );
         break;
       case _TerminalMenuActionKind.rename:
         if (selectedTerminal != null) {

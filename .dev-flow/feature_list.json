@@ -21,7 +21,7 @@
   },
   "summary": {
     "total_tasks": 6,
-    "by_status": { "pending": 5, "done": 1 },
+    "by_status": { "pending": 4, "done": 2 },
     "by_priority": { "P0": 3, "P1": 2, "P2": 1 }
   },
   "archived_requirement_cycles": [
@@ -125,10 +125,12 @@
       "phase": "mobile-integration",
       "module": "client/screens/desktop",
       "name": "移动端底部 Tab 栏集成",
+      "status": "done",
+      "started_at": "2026-05-10T20:45:00+08:00",
+      "completed_at": "2026-05-10",
       "description": "为 TerminalScreen embedded 模式新增 bottomChrome slot（Widget? 参数），TerminalWorkspaceScreen 在移动端时通过该 slot 传入 CompactTabStrip。TerminalScreen 内部 TerminalShortcutBar 保持原位，CompactTabStrip 通过 slot 插入 ShortcutBar 上方。桌面端不传入 bottomChrome。完成后移动端可通过底部 Tab 栏切换/创建终端。",
       "verification": "F2",
       "depends_on": ["F001"],
-      "status": "pending",
       "priority": "P0",
       "acceptance_criteria": [
         "TerminalScreen 新增 bottomChrome slot（Widget? 参数，embedded 模式专用）",
@@ -136,7 +138,7 @@
         "CompactTabStrip 渲染在 TerminalShortcutBar 上方（slot 位置控制）",
         "桌面端 bottomChrome 为 null，不影响现有布局",
         "点击底部 Tab 切换终端，点击 + 创建新终端",
-        "创建失败（离线/上限）时 SnackBar 提示（局部提示，不修改现有 errorMessage + MaterialBanner 通道）",
+        "创建失败（达到上限/API 错误）时局部 SnackBar 提示；移动端离线由 deviceOffline 空态处理（不修改现有 errorMessage + MaterialBanner 通道）",
         "左右滑动仅在 CompactTabStrip 区域生效（不干扰终端视图手势）",
         "terminals_changed 事件后底部 Tab 栏即时同步",
         "空工作区首次创建终端后底部 Tab 栏正确出现",
@@ -147,7 +149,7 @@
         "移动端渲染 CompactTabStrip，桌面端不渲染",
         "点击底部 Tab → 切换终端",
         "点击 + → 创建新终端",
-        "设备离线 → SnackBar 错误提示",
+        "设备离线 → deviceOffline 空态（不渲染 CompactTabStrip）",
         "达到上限 → + 按钮禁用",
         "Tab 栏在 ShortcutBar 上方不重叠",
         "bottomChrome=null 时不影响现有布局",

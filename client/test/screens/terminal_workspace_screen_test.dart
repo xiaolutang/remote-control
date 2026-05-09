@@ -23,6 +23,7 @@ import 'package:rc_client/services/theme_controller.dart';
 import 'package:rc_client/services/websocket_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:rc_client/widgets/compact_tab_strip.dart';
 import 'package:rc_client/widgets/terminal_tab_bar.dart';
 
 import '../helpers/account_menu_test_helper.dart';
@@ -199,6 +200,26 @@ class _FakeWorkspaceController extends RuntimeSelectionController {
       'failedStepId': failedStepId,
       'outputSummary': outputSummary,
     };
+  }
+}
+
+/// Controller that always fails terminal creation (returns null).
+class _FailingCreateController extends _FakeWorkspaceController {
+  _FailingCreateController({
+    required super.devices,
+    required super.terminals,
+    super.isDesktop = true,
+  });
+
+  @override
+  Future<RuntimeTerminal?> createTerminal({
+    required String title,
+    required String cwd,
+    required String command,
+  }) async {
+    // 模拟创建失败（不添加终端，直接返回 null）
+    notifyListeners();
+    return null;
   }
 }
 
@@ -1778,6 +1799,707 @@ void main() {
       expect(find.byKey(const Key('workspace-menu-rename')), findsOneWidget);
       // 菜单应包含关闭终端选项
       expect(find.byKey(const Key('workspace-menu-close')), findsOneWidget);
+    });
+  });
+
+  group('F003: mobile bottom tab strip', () {
+    testWidgets('mobile renders CompactTabStrip, desktop does not',
+        (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 2,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Tab A',
+            cwd: '~/a',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+          RuntimeTerminal(
+            terminalId: 'term-2',
+            title: 'Tab B',
+            cwd: '~/b',
+            command: '/bin/bash',
+            status: 'detached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+        isDesktop: false,
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 移动端应渲染 CompactTabStrip
+      expect(find.byType(CompactTabStrip), findsOneWidget);
+    });
+
+    testWidgets('desktop does not render CompactTabStrip', (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 2,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Tab A',
+            cwd: '~/a',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+          RuntimeTerminal(
+            terminalId: 'term-2',
+            title: 'Tab B',
+            cwd: '~/b',
+            command: '/bin/bash',
+            status: 'detached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+        isDesktop: true,
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 桌面端不应渲染 CompactTabStrip
+      expect(find.byType(CompactTabStrip), findsNothing);
+    });
+
+    testWidgets('mobile bottom tab click switches terminal', (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 2,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Tab A',
+            cwd: '~/a',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+          RuntimeTerminal(
+            terminalId: 'term-2',
+            title: 'Tab B',
+            cwd: '~/b',
+            command: '/bin/bash',
+            status: 'detached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+        isDesktop: false,
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 默认选中 term-1
+      expect(
+        find.byKey(const ValueKey<String>('term-1')),
+        findsOneWidget,
+        reason: '初始应选中 term-1',
+      );
+
+      // 点击 CompactTabStrip 中的 term-2 tab
+      await tester.tap(find.byKey(const Key('compact-tab-term-2')));
+      await tester.pumpAndSettle();
+
+      // 切换后应选中 term-2
+      expect(
+        find.byKey(const ValueKey<String>('term-2')),
+        findsOneWidget,
+        reason: '点击 tab 后应切换到 term-2',
+      );
+    });
+
+    testWidgets('mobile + button creates new terminal', (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 1,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Tab A',
+            cwd: '~/a',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+        isDesktop: false,
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 点击 + 按钮
+      await tester.tap(find.byKey(const Key('compact-tab-create')));
+      await tester.pumpAndSettle();
+
+      // 应该创建了一个新终端（term-created 是 mock 返回的 ID）
+      expect(
+        find.byKey(const ValueKey<String>('term-created')),
+        findsOneWidget,
+        reason: '点击 + 后应创建新终端并选中',
+      );
+    });
+
+    testWidgets('mobile + disabled when device at limit', (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 3,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Tab A',
+            cwd: '~/a',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+          RuntimeTerminal(
+            terminalId: 'term-2',
+            title: 'Tab B',
+            cwd: '~/b',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+          RuntimeTerminal(
+            terminalId: 'term-3',
+            title: 'Tab C',
+            cwd: '~/c',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+        isDesktop: false,
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 达到上限时 + 按钮应被禁用
+      final createButton = tester.widget<IconButton>(
+        find.descendant(
+          of: find.byKey(const Key('compact-tab-create')),
+          matching: find.byType(IconButton),
+        ),
+      );
+      expect(createButton.onPressed, isNull,
+          reason: '达到上限时 + 按钮应被禁用');
+    });
+
+    testWidgets('mobile no CompactTabStrip when no terminal selected',
+        (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 0,
+          ),
+        ],
+        terminals: [],
+        isDesktop: false,
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 无终端时不应渲染 CompactTabStrip
+      expect(find.byType(CompactTabStrip), findsNothing);
+      // 应显示创建第一个终端的空状态
+      expect(find.text('创建第一个终端'), findsOneWidget);
+    });
+
+    testWidgets(
+        'mobile offline device shows empty state without CompactTabStrip',
+        (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: false,
+            maxTerminals: 3,
+            activeTerminals: 0,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Tab A',
+            cwd: '~/a',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+        isDesktop: false,
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 手机端设备离线时展示离线页面，不渲染 CompactTabStrip
+      expect(find.byType(CompactTabStrip), findsNothing);
+      expect(find.text('电脑离线'), findsWidgets);
+    });
+
+    testWidgets(
+        'mobile CompactTabStrip shows correct terminal count and titles',
+        (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 2,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Project A',
+            cwd: '~/a',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+          RuntimeTerminal(
+            terminalId: 'term-2',
+            title: 'Project B',
+            cwd: '~/b',
+            command: '/bin/bash',
+            status: 'detached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+        isDesktop: false,
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 应渲染两个 tab
+      expect(find.byKey(const Key('compact-tab-term-1')), findsOneWidget);
+      expect(find.byKey(const Key('compact-tab-term-2')), findsOneWidget);
+      // 应渲染 + 按钮
+      expect(find.byKey(const Key('compact-tab-create')), findsOneWidget);
+    });
+
+    testWidgets('mobile bottomChrome=null on desktop does not affect layout',
+        (tester) async {
+      // 验证桌面端 bottomChrome 为 null 时，布局完全不变
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 1,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Tab A',
+            cwd: '~/a',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+        isDesktop: true,
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 桌面端无 CompactTabStrip
+      expect(find.byType(CompactTabStrip), findsNothing);
+      // 桌面端应有 TerminalTabBar（F002）
+      expect(find.byType(TerminalTabBar), findsOneWidget);
+    });
+
+    testWidgets('mobile + disabled when creating terminal in progress',
+        (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 1,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Tab A',
+            cwd: '~/a',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+        isDesktop: false,
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 强制进入 creatingTerminal 状态
+      controller.forceCreatingTerminal = true;
+      await tester.pump();
+
+      // + 按钮应该被禁用（IconButton onPressed 为 null）
+      final createButton = tester.widget<IconButton>(
+        find.descendant(
+          of: find.byKey(const Key('compact-tab-create')),
+          matching: find.byType(IconButton),
+        ),
+      );
+      expect(createButton.onPressed, isNull,
+          reason: '创建中时 + 按钮应被禁用');
+    });
+
+    testWidgets('mobile offline device does not render CompactTabStrip',
+        (tester) async {
+      // 移动端设备离线时 _buildBody 返回 deviceOffline 页面，不渲染 CompactTabStrip
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: false,
+            maxTerminals: 3,
+            activeTerminals: 0,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Tab A',
+            cwd: '~/a',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+        isDesktop: false,
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 手机端设备离线时展示离线页面，CompactTabStrip 不渲染
+      expect(find.byType(CompactTabStrip), findsNothing);
+    });
+
+    testWidgets(
+        'mobile first terminal creation shows CompactTabStrip after creation',
+        (tester) async {
+      // 验证：空工作区创建第一个终端后 CompactTabStrip 出现
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 0,
+          ),
+        ],
+        terminals: [],
+        isDesktop: false,
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 初始无终端，无 CompactTabStrip
+      expect(find.byType(CompactTabStrip), findsNothing);
+      expect(find.text('创建第一个终端'), findsOneWidget);
+
+      // 创建第一个终端
+      await tester.tap(
+          find.byKey(const Key('workspace-empty-create-action')));
+      await tester.pumpAndSettle();
+
+      // 创建后应有 CompactTabStrip（含 term-created）
+      expect(find.byType(CompactTabStrip), findsOneWidget);
+      expect(find.byKey(const Key('compact-tab-term-created')),
+          findsOneWidget);
+    });
+
+    testWidgets(
+        'mobile terminals_changed sync updates CompactTabStrip terminals',
+        (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 2,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Tab A',
+            cwd: '~/a',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+          RuntimeTerminal(
+            terminalId: 'term-2',
+            title: 'Tab B',
+            cwd: '~/b',
+            command: '/bin/bash',
+            status: 'detached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+        isDesktop: false,
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 初始应有两个 tab
+      expect(find.byKey(const Key('compact-tab-term-1')), findsOneWidget);
+      expect(find.byKey(const Key('compact-tab-term-2')), findsOneWidget);
+
+      // 模拟 terminals_changed: 添加新终端
+      controller.addTerminal(const RuntimeTerminal(
+        terminalId: 'term-3',
+        title: 'Tab C',
+        cwd: '~/c',
+        command: '/bin/bash',
+        status: 'attached',
+        views: {'mobile': 0, 'desktop': 0},
+      ));
+      await tester.pumpAndSettle();
+
+      // CompactTabStrip 应同步更新，显示三个 tab
+      expect(find.byKey(const Key('compact-tab-term-3')), findsOneWidget);
+    });
+
+    testWidgets('mobile CompactTabStrip is above TerminalShortcutBar',
+        (tester) async {
+      // 验证 slot 位置：bottomChrome (CompactTabStrip) 在 ShortcutBar 上方
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 1,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Tab A',
+            cwd: '~/a',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+        isDesktop: false,
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // CompactTabStrip 和 terminal-touch-layer 都应存在
+      expect(find.byType(CompactTabStrip), findsOneWidget);
+      expect(find.byKey(const Key('terminal-touch-layer')), findsOneWidget);
+
+      // CompactTabStrip 的 dy 应大于 terminal-touch-layer 的 dy
+      // （即 CompactTabStrip 在更下方，在 ShortcutBar 上方）
+      final tabStripRect = tester.getRect(find.byType(CompactTabStrip));
+      final touchLayerRect =
+          tester.getRect(find.byKey(const Key('terminal-touch-layer')));
+
+      // terminal-touch-layer 在上方，CompactTabStrip 在下方
+      expect(touchLayerRect.bottom, lessThanOrEqualTo(tabStripRect.top),
+          reason: 'CompactTabStrip 应在终端视图下方（即 ShortcutBar 上方）');
+    });
+
+    testWidgets(
+        'mobile empty-state create failure shows SnackBar error',
+        (tester) async {
+      // 验证：移动端空状态点击"新建终端"创建失败时用 SnackBar 局部提示
+      final controller = _FailingCreateController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 0,
+          ),
+        ],
+        terminals: [],
+        isDesktop: false,
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 点击空状态创建按钮
+      await tester.tap(find.byKey(const Key('workspace-empty-create-action')));
+      await tester.pumpAndSettle();
+
+      // 应显示 SnackBar 错误提示
+      expect(find.text('创建终端失败'), findsOneWidget);
+    });
+
+    testWidgets(
+        'mobile menu create failure shows SnackBar error', (tester) async {
+      // 验证：移动端菜单创建失败时用 SnackBar 局部提示
+      final controller = _FailingCreateController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 1,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Tab A',
+            cwd: '~/a',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+        isDesktop: false,
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 打开菜单
+      await tester.tap(find.byKey(const Key('workspace-open-terminal-menu')));
+      await tester.pumpAndSettle();
+
+      // 点击菜单中的"创建"
+      await tester.tap(find.byKey(const Key('workspace-menu-create')));
+      await tester.pumpAndSettle();
+
+      // 应显示 SnackBar 错误提示
+      expect(find.text('创建终端失败'), findsOneWidget);
+    });
+
+    testWidgets('mobile create failure shows SnackBar error', (tester) async {
+      // 验证：创建 API 失败时用 SnackBar 局部提示
+      final controller = _FailingCreateController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 1,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'Tab A',
+            cwd: '~/a',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+        isDesktop: false,
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 点击 + 按钮
+      await tester.tap(find.byKey(const Key('compact-tab-create')));
+      await tester.pumpAndSettle();
+
+      // 应显示 SnackBar 错误提示
+      expect(find.text('创建终端失败'), findsOneWidget);
     });
   });
 }
