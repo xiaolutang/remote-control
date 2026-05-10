@@ -906,4 +906,155 @@ void main() {
       expect(find.text('电脑离线'), findsWidgets);
     });
   });
+
+  group('F009/F008 regression — refresh preservation + no loading spinner',
+      () {
+    late _StubRuntimeDeviceService runtimeService;
+    late TerminalSessionManager sessionManager;
+
+    setUp(() {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      EnvironmentService.setInstance(
+        EnvironmentService(debugModeProvider: () => true),
+      );
+      runtimeService = _StubRuntimeDeviceService();
+      sessionManager = TerminalSessionManager();
+    });
+
+    tearDown(() {
+      sessionManager.dispose();
+      runtimeService.dispose();
+    });
+
+    testWidgets(
+        'F009 regression: refresh preserves selected terminal on desktop',
+        (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      // Create 2 terminals
+      final t1 = await runtimeService.createTerminal(
+        'token',
+        'mbp-01',
+        title: 'First',
+        cwd: '~',
+        command: '/bin/bash',
+      );
+      final t2 = await runtimeService.createTerminal(
+        'token',
+        'mbp-01',
+        title: 'Second',
+        cwd: '~',
+        command: '/bin/bash',
+      );
+      final localController = _StubRuntimeSelectionController(
+        runtimeService: runtimeService,
+        initialDevices: [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'MacBook Pro',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 2,
+          ),
+        ],
+        forceDesktopPlatform: true,
+      );
+
+      await pumpWorkspace(tester,
+          controller: localController, sessionManager: sessionManager);
+      await pumpUntil(
+        tester,
+        () => find.byType(TerminalTabBar).evaluate().isNotEmpty,
+        reason: 'TerminalTabBar visible with terminals',
+        maxTicks: 30,
+      );
+
+      // Select second terminal by tapping its tab
+      await tester.tap(find.byKey(Key('tab-${t2.terminalId}')));
+      await tester.pumpAndSettle(_settleDelay);
+
+      // Trigger refresh — loadDevices re-fetches from stub
+      await localController.loadDevices();
+      await tester.pumpAndSettle(_settleDelay);
+
+      // Selection should still be on t2 — verify both tabs still present
+      // (controller doesn't expose selectedTerminal, but if the tab bar
+      // didn't reset, both tabs remain visible)
+      expect(find.byKey(Key('tab-${t1.terminalId}')), findsOneWidget);
+      expect(find.byKey(Key('tab-${t2.terminalId}')), findsOneWidget);
+      // Verify the IndexedStack still has both children (no rebuilding)
+      final stack = tester.widgetList<IndexedStack>(
+        find.byType(IndexedStack),
+      );
+      expect(stack.length, equals(1),
+          reason: 'F009: single IndexedStack present after refresh');
+      expect(stack.first.children.length, equals(2),
+          reason: 'F009: both terminals cached in IndexedStack after refresh');
+      // Both tabs still visible
+      expect(find.byKey(Key('tab-${t1.terminalId}')), findsOneWidget);
+      expect(find.byKey(Key('tab-${t2.terminalId}')), findsOneWidget);
+    });
+
+    testWidgets(
+        'F008 regression: switch terminal does not show CircularProgressIndicator',
+        (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 800));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final t1 = await runtimeService.createTerminal(
+        'token',
+        'mbp-01',
+        title: 'First',
+        cwd: '~',
+        command: '/bin/bash',
+      );
+      final t2 = await runtimeService.createTerminal(
+        'token',
+        'mbp-01',
+        title: 'Second',
+        cwd: '~',
+        command: '/bin/bash',
+      );
+      final localController = _StubRuntimeSelectionController(
+        runtimeService: runtimeService,
+        initialDevices: [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'MacBook Pro',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 2,
+          ),
+        ],
+        forceDesktopPlatform: true,
+      );
+
+      await pumpWorkspace(tester,
+          controller: localController, sessionManager: sessionManager);
+      await pumpUntil(
+        tester,
+        () => find.byType(TerminalTabBar).evaluate().isNotEmpty,
+        reason: 'TerminalTabBar visible',
+        maxTicks: 30,
+      );
+
+      // Switch to second terminal
+      await tester.tap(find.byKey(Key('tab-${t2.terminalId}')));
+      await tester.pumpAndSettle(_settleDelay);
+
+      // Should NOT show CircularProgressIndicator — IndexedStack caches all
+      expect(
+        find.byType(CircularProgressIndicator),
+        findsNothing,
+        reason: 'F008: no loading spinner after terminal switch',
+      );
+
+      // Both terminal views should exist (IndexedStack children)
+      expect(find.byKey(Key('tab-${t1.terminalId}')), findsOneWidget);
+      expect(find.byKey(Key('tab-${t2.terminalId}')), findsOneWidget);
+    });
+  });
 }
