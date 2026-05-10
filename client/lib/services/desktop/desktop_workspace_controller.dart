@@ -71,10 +71,6 @@ class DesktopWorkspaceController extends ChangeNotifier {
     if (runtime == null) {
       return null;
     }
-    _selectedTerminalId = _resolveSelectedTerminalId(
-      runtime.terminals,
-      _selectedTerminalId,
-    );
     return _findTerminal(runtime.terminals, _selectedTerminalId);
   }
 
@@ -86,6 +82,7 @@ class DesktopWorkspaceController extends ChangeNotifier {
     if (!isSameController) {
       _lastKnownDeviceId = controller.selectedDevice?.deviceId;
     }
+    _syncSelectedTerminalId();
     _syncDesktopState(controller);
   }
 
@@ -292,6 +289,9 @@ class DesktopWorkspaceController extends ChangeNotifier {
   }
 
   void _syncDesktopState(RuntimeSelectionController controller) {
+    // 每次 RuntimeSelectionController 通知变化时，同步 _selectedTerminalId
+    // 这确保在 _loadTerminalsForDevice 替换 terminals 列表后，选中态仍然正确
+    _syncSelectedTerminalId();
     final device = controller.selectedDevice;
     _log.info(
       '_syncDesktopState called isDesktop=${controller.isDesktopPlatform} '
@@ -472,5 +472,20 @@ class DesktopWorkspaceController extends ChangeNotifier {
       }
     }
     return null;
+  }
+
+  /// 同步 _selectedTerminalId，确保它在当前 terminals 列表中有效。
+  ///
+  /// 必须在所有可能改变 terminals 列表的时机调用：
+  /// - attachRuntimeController（controller 实例变化）
+  /// - _syncDesktopState（RuntimeSelectionController notifyListeners 回调）
+  /// - onTerminalClosed（关闭终端后）
+  void _syncSelectedTerminalId() {
+    final runtime = _runtimeController;
+    if (runtime == null) return;
+    _selectedTerminalId = _resolveSelectedTerminalId(
+      runtime.terminals,
+      _selectedTerminalId,
+    );
   }
 }

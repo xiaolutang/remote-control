@@ -2748,7 +2748,7 @@ void main() {
       );
     });
 
-    testWidgets('close option disabled for isClosed terminal', (tester) async {
+    testWidgets('isClosed terminal does not appear in tab bar', (tester) async {
       final controller = _FakeWorkspaceController(
         devices: const [
           RuntimeDevice(
@@ -2783,19 +2783,11 @@ void main() {
       await tester.pumpWidget(wrapWithApp(controller));
       await tester.pumpAndSettle();
 
-      // 右键已关闭的终端
-      await tester.tap(
-        find.byKey(const Key('tab-term-closed')),
-        buttons: kSecondaryButton,
-      );
-      await tester.pumpAndSettle();
-
-      // 关闭选项应被禁用（通过检查 PopupMenuItem.enabled）
-      final closeItem = tester.widget<PopupMenuItem<String>>(
-        find.byKey(const Key('tab-context-close')),
-      );
-      expect(closeItem.enabled, isFalse,
-          reason: '已关闭终端的关闭选项应禁用');
+      // isClosed 终端不应出现在 tab bar 中
+      expect(find.byKey(const Key('tab-term-closed')), findsNothing,
+          reason: '已关闭的终端不应出现在 tab bar 中');
+      // 正常终端应出现
+      expect(find.byKey(const Key('tab-term-1')), findsOneWidget);
     });
 
     testWidgets('close last terminal shows empty state', (tester) async {
@@ -4127,6 +4119,366 @@ void main() {
           reason: '真实 Cmd+1 key event 应切换到第一个终端',
         );
       }
+    });
+  });
+
+  group('F009 refresh preserves terminal selection', () {
+    testWidgets('selected terminal B preserved after loadDevices refresh',
+        (tester) async {
+      // 验收：选中终端 B → 触发 loadDevices → 刷新后仍然选中 B
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 3,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-a',
+            title: 'Tab A',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+          RuntimeTerminal(
+            terminalId: 'term-b',
+            title: 'Tab B',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'detached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+          RuntimeTerminal(
+            terminalId: 'term-c',
+            title: 'Tab C',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'detached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller,
+          platformOverride: TargetPlatform.macOS));
+      await tester.pumpAndSettle();
+
+      // 切换到 term-b
+      await tester.tap(find.byKey(const Key('tab-term-b')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey<String>('term-b')),
+        findsOneWidget,
+        reason: '切换后应选中 term-b',
+      );
+
+      // 触发 loadDevices（模拟刷新）
+      await controller.loadDevices();
+      await tester.pumpAndSettle();
+
+      // 刷新后仍然选中 term-b
+      expect(
+        find.byKey(const ValueKey<String>('term-b')),
+        findsOneWidget,
+        reason: 'F009: loadDevices 刷新后应保持选中 term-b',
+      );
+    });
+
+    testWidgets('selection preserved when terminal order changes after refresh',
+        (tester) async {
+      // 验收：3 个终端选中第 2 个 → 刷新后排序变化 → 选中 ID 不变
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 3,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'First',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+          RuntimeTerminal(
+            terminalId: 'term-2',
+            title: 'Second',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'detached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+          RuntimeTerminal(
+            terminalId: 'term-3',
+            title: 'Third',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'detached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller,
+          platformOverride: TargetPlatform.macOS));
+      await tester.pumpAndSettle();
+
+      // 选中第 2 个终端
+      await tester.tap(find.byKey(const Key('tab-term-2')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey<String>('term-2')),
+        findsOneWidget,
+        reason: '应选中 term-2',
+      );
+
+      // 模拟排序变化：替换 terminals 顺序（term-3 排最前，term-2 仍在）
+      controller._terminals
+        ..clear()
+        ..addAll(const [
+          RuntimeTerminal(
+            terminalId: 'term-3',
+            title: 'Third',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+          RuntimeTerminal(
+            terminalId: 'term-1',
+            title: 'First',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'detached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+          RuntimeTerminal(
+            terminalId: 'term-2',
+            title: 'Second',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'detached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ]);
+      controller.notifyListeners();
+      await tester.pumpAndSettle();
+
+      // 排序变化后选中 ID 不变
+      expect(
+        find.byKey(const ValueKey<String>('term-2')),
+        findsOneWidget,
+        reason: 'F009: 排序变化后选中 ID 应保持 term-2 不变',
+      );
+    });
+
+    testWidgets(
+        'auto switches when selected terminal closed on server after refresh',
+        (tester) async {
+      // 验收：选中终端 A → A 在刷新后被关闭 → 自动切换到第一个未关闭终端
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 2,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-a',
+            title: 'Tab A',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+          RuntimeTerminal(
+            terminalId: 'term-b',
+            title: 'Tab B',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'detached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller,
+          platformOverride: TargetPlatform.macOS));
+      await tester.pumpAndSettle();
+
+      // 确认初始选中 term-a
+      expect(
+        find.byKey(const ValueKey<String>('term-a')),
+        findsOneWidget,
+        reason: '初始应选中 term-a',
+      );
+
+      // 模拟刷新后 term-a 被关闭
+      controller._terminals
+        ..clear()
+        ..addAll(const [
+          RuntimeTerminal(
+            terminalId: 'term-a',
+            title: 'Tab A',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'closed',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+          RuntimeTerminal(
+            terminalId: 'term-b',
+            title: 'Tab B',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'detached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ]);
+      controller.notifyListeners();
+      await tester.pumpAndSettle();
+
+      // 应自动切换到 term-b
+      expect(
+        find.byKey(const ValueKey<String>('term-b')),
+        findsOneWidget,
+        reason: 'F009: 选中终端被关闭后应自动切换到第一个未关闭终端',
+      );
+    });
+
+    testWidgets('empty to non-empty auto selects first terminal',
+        (tester) async {
+      // 验收：空终端列表 → 刷新后获得新列表 → 自动选中第一个
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 0,
+          ),
+        ],
+        terminals: const [],
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller,
+          platformOverride: TargetPlatform.macOS));
+      await tester.pumpAndSettle();
+
+      // 确认空状态
+      expect(find.byKey(const Key('workspace-empty-create-action')), findsOneWidget);
+
+      // 模拟刷新后新增终端
+      controller._terminals
+        ..clear()
+        ..addAll(const [
+          RuntimeTerminal(
+            terminalId: 'term-new-1',
+            title: 'New Tab',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'detached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ]);
+      controller.notifyListeners();
+      await tester.pumpAndSettle();
+
+      // 应自动选中第一个终端
+      expect(
+        find.byKey(const ValueKey<String>('term-new-1')),
+        findsOneWidget,
+        reason: 'F009: 空列表刷新后获得新列表应自动选中第一个终端',
+      );
+    });
+
+    testWidgets('close last tab shows empty state then create succeeds',
+        (tester) async {
+      // 验收：关闭最后一个 Tab → 空状态 → 创建新终端成功 + Tab 栏重新出现
+      final controller = _FakeWorkspaceController(
+        devices: const [
+          RuntimeDevice(
+            deviceId: 'mbp-01',
+            name: 'mac-phone',
+            owner: 'user1',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 1,
+          ),
+        ],
+        terminals: const [
+          RuntimeTerminal(
+            terminalId: 'term-last',
+            title: 'Last Tab',
+            cwd: '~',
+            command: '/bin/bash',
+            status: 'attached',
+            views: {'mobile': 0, 'desktop': 0},
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller,
+          platformOverride: TargetPlatform.macOS));
+      await tester.pumpAndSettle();
+
+      // 确认有终端显示
+      expect(
+        find.byKey(const ValueKey<String>('term-last')),
+        findsOneWidget,
+        reason: '初始应选中 term-last',
+      );
+
+      // 关闭最后一个终端
+      controller._terminals
+        ..clear()
+        ..add(const RuntimeTerminal(
+          terminalId: 'term-last',
+          title: 'Last Tab',
+          cwd: '~',
+          command: '/bin/bash',
+          status: 'closed',
+          views: {'mobile': 0, 'desktop': 0},
+        ));
+      controller.notifyListeners();
+      await tester.pumpAndSettle();
+
+      // 确认空状态
+      expect(
+        find.byKey(const Key('workspace-empty-create-action')),
+        findsOneWidget,
+        reason: '关闭最后一个 Tab 后应显示空状态',
+      );
+
+      // 点击创建按钮
+      await tester.tap(find.byKey(const Key('workspace-empty-create-action')));
+      await tester.pumpAndSettle();
+
+      // 确认新终端创建成功
+      expect(
+        find.byKey(const ValueKey<String>('term-created')),
+        findsOneWidget,
+        reason: 'F009: 创建按钮点击后应成功创建新终端',
+      );
     });
   });
 }
