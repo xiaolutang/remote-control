@@ -1,14 +1,14 @@
 {
   "version": "1.4",
   "project": "remote-control",
-  "updated_at": "2026-05-10T18:00:00+08:00",
+  "updated_at": "2026-05-11T01:00:00+08:00",
   "status": "in_progress",
   "active_requirement_cycle": {
     "id": "R059",
     "name": "terminal-tab-bar-ux",
     "branch": "feat/R059-terminal-tab-bar-ux",
     "status": "in_progress",
-    "total_tasks": 6
+    "total_tasks": 10
   },
   "workflow": {
     "name": "R059-terminal-tab-bar-ux",
@@ -20,9 +20,9 @@
     "stop_hook_enabled": false
   },
   "summary": {
-    "total_tasks": 6,
-    "by_status": { "pending": 4, "done": 3 },
-    "by_priority": { "P0": 3, "P1": 2, "P2": 1 }
+    "total_tasks": 10,
+    "by_status": { "done": 9, "pending": 1 },
+    "by_priority": { "P0": 3, "P1": 3, "P2": 1, "P1_defect": 4 }
   },
   "archived_requirement_cycles": [
     { "id": "R047", "name": "agent-conversation-interaction-optimization", "status": "completed", "archive_dir": "_archive/R047_agent-conversation-interaction-optimization", "total_tasks": 31 },
@@ -253,11 +253,10 @@
       "phase": "smoke",
       "module": "client/integration_test",
       "name": "集成测试",
-      "status": "in_progress",
-      "started_at": "2026-05-10T22:45:00+08:00",
-      "description": "分为自动化集成测试和手工 Smoke 两部分。\n\n【自动化集成测试】在 client/integration_test/ 目录下编写，使用 integration_test 包。前置条件：在线 device + agent（由 DesktopAgentSupervisor 启动）。覆盖桌面端/移动端创建→切换→关闭→空状态、离线错误、上限禁用。\n\n【手工 Smoke】覆盖 Agent 冷启动终端列表恢复和 Agent 启动失败错误提示+重试。需完整部署环境（Server + Agent + Client）。",
+      "status": "pending",
+      "description": "分为自动化集成测试和手工 Smoke 两部分。\n\n【自动化集成测试】在 client/integration_test/ 目录下编写，使用 integration_test 包。\n\n执行环境：\n- 桌面端（macOS）：由 DesktopAgentSupervisor 自动启动本地 Agent，提供确定性环境\n- 移动端（iOS Simulator / Android Emulator）：连接到同一 Server，Server 上已有桌面端 Agent 注册的 device。移动端通过远程路径操作该 device 上的终端，不依赖移动端本地 Agent\n- Server 状态准备：桌面端 Agent 自动上线 → 创建测试用 device → 移动端测试复用该 device\n\n覆盖桌面端/移动端创建→切换→关闭→空状态、离线错误、上限禁用、5xx/超时失败分支。同时回归验证 F007（样式）、F008（IndexedStack 无加载圈）和 F009（刷新保持）。\n\n【手工 Smoke】覆盖 Agent 冷启动终端列表恢复和 Agent 启动失败错误提示+重试。需完整部署环境（Server + Agent + Client）。",
       "verification": "F2",
-      "depends_on": ["F002", "F003", "F004", "F005"],
+      "depends_on": ["F002", "F003", "F004", "F005", "F007", "F008", "F009"],
       "status": "pending",
       "priority": "P1",
       "acceptance_criteria": [
@@ -265,6 +264,9 @@
         "【自动化】桌面端：创建→Tab出现→切换→内容切换→关闭→选中相邻→全关→空状态",
         "【自动化】移动端：创建→Tab出现→切换→关闭→空状态",
         "【自动化】离线创建→错误反馈；达到上限→+禁用",
+        "【自动化】切换终端不出现加载圈（F008 回归）",
+        "【自动化】移动端 CompactTabStrip 样式符合 F007 规格（F007 回归）",
+        "【自动化】刷新后选中终端保持不变（F009 回归）",
         "【手工 Smoke】Agent 冷启动后终端列表恢复正确",
         "【手工 Smoke】Agent 启动失败时错误提示可见且可重试"
       ],
@@ -281,11 +283,178 @@
         "【自动化】上限 → + 禁用",
         "【自动化】远端关闭当前选中终端 → 自动切换到相邻",
         "【自动化】远端重命名终端 → Tab 标题即时刷新",
+        "【自动化】切换终端不出现 CircularProgressIndicator（F008 回归）",
+        "【自动化】移动端 CompactTabStrip 使用 primaryContainer（F007 回归）",
+        "【自动化】Server 5xx → 创建终端失败 → SnackBar 错误反馈",
+        "【自动化】Server 超时 → loadDevices 失败 → 错误提示 + 重试入口",
+        "【自动化】刷新后选中终端保持不变（F009 回归）",
         "【手工 Smoke】Agent 冷启动 → 终端列表恢复",
         "【手工 Smoke】Agent 启动失败 → 错误提示 + 重试入口"
       ],
       "files": [
         "client/integration_test/terminal_tab_bar_integration_test.dart"
+      ]
+    },
+    {
+      "id": "F007",
+      "phase": "defect-fix",
+      "module": "client/widgets",
+      "name": "移动端 CompactTabStrip 样式优化",
+      "status": "done",
+      "started_at": "2026-05-10T23:30:00+08:00",
+      "completed_at": "2026-05-10T23:50:00+08:00",
+      "description": "验收缺陷：移动端底部 Tab 栏样式问题。选中态颜色过重（primary 饱和蓝实心→应改为 primaryContainer 柔和浅蓝），44px 高度配 16px 圆角形成药丸，无选中指示器，Expanded 等分导致 tab 多时信息丢失。对齐桌面端 TerminalTabBar 的视觉语言：使用 primaryContainer + 底部 2.5px 指示线 + SingleChildScrollView 横向滚动替代 Expanded 等分。",
+      "verification": "F1",
+      "depends_on": ["F001"],
+      "priority": "P1",
+      "acceptance_criteria": [
+        "选中态颜色从 colorScheme.primary 改为 colorScheme.primaryContainer",
+        "选中前景色从 onPrimary 改为 onPrimaryContainer",
+        "移除 BorderRadius.circular(16) 药丸圆角，改用底部 2.5px 指示线",
+        "容器高度从 44px 调整为 48px",
+        "添加底部分隔线（BorderSide outlineVariant 1px）",
+        "布局从 Expanded 等分改为 SingleChildScrollView + BoxConstraints(minWidth:72, maxWidth:120)",
+        "序号字重从 w700 降为 w500，标题字号从 labelSmall 提升到 labelMedium",
+        "左右滑动手势仍然可用",
+        "现有 widget 测试 + workspace 测试通过"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        "选中 Tab 使用 primaryContainer 而非 primary",
+        "tab 数量 > 3 时出现横向滚动而非等分压缩",
+        "底部指示器在选中 tab 显示",
+        "swipe 手势仍正常工作",
+        "现有测试全部通过"
+      ],
+      "files": [
+        "client/lib/widgets/compact_tab_strip.dart",
+        "client/test/widgets/compact_tab_strip_test.dart",
+        "client/test/screens/terminal_workspace_screen_test.dart"
+      ]
+    },
+    {
+      "id": "F008",
+      "phase": "defect-fix",
+      "module": "client/screens/desktop",
+      "name": "IndexedStack 缓存消除终端切换加载圈",
+      "status": "done",
+      "started_at": "2026-05-10T23:50:00+08:00",
+      "completed_at": "2026-05-11T00:10:00+08:00",
+      "description": "验收缺陷：切换终端时短暂显示 CircularProgressIndicator。根因是 KeyedSubtree(key: ValueKey(terminalId)) 在终端切换时强制销毁和重建 TerminalScreen State，新 State 重新走 connectToServer 流程。方案：将 _buildBody 中的单个 KeyedSubtree+TerminalScreen 替换为 IndexedStack 缓存所有终端的 TerminalScreen。CompactTabStrip 从 TerminalScreen.bottomChrome 提到 IndexedStack 外层。终端数量通常 3-5 个，内存可控。",
+      "verification": "F2",
+      "depends_on": ["F003", "F004", "F007"],
+      "priority": "P1",
+      "acceptance_criteria": [
+        "切换终端时不显示 CircularProgressIndicator",
+        "IndexedStack 正确跟踪选中终端 index",
+        "终端关闭后 IndexedStack 子项数量减少",
+        "CompactTabStrip 从 bottomChrome 移到 IndexedStack 外层（Column 独立子项）",
+        "桌面端 TerminalTabBar 不受影响",
+        "移动端 swipe 手势仍然可用",
+        "现有测试全部通过（含 isClosed 终端不出现断言）",
+        "冷启动恢复已有终端时 IndexedStack 正确构建所有子项",
+        "关闭当前终端→自动切换到相邻→无加载圈",
+        "终端创建失败→IndexedStack 不添加多余子项"
+      ],
+      "risk_tags": ["first_use", "startup"],
+      "test_tasks": [
+        "切换终端不触发 CircularProgressIndicator",
+        "IndexedStack index 正确跟踪选中终端",
+        "关闭终端后子项数量减少",
+        "isClosed 终端不出现在 IndexedStack 中",
+        "桌面端 Tab Bar 不受影响",
+        "移动端 CompactTabStrip 功能正常（切换、创建、长按）",
+        "冷启动恢复：已有 3 个终端 → IndexedStack 包含 3 个子项 + 正确选中",
+        "关闭当前选中终端 → 自动切换到相邻 → 无加载圈闪现",
+        "创建失败（API 错误） → IndexedStack 子项不增加",
+        "空工作区首次创建 → IndexedStack 从 0 子项变为 1 子项"
+      ],
+      "files": [
+        "client/lib/screens/desktop/terminal_workspace_screen.dart",
+        "client/lib/screens/terminal_screen.dart",
+        "client/test/screens/terminal_workspace_screen_test.dart"
+      ]
+    },
+    {
+      "id": "F009",
+      "phase": "defect-fix",
+      "module": "client/services/desktop",
+      "name": "修复刷新终端时选中态乱串",
+      "status": "completed",
+      "started_at": "2026-05-11T01:10:00+08:00",
+      "completed_at": "2026-05-11T01:25:00+08:00",
+      "commit": "56dfaa2",
+      "evidence_file": "evidence/F009.md",
+      "execution_notes": "selectedTerminal getter 移除副作用，新增 _syncSelectedTerminalId()，5 个新测试全部通过。后续修复：手势冲突(4203532)、关闭选中终端异步间隙(3a396e5)、context安全(51c4dc0)、analyzer清理(35ce3bc,8b60e19)。Code review: conditional_pass→pass (codex_plugin, 5 rounds)。",
+      "description": "真实验收缺陷：用户点击刷新按钮后，当前选中的终端会切换到其他终端。\n\n根因：DesktopWorkspaceController.selectedTerminal getter 每次被调用时都执行 _selectedTerminalId = _resolveSelectedTerminalId(...)，这是一个有副作用的 getter。在 loadDevices() 异步流程中，_loadTerminalsForDevice 替换 _terminals 后触发 rebuild，selectedTerminal getter 中的 _resolveSelectedTerminalId 如果在 runtime.terminals 中找不到当前 _selectedTerminalId（比如排序变化或短暂不一致），就会回退到第一个未关闭终端，导致选中态丢失。\n\n修复方案：将 selectedTerminal getter 的副作用逻辑移除，改为纯读取。在所有修改 _terminals 或 _selectedTerminalId 的变更点（_loadTerminalsForDevice、closeTerminal、selectTerminal、attachRuntimeController）显式调用 _resolveSelectedTerminalId 并 notifyListeners。",
+      "verification": "F1",
+      "depends_on": ["F008"],
+      "priority": "P1",
+      "fix_level": "L2",
+      "root_cause_analysis": "selectedTerminal getter 违反了 getter 无副作用的设计原则。_resolveSelectedTerminalId 在 terminals 列表被异步替换时可能因为找不到当前 ID 而回退到第一个终端。根因是状态管理分散：_selectedTerminalId 的解析散落在 getter 中而非数据变更点。",
+      "similar_locations": [
+        "desktop_workspace_controller.dart _resolveSelectedTerminalId",
+        "desktop_workspace_controller.dart selectedTerminal getter",
+        "desktop_workspace_controller.dart onTerminalClosed（同样调用 _resolveSelectedTerminalId）"
+      ],
+      "architecture_feedback": "建议在 architecture.md 不变量中追加：getter 不得修改内部状态（副作用禁令）",
+      "acceptance_criteria": [
+        "selectedTerminal getter 变为纯读取，不再修改 _selectedTerminalId",
+        "_selectedTerminalId 的解析集中在数据变更点显式调用",
+        "刷新（loadDevices）后选中终端 ID 不变",
+        "3 个终端中选中第 2 个 → 刷新后仍然选中第 2 个",
+        "刷新后排序变化导致终端位置移动 → 选中 ID 不变（IndexedStack index 跟随）",
+        "刷新后原选中终端已被关闭 → 自动切换到第一个未关闭终端",
+        "关闭最后一个 Tab → 空状态 → 点击创建按钮可重新创建（移动端 expand_more 已隐藏，通过空状态按钮创建）",
+        "现有测试全部通过"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        "选中终端 B → 触发 loadDevices → 刷新后仍然选中 B",
+        "3 个终端选中第 2 个 → 刷新后排序变化（updatedAt 不同）→ 选中 ID 不变",
+        "选中终端 A → 模拟 A 在刷新后被关闭 → 自动切换到第一个未关闭终端",
+        "空终端列表 → 刷新后获得新列表 → 自动选中第一个",
+        "关闭最后一个 Tab → 空状态页面显示 → 点击创建按钮 → 新终端创建成功 + Tab 栏重新出现",
+        "桌面端 + 移动端分别验证刷新保持"
+      ],
+      "files": [
+        "client/lib/services/desktop/desktop_workspace_controller.dart",
+        "client/test/screens/terminal_workspace_screen_test.dart"
+      ]
+    },
+    {
+      "id": "F010",
+      "phase": "test-supplement",
+      "module": "client/test",
+      "name": "IndexedStack 多终端隔离与刷新保持测试补充",
+      "status": "completed",
+      "started_at": "2026-05-11T01:26:00+08:00",
+      "completed_at": "2026-05-11T01:35:00+08:00",
+      "commit": "0674cfb",
+      "evidence_file": "evidence/F010.md",
+      "execution_notes": "7 个新测试全部通过：loading 共存、Provider 隔离、刷新保持、排序跟随、关闭选中终端回归。Code review: conditional_pass→pass (codex_plugin)。",
+      "description": "补充 3 类关键测试场景，为 IndexedStack 缓存机制提供自动化质量门保障：\n1. 刷新保持测试（配合 F009 修复验证）\n2. 多终端 Provider 隔离正确性\n3. loading 状态与 IndexedStack 共存",
+      "verification": "F1",
+      "depends_on": ["F009"],
+      "priority": "P1",
+      "acceptance_criteria": [
+        "测试覆盖：刷新后 IndexedStack index 不变",
+        "测试覆盖：多终端各自持有独立的 WebSocketService（Provider 作用域隔离）",
+        "测试覆盖：loadingDevices=true + terminal!=null 时不显示 CircularProgressIndicator",
+        "测试覆盖：loadingTerminals=true + terminal!=null 时 IndexedStack 保持可见",
+        "新增测试全部通过，现有测试不受影响"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        "loadingDevices=true + terminal!=null → IndexedStack 可见（不显示 loading）",
+        "loadingTerminals=true + terminal!=null → IndexedStack 可见",
+        "2 个终端 → 各自的 TerminalScreen 持有不同 WebSocketService 实例",
+        "切换终端 → IndexedStack index 变化但 children 不变",
+        "刷新（替换 terminals 列表）→ selectedIndex 仍指向原 terminalId",
+        "3 个终端 + 排序变化 → selectedIndex 跟随 terminalId（不跟随位置）"
+      ],
+      "files": [
+        "client/test/screens/terminal_workspace_screen_test.dart"
       ]
     }
   ]
