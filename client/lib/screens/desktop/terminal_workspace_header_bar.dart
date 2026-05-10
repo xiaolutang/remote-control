@@ -5,7 +5,6 @@ import '../../models/runtime_terminal.dart';
 import '../../navigation/account_menu_actions.dart';
 import '../../services/desktop/desktop_agent_manager.dart';
 import '../../services/desktop/desktop_workspace_controller.dart';
-import '../../widgets/terminal_tab_bar.dart';
 
 /// Desktop-only settings menu actions (workspace local, not shared).
 /// Extends standard account menu with Agent management and device editing.
@@ -35,11 +34,6 @@ class WorkspaceHeaderBar extends StatelessWidget {
     required this.onLogout,
     this.onSkillConfig,
     this.isDesktopPlatform = false,
-    this.terminals = const [],
-    this.selectedTerminalId,
-    this.onSwitchTerminal,
-    this.onCreateTerminal,
-    this.onTabContextMenu,
     this.onAgentAction,
     this.onEditDevice,
     this.desktopActionInFlight = false,
@@ -63,24 +57,8 @@ class WorkspaceHeaderBar extends StatelessWidget {
   final VoidCallback? onSkillConfig;
 
   /// Whether the current platform is desktop (macOS/Windows/Linux).
-  /// When true, TerminalTabBar replaces the expand_more button and terminal title.
+  /// When true, desktop layout is used (single-row header without tab bar).
   final bool isDesktopPlatform;
-
-  /// List of all terminal sessions for the tab bar (desktop only).
-  final List<RuntimeTerminal> terminals;
-
-  /// ID of the currently selected terminal (desktop only).
-  final String? selectedTerminalId;
-
-  /// Callback when user switches terminal via tab bar (desktop only).
-  final ValueChanged<String>? onSwitchTerminal;
-
-  /// Callback when user creates a new terminal via tab bar + button (desktop only).
-  final VoidCallback? onCreateTerminal;
-
-  /// Callback when user triggers context menu on a terminal tab.
-  /// Provides the terminal ID and the tap position for menu placement.
-  final void Function(String terminalId, Offset position)? onTabContextMenu;
 
   /// Callback for Agent start/stop action (desktop only, in settings menu).
   final VoidCallback? onAgentAction;
@@ -134,35 +112,13 @@ class WorkspaceHeaderBar extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
       child: Row(
         children: [
-          Icon(
-            state.deviceReady ? Icons.computer : Icons.computer_outlined,
-            size: 18,
-            color: iconColor,
-          ),
-          const SizedBox(width: 8),
-          // 设备名
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 120),
-            child: Text(
-              deviceName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          // 终端标题 + 状态（有终端时合并显示，无终端时只显示状态）
-          Expanded(
-            child: Text(
-              terminal != null ? '$terminalTitle · $statusText' : statusText,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-            ),
+          ..._buildDeviceInfoRow(
+            context: context,
+            iconColor: iconColor,
+            deviceName: deviceName,
+            statusText: terminal != null ? '$terminalTitle · $statusText' : statusText,
+            colorScheme: colorScheme,
+            deviceReady: state.deviceReady,
           ),
           // 展开菜单按钮（F004: 菜单空化后条件隐藏）
           if (onOpenTerminalMenu != null)
@@ -197,19 +153,14 @@ class WorkspaceHeaderBar extends StatelessWidget {
               switch (value) {
                 case AccountMenuAction.theme:
                   onTheme?.call();
-                  break;
                 case AccountMenuAction.profile:
                   onProfile?.call();
-                  break;
                 case AccountMenuAction.feedback:
                   onFeedback?.call();
-                  break;
                 case AccountMenuAction.logout:
                   onLogout?.call();
-                  break;
                 case AccountMenuAction.knowledgeConfig:
                   onSkillConfig?.call();
-                  break;
               }
             },
             itemBuilder: (context) => buildAccountMenuEntries(
@@ -221,9 +172,50 @@ class WorkspaceHeaderBar extends StatelessWidget {
     );
   }
 
-  /// Desktop layout: two-row layout with status text preserved.
-  /// Row 1: [computer icon] [device name] [status text] [menu] [refresh] [settings]
-  /// Row 2: [TerminalTabBar (full width)]
+  /// Shared device info row: [computer icon] [device name] [status text].
+  /// Used by both mobile and desktop layouts to avoid duplication.
+  List<Widget> _buildDeviceInfoRow({
+    required BuildContext context,
+    required Color iconColor,
+    required String deviceName,
+    required String statusText,
+    required ColorScheme colorScheme,
+    required bool deviceReady,
+  }) {
+    return [
+      Icon(
+        deviceReady ? Icons.computer : Icons.computer_outlined,
+        size: 18,
+        color: iconColor,
+      ),
+      const SizedBox(width: 8),
+      ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 120),
+        child: Text(
+          deviceName,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+        ),
+      ),
+      const SizedBox(width: 8),
+      Expanded(
+        child: Text(
+          statusText,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+        ),
+      ),
+    ];
+  }
+
+  /// Desktop layout: single-row layout with status text preserved.
+  /// Row: [computer icon] [device name] [status text] [menu] [refresh] [settings]
   Widget _buildDesktopLayout({
     required BuildContext context,
     required ColorScheme colorScheme,
@@ -236,209 +228,164 @@ class WorkspaceHeaderBar extends StatelessWidget {
   }) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
         children: [
-          // Row 1: device info + action buttons
-          Row(
-            children: [
-              Icon(
-                state.deviceReady ? Icons.computer : Icons.computer_outlined,
-                size: 18,
-                color: iconColor,
-              ),
-              const SizedBox(width: 8),
-              // 设备名
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 120),
-                child: Text(
-                  deviceName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
+          ..._buildDeviceInfoRow(
+            context: context,
+            iconColor: iconColor,
+            deviceName: deviceName,
+            statusText: statusText,
+            colorScheme: colorScheme,
+            deviceReady: state.deviceReady,
+          ),
+          // 菜单按钮（保留用于 Agent 管理、设备编辑等桌面端管理功能）
+          IconButton(
+            key: const Key('workspace-open-terminal-menu'),
+            tooltip: '管理菜单',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+            onPressed: onOpenTerminalMenu,
+            icon: creatingTerminal
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.more_horiz, size: 20),
+          ),
+          // 刷新按钮
+          IconButton(
+            tooltip: '刷新',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+            onPressed: onRefresh,
+            icon: const Icon(Icons.refresh, size: 20),
+          ),
+          // 设置按钮 - 桌面端含 Agent 管理 + 设备编辑（workspace 局部）
+          PopupMenuButton<_DesktopSettingsAction>(
+            tooltip: '设置',
+            padding: EdgeInsets.zero,
+            icon: const Icon(Icons.settings_outlined, size: 20),
+            onSelected: (value) {
+              switch (value) {
+                case _DesktopSettingsAction.agentAction:
+                  onAgentAction?.call();
+                case _DesktopSettingsAction.editDevice:
+                  onEditDevice?.call();
+                case _DesktopSettingsAction.theme:
+                  onTheme?.call();
+                case _DesktopSettingsAction.knowledgeConfig:
+                  onSkillConfig?.call();
+                case _DesktopSettingsAction.profile:
+                  onProfile?.call();
+                case _DesktopSettingsAction.feedback:
+                  onFeedback?.call();
+                case _DesktopSettingsAction.logout:
+                  onLogout?.call();
+              }
+            },
+            itemBuilder: (context) => [
+              // Agent 管理（workspace 局部）
+              // Guard: 与管理菜单一致 — 外部启动的 Agent 不可操作，in-flight 时禁用
+              PopupMenuItem<_DesktopSettingsAction>(
+                key: const Key('workspace-settings-agent-action'),
+                value: _DesktopSettingsAction.agentAction,
+                enabled: !desktopActionInFlight &&
+                    (managedByDesktop || !agentOnline),
+                child: Row(
+                  children: [
+                    desktopActionInFlight
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child:
+                                CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Icon(
+                            agentOnline
+                                ? Icons.stop_circle_outlined
+                                : Icons.play_circle_outline,
+                            size: 20,
+                          ),
+                    const SizedBox(width: 12),
+                    Text(agentOnline
+                        ? '停止本机 Agent'
+                        : '启动本机 Agent'),
+                  ],
                 ),
               ),
-              const SizedBox(width: 8),
-              // 状态文本（保留原有运行态信息）
-              Expanded(
-                child: Text(
-                  statusText,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                      ),
+              // 设备编辑（workspace 局部）
+              const PopupMenuItem<_DesktopSettingsAction>(
+                key: Key('workspace-settings-rename-device'),
+                value: _DesktopSettingsAction.editDevice,
+                child: Row(
+                  children: [
+                    Icon(Icons.edit_outlined, size: 20),
+                    SizedBox(width: 12),
+                    Text('编辑设备名称'),
+                  ],
                 ),
               ),
-              // 菜单按钮（保留用于 Agent 管理、设备编辑等桌面端管理功能）
-              IconButton(
-                key: const Key('workspace-open-terminal-menu'),
-                tooltip: '管理菜单',
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                onPressed: onOpenTerminalMenu,
-                icon: creatingTerminal
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.more_horiz, size: 20),
+              const PopupMenuDivider(),
+              // 主题
+              const PopupMenuItem<_DesktopSettingsAction>(
+                value: _DesktopSettingsAction.theme,
+                child: Row(
+                  children: [
+                    Icon(Icons.palette_outlined, size: 20),
+                    SizedBox(width: 12),
+                    Text('主题'),
+                  ],
+                ),
               ),
-              // 刷新按钮
-              IconButton(
-                tooltip: '刷新',
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                onPressed: onRefresh,
-                icon: const Icon(Icons.refresh, size: 20),
+              // 知识管理
+              if (onSkillConfig != null)
+                const PopupMenuItem<_DesktopSettingsAction>(
+                  value: _DesktopSettingsAction.knowledgeConfig,
+                  child: Row(
+                    children: [
+                      Icon(Icons.menu_book_outlined, size: 20),
+                      SizedBox(width: 12),
+                      Text('知识管理'),
+                    ],
+                  ),
+                ),
+              const PopupMenuDivider(),
+              // 个人信息
+              const PopupMenuItem<_DesktopSettingsAction>(
+                value: _DesktopSettingsAction.profile,
+                child: Row(
+                  children: [
+                    Icon(Icons.person_outline, size: 20),
+                    SizedBox(width: 12),
+                    Text('个人信息'),
+                  ],
+                ),
               ),
-              // 设置按钮 - 桌面端含 Agent 管理 + 设备编辑（workspace 局部）
-              PopupMenuButton<_DesktopSettingsAction>(
-                tooltip: '设置',
-                padding: EdgeInsets.zero,
-                icon: const Icon(Icons.settings_outlined, size: 20),
-                onSelected: (value) {
-                  switch (value) {
-                    case _DesktopSettingsAction.agentAction:
-                      onAgentAction?.call();
-                      break;
-                    case _DesktopSettingsAction.editDevice:
-                      onEditDevice?.call();
-                      break;
-                    case _DesktopSettingsAction.theme:
-                      onTheme?.call();
-                      break;
-                    case _DesktopSettingsAction.knowledgeConfig:
-                      onSkillConfig?.call();
-                      break;
-                    case _DesktopSettingsAction.profile:
-                      onProfile?.call();
-                      break;
-                    case _DesktopSettingsAction.feedback:
-                      onFeedback?.call();
-                      break;
-                    case _DesktopSettingsAction.logout:
-                      onLogout?.call();
-                      break;
-                  }
-                },
-                itemBuilder: (context) => [
-                  // Agent 管理（workspace 局部）
-                  // Guard: 与管理菜单一致 — 外部启动的 Agent 不可操作，in-flight 时禁用
-                  PopupMenuItem<_DesktopSettingsAction>(
-                    key: const Key('workspace-settings-agent-action'),
-                    value: _DesktopSettingsAction.agentAction,
-                    enabled: !desktopActionInFlight &&
-                        (managedByDesktop || !agentOnline),
-                    child: Row(
-                      children: [
-                        desktopActionInFlight
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : Icon(
-                                agentOnline
-                                    ? Icons.stop_circle_outlined
-                                    : Icons.play_circle_outline,
-                                size: 20,
-                              ),
-                        const SizedBox(width: 12),
-                        Text(agentOnline
-                            ? '停止本机 Agent'
-                            : '启动本机 Agent'),
-                      ],
-                    ),
-                  ),
-                  // 设备编辑（workspace 局部）
-                  const PopupMenuItem<_DesktopSettingsAction>(
-                    key: Key('workspace-settings-rename-device'),
-                    value: _DesktopSettingsAction.editDevice,
-                    child: Row(
-                      children: [
-                        Icon(Icons.edit_outlined, size: 20),
-                        SizedBox(width: 12),
-                        Text('编辑设备名称'),
-                      ],
-                    ),
-                  ),
-                  const PopupMenuDivider(),
-                  // 主题
-                  const PopupMenuItem<_DesktopSettingsAction>(
-                    value: _DesktopSettingsAction.theme,
-                    child: Row(
-                      children: [
-                        Icon(Icons.palette_outlined, size: 20),
-                        SizedBox(width: 12),
-                        Text('主题'),
-                      ],
-                    ),
-                  ),
-                  // 知识管理
-                  if (onSkillConfig != null)
-                    const PopupMenuItem<_DesktopSettingsAction>(
-                      value: _DesktopSettingsAction.knowledgeConfig,
-                      child: Row(
-                        children: [
-                          Icon(Icons.menu_book_outlined, size: 20),
-                          SizedBox(width: 12),
-                          Text('知识管理'),
-                        ],
-                      ),
-                    ),
-                  const PopupMenuDivider(),
-                  // 个人信息
-                  const PopupMenuItem<_DesktopSettingsAction>(
-                    value: _DesktopSettingsAction.profile,
-                    child: Row(
-                      children: [
-                        Icon(Icons.person_outline, size: 20),
-                        SizedBox(width: 12),
-                        Text('个人信息'),
-                      ],
-                    ),
-                  ),
-                  // 问题反馈
-                  const PopupMenuItem<_DesktopSettingsAction>(
-                    value: _DesktopSettingsAction.feedback,
-                    child: Row(
-                      children: [
-                        Icon(Icons.feedback_outlined, size: 20),
-                        SizedBox(width: 12),
-                        Text('问题反馈'),
-                      ],
-                    ),
-                  ),
-                  const PopupMenuDivider(),
-                  // 退出登录
-                  const PopupMenuItem<_DesktopSettingsAction>(
-                    value: _DesktopSettingsAction.logout,
-                    child: Row(
-                      children: [
-                        Icon(Icons.logout, size: 20),
-                        SizedBox(width: 12),
-                        Text('退出登录'),
-                      ],
-                    ),
-                  ),
-                ],
+              // 问题反馈
+              const PopupMenuItem<_DesktopSettingsAction>(
+                value: _DesktopSettingsAction.feedback,
+                child: Row(
+                  children: [
+                    Icon(Icons.feedback_outlined, size: 20),
+                    SizedBox(width: 12),
+                    Text('问题反馈'),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
+              // 退出登录
+              const PopupMenuItem<_DesktopSettingsAction>(
+                value: _DesktopSettingsAction.logout,
+                child: Row(
+                  children: [
+                    Icon(Icons.logout, size: 20),
+                    SizedBox(width: 12),
+                    Text('退出登录'),
+                  ],
+                ),
               ),
             ],
-          ),
-          // Row 2: TerminalTabBar
-          TerminalTabBar(
-            terminals: terminals,
-            selectedTerminalId: selectedTerminalId,
-            onSwitch: onSwitchTerminal ?? (_) {},
-            onCreate: onCreateTerminal ?? () {},
-            createDisabled:
-                !currentDevice.canCreateTerminal || creatingTerminal,
-            onContextMenu: onTabContextMenu,
           ),
         ],
       ),

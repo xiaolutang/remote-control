@@ -26,6 +26,7 @@ import '../login_screen.dart';
 import '../skill_config_screen.dart';
 import '../terminal_screen.dart';
 import '../../widgets/compact_tab_strip.dart';
+import '../../widgets/terminal_sidebar.dart';
 import 'terminal_workspace_header_bar.dart';
 import 'terminal_workspace_empty_state.dart';
 
@@ -333,21 +334,8 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
                           builder: (_) => const SkillConfigScreen(),
                         ),
                       ),
-                      // F002: 桌面端 Tab Bar 集成
+                      // F003: 桌面端单行 Header（无 Tab Bar）
                       isDesktopPlatform: controller.isDesktopPlatform,
-                      terminals: terminals,
-                      selectedTerminalId: selectedTerminal?.terminalId,
-                      onSwitchTerminal: _handleSwitchTerminal,
-                      onCreateTerminal: _handleCreateTerminal,
-                      // F004: 桌面端右键 Tab 上下文菜单
-                      onTabContextMenu: (terminalId, position) {
-                        _showTabContextMenu(
-                          context,
-                          controller,
-                          terminalId,
-                          position,
-                        );
-                      },
                       // F004: 桌面端设置菜单 Agent 管理/设备编辑
                       onAgentAction: () {
                         final agentOnline = device?.agentOnline ?? false;
@@ -364,15 +352,48 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
                       desktopActionInFlight:
                           _workspaceController.desktopActionInFlight,
                     ),
+                    // F003: 桌面端用 Row 包裹 Sidebar + Body
                     Expanded(
-                      child: _buildBody(
-                        context: context,
-                        controller: controller,
-                        device: device,
-                        terminal: workspaceState.selectedTerminal,
-                        terminals: terminals,
-                        state: workspaceState,
-                      ),
+                      child: controller.isDesktopPlatform
+                          ? Row(
+                              children: [
+                                TerminalSidebar(
+                                  terminals: terminals,
+                                  selectedTerminalId:
+                                      selectedTerminal?.terminalId,
+                                  onSwitch: _handleSwitchTerminal,
+                                  onCreate: _handleCreateTerminal,
+                                  createDisabled: device == null ||
+                                      _isCreateDisabled(device, controller),
+                                  onContextMenu: (terminalId, position) {
+                                    _showTabContextMenu(
+                                      context,
+                                      controller,
+                                      terminalId,
+                                      position,
+                                    );
+                                  },
+                                ),
+                                Expanded(
+                                  child: _buildBody(
+                                    context: context,
+                                    controller: controller,
+                                    device: device,
+                                    terminal: workspaceState.selectedTerminal,
+                                    terminals: terminals,
+                                    state: workspaceState,
+                                  ),
+                                ),
+                              ],
+                            )
+                          : _buildBody(
+                              context: context,
+                              controller: controller,
+                              device: device,
+                              terminal: workspaceState.selectedTerminal,
+                              terminals: terminals,
+                              state: workspaceState,
+                            ),
                     ),
                   ],
                 ),
@@ -470,7 +491,7 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
         );
     _listenToTerminalsChangedIfNeeded(selectedService);
 
-    return Column(
+    final terminalBody = Column(
       children: [
         Expanded(
           child: IndexedStack(
@@ -512,6 +533,8 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
           ),
       ],
     );
+
+    return terminalBody;
   }
 
   /// Builds a single cached TerminalScreen for [terminal] with its own
