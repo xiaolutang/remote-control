@@ -299,15 +299,13 @@ class _StubDesktopAgentBootstrapService extends DesktopAgentBootstrapService {
 // ─── Controller subclass with mock WebSocket ──────────────────────
 
 class _StubRuntimeSelectionController extends RuntimeSelectionController {
-  // ignore: use_super_parameters
   _StubRuntimeSelectionController({
     required super.runtimeService,
-    required List<RuntimeDevice> initialDevices,
+    required super.initialDevices,
     this.forceDesktopPlatform = false,
   }) : super(
           serverUrl: 'ws://localhost:8888',
           token: 'test-token',
-          initialDevices: initialDevices,
         );
 
   final bool forceDesktopPlatform;
