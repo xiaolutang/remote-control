@@ -25,7 +25,7 @@ import '../../services/websocket_service.dart';
 import '../login_screen.dart';
 import '../skill_config_screen.dart';
 import '../terminal_screen.dart';
-import '../../widgets/compact_tab_strip.dart';
+import '../../widgets/terminal_page_indicator.dart';
 import '../../widgets/terminal_sidebar.dart';
 import 'terminal_workspace_header_bar.dart';
 import 'terminal_workspace_empty_state.dart';
@@ -509,9 +509,9 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
             ],
           ),
         ),
-        // F008: 移动端 CompactTabStrip 从 bottomChrome 移到 IndexedStack 外层
+        // F006: 移动端 TerminalPageIndicator 替换 CompactTabStrip（32px 页码指示器）
         if (!controller.isDesktopPlatform)
-          CompactTabStrip(
+          TerminalPageIndicator(
             terminals: terminals,
             selectedTerminalId: terminal.terminalId,
             onSwitch: _handleSwitchTerminal,
@@ -522,14 +522,14 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
                 snackBarOnError: true,
               ));
             },
-            onLongPress: (terminalId) {
+            createDisabled: _isCreateDisabled(device, controller),
+            onContextMenu: (terminalId, position) {
               _showMobileTabContextMenu(
                 context,
                 controller,
                 terminalId,
               );
             },
-            createDisabled: _isCreateDisabled(device, controller),
           ),
       ],
     );

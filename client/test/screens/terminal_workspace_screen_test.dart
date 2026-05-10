@@ -25,7 +25,7 @@ import 'package:rc_client/services/theme_controller.dart';
 import 'package:rc_client/services/websocket_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:rc_client/widgets/compact_tab_strip.dart';
+import 'package:rc_client/widgets/terminal_page_indicator.dart';
 import 'package:rc_client/widgets/terminal_sidebar.dart';
 
 import '../helpers/account_menu_test_helper.dart';
@@ -1829,8 +1829,8 @@ void main() {
       expect(find.byKey(const Key('workspace-open-terminal-menu')),
           findsNothing);
 
-      // 终端操作通过长按 Tab 的上下文菜单访问
-      await tester.longPress(find.byKey(const Key('compact-tab-term-1')));
+      // 终端操作通过长按页码指示器中间区域的上下文菜单访问
+      await tester.longPress(find.byKey(const Key('page-indicator-center')));
       await tester.pumpAndSettle();
 
       // 上下文菜单应包含重命名和关闭
@@ -1840,7 +1840,7 @@ void main() {
   });
 
   group('F003: mobile bottom tab strip', () {
-    testWidgets('mobile renders CompactTabStrip, desktop does not',
+    testWidgets('mobile renders TerminalPageIndicator, desktop does not',
         (tester) async {
       final controller = _FakeWorkspaceController(
         devices: const [
@@ -1877,11 +1877,11 @@ void main() {
       await tester.pumpWidget(wrapWithApp(controller));
       await tester.pumpAndSettle();
 
-      // 移动端应渲染 CompactTabStrip
-      expect(find.byType(CompactTabStrip), findsOneWidget);
+      // 移动端应渲染 TerminalPageIndicator
+      expect(find.byType(TerminalPageIndicator), findsOneWidget);
     });
 
-    testWidgets('desktop does not render CompactTabStrip', (tester) async {
+    testWidgets('desktop does not render TerminalPageIndicator', (tester) async {
       final controller = _FakeWorkspaceController(
         devices: const [
           RuntimeDevice(
@@ -1917,8 +1917,8 @@ void main() {
       await tester.pumpWidget(wrapWithApp(controller));
       await tester.pumpAndSettle();
 
-      // 桌面端不应渲染 CompactTabStrip
-      expect(find.byType(CompactTabStrip), findsNothing);
+      // 桌面端不应渲染 TerminalPageIndicator
+      expect(find.byType(TerminalPageIndicator), findsNothing);
     });
 
     testWidgets('mobile bottom tab click switches terminal', (tester) async {
@@ -1964,8 +1964,8 @@ void main() {
         reason: '初始应选中 term-1',
       );
 
-      // 点击 CompactTabStrip 中的 term-2 tab
-      await tester.tap(find.byKey(const Key('compact-tab-term-2')));
+      // 点击右箭头切换到 term-2
+      await tester.tap(find.byKey(const Key('page-indicator-right')));
       await tester.pumpAndSettle();
 
       // 切换后应选中 term-2
@@ -2004,15 +2004,19 @@ void main() {
       await tester.pumpWidget(wrapWithApp(controller));
       await tester.pumpAndSettle();
 
-      // 点击 + 按钮
-      await tester.tap(find.byKey(const Key('compact-tab-create')));
+      // 点击中间区域打开 BottomSheet
+      await tester.tap(find.byKey(const Key('page-indicator-center')));
+      await tester.pumpAndSettle();
+
+      // 点击 BottomSheet 中的创建按钮
+      await tester.tap(find.byKey(const Key('page-indicator-create')));
       await tester.pumpAndSettle();
 
       // 应该创建了一个新终端（term-created 是 mock 返回的 ID）
       expect(
         find.byKey(const ValueKey<String>('term-created')),
         findsOneWidget,
-        reason: '点击 + 后应创建新终端并选中',
+        reason: '点击创建后应创建新终端并选中',
       );
     });
 
@@ -2060,18 +2064,22 @@ void main() {
       await tester.pumpWidget(wrapWithApp(controller));
       await tester.pumpAndSettle();
 
-      // 达到上限时 + 按钮应被禁用
+      // 打开 BottomSheet
+      await tester.tap(find.byKey(const Key('page-indicator-center')));
+      await tester.pumpAndSettle();
+
+      // 达到上限时创建按钮应被禁用
       final createButton = tester.widget<IconButton>(
         find.descendant(
-          of: find.byKey(const Key('compact-tab-create')),
+          of: find.byKey(const Key('page-indicator-create')),
           matching: find.byType(IconButton),
         ),
       );
       expect(createButton.onPressed, isNull,
-          reason: '达到上限时 + 按钮应被禁用');
+          reason: '达到上限时创建按钮应被禁用');
     });
 
-    testWidgets('mobile no CompactTabStrip when no terminal selected',
+    testWidgets('mobile no TerminalPageIndicator when no terminal selected',
         (tester) async {
       final controller = _FakeWorkspaceController(
         devices: const [
@@ -2091,14 +2099,14 @@ void main() {
       await tester.pumpWidget(wrapWithApp(controller));
       await tester.pumpAndSettle();
 
-      // 无终端时不应渲染 CompactTabStrip
-      expect(find.byType(CompactTabStrip), findsNothing);
+      // 无终端时不应渲染 TerminalPageIndicator
+      expect(find.byType(TerminalPageIndicator), findsNothing);
       // 应显示创建第一个终端的空状态
       expect(find.text('创建第一个终端'), findsOneWidget);
     });
 
     testWidgets(
-        'mobile offline device shows empty state without CompactTabStrip',
+        'mobile offline device shows empty state without TerminalPageIndicator',
         (tester) async {
       final controller = _FakeWorkspaceController(
         devices: const [
@@ -2127,13 +2135,13 @@ void main() {
       await tester.pumpWidget(wrapWithApp(controller));
       await tester.pumpAndSettle();
 
-      // 手机端设备离线时展示离线页面，不渲染 CompactTabStrip
-      expect(find.byType(CompactTabStrip), findsNothing);
+      // 手机端设备离线时展示离线页面，不渲染 TerminalPageIndicator
+      expect(find.byType(TerminalPageIndicator), findsNothing);
       expect(find.text('电脑离线'), findsWidgets);
     });
 
     testWidgets(
-        'mobile CompactTabStrip shows correct terminal count and titles',
+        'mobile TerminalPageIndicator shows correct terminal count and titles',
         (tester) async {
       final controller = _FakeWorkspaceController(
         devices: const [
@@ -2170,11 +2178,12 @@ void main() {
       await tester.pumpWidget(wrapWithApp(controller));
       await tester.pumpAndSettle();
 
-      // 应渲染两个 tab
-      expect(find.byKey(const Key('compact-tab-term-1')), findsOneWidget);
-      expect(find.byKey(const Key('compact-tab-term-2')), findsOneWidget);
-      // 应渲染 + 按钮
-      expect(find.byKey(const Key('compact-tab-create')), findsOneWidget);
+      // 页码指示器应显示 "1/2"
+      expect(find.byKey(const Key('page-indicator-label')), findsOneWidget);
+      expect(find.text('1/2'), findsOneWidget);
+      // 左右箭头应存在
+      expect(find.byKey(const Key('page-indicator-left')), findsOneWidget);
+      expect(find.byKey(const Key('page-indicator-right')), findsOneWidget);
     });
 
     testWidgets('mobile bottomChrome=null on desktop does not affect layout',
@@ -2207,8 +2216,8 @@ void main() {
       await tester.pumpWidget(wrapWithApp(controller));
       await tester.pumpAndSettle();
 
-      // 桌面端无 CompactTabStrip
-      expect(find.byType(CompactTabStrip), findsNothing);
+      // 桌面端无 TerminalPageIndicator
+      expect(find.byType(TerminalPageIndicator), findsNothing);
       // 桌面端应有 TerminalSidebar（F003）
       expect(find.byType(TerminalSidebar), findsOneWidget);
     });
@@ -2246,10 +2255,14 @@ void main() {
       controller.forceCreatingTerminal = true;
       await tester.pump();
 
-      // + 按钮应该被禁用（IconButton onPressed 为 null）
+      // 打开 BottomSheet
+      await tester.tap(find.byKey(const Key('page-indicator-center')));
+      await tester.pumpAndSettle();
+
+      // 创建按钮应该被禁用（IconButton onPressed 为 null）
       final createButton = tester.widget<IconButton>(
         find.descendant(
-          of: find.byKey(const Key('compact-tab-create')),
+          of: find.byKey(const Key('page-indicator-create')),
           matching: find.byType(IconButton),
         ),
       );
@@ -2257,9 +2270,9 @@ void main() {
           reason: '创建中时 + 按钮应被禁用');
     });
 
-    testWidgets('mobile offline device does not render CompactTabStrip',
+    testWidgets('mobile offline device does not render TerminalPageIndicator',
         (tester) async {
-      // 移动端设备离线时 _buildBody 返回 deviceOffline 页面，不渲染 CompactTabStrip
+      // 移动端设备离线时 _buildBody 返回 deviceOffline 页面，不渲染 TerminalPageIndicator
       final controller = _FakeWorkspaceController(
         devices: const [
           RuntimeDevice(
@@ -2287,14 +2300,14 @@ void main() {
       await tester.pumpWidget(wrapWithApp(controller));
       await tester.pumpAndSettle();
 
-      // 手机端设备离线时展示离线页面，CompactTabStrip 不渲染
-      expect(find.byType(CompactTabStrip), findsNothing);
+      // 手机端设备离线时展示离线页面，TerminalPageIndicator 不渲染
+      expect(find.byType(TerminalPageIndicator), findsNothing);
     });
 
     testWidgets(
-        'mobile first terminal creation shows CompactTabStrip after creation',
+        'mobile first terminal creation shows TerminalPageIndicator after creation',
         (tester) async {
-      // 验证：空工作区创建第一个终端后 CompactTabStrip 出现
+      // 验证：空工作区创建第一个终端后 TerminalPageIndicator 出现
       final controller = _FakeWorkspaceController(
         devices: const [
           RuntimeDevice(
@@ -2313,8 +2326,8 @@ void main() {
       await tester.pumpWidget(wrapWithApp(controller));
       await tester.pumpAndSettle();
 
-      // 初始无终端，无 CompactTabStrip
-      expect(find.byType(CompactTabStrip), findsNothing);
+      // 初始无终端，无 TerminalPageIndicator
+      expect(find.byType(TerminalPageIndicator), findsNothing);
       expect(find.text('创建第一个终端'), findsOneWidget);
 
       // 创建第一个终端
@@ -2322,14 +2335,13 @@ void main() {
           find.byKey(const Key('workspace-empty-create-action')));
       await tester.pumpAndSettle();
 
-      // 创建后应有 CompactTabStrip（含 term-created）
-      expect(find.byType(CompactTabStrip), findsOneWidget);
-      expect(find.byKey(const Key('compact-tab-term-created')),
-          findsOneWidget);
+      // 创建后应有 TerminalPageIndicator，页码显示 '1/1'
+      expect(find.byType(TerminalPageIndicator), findsOneWidget);
+      expect(find.text('1/1'), findsOneWidget);
     });
 
     testWidgets(
-        'mobile terminals_changed sync updates CompactTabStrip terminals',
+        'mobile terminals_changed sync updates TerminalPageIndicator terminals',
         (tester) async {
       final controller = _FakeWorkspaceController(
         devices: const [
@@ -2366,9 +2378,8 @@ void main() {
       await tester.pumpWidget(wrapWithApp(controller));
       await tester.pumpAndSettle();
 
-      // 初始应有两个 tab
-      expect(find.byKey(const Key('compact-tab-term-1')), findsOneWidget);
-      expect(find.byKey(const Key('compact-tab-term-2')), findsOneWidget);
+      // 初始页码显示 "1/2"
+      expect(find.text('1/2'), findsOneWidget);
 
       // 模拟 terminals_changed: 添加新终端
       controller.addTerminal(const RuntimeTerminal(
@@ -2381,13 +2392,13 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
-      // CompactTabStrip 应同步更新，显示三个 tab
-      expect(find.byKey(const Key('compact-tab-term-3')), findsOneWidget);
+      // TerminalPageIndicator 应同步更新，页码显示 "1/3"
+      expect(find.text('1/3'), findsOneWidget);
     });
 
-    testWidgets('mobile CompactTabStrip is above TerminalShortcutBar',
+    testWidgets('mobile TerminalPageIndicator is above TerminalShortcutBar',
         (tester) async {
-      // 验证 slot 位置：bottomChrome (CompactTabStrip) 在 ShortcutBar 上方
+      // 验证位置：TerminalPageIndicator 在 IndexedStack 外层，终端视图下方
       final controller = _FakeWorkspaceController(
         devices: const [
           RuntimeDevice(
@@ -2415,19 +2426,19 @@ void main() {
       await tester.pumpWidget(wrapWithApp(controller));
       await tester.pumpAndSettle();
 
-      // CompactTabStrip 和 terminal-touch-layer 都应存在
-      expect(find.byType(CompactTabStrip), findsOneWidget);
+      // TerminalPageIndicator 和 terminal-touch-layer 都应存在
+      expect(find.byType(TerminalPageIndicator), findsOneWidget);
       expect(find.byKey(const Key('terminal-touch-layer')), findsOneWidget);
 
-      // CompactTabStrip 的 dy 应大于 terminal-touch-layer 的 dy
-      // （即 CompactTabStrip 在更下方，在 ShortcutBar 上方）
-      final tabStripRect = tester.getRect(find.byType(CompactTabStrip));
+      // TerminalPageIndicator 的 dy 应大于 terminal-touch-layer 的 dy
+      // （即 TerminalPageIndicator 在更下方，在 ShortcutBar 上方）
+      final tabStripRect = tester.getRect(find.byType(TerminalPageIndicator));
       final touchLayerRect =
           tester.getRect(find.byKey(const Key('terminal-touch-layer')));
 
-      // terminal-touch-layer 在上方，CompactTabStrip 在下方
+      // terminal-touch-layer 在上方，TerminalPageIndicator 在下方
       expect(touchLayerRect.bottom, lessThanOrEqualTo(tabStripRect.top),
-          reason: 'CompactTabStrip 应在终端视图下方（即 ShortcutBar 上方）');
+          reason: 'TerminalPageIndicator 应在终端视图下方（即 ShortcutBar 上方）');
     });
 
     testWidgets(
@@ -2490,8 +2501,10 @@ void main() {
       await tester.pumpWidget(wrapWithApp(controller));
       await tester.pumpAndSettle();
 
-      // F004: 菜单不再有创建选项，通过 CompactTabStrip 的 + 按钮创建
-      await tester.tap(find.byKey(const Key('compact-tab-create')));
+      // F004: 创建通过 BottomSheet（center → create）
+      await tester.tap(find.byKey(const Key('page-indicator-center')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('page-indicator-create')));
       await tester.pumpAndSettle();
 
       // 应显示 SnackBar 错误提示
@@ -2527,8 +2540,11 @@ void main() {
       await tester.pumpWidget(wrapWithApp(controller));
       await tester.pumpAndSettle();
 
-      // 点击 + 按钮
-      await tester.tap(find.byKey(const Key('compact-tab-create')));
+      // 点击中间区域打开 BottomSheet
+      await tester.tap(find.byKey(const Key('page-indicator-center')));
+      await tester.pumpAndSettle();
+      // 点击创建按钮
+      await tester.tap(find.byKey(const Key('page-indicator-create')));
       await tester.pumpAndSettle();
 
       // 应显示 SnackBar 错误提示
@@ -2905,7 +2921,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // 长按第一个 Tab
-      await tester.longPress(find.byKey(const Key('compact-tab-term-1')));
+      await tester.longPress(find.byKey(const Key('page-indicator-center')));
       await tester.pumpAndSettle();
 
       // 应弹出 BottomSheet 包含重命名和关闭选项
@@ -2943,7 +2959,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // 长按 tab
-      await tester.longPress(find.byKey(const Key('compact-tab-term-1')));
+      await tester.longPress(find.byKey(const Key('page-indicator-center')));
       await tester.pumpAndSettle();
 
       // 点击重命名
@@ -2964,8 +2980,9 @@ void main() {
       await tester.tap(find.byKey(const Key('workspace-rename-terminal-submit')));
       await tester.pumpAndSettle();
 
-      // Tab 标题应更新
-      expect(find.text('Renamed'), findsWidgets);
+      // Tab 标题应更新 — 通过 controller 数据验证
+      // TerminalPageIndicator 不显示标题，但 WorkspaceHeaderBar 显示
+      expect(controller.terminals.first.title, 'Renamed');
     });
 
     testWidgets('mobile rename failure shows SnackBar and keeps dialog',
@@ -2998,7 +3015,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // 长按 tab
-      await tester.longPress(find.byKey(const Key('compact-tab-term-1')));
+      await tester.longPress(find.byKey(const Key('page-indicator-center')));
       await tester.pumpAndSettle();
 
       // 点击重命名
@@ -3022,8 +3039,8 @@ void main() {
       expect(find.byKey(const Key('workspace-rename-terminal-input')),
           findsOneWidget);
 
-      // 原始标题应未变
-      expect(find.text('Original'), findsWidgets);
+      // 原始标题应未变 — 通过 controller 数据验证
+      expect(controller.terminals.first.title, 'Original');
     });
   });
 
@@ -3127,7 +3144,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // 长按第一个 tab
-      await tester.longPress(find.byKey(const Key('compact-tab-term-1')));
+      await tester.longPress(find.byKey(const Key('page-indicator-center')));
       await tester.pumpAndSettle();
 
       // 点击关闭
@@ -3141,8 +3158,8 @@ void main() {
       // 应显示 SnackBar 错误提示
       expect(find.text('关闭终端失败'), findsOneWidget);
 
-      // Tab 应仍然存在
-      expect(find.byKey(const Key('compact-tab-term-1')), findsOneWidget);
+      // 页码指示器应仍然存在（终端未关闭）
+      expect(find.byType(TerminalPageIndicator), findsOneWidget);
     });
   });
 
