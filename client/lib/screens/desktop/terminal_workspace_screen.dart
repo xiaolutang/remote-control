@@ -837,7 +837,11 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
         position.dx, position.dy, position.dx + 1, position.dy + 1,
       ),
       items: _buildContextMenuItems(context, terminal),
-    ).then((value) => _handleTabContextAction(context, controller, terminal, value));
+    ).then((value) {
+      if (!mounted) return;
+      // ignore: use_build_context_synchronously
+      _handleTabContextAction(context, controller, terminal, value);
+    });
   }
 
   /// F004: 移动端长按 Tab → BottomSheet（重命名/关闭）
@@ -896,6 +900,8 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
       },
     );
 
+    if (!mounted) return;
+    // ignore: use_build_context_synchronously
     _handleTabContextAction(context, controller, terminal, selectedAction);
   }
 
