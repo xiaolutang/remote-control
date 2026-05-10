@@ -60,6 +60,8 @@ class _FakeWorkspaceController extends RuntimeSelectionController {
   MockWebSocketService? lastBuiltService;
   Map<String, dynamic>? lastExecutionReport;
   bool _forceCreatingTerminal = false;
+  bool _forceLoadingDevices = false;
+  bool _forceLoadingTerminals = false;
   bool failOnCloseTerminal = false;
   bool failOnRenameTerminal = false;
 
@@ -70,9 +72,29 @@ class _FakeWorkspaceController extends RuntimeSelectionController {
   @override
   bool get creatingTerminal => _forceCreatingTerminal;
 
+  /// Override loadingDevices to allow test control.
+  @override
+  bool get loadingDevices => _forceLoadingDevices;
+
+  /// Override loadingTerminals to allow test control.
+  @override
+  bool get loadingTerminals => _forceLoadingTerminals;
+
   /// Force creatingTerminal to a specific value for testing.
   set forceCreatingTerminal(bool value) {
     _forceCreatingTerminal = value;
+    notifyListeners();
+  }
+
+  /// Force loadingDevices to a specific value for testing.
+  set forceLoadingDevices(bool value) {
+    _forceLoadingDevices = value;
+    notifyListeners();
+  }
+
+  /// Force loadingTerminals to a specific value for testing.
+  set forceLoadingTerminals(bool value) {
+    _forceLoadingTerminals = value;
     notifyListeners();
   }
 
@@ -4478,6 +4500,271 @@ void main() {
         find.byKey(const ValueKey<String>('term-created')),
         findsOneWidget,
         reason: 'F009: 创建按钮点击后应成功创建新终端',
+      );
+    });
+  });
+
+  group('F010 IndexedStack isolation and refresh tests', () {
+    // ──── helpers ────
+
+    RuntimeDevice _testDevice() => const RuntimeDevice(
+          deviceId: 'mbp-01',
+          name: 'mac-phone',
+          owner: 'user1',
+          agentOnline: true,
+          maxTerminals: 5,
+          activeTerminals: 2,
+        );
+
+    RuntimeTerminal _makeTerminal(String id, {String title = ''}) =>
+        RuntimeTerminal(
+          terminalId: id,
+          title: title.isEmpty ? 'Tab $id' : title,
+          cwd: '~',
+          command: '/bin/bash',
+          status: 'detached',
+          views: const {'mobile': 0, 'desktop': 0},
+        );
+
+    // ──── 1. loading + IndexedStack 共存 ────
+
+    testWidgets(
+        'loadingDevices=true + terminal!=null → IndexedStack visible (no CircularProgressIndicator)',
+        (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: [_testDevice()],
+        terminals: [_makeTerminal('term-1')],
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 确认 IndexedStack 可见
+      expect(find.byType(IndexedStack), findsOneWidget,
+          reason: '有终端时应渲染 IndexedStack');
+
+      // 设置 loadingDevices = true
+      controller.forceLoadingDevices = true;
+      await tester.pumpAndSettle();
+
+      // IndexedStack 应保持可见（不显示 CircularProgressIndicator）
+      expect(find.byType(IndexedStack), findsOneWidget,
+          reason: 'loadingDevices=true 但有终端时 IndexedStack 应保持可见');
+      expect(find.byType(CircularProgressIndicator), findsNothing,
+          reason: 'loadingDevices=true 但有终端时不应显示 CircularProgressIndicator');
+
+      // 恢复
+      controller.forceLoadingDevices = false;
+      await tester.pumpAndSettle();
+      expect(find.byType(IndexedStack), findsOneWidget);
+    });
+
+    testWidgets(
+        'loadingTerminals=true + terminal!=null → IndexedStack visible',
+        (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: [_testDevice()],
+        terminals: [_makeTerminal('term-1')],
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(IndexedStack), findsOneWidget);
+
+      // 设置 loadingTerminals = true
+      controller.forceLoadingTerminals = true;
+      await tester.pumpAndSettle();
+
+      // IndexedStack 应保持可见
+      expect(find.byType(IndexedStack), findsOneWidget,
+          reason: 'loadingTerminals=true 但有终端时 IndexedStack 应保持可见');
+      expect(find.byType(CircularProgressIndicator), findsNothing,
+          reason: 'loadingTerminals=true 但有终端时不应显示 CircularProgressIndicator');
+    });
+
+    // ──── 2. 多终端 Provider 隔离 ────
+
+    testWidgets(
+        '2 terminals each hold independent WebSocketService instances',
+        (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: [_testDevice()],
+        terminals: [
+          _makeTerminal('term-a'),
+          _makeTerminal('term-b'),
+        ],
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 通过 TerminalSessionManager（widget 树中的 Provider）验证
+      // 两个终端有独立的 service
+      final sessionManager = tester.element(
+        find.byType(TerminalWorkspaceScreen),
+      ).read<TerminalSessionManager>();
+
+      final serviceA = sessionManager.get('mbp-01', 'term-a');
+      final serviceB = sessionManager.get('mbp-01', 'term-b');
+
+      expect(serviceA, isNotNull,
+          reason: 'term-a 应有对应的 WebSocketService');
+      expect(serviceB, isNotNull,
+          reason: 'term-b 应有对应的 WebSocketService');
+      expect(identical(serviceA, serviceB), isFalse,
+          reason: '两个终端应持有不同的 WebSocketService 实例');
+    });
+
+    // ──── 3. 切换终端 → IndexedStack index 变化但 children 不变 ────
+
+    testWidgets(
+        'switch terminal → IndexedStack index changes but children count and keys stay same',
+        (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: [_testDevice()],
+        terminals: [
+          _makeTerminal('term-1'),
+          _makeTerminal('term-2'),
+        ],
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 记录初始 IndexedStack 状态
+      final stackBefore = tester.widget<IndexedStack>(
+        find.byType(IndexedStack),
+      );
+      expect(stackBefore.index, equals(0),
+          reason: '初始应选中第一个终端 (index=0)');
+      expect(stackBefore.children.length, equals(2),
+          reason: '应有 2 个 children');
+
+      // 点击第二个 tab 切换
+      await tester.tap(find.byKey(const Key('tab-term-2')));
+      await tester.pumpAndSettle();
+
+      // 验证 index 变化
+      final stackAfter = tester.widget<IndexedStack>(
+        find.byType(IndexedStack),
+      );
+      expect(stackAfter.index, equals(1),
+          reason: '切换后 index 应变为 1');
+
+      // 验证 children 数量不变
+      expect(stackAfter.children.length, equals(2),
+          reason: '切换后 children 数量应不变');
+
+      // 验证当前选中终端的 KeyedSubtree
+      expect(find.byKey(const ValueKey<String>('term-2')), findsOneWidget,
+          reason: '切换后 term-2 KeyedSubtree 应可见');
+    });
+
+    // ──── 4. 刷新保持 → selectedIndex 仍指向原 terminalId ────
+
+    testWidgets(
+        'refresh (replace terminals list) → selectedIndex still points to original terminalId',
+        (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: [_testDevice()],
+        terminals: [
+          _makeTerminal('term-1'),
+          _makeTerminal('term-target'),
+          _makeTerminal('term-3'),
+        ],
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 初始应选中 term-1
+      expect(
+        find.byKey(const ValueKey<String>('term-1')),
+        findsOneWidget,
+        reason: '初始应选中 term-1',
+      );
+
+      // 切换到 term-target
+      await tester.tap(find.byKey(const Key('tab-term-target')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('term-target')),
+        findsOneWidget,
+        reason: '切换后应选中 term-target',
+      );
+
+      // 模拟刷新：替换 terminals 列表（顺序可能变化但 term-target 仍在）
+      controller._terminals
+        ..clear()
+        ..addAll([
+          _makeTerminal('term-3'),
+          _makeTerminal('term-1'),
+          _makeTerminal('term-target'),
+        ]);
+      controller.notifyListeners();
+      await tester.pumpAndSettle();
+
+      // 仍然应选中 term-target（不是 index 位置）
+      expect(
+        find.byKey(const ValueKey<String>('term-target')),
+        findsOneWidget,
+        reason: '刷新替换列表后 selectedIndex 应仍指向原 terminalId',
+      );
+
+      // 验证 IndexedStack 的 index 指向正确位置
+      final stack = tester.widget<IndexedStack>(find.byType(IndexedStack));
+      // term-target 现在在 index 2
+      expect(stack.index, equals(2),
+          reason: '刷新后 term-target 在 index 2，IndexedStack.index 应为 2');
+    });
+
+    // ──── 5. 排序变化 → selectedIndex 跟随 terminalId 不跟随位置 ────
+
+    testWidgets(
+        '3 terminals + reorder → selectedIndex follows terminalId not position',
+        (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: [_testDevice()],
+        terminals: [
+          _makeTerminal('term-a'),
+          _makeTerminal('term-b'),
+          _makeTerminal('term-c'),
+        ],
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 切换到 term-b (index 1)
+      await tester.tap(find.byKey(const Key('tab-term-b')));
+      await tester.pumpAndSettle();
+
+      var stack = tester.widget<IndexedStack>(find.byType(IndexedStack));
+      expect(stack.index, equals(1),
+          reason: 'term-b 在 index 1');
+
+      // 模拟排序变化：term-c 移到前面
+      controller._terminals
+        ..clear()
+        ..addAll([
+          _makeTerminal('term-c'),
+          _makeTerminal('term-a'),
+          _makeTerminal('term-b'),
+        ]);
+      controller.notifyListeners();
+      await tester.pumpAndSettle();
+
+      // 仍然选中 term-b，但此时 index=2
+      stack = tester.widget<IndexedStack>(find.byType(IndexedStack));
+      expect(stack.index, equals(2),
+          reason: '排序变化后 term-b 移到 index 2，IndexedStack.index 应跟随');
+
+      expect(
+        find.byKey(const ValueKey<String>('term-b')),
+        findsOneWidget,
+        reason: '排序变化后应仍选中 term-b',
       );
     });
   });
