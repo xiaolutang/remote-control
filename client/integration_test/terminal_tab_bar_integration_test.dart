@@ -979,11 +979,11 @@ void main() {
       await localController.loadDevices();
       await tester.pumpAndSettle(_settleDelay);
 
-      // Selection should still be on t2 — verify both tabs still present
-      // (controller doesn't expose selectedTerminal, but if the tab bar
-      // didn't reset, both tabs remain visible)
-      expect(find.byKey(Key('tab-${t1.terminalId}')), findsOneWidget);
-      expect(find.byKey(Key('tab-${t2.terminalId}')), findsOneWidget);
+      // Verify selection is preserved on t2 via TerminalTabBar.selectedTerminalId
+      final tabBar = tester.widget<TerminalTabBar>(find.byType(TerminalTabBar));
+      expect(tabBar.selectedTerminalId, equals(t2.terminalId),
+          reason: 'F009: selection preserved on t2 after loadDevices refresh');
+
       // Verify the IndexedStack still has both children (no rebuilding)
       final stack = tester.widgetList<IndexedStack>(
         find.byType(IndexedStack),
@@ -992,9 +992,6 @@ void main() {
           reason: 'F009: single IndexedStack present after refresh');
       expect(stack.first.children.length, equals(2),
           reason: 'F009: both terminals cached in IndexedStack after refresh');
-      // Both tabs still visible
-      expect(find.byKey(Key('tab-${t1.terminalId}')), findsOneWidget);
-      expect(find.byKey(Key('tab-${t2.terminalId}')), findsOneWidget);
     });
 
     testWidgets(

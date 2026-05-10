@@ -58,7 +58,7 @@
 - [x] F010 测试覆盖 loading + IndexedStack 共存（loadingDevices/loadingTerminals + terminal!=null）
 - [x] F010 测试覆盖多终端 Provider 作用域隔离（各自持有独立 WebSocketService）
 - [x] F010 测试覆盖刷新后 selectedIndex 跟随 terminalId（不跟随位置）
-- [ ] F006 依赖 F009，集成测试包含刷新保持回归
+- [x] F006 依赖 F009，集成测试包含刷新保持回归
 
 ## Codex Plan Review 回归处理
 
