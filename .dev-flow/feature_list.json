@@ -253,6 +253,8 @@
       "phase": "smoke",
       "module": "client/integration_test",
       "name": "集成测试",
+      "status": "in_progress",
+      "started_at": "2026-05-10T22:45:00+08:00",
       "description": "分为自动化集成测试和手工 Smoke 两部分。\n\n【自动化集成测试】在 client/integration_test/ 目录下编写，使用 integration_test 包。前置条件：在线 device + agent（由 DesktopAgentSupervisor 启动）。覆盖桌面端/移动端创建→切换→关闭→空状态、离线错误、上限禁用。\n\n【手工 Smoke】覆盖 Agent 冷启动终端列表恢复和 Agent 启动失败错误提示+重试。需完整部署环境（Server + Agent + Client）。",
       "verification": "F2",
       "depends_on": ["F002", "F003", "F004", "F005"],
