@@ -93,7 +93,6 @@ class _SilentHttpClientRequest implements HttpClientRequest {
   List<Cookie> get cookies => [];
   @override
   void abort([Object? exception, StackTrace? stackTrace]) {}
-  @override
   void destroy() {}
   @override
   void addError(Object error, [StackTrace? stackTrace]) {}
@@ -132,7 +131,6 @@ class _SilentHttpClientResponse extends StreamView<List<int>>
   @override
   Future<Socket> detachSocket() =>
       throw UnsupportedError('detachSocket not supported');
-  @override
   Future<void> get done => Future.value();
   @override
   X509Certificate? get certificate => null;
@@ -301,6 +299,7 @@ class _StubDesktopAgentBootstrapService extends DesktopAgentBootstrapService {
 // ─── Controller subclass with mock WebSocket ──────────────────────
 
 class _StubRuntimeSelectionController extends RuntimeSelectionController {
+  // ignore: use_super_parameters
   _StubRuntimeSelectionController({
     required super.runtimeService,
     required List<RuntimeDevice> initialDevices,
@@ -690,11 +689,13 @@ void main() {
         maxTicks: 30,
       );
 
-      final createSizedBox = tester.widget<SizedBox>(
-        find.byKey(const Key('tab-bar-create')),
+      final createButton = tester.widget<IconButton>(
+        find.descendant(
+          of: find.byKey(const Key('tab-bar-create')),
+          matching: find.byType(IconButton),
+        ),
       );
-      final createButton = createSizedBox.child as IconButton?;
-      expect(createButton?.onPressed, isNull);
+      expect(createButton.onPressed, isNull);
 
       localRuntimeService.dispose();
     });
@@ -819,11 +820,13 @@ void main() {
         reason: 'compact tab create button visible on mobile',
       );
 
-      final createButton = tester.widget<SizedBox>(
-        find.byKey(const Key('compact-tab-create')),
+      final createButton = tester.widget<IconButton>(
+        find.descendant(
+          of: find.byKey(const Key('compact-tab-create')),
+          matching: find.byType(IconButton),
+        ),
       );
-      final iconButton = createButton.child as IconButton?;
-      expect(iconButton?.onPressed, isNull);
+      expect(createButton.onPressed, isNull);
     });
   });
 

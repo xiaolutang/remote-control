@@ -2,7 +2,6 @@
 
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -32,8 +31,6 @@ import 'package:rc_client/widgets/terminal_tab_bar.dart';
 import '../helpers/account_menu_test_helper.dart';
 import '../mocks/mock_websocket_service.dart';
 
-// Re-export for test access
-import 'package:rc_client/navigation/account_menu_actions.dart';
 
 class _FakeWorkspaceController extends RuntimeSelectionController {
   _FakeWorkspaceController({
@@ -4507,7 +4504,7 @@ void main() {
   group('F010 IndexedStack isolation and refresh tests', () {
     // ──── helpers ────
 
-    RuntimeDevice _testDevice() => const RuntimeDevice(
+    RuntimeDevice testDevice() => const RuntimeDevice(
           deviceId: 'mbp-01',
           name: 'mac-phone',
           owner: 'user1',
@@ -4516,7 +4513,7 @@ void main() {
           activeTerminals: 2,
         );
 
-    RuntimeTerminal _makeTerminal(String id, {String title = ''}) =>
+    RuntimeTerminal makeTerminal(String id, {String title = ''}) =>
         RuntimeTerminal(
           terminalId: id,
           title: title.isEmpty ? 'Tab $id' : title,
@@ -4532,8 +4529,8 @@ void main() {
         'loadingDevices=true + terminal!=null → IndexedStack visible (no CircularProgressIndicator)',
         (tester) async {
       final controller = _FakeWorkspaceController(
-        devices: [_testDevice()],
-        terminals: [_makeTerminal('term-1')],
+        devices: [testDevice()],
+        terminals: [makeTerminal('term-1')],
       );
 
       await tester.pumpWidget(wrapWithApp(controller));
@@ -4563,8 +4560,8 @@ void main() {
         'loadingTerminals=true + terminal!=null → IndexedStack visible',
         (tester) async {
       final controller = _FakeWorkspaceController(
-        devices: [_testDevice()],
-        terminals: [_makeTerminal('term-1')],
+        devices: [testDevice()],
+        terminals: [makeTerminal('term-1')],
       );
 
       await tester.pumpWidget(wrapWithApp(controller));
@@ -4589,10 +4586,10 @@ void main() {
         '2 terminals each hold independent WebSocketService instances',
         (tester) async {
       final controller = _FakeWorkspaceController(
-        devices: [_testDevice()],
+        devices: [testDevice()],
         terminals: [
-          _makeTerminal('term-a'),
-          _makeTerminal('term-b'),
+          makeTerminal('term-a'),
+          makeTerminal('term-b'),
         ],
       );
 
@@ -4622,10 +4619,10 @@ void main() {
         'switch terminal → IndexedStack index changes but children count and keys stay same',
         (tester) async {
       final controller = _FakeWorkspaceController(
-        devices: [_testDevice()],
+        devices: [testDevice()],
         terminals: [
-          _makeTerminal('term-1'),
-          _makeTerminal('term-2'),
+          makeTerminal('term-1'),
+          makeTerminal('term-2'),
         ],
       );
 
@@ -4667,11 +4664,11 @@ void main() {
         'refresh (replace terminals list) → selectedIndex still points to original terminalId',
         (tester) async {
       final controller = _FakeWorkspaceController(
-        devices: [_testDevice()],
+        devices: [testDevice()],
         terminals: [
-          _makeTerminal('term-1'),
-          _makeTerminal('term-target'),
-          _makeTerminal('term-3'),
+          makeTerminal('term-1'),
+          makeTerminal('term-target'),
+          makeTerminal('term-3'),
         ],
       );
 
@@ -4699,9 +4696,9 @@ void main() {
       controller._terminals
         ..clear()
         ..addAll([
-          _makeTerminal('term-3'),
-          _makeTerminal('term-1'),
-          _makeTerminal('term-target'),
+          makeTerminal('term-3'),
+          makeTerminal('term-1'),
+          makeTerminal('term-target'),
         ]);
       controller.notifyListeners();
       await tester.pumpAndSettle();
@@ -4726,11 +4723,11 @@ void main() {
         '3 terminals + reorder → selectedIndex follows terminalId not position',
         (tester) async {
       final controller = _FakeWorkspaceController(
-        devices: [_testDevice()],
+        devices: [testDevice()],
         terminals: [
-          _makeTerminal('term-a'),
-          _makeTerminal('term-b'),
-          _makeTerminal('term-c'),
+          makeTerminal('term-a'),
+          makeTerminal('term-b'),
+          makeTerminal('term-c'),
         ],
       );
 
@@ -4749,9 +4746,9 @@ void main() {
       controller._terminals
         ..clear()
         ..addAll([
-          _makeTerminal('term-c'),
-          _makeTerminal('term-a'),
-          _makeTerminal('term-b'),
+          makeTerminal('term-c'),
+          makeTerminal('term-a'),
+          makeTerminal('term-b'),
         ]);
       controller.notifyListeners();
       await tester.pumpAndSettle();
@@ -4774,11 +4771,11 @@ void main() {
         'close selected terminal via context menu → IndexedStack switches to next, not clamped to 0',
         (tester) async {
       final controller = _FakeWorkspaceController(
-        devices: [_testDevice()],
+        devices: [testDevice()],
         terminals: [
-          _makeTerminal('term-a'),
-          _makeTerminal('term-b'),
-          _makeTerminal('term-c'),
+          makeTerminal('term-a'),
+          makeTerminal('term-b'),
+          makeTerminal('term-c'),
         ],
       );
 

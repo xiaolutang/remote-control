@@ -328,7 +328,6 @@ void main() {
     testWidgets('+ button is disabled when createDisabled is true',
         (tester) async {
       final terminals = createTerminals(5);
-      var createCalled = false;
 
       await tester.pumpWidget(
         MaterialApp(
@@ -338,7 +337,7 @@ void main() {
               selectedTerminalId: 't0',
               createDisabled: true,
               onSwitch: (_) {},
-              onCreate: () => createCalled = true,
+              onCreate: () {},
             ),
           ),
         ),
