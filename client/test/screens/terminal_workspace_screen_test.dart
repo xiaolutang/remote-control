@@ -4767,5 +4767,55 @@ void main() {
         reason: '排序变化后应仍选中 term-b',
       );
     });
+
+    // ──── 6. 关闭选中终端 → IndexedStack index 正确切换 ────
+
+    testWidgets(
+        'close selected terminal via context menu → IndexedStack switches to next, not clamped to 0',
+        (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: [_testDevice()],
+        terminals: [
+          _makeTerminal('term-a'),
+          _makeTerminal('term-b'),
+          _makeTerminal('term-c'),
+        ],
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // 初始选中 term-a
+      expect(
+        find.byKey(const ValueKey<String>('term-a')),
+        findsOneWidget,
+        reason: '初始应选中 term-a',
+      );
+
+      // 右键 term-a → 关闭
+      await tester.tap(
+        find.byKey(const Key('tab-term-a')),
+        buttons: kSecondaryButton,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('关闭'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('关闭').last);
+      await tester.pumpAndSettle();
+
+      // 应切换到 term-b（下一个未关闭的），不是 clamped 到 index 0
+      final stack = tester.widget<IndexedStack>(find.byType(IndexedStack));
+      expect(stack.children.length, equals(2),
+          reason: '关闭 term-a 后 IndexedStack 应只剩 2 个 children');
+
+      // term-b 现在在 index 0（term-a 已移除）
+      expect(stack.index, equals(0),
+          reason: '关闭 term-a 后 term-b 在 index 0');
+      expect(
+        find.byKey(const ValueKey<String>('term-b')),
+        findsOneWidget,
+        reason: '关闭 term-a 后应选中 term-b',
+      );
+    });
   });
 }
