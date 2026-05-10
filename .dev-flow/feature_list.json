@@ -21,7 +21,7 @@
   },
   "summary": {
     "total_tasks": 6,
-    "by_status": { "pending": 4, "done": 2 },
+    "by_status": { "pending": 4, "done": 3 },
     "by_priority": { "P0": 3, "P1": 2, "P2": 1 }
   },
   "archived_requirement_cycles": [
@@ -220,10 +220,14 @@
       "phase": "shortcuts",
       "module": "client/screens/desktop",
       "name": "键盘快捷键（桌面端）",
-      "description": "为桌面端添加键盘快捷键：Cmd+1/2/3 切换终端，Cmd+W 关闭当前终端。通过 Shortcuts/Actions widget 集成。仅在桌面端生效。",
+      "status": "done",
+      "started_at": "2026-05-10T22:15:00+08:00",
+      "completed_at": "2026-05-10",
+      "evidence_file": "F005.md",
+      "execution_notes": "11/11 F005 tests passed，code review conditional_pass，audit partial",
+      "description": "为桌面端添加键盘快捷键：Cmd+1/2/3 切换终端，Cmd+W 关闭当前终端。通过 Shortcuts/Actions widget 集成。仅在 macOS 桌面端生效。",
       "verification": "F2",
       "depends_on": ["F002"],
-      "status": "pending",
       "priority": "P2",
       "acceptance_criteria": [
         "Cmd+1/2/3 切换到第 N 个终端",

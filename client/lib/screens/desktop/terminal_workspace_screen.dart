@@ -1,6 +1,8 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/runtime_device.dart';
@@ -34,6 +36,7 @@ class TerminalWorkspaceScreen extends StatelessWidget {
     this.initialDevices = const <RuntimeDevice>[],
     RuntimeSelectionController? controller,
     DesktopAgentBootstrapService? agentBootstrapService,
+    this.platformOverride,
   })  : _controller = controller,
         _agentBootstrapService = agentBootstrapService;
 
@@ -41,6 +44,10 @@ class TerminalWorkspaceScreen extends StatelessWidget {
   final List<RuntimeDevice> initialDevices;
   final RuntimeSelectionController? _controller;
   final DesktopAgentBootstrapService? _agentBootstrapService;
+
+  /// Optional platform override for testing.
+  /// When null, uses [defaultTargetPlatform].
+  final TargetPlatform? platformOverride;
 
   @override
   Widget build(BuildContext context) {
@@ -58,6 +65,7 @@ class TerminalWorkspaceScreen extends StatelessWidget {
         token: token,
         agentBootstrapService:
             _agentBootstrapService ?? DesktopAgentBootstrapService(),
+        platformOverride: platformOverride,
       ),
     );
   }
@@ -67,10 +75,12 @@ class _TerminalWorkspaceView extends StatefulWidget {
   const _TerminalWorkspaceView({
     required this.token,
     required this.agentBootstrapService,
+    this.platformOverride,
   });
 
   final String token;
   final DesktopAgentBootstrapService agentBootstrapService;
+  final TargetPlatform? platformOverride;
 
   @override
   State<_TerminalWorkspaceView> createState() => _TerminalWorkspaceViewState();
@@ -210,114 +220,171 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
       });
     }
 
-    return AnimatedBuilder(
-      animation: _workspaceController,
-      builder: (context, _) {
-        final device = controller.selectedDevice;
-        final terminals = controller.terminals;
-        final workspaceState = _workspaceController.state;
-        final selectedTerminal = _workspaceController.selectedTerminal;
+    // F005: 桌面端键盘快捷键 - Shortcuts/Actions 集成
+    // 仅 macOS: Cmd+1/2/3 切换可附加终端, Cmd+W 关闭
+    final platform = widget.platformOverride ?? defaultTargetPlatform;
+    final isMacOSSesktop = controller.isDesktopPlatform &&
+        platform == TargetPlatform.macOS;
 
-        return Scaffold(
-          resizeToAvoidBottomInset: controller.isDesktopPlatform,
-          body: SafeArea(
-            child: Column(
-              children: [
-                if (controller.errorMessage != null)
-                  MaterialBanner(
-                    content: Text(controller.errorMessage!),
-                    actions: [
-                      TextButton(
-                        onPressed: _workspaceController.refresh,
-                        child: const Text('重试'),
+    return Focus(
+      autofocus: false,
+      debugLabel: 'workspaceShortcutsFocus',
+      child: Shortcuts(
+        debugLabel: 'workspaceShortcuts',
+        shortcuts: isMacOSSesktop
+            ? <ShortcutActivator, Intent>{
+                const SingleActivator(LogicalKeyboardKey.digit1, meta: true):
+                    const SwitchTerminalIntent(0),
+                const SingleActivator(LogicalKeyboardKey.digit2, meta: true):
+                    const SwitchTerminalIntent(1),
+                const SingleActivator(LogicalKeyboardKey.digit3, meta: true):
+                    const SwitchTerminalIntent(2),
+                const SingleActivator(LogicalKeyboardKey.keyW, meta: true):
+                    const CloseCurrentTerminalIntent(),
+              }
+            : const <ShortcutActivator, Intent>{},
+        child: Actions(
+          actions: isMacOSSesktop
+              ? <Type, Action<Intent>>{
+                  SwitchTerminalIntent: _SwitchTerminalAction(
+                    onSwitch: (index) {
+                      // 仅索引可附加终端（跳过已关闭的），与 Tab 栏行为一致
+                      final attachableTerminals = controller.terminals
+                          .where((t) => t.canAttach)
+                          .toList();
+                      if (index < attachableTerminals.length) {
+                        _workspaceController
+                            .selectTerminal(attachableTerminals[index].terminalId);
+                      }
+                    },
+                  ),
+                  CloseCurrentTerminalIntent: _CloseCurrentTerminalAction(
+                    onClose: () {
+                      final selectedTerminal =
+                          _workspaceController.selectedTerminal;
+                      if (selectedTerminal != null) {
+                        unawaited(_confirmCloseTerminal(
+                          context,
+                          controller,
+                          selectedTerminal,
+                        ));
+                      }
+                    },
+                  ),
+                }
+              : <Type, Action<Intent>>{},
+          child: AnimatedBuilder(
+          animation: _workspaceController,
+          builder: (context, _) {
+            final device = controller.selectedDevice;
+            final terminals = controller.terminals;
+            final workspaceState = _workspaceController.state;
+            final selectedTerminal = _workspaceController.selectedTerminal;
+
+            return Scaffold(
+              key: const Key('workspace-scaffold'),
+              resizeToAvoidBottomInset: controller.isDesktopPlatform,
+              body: SafeArea(
+                child: Column(
+                  children: [
+                    if (controller.errorMessage != null)
+                      MaterialBanner(
+                        content: Text(controller.errorMessage!),
+                        actions: [
+                          TextButton(
+                            onPressed: _workspaceController.refresh,
+                            child: const Text('重试'),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                WorkspaceHeaderBar(
-                  device: device,
-                  terminal: workspaceState.selectedTerminal,
-                  creatingTerminal: controller.creatingTerminal,
-                  desktopAgentState: _workspaceController.desktopAgentState,
-                  state: workspaceState,
-                  onOpenTerminalMenu: device == null
-                      ? null
-                      : controller.isDesktopPlatform
-                          ? () => _showTerminalMenu(
-                                context,
-                                controller,
-                                device,
-                                _workspaceController.desktopAgentState,
-                              )
-                          : null,
-                  onRefresh: _workspaceController.refresh,
-                  onTheme: () => showThemePickerSheet(context),
-                  onProfile: () => _handleAccountAction(
-                    context,
-                    AccountMenuAction.profile,
-                  ),
-                  onFeedback: () => _handleAccountAction(
-                    context,
-                    AccountMenuAction.feedback,
-                  ),
-                  onLogout: () => _handleAccountAction(
-                    context,
-                    AccountMenuAction.logout,
-                  ),
-                  onSkillConfig: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const SkillConfigScreen(),
+                    WorkspaceHeaderBar(
+                      device: device,
+                      terminal: workspaceState.selectedTerminal,
+                      creatingTerminal: controller.creatingTerminal,
+                      desktopAgentState: _workspaceController.desktopAgentState,
+                      state: workspaceState,
+                      onOpenTerminalMenu: device == null
+                          ? null
+                          : controller.isDesktopPlatform
+                              ? () => _showTerminalMenu(
+                                    context,
+                                    controller,
+                                    device,
+                                    _workspaceController.desktopAgentState,
+                                  )
+                              : null,
+                      onRefresh: _workspaceController.refresh,
+                      onTheme: () => showThemePickerSheet(context),
+                      onProfile: () => _handleAccountAction(
+                        context,
+                        AccountMenuAction.profile,
+                      ),
+                      onFeedback: () => _handleAccountAction(
+                        context,
+                        AccountMenuAction.feedback,
+                      ),
+                      onLogout: () => _handleAccountAction(
+                        context,
+                        AccountMenuAction.logout,
+                      ),
+                      onSkillConfig: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const SkillConfigScreen(),
+                        ),
+                      ),
+                      // F002: 桌面端 Tab Bar 集成
+                      isDesktopPlatform: controller.isDesktopPlatform,
+                      terminals: terminals,
+                      selectedTerminalId: selectedTerminal?.terminalId,
+                      onSwitchTerminal: (terminalId) {
+                        _workspaceController.selectTerminal(terminalId);
+                      },
+                      onCreateTerminal: () {
+                        unawaited(_createEmptyTerminal(context, controller));
+                      },
+                      // F004: 桌面端右键 Tab 上下文菜单
+                      onTabContextMenu: (terminalId, position) {
+                        _showTabContextMenu(
+                          context,
+                          controller,
+                          terminalId,
+                          position,
+                        );
+                      },
+                      // F004: 桌面端设置菜单 Agent 管理/设备编辑
+                      onAgentAction: () {
+                        final agentOnline = device?.agentOnline ?? false;
+                        if (agentOnline) {
+                          unawaited(_handleStopLocalAgent(context));
+                        } else {
+                          unawaited(_handleStartLocalAgent(context));
+                        }
+                      },
+                      onEditDevice: () {
+                        unawaited(_showRenameDeviceDialog(
+                            context, controller, device!));
+                      },
+                      desktopActionInFlight:
+                          _workspaceController.desktopActionInFlight,
                     ),
-                  ),
-                  // F002: 桌面端 Tab Bar 集成
-                  isDesktopPlatform: controller.isDesktopPlatform,
-                  terminals: terminals,
-                  selectedTerminalId: selectedTerminal?.terminalId,
-                  onSwitchTerminal: (terminalId) {
-                    _workspaceController.selectTerminal(terminalId);
-                  },
-                  onCreateTerminal: () {
-                    unawaited(_createEmptyTerminal(context, controller));
-                  },
-                  // F004: 桌面端右键 Tab 上下文菜单
-                  onTabContextMenu: (terminalId, position) {
-                    _showTabContextMenu(
-                      context,
-                      controller,
-                      terminalId,
-                      position,
-                    );
-                  },
-                  // F004: 桌面端设置菜单 Agent 管理/设备编辑
-                  onAgentAction: () {
-                    final agentOnline = device?.agentOnline ?? false;
-                    if (agentOnline) {
-                      unawaited(_handleStopLocalAgent(context));
-                    } else {
-                      unawaited(_handleStartLocalAgent(context));
-                    }
-                  },
-                  onEditDevice: () {
-                    unawaited(_showRenameDeviceDialog(
-                        context, controller, device!));
-                  },
-                  desktopActionInFlight:
-                      _workspaceController.desktopActionInFlight,
+                    Expanded(
+                      child: _buildBody(
+                        context: context,
+                        controller: controller,
+                        device: device,
+                        terminal: workspaceState.selectedTerminal,
+                        terminals: terminals,
+                        state: workspaceState,
+                      ),
+                    ),
+                  ],
                 ),
-                Expanded(
-                  child: _buildBody(
-                    context: context,
-                    controller: controller,
-                    device: device,
-                    terminal: workspaceState.selectedTerminal,
-                    terminals: terminals,
-                    state: workspaceState,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+              ),
+            );
+          },
+        ),
+      ),
+      ),
     );
   }
 
@@ -920,5 +987,46 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
       MaterialPageRoute(builder: (_) => const LoginScreen()),
       (_) => false,
     );
+  }
+}
+
+// F005: 桌面端键盘快捷键 - Intent 和 Action 定义
+// Intent 类保持 public 以便测试通过 Actions.invoke 直接触发。
+// Flutter Shortcuts 在 test 环境中 key event + modifier 分发不可靠，
+// 这是 Flutter 社区推荐的可测试 Shortcuts 模式。
+
+/// Cmd/Ctrl+1/2/3 切换终端
+class SwitchTerminalIntent extends Intent {
+  const SwitchTerminalIntent(this.index);
+
+  final int index;
+}
+
+class _SwitchTerminalAction extends Action<SwitchTerminalIntent> {
+  _SwitchTerminalAction({required this.onSwitch});
+
+  final void Function(int index) onSwitch;
+
+  @override
+  Object? invoke(SwitchTerminalIntent intent) {
+    onSwitch(intent.index);
+    return null;
+  }
+}
+
+/// Cmd/Ctrl+W 关闭当前终端
+class CloseCurrentTerminalIntent extends Intent {
+  const CloseCurrentTerminalIntent();
+}
+
+class _CloseCurrentTerminalAction extends Action<CloseCurrentTerminalIntent> {
+  _CloseCurrentTerminalAction({required this.onClose});
+
+  final void Function() onClose;
+
+  @override
+  Object? invoke(CloseCurrentTerminalIntent intent) {
+    onClose();
+    return null;
   }
 }
