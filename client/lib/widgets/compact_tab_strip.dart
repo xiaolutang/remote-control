@@ -1,18 +1,23 @@
 import 'package:flutter/material.dart';
 
 import '../models/runtime_terminal.dart';
+import 'terminal_create_button.dart';
 
 /// Compact tab strip for mobile terminal switching.
 ///
-/// Displays numbered tabs in a horizontal row, supporting tap-to-switch,
-/// create (+) button, long-press context menu, and swipe gestures to
-/// navigate between adjacent terminals.
+/// Displays numbered tabs in a horizontal scrollable row, supporting
+/// tap-to-switch, create (+) button, long-press context menu, and swipe
+/// gestures to navigate between adjacent terminals.
 ///
-/// Each tab expands equally to fill available space. Titles are truncated
-/// with ellipsis when the available width per tab is narrow (e.g. many
-/// terminals). Swipe-to-switch is handled at the strip level via a fling
-/// gesture recognizer that does not compete with any scroll view.
-class CompactTabStrip extends StatelessWidget {
+/// Visual style aligns with desktop [TerminalTabBar]: selected tab uses
+/// `primaryContainer` background with a bottom indicator line, rather than
+/// a saturated pill shape.
+///
+/// Swipe detection uses [Listener] (raw pointer events) so it does not
+/// compete with the inner [SingleChildScrollView] for horizontal drag.
+/// A [ScrollNotification] guard suppresses swipe when the ScrollView
+/// actually consumed the horizontal drag (overflow scrolling).
+class CompactTabStrip extends StatefulWidget {
   const CompactTabStrip({
     super.key,
     required this.terminals,
@@ -43,35 +48,134 @@ class CompactTabStrip extends StatelessWidget {
   /// (e.g. `RuntimeDevice.canCreateTerminal`), not from a local count.
   final bool createDisabled;
 
-  bool get _createDisabled => createDisabled;
+  @override
+  State<CompactTabStrip> createState() => _CompactTabStripState();
+}
+
+class _CompactTabStripState extends State<CompactTabStrip> {
+  Offset? _pointerDownPosition;
+  int? _pointerDownTime;
+  bool _scrollViewConsumed = false;
+
+  static const int _swipeThresholdMs = 300;
+  static const double _swipeMinVelocity = 0.5; // px/ms
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    return GestureDetector(
-      onHorizontalDragEnd: (details) => _handleSwipe(details),
+    return Listener(
+      onPointerDown: _onPointerDown,
+      onPointerUp: _onPointerUp,
       child: Container(
-        height: 44,
-        color: colorScheme.surfaceContainerHigh,
+        height: 48,
+        decoration: BoxDecoration(
+          color: colorScheme.surfaceContainerHigh,
+          border: Border(
+            bottom: BorderSide(
+              color: colorScheme.outlineVariant,
+              width: 1,
+            ),
+          ),
+        ),
         child: Row(
           children: [
-            for (var i = 0; i < terminals.length; i++)
-              Expanded(
-                child: _buildCompactTab(
-                  terminal: terminals[i],
-                  index: i,
-                  isSelected: terminals[i].terminalId == selectedTerminalId,
-                  colorScheme: colorScheme,
-                  theme: theme,
+            Expanded(
+              child: NotificationListener<ScrollNotification>(
+                onNotification: _onScrollNotification,
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (var i = 0; i < widget.terminals.length; i++)
+                        _buildCompactTab(
+                          terminal: widget.terminals[i],
+                          index: i,
+                          isSelected: widget.terminals[i].terminalId ==
+                              widget.selectedTerminalId,
+                          colorScheme: colorScheme,
+                          theme: theme,
+                        ),
+                    ],
+                  ),
                 ),
               ),
-            _buildCreateButton(colorScheme),
+            ),
+            _buildCreateButton(),
           ],
         ),
       ),
     );
+  }
+
+  /// Track when ScrollView consumes a drag — suppress swipe in that case.
+  bool _onScrollNotification(ScrollNotification notification) {
+    if (notification is ScrollUpdateNotification) {
+      if (notification.dragDetails != null) {
+        _scrollViewConsumed = true;
+      }
+    }
+    return false;
+  }
+
+  void _onPointerDown(PointerDownEvent event) {
+    _pointerDownPosition = event.position;
+    _pointerDownTime = DateTime.now().millisecondsSinceEpoch;
+    _scrollViewConsumed = false;
+  }
+
+  void _onPointerUp(PointerUpEvent event) {
+    if (_pointerDownPosition == null || _pointerDownTime == null) return;
+
+    // ScrollView consumed the horizontal drag — this is a scroll, not a swipe
+    if (_scrollViewConsumed) {
+      _pointerDownPosition = null;
+      _pointerDownTime = null;
+      return;
+    }
+
+    final upTime = DateTime.now().millisecondsSinceEpoch;
+    final dt = upTime - _pointerDownTime!;
+    if (dt <= 0 || dt > _swipeThresholdMs) {
+      _pointerDownPosition = null;
+      _pointerDownTime = null;
+      return;
+    }
+
+    final dx = event.position.dx - _pointerDownPosition!.dx;
+    final velocity = dx.abs() / dt; // px/ms
+    _pointerDownPosition = null;
+    _pointerDownTime = null;
+
+    if (velocity < _swipeMinVelocity) return;
+
+    final selectedIndex = widget.terminals.indexWhere(
+      (t) => t.terminalId == widget.selectedTerminalId,
+    );
+    if (selectedIndex < 0) return;
+
+    // Swipe left (negative dx) → next, right (positive dx) → previous
+    final direction = dx < 0 ? 1 : -1;
+    final neighbor = _findAttachableNeighbor(selectedIndex, direction);
+    if (neighbor != null) {
+      widget.onSwitch(widget.terminals[neighbor].terminalId);
+    }
+  }
+
+  /// Find the index of the nearest attachable neighbor in [direction] (+1/-1).
+  int? _findAttachableNeighbor(int startIndex, int direction) {
+    int i;
+    if (direction > 0) {
+      for (i = startIndex + 1; i < widget.terminals.length; i++) {
+        if (widget.terminals[i].canAttach) return i;
+      }
+    } else {
+      for (i = startIndex - 1; i >= 0; i--) {
+        if (widget.terminals[i].canAttach) return i;
+      }
+    }
+    return null;
   }
 
   Widget _buildCompactTab({
@@ -83,104 +187,68 @@ class CompactTabStrip extends StatelessWidget {
   }) {
     final canSwitch = terminal.canAttach;
     final bgColor = isSelected
-        ? colorScheme.primary
+        ? colorScheme.primaryContainer
         : Colors.transparent;
     final fgColor = isSelected
-        ? colorScheme.onPrimary
+        ? colorScheme.onPrimaryContainer
         : (canSwitch
             ? colorScheme.onSurface
             : colorScheme.onSurface.withValues(alpha: 0.38));
+    final indicatorColor =
+        isSelected ? colorScheme.primary : Colors.transparent;
 
     return InkWell(
       key: Key('compact-tab-${terminal.terminalId}'),
-      onTap: canSwitch ? () => onSwitch(terminal.terminalId) : null,
+      onTap: canSwitch ? () => widget.onSwitch(terminal.terminalId) : null,
       child: GestureDetector(
-        onLongPressStart: onLongPress != null
-            ? (details) => onLongPress!(terminal.terminalId)
+        onLongPressStart: widget.onLongPress != null
+            ? (details) => widget.onLongPress!(terminal.terminalId)
             : null,
-        child: DecoratedBox(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
             color: bgColor,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  '${index + 1}',
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: fgColor,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Flexible(
-                  child: Text(
-                    terminal.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: fgColor,
-                    ),
-                  ),
-                ),
-              ],
+            border: Border(
+              bottom: BorderSide(
+                color: indicatorColor,
+                width: isSelected ? 2.5 : 0,
+              ),
             ),
           ),
+          constraints: const BoxConstraints(minWidth: 72, maxWidth: 120),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '${index + 1}',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: fgColor,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Flexible(
+                child: Text(
+                  terminal.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: fgColor,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildCreateButton(ColorScheme colorScheme) {
-    return SizedBox(
+  Widget _buildCreateButton() {
+    return TerminalCreateButton(
       key: const Key('compact-tab-create'),
-      width: 36,
-      height: 36,
-      child: IconButton(
-        onPressed: _createDisabled ? null : onCreate,
-        icon: Icon(
-          Icons.add,
-          size: 18,
-          color: _createDisabled
-              ? colorScheme.onSurface.withValues(alpha: 0.38)
-              : colorScheme.onSurface,
-        ),
-        padding: EdgeInsets.zero,
-        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-        tooltip: _createDisabled ? '新建终端 (不可用)' : '新建终端',
-      ),
+      onCreate: widget.onCreate,
+      createDisabled: widget.createDisabled,
     );
-  }
-
-  void _handleSwipe(DragEndDetails details) {
-    final velocity = details.primaryVelocity ?? 0;
-    if (velocity.abs() < 200) return; // ignore weak swipes
-
-    final selectedIndex = terminals.indexWhere(
-      (t) => t.terminalId == selectedTerminalId,
-    );
-    if (selectedIndex < 0) return;
-
-    // Find the next/previous attachable terminal, skipping closed ones.
-    // Swipe left (negative velocity) → next terminal
-    // Swipe right (positive velocity) → previous terminal
-    if (velocity < 0) {
-      for (var i = selectedIndex + 1; i < terminals.length; i++) {
-        if (terminals[i].canAttach) {
-          onSwitch(terminals[i].terminalId);
-          return;
-        }
-      }
-    } else if (velocity > 0) {
-      for (var i = selectedIndex - 1; i >= 0; i--) {
-        if (terminals[i].canAttach) {
-          onSwitch(terminals[i].terminalId);
-          return;
-        }
-      }
-    }
   }
 }

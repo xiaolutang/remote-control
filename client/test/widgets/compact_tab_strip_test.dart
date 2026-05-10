@@ -414,7 +414,9 @@ void main() {
         ),
       );
 
-      // Tap last tab
+      // Tap last tab — need to scroll into view first (SingleChildScrollView)
+      await tester.ensureVisible(find.byKey(const Key('compact-tab-t4')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('compact-tab-t4')));
       await tester.pump();
       expect(switchedId, 't4');
@@ -599,6 +601,41 @@ void main() {
       );
       await tester.pump();
 
+      expect(switchedIds, isEmpty);
+    });
+
+    testWidgets('overflow scroll does not trigger terminal switch',
+        (tester) async {
+      // 8 terminals — overflows 400px, ScrollView will consume horizontal drag
+      final terminals = createTerminals(8);
+      final switchedIds = <String>[];
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 400,
+              height: 60,
+              child: CompactTabStrip(
+                terminals: terminals,
+                selectedTerminalId: 't0',
+                onSwitch: (id) => switchedIds.add(id),
+                onCreate: () {},
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // Slow fling (drag) to scroll — ScrollView should consume it
+      await tester.fling(
+        find.byType(CompactTabStrip),
+        const Offset(-60, 0),
+        200, // slower speed → ScrollView wins
+      );
+      await tester.pump();
+
+      // Should NOT switch terminal — ScrollView consumed the drag
       expect(switchedIds, isEmpty);
     });
   });
