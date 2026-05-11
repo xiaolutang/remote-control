@@ -6,7 +6,7 @@ import '../models/runtime_terminal.dart';
 import '../models/command_sequence_draft.dart';
 import '../models/terminal_launch_plan.dart';
 import '../navigation/account_menu_actions.dart';
-import '../services/account_menu_action_handler.dart';
+import '../navigation/account_menu_action_handler.dart';
 import '../services/runtime_device_service.dart';
 import '../services/terminal_launch_session_service.dart';
 import '../services/runtime_selection_controller.dart';

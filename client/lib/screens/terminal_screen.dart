@@ -7,7 +7,7 @@ import 'package:xterm/xterm.dart';
 
 import '../models/terminal_shortcut.dart';
 import '../navigation/account_menu_actions.dart';
-import '../services/account_menu_action_handler.dart';
+import '../navigation/account_menu_action_handler.dart';
 import '../services/config_service.dart';
 import '../services/runtime_selection_controller.dart';
 import '../services/terminal_session_manager.dart';

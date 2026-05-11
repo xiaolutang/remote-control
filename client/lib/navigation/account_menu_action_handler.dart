@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
-import '../navigation/account_menu_actions.dart';
+import 'account_menu_actions.dart';
 import '../screens/feedback_screen.dart';
 import '../screens/skill_config_screen.dart';
 import '../screens/user_profile_screen.dart';
-import 'auth_service.dart';
-import 'logout_helper.dart';
+import '../services/auth_service.dart';
+import '../services/logout_helper.dart';
 
 Future<void> handleAccountMenuAction(
   BuildContext context, {

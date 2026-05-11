@@ -8,7 +8,7 @@ import 'package:provider/provider.dart';
 import '../../models/runtime_device.dart';
 import '../../models/runtime_terminal.dart';
 import '../../navigation/account_menu_actions.dart';
-import '../../services/account_menu_action_handler.dart';
+import '../../navigation/account_menu_action_handler.dart';
 import '../../services/auth_service.dart';
 import '../../services/app_logger.dart';
 import '../../services/config_service.dart';
