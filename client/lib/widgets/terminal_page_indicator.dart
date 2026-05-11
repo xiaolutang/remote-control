@@ -72,17 +72,14 @@ class TerminalPageIndicator extends StatelessWidget {
           GestureDetector(
             key: const Key('page-indicator-center'),
             onTap: () => _showTerminalList(context),
-            onLongPress: () {
-              if (onContextMenu != null && currentIndex >= 0) {
-                // Use the center widget's render box to compute local position
-                final box = context.findRenderObject() as RenderBox?;
-                final position = box?.localToGlobal(Offset.zero) ?? Offset.zero;
-                onContextMenu!(
-                  terminals[displayIndex].terminalId,
-                  position,
-                );
-              }
-            },
+            onLongPressStart: currentIndex >= 0 && onContextMenu != null
+                ? (details) {
+                    onContextMenu!(
+                      terminals[displayIndex].terminalId,
+                      details.globalPosition,
+                    );
+                  }
+                : null,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Text(
