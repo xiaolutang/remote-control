@@ -74,6 +74,56 @@ void main() {
       );
     });
 
+    testWidgets('disables reflow and preserves Claude transcript across resize',
+        (tester) async {
+      final terminal = await pumpScreen(tester);
+
+      expect(terminal.reflowEnabled, isFalse);
+
+      service.simulateOutput(
+        TestFixtures.claudeShellExitAfterSlashExitRealTranscript(),
+      );
+      await tester.pump(_settleDelay);
+
+      terminal.resize(60, 24, 0, 0);
+      terminal.resize(80, 24, 0, 0);
+      await tester.pump(_settleDelay);
+
+      final mainText = _terminalText(terminal.mainBuffer);
+      expect(mainText, contains('Resume this session with:'));
+      expect(mainText, contains('claude --resume 9b019479-9194-4bd8-a0e7-f9a625b2d0e5'));
+      expect(_lastNonEmptyLine(terminal), TestFixtures.shellPrompt);
+      expect(terminal.buffer.currentLine.toString(), TestFixtures.shellPrompt);
+    });
+
+    testWidgets('disables reflow and preserves Codex transcript across resize',
+        (tester) async {
+      final terminal = await pumpScreen(tester);
+
+      expect(terminal.reflowEnabled, isFalse);
+
+      service.simulateOutput(
+        TestFixtures.codexShellExitAfterCtrlC(),
+      );
+      await tester.pump(_settleDelay);
+
+      terminal.resize(60, 24, 0, 0);
+      terminal.resize(80, 24, 0, 0);
+      await tester.pump(_settleDelay);
+
+      final mainText = _terminalText(terminal.mainBuffer);
+      expect(
+        mainText,
+        contains('To continue this session, run codex resume'),
+      );
+      expect(
+        mainText,
+        contains('019da5d0-7b4f-7822-9025-8e867a80c4b6'),
+      );
+      expect(_lastNonEmptyLine(terminal), TestFixtures.shellPrompt);
+      expect(terminal.buffer.currentLine.toString(), TestFixtures.shellPrompt);
+    });
+
     testWidgets(
         'keeps local terminal state when recovery snapshot contains unsafe alt-buffer transitions',
         (tester) async {

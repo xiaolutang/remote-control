@@ -10,6 +10,7 @@ import '../services/app_logger.dart';
 import '../services/logout_helper.dart';
 import '../services/runtime_device_service.dart';
 import '../services/shortcut_config_service.dart';
+import '../services/terminal_factory.dart';
 import '../services/terminal_session_manager.dart';
 import '../services/websocket_service.dart';
 import 'login_screen.dart';
@@ -110,6 +111,7 @@ class TerminalScreenController extends ChangeNotifier {
       );
       if (adapter != null) {
         _terminal = adapter.terminalForView;
+        _normalizeTerminalConfiguration(_terminal!);
         _terminalOutputText = adapter.outputText;
         sessionManager.bindTerminalOutput(
           service.deviceId,
@@ -125,15 +127,17 @@ class TerminalScreenController extends ChangeNotifier {
         final adapter = sessionManager.ensureRendererAdapter(
           service.deviceId,
           terminalId,
-          () => Terminal(maxLines: 10000),
+          () => buildAppTerminal(),
           service: service,
         );
         _terminal = adapter.terminalForView;
+        _normalizeTerminalConfiguration(_terminal!);
         _terminalOutputText = adapter.outputText;
         _configureTerminalCallbacks(service, _terminal!);
       }
     } else {
-      _terminal ??= Terminal(maxLines: 10000);
+      _terminal ??= buildAppTerminal();
+      _normalizeTerminalConfiguration(_terminal!);
       _terminalOutputText = _localTerminalOutputText;
       _configureTerminalCallbacks(service, _terminal!);
     }
@@ -163,6 +167,10 @@ class TerminalScreenController extends ChangeNotifier {
       }
       service.resize(height, width);
     };
+  }
+
+  void _normalizeTerminalConfiguration(Terminal terminal) {
+    terminal.reflowEnabled = false;
   }
 
   void _detachServiceBindings() {
