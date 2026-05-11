@@ -21,6 +21,8 @@ import '../../services/runtime_device_service.dart';
 import '../../services/runtime_selection_controller.dart';
 import '../../services/terminal_session_manager.dart';
 import '../../widgets/theme_picker_sheet.dart';
+import '../../widgets/rename_dialog_helper.dart';
+import '../../widgets/snack_bar_helper.dart';
 import '../../services/websocket_service.dart';
 import '../login_screen.dart';
 import '../skill_config_screen.dart';
@@ -183,7 +185,6 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
     await controller.refreshTerminals(silent: true);
 
     if (!mounted) return;
-    final messenger = ScaffoldMessenger.of(context);
 
     // 根据 action 确定提示文本，未知 action 跳过 toast
     final actionText = switch (action) {
@@ -194,15 +195,8 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
     if (actionText == null) return;
 
     // 清除旧的 SnackBar，避免堆积
-    messenger.clearSnackBars();
-
     final terminalText = terminalTitle ?? '终端';
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text('$terminalText 已在另一端$actionText'),
-        duration: const Duration(seconds: 2),
-      ),
-    );
+    showAppSnackBar(context, '$terminalText 已在另一端$actionText');
   }
 
   @override
@@ -579,7 +573,6 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
     RuntimeTerminal terminal,
   ) async {
     final sessionManager = context.read<TerminalSessionManager>();
-    final messenger = ScaffoldMessenger.of(context);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -604,13 +597,8 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
     if (!mounted) return;
     if (closed == null) {
       // API 失败 → Tab 保留 + SnackBar 错误提示
-      messenger.clearSnackBars();
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text('关闭终端失败'),
-          duration: Duration(seconds: 2),
-        ),
-      );
+      // ignore: use_build_context_synchronously
+      showAppSnackBar(context, '关闭终端失败');
       return;
     }
     // Resync selection immediately before any async gap.
@@ -630,7 +618,6 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
     bool snackBarOnError = false,
   }) async {
     final sessionManager = context.read<TerminalSessionManager>();
-    final messenger = ScaffoldMessenger.of(context);
     final result = await _workspaceController.createTerminal(
       title: '终端',
       cwd: '~',
@@ -638,13 +625,8 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
     );
     if (result == null) {
       if (snackBarOnError && mounted) {
-        messenger.clearSnackBars();
-        messenger.showSnackBar(
-          const SnackBar(
-            content: Text('创建终端失败'),
-            duration: Duration(seconds: 2),
-          ),
-        );
+        // ignore: use_build_context_synchronously
+        showAppSnackBar(context, '创建终端失败');
       }
       return;
     }
@@ -666,46 +648,18 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
     RuntimeSelectionController controller,
     RuntimeDevice device,
   ) async {
-    final nameController = TextEditingController(
-      text: device.name.isEmpty ? device.deviceId : device.name,
-    );
-
-    await showDialog<void>(
+    await showRenameDialog(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('编辑设备'),
-          content: SingleChildScrollView(
-            child: TextField(
-              key: const Key('workspace-rename-device-input'),
-              controller: nameController,
-              decoration: const InputDecoration(labelText: '设备名称'),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              key: const Key('workspace-rename-device-submit'),
-              onPressed: () async {
-                await controller.updateSelectedDevice(
-                  name: nameController.text,
-                );
-                if (!context.mounted) return;
-                Navigator.of(context).pop();
-              },
-              child: const Text('保存'),
-            ),
-          ],
-        );
+      title: '编辑设备',
+      initialValue: device.name.isEmpty ? device.deviceId : device.name,
+      labelText: '设备名称',
+      inputKey: 'workspace-rename-device-input',
+      submitKey: 'workspace-rename-device-submit',
+      onConfirm: (newName) async {
+        await controller.updateSelectedDevice(name: newName);
+        return true;
       },
     );
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      nameController.dispose();
-    });
   }
 
   Future<void> _showRenameTerminalDialog(
@@ -713,54 +667,26 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
     RuntimeSelectionController controller,
     RuntimeTerminal terminal,
   ) async {
-    final titleController = TextEditingController(text: terminal.title);
-
-    await showDialog<void>(
+    await showRenameDialog(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('编辑终端标题'),
-          content: SingleChildScrollView(
-            child: TextField(
-              key: const Key('workspace-rename-terminal-input'),
-              controller: titleController,
-              decoration: const InputDecoration(labelText: '终端标题'),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              key: const Key('workspace-rename-terminal-submit'),
-              onPressed: () async {
-                final renamed = await controller.renameTerminal(
-                    terminal.terminalId, titleController.text);
-                if (!context.mounted) return;
-                if (renamed == null) {
-                  // 重命名失败 → 保持对话框 + SnackBar 提示
-                  ScaffoldMessenger.of(context).clearSnackBars();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('重命名终端失败'),
-                      duration: Duration(seconds: 2),
-                    ),
-                  );
-                  return;
-                }
-                Navigator.of(context).pop();
-              },
-              child: const Text('保存'),
-            ),
-          ],
-        );
+      title: '编辑终端标题',
+      initialValue: terminal.title,
+      labelText: '终端标题',
+      inputKey: 'workspace-rename-terminal-input',
+      submitKey: 'workspace-rename-terminal-submit',
+      onConfirm: (newName) async {
+        final renamed =
+            await controller.renameTerminal(terminal.terminalId, newName);
+        if (renamed == null) {
+          // 重命名失败 → 保持对话框 + SnackBar 提示
+          if (context.mounted) {
+            showAppSnackBar(context, '重命名终端失败');
+          }
+          return false;
+        }
+        return true;
       },
     );
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      titleController.dispose();
-    });
   }
 
   Future<void> _showTerminalMenu(
@@ -984,25 +910,21 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
   }
 
   Future<void> _handleStartLocalAgent(BuildContext context) async {
-    final messenger = ScaffoldMessenger.of(context);
     await _workspaceController.startLocalAgent();
     if (!mounted || _workspaceController.state.deviceReady) {
       return;
     }
-    messenger.showSnackBar(
-      const SnackBar(content: Text('本机 Agent 启动失败')),
-    );
+    // ignore: use_build_context_synchronously
+    showAppSnackBar(context, '本机 Agent 启动失败');
   }
 
   Future<void> _handleStopLocalAgent(BuildContext context) async {
-    final messenger = ScaffoldMessenger.of(context);
     final stopped = await _workspaceController.stopLocalAgent();
     if (!mounted || stopped) {
       return;
     }
-    messenger.showSnackBar(
-      const SnackBar(content: Text('当前 Agent 不是由桌面端托管，无法从这里停止')),
-    );
+    // ignore: use_build_context_synchronously
+    showAppSnackBar(context, '当前 Agent 不是由桌面端托管，无法从这里停止');
   }
 
   Future<void> _handleAccountAction(
