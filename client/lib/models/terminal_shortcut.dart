@@ -1,3 +1,5 @@
+import '../utils/json_helpers.dart';
+
 enum TerminalShortcutActionType {
   sendText,
   sendControl,
@@ -46,7 +48,7 @@ class TerminalShortcutAction {
   factory TerminalShortcutAction.fromJson(Map<String, dynamic> json) {
     return TerminalShortcutAction(
       type: _actionTypeFromName(json['type'] as String?),
-      value: json['value'] as String? ?? '',
+      value: readStringFromJson(json['value']),
     );
   }
 }

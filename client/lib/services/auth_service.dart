@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:io' show HttpClient, HttpHeaders, Platform, SystemEncoding;
+import 'dart:io' show HttpHeaders, Platform, SystemEncoding;
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -231,13 +231,10 @@ class AuthService {
     required String password,
     required bool useSystemProxy,
   }) async {
-    final client = HttpClient()
-      ..connectionTimeout = TimingConstants.httpConnectionTimeout;
-    if (kDebugMode) {
-      client.badCertificateCallback = (_, __, ___) => true;
-    }
-    client.findProxy =
-        useSystemProxy ? HttpClient.findProxyFromEnvironment : (_) => 'DIRECT';
+    final client = HttpClientFactory.createRawConfigured(
+      useSystemProxy: useSystemProxy,
+    );
+    client.connectionTimeout = TimingConstants.httpConnectionTimeout;
 
     try {
       final request = await client.postUrl(uri);

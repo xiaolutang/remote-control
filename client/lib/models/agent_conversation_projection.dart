@@ -1,3 +1,5 @@
+import '../utils/json_helpers.dart' show readStringFromJson;
+
 class AgentConversationProjection {
   const AgentConversationProjection({
     required this.deviceId,
@@ -21,9 +23,9 @@ class AgentConversationProjection {
 
   factory AgentConversationProjection.fromJson(Map<String, dynamic> json) {
     return AgentConversationProjection(
-      deviceId: (json['device_id'] as String? ?? '').trim(),
-      terminalId: (json['terminal_id'] as String? ?? '').trim(),
-      status: (json['status'] as String? ?? 'empty').trim(),
+      deviceId: readStringFromJson(json['device_id']),
+      terminalId: readStringFromJson(json['terminal_id']),
+      status: json['status'] as String? ?? 'empty',
       nextEventIndex: json['next_event_index'] as int? ?? 0,
       conversationId: (json['conversation_id'] as String?)?.trim(),
       activeSessionId: (json['active_session_id'] as String?)?.trim(),
@@ -72,9 +74,9 @@ class AgentConversationEventItem {
   factory AgentConversationEventItem.fromJson(Map<String, dynamic> json) {
     return AgentConversationEventItem(
       eventIndex: json['event_index'] as int? ?? 0,
-      eventId: (json['event_id'] as String? ?? '').trim(),
-      type: (json['type'] as String? ?? '').trim(),
-      role: (json['role'] as String? ?? '').trim(),
+      eventId: readStringFromJson(json['event_id']),
+      type: readStringFromJson(json['type']),
+      role: readStringFromJson(json['role']),
       payload: Map<String, dynamic>.from(
         json['payload'] as Map<String, dynamic>? ?? const {},
       ),
@@ -112,9 +114,9 @@ class TurnPhaseSummary {
 
   factory TurnPhaseSummary.fromJson(Map<String, dynamic> json) {
     return TurnPhaseSummary(
-      phase: (json['phase'] as String? ?? '').trim(),
+      phase: readStringFromJson(json['phase']),
       description: (json['description'] as String?)?.trim(),
-      streamingText: (json['streaming_text'] as String? ?? '').trim(),
+      streamingText: readStringFromJson(json['streaming_text']),
       toolSteps: (json['tool_steps'] as List<dynamic>? ?? const [])
           .whereType<Map<String, dynamic>>()
           .map(TurnToolStep.fromJson)
@@ -161,9 +163,9 @@ class TurnToolStep {
 
   factory TurnToolStep.fromJson(Map<String, dynamic> json) {
     return TurnToolStep(
-      toolName: (json['tool_name'] as String? ?? '').trim(),
-      description: (json['description'] as String? ?? '').trim(),
-      status: (json['status'] as String? ?? 'running').trim(),
+      toolName: readStringFromJson(json['tool_name']),
+      description: readStringFromJson(json['description']),
+      status: json['status'] as String? ?? 'running',
       resultSummary: (json['result_summary'] as String?)?.trim(),
     );
   }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/json_helpers.dart';
 
 /// 反馈分类枚举
 enum FeedbackCategory {
@@ -81,8 +82,8 @@ class FeedbackResponse {
 
   factory FeedbackResponse.fromJson(Map<String, dynamic> json) {
     return FeedbackResponse(
-      feedbackId: json['feedback_id'] as String? ?? '',
-      createdAt: json['created_at'] as String? ?? '',
+      feedbackId: readStringFromJson(json['feedback_id']),
+      createdAt: readStringFromJson(json['created_at']),
     );
   }
 }

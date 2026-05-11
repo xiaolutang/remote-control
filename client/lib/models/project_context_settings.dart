@@ -1,3 +1,5 @@
+import '../utils/json_helpers.dart';
+
 class PinnedProject {
   const PinnedProject({
     required this.label,
@@ -24,8 +26,8 @@ class PinnedProject {
 
   factory PinnedProject.fromJson(Map<String, dynamic> json) {
     return PinnedProject(
-      label: json['label'] as String? ?? '',
-      cwd: json['cwd'] as String? ?? '',
+      label: readStringFromJson(json['label']),
+      cwd: readStringFromJson(json['cwd']),
     );
   }
 }
@@ -61,7 +63,7 @@ class ApprovedScanRoot {
 
   factory ApprovedScanRoot.fromJson(Map<String, dynamic> json) {
     return ApprovedScanRoot(
-      rootPath: json['root_path'] as String? ?? '',
+      rootPath: readStringFromJson(json['root_path']),
       scanDepth: json['scan_depth'] as int? ?? 2,
       enabled: json['enabled'] as bool? ?? true,
     );
@@ -158,7 +160,7 @@ class ProjectContextSettings {
 
   factory ProjectContextSettings.fromJson(Map<String, dynamic> json) {
     return ProjectContextSettings(
-      deviceId: json['device_id'] as String? ?? '',
+      deviceId: readStringFromJson(json['device_id']),
       pinnedProjects: ((json['pinned_projects'] as List<dynamic>?) ?? const [])
           .whereType<Map<String, dynamic>>()
           .map(PinnedProject.fromJson)

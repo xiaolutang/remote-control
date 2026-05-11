@@ -353,8 +353,8 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
     if (event.type == 'trace') {
       final p = Map<String, dynamic>.from(event.payload);
       _traces.add(ToolStepEvent(
-        toolName: (p['tool'] as String? ?? '').trim(),
-        description: (p['input_summary'] as String? ?? '').trim(),
+        toolName: readStringFromJson(p['tool']),
+        description: readStringFromJson(p['input_summary']),
         status: 'done',
         resultSummary: (p['output_summary'] as String?)?.trim(),
       ));
@@ -364,7 +364,7 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
     }
     if (event.type == 'assistant_message') {
       _assistantMessages.add(StreamingTextEvent(
-        textDelta: (event.payload['content'] as String? ?? '').trim(),
+        textDelta: readStringFromJson(event.payload['content']),
       ));
       _turnEventOrder.add(_TurnEventType.assistantMessage);
       _terminalConversationClosed = false; _terminalClosedReason = null;
@@ -435,8 +435,8 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
         case 'trace':
           final p = Map<String, dynamic>.from(event.payload);
           traces.add(ToolStepEvent(
-            toolName: (p['tool'] as String? ?? '').trim(),
-            description: (p['input_summary'] as String? ?? '').trim(),
+            toolName: readStringFromJson(p['tool']),
+            description: readStringFromJson(p['input_summary']),
             status: 'done',
             resultSummary: (p['output_summary'] as String?)?.trim(),
           ));
@@ -444,7 +444,7 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
           phaseDescription = '正在执行工具调用...';
         case 'assistant_message':
           assistantMessages.add(StreamingTextEvent(
-            textDelta: (event.payload['content'] as String? ?? '').trim(),
+            textDelta: readStringFromJson(event.payload['content']),
           ));
           turnEventOrder.add(_TurnEventType.assistantMessage);
           result = null; error = null; state = AgentPhase.responding;

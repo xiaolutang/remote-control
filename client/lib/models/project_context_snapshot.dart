@@ -1,3 +1,5 @@
+import '../utils/json_helpers.dart';
+
 class ProjectContextCandidate {
   const ProjectContextCandidate({
     required this.candidateId,
@@ -40,10 +42,10 @@ class ProjectContextCandidate {
     }
 
     return ProjectContextCandidate(
-      candidateId: json['candidate_id'] as String? ?? '',
-      deviceId: json['device_id'] as String? ?? '',
-      label: json['label'] as String? ?? '',
-      cwd: json['cwd'] as String? ?? '',
+      candidateId: readStringFromJson(json['candidate_id']),
+      deviceId: readStringFromJson(json['device_id']),
+      label: readStringFromJson(json['label']),
+      cwd: readStringFromJson(json['cwd']),
       source: json['source'] as String? ?? 'recent_terminal',
       toolHints: ((json['tool_hints'] as List<dynamic>?) ?? const [])
           .whereType<String>()
@@ -74,7 +76,7 @@ class DeviceProjectContextSnapshot {
 
   factory DeviceProjectContextSnapshot.fromJson(Map<String, dynamic> json) {
     return DeviceProjectContextSnapshot(
-      deviceId: json['device_id'] as String? ?? '',
+      deviceId: readStringFromJson(json['device_id']),
       generatedAt: DateTime.tryParse(json['generated_at'] as String? ?? '') ??
           DateTime.fromMillisecondsSinceEpoch(0),
       candidates: ((json['candidates'] as List<dynamic>?) ?? const [])

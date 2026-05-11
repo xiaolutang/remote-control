@@ -1,3 +1,5 @@
+import '../utils/json_helpers.dart';
+
 /// Agent 所有权信息
 ///
 /// 用于判断 Agent 是否属于当前登录用户
@@ -15,9 +17,9 @@ class AgentOwnershipInfo {
   /// 从 JSON 反序列化
   factory AgentOwnershipInfo.fromJson(Map<String, dynamic> json) {
     return AgentOwnershipInfo(
-      serverUrl: json['server_url'] as String? ?? '',
-      username: json['username'] as String? ?? '',
-      deviceId: json['device_id'] as String? ?? '',
+      serverUrl: readStringFromJson(json['server_url']),
+      username: readStringFromJson(json['username']),
+      deviceId: readStringFromJson(json['device_id']),
     );
   }
 

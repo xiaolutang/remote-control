@@ -1,3 +1,5 @@
+import '../utils/json_helpers.dart';
+
 class RuntimeTerminal {
   const RuntimeTerminal({
     required this.terminalId,
@@ -48,10 +50,10 @@ class RuntimeTerminal {
   factory RuntimeTerminal.fromJson(Map<String, dynamic> json) {
     final rawViews = json['views'] as Map<String, dynamic>? ?? const {};
     return RuntimeTerminal(
-      terminalId: json['terminal_id'] as String? ?? '',
-      title: json['title'] as String? ?? '',
-      cwd: json['cwd'] as String? ?? '',
-      command: json['command'] as String? ?? '',
+      terminalId: readStringFromJson(json['terminal_id']),
+      title: readStringFromJson(json['title']),
+      cwd: readStringFromJson(json['cwd']),
+      command: readStringFromJson(json['command']),
       status: json['status'] as String? ?? 'pending',
       updatedAt: json['updated_at'] == null
           ? null

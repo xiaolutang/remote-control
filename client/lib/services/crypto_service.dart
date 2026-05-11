@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -8,6 +7,7 @@ import 'package:pointycastle/export.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/message_types.dart';
 import '../models/config.dart';
+import 'http_client_factory.dart';
 
 /// 应用层加密服务：RSA-OAEP + AES-256-GCM + TOFU 公钥信任
 class CryptoService {
@@ -63,12 +63,11 @@ class CryptoService {
     required bool trustAllCertificates,
   }) async {
     final uri = Uri.parse('$httpBaseUrl/api/public-key');
-    final client = HttpClient();
+    final client = HttpClientFactory.createRawConfigured(
+      trustAllCertificates: trustAllCertificates,
+    );
     try {
       client.connectionTimeout = TimingConstants.httpConnectionTimeout;
-      if (trustAllCertificates) {
-        client.badCertificateCallback = (_, __, ___) => true;
-      }
       final request = await client.getUrl(uri);
       final response = await request.close();
       final body = await response.transform(utf8.decoder).join();

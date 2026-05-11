@@ -1,3 +1,5 @@
+import '../utils/json_helpers.dart';
+
 class RuntimeDevice {
   const RuntimeDevice({
     required this.deviceId,
@@ -49,14 +51,14 @@ class RuntimeDevice {
 
   factory RuntimeDevice.fromJson(Map<String, dynamic> json) {
     return RuntimeDevice(
-      deviceId: json['device_id'] as String? ?? '',
-      name: json['name'] as String? ?? '',
-      owner: json['owner'] as String? ?? '',
+      deviceId: readStringFromJson(json['device_id']),
+      name: readStringFromJson(json['name']),
+      owner: readStringFromJson(json['owner']),
       agentOnline: json['agent_online'] as bool? ?? false,
-      platform: json['platform'] as String? ?? '',
-      hostname: json['hostname'] as String? ?? '',
+      platform: readStringFromJson(json['platform']),
+      hostname: readStringFromJson(json['hostname']),
       maxTerminals: json['max_terminals'] as int? ?? 3,
-      activeTerminals: json['active_terminals'] as int? ?? 0,
+      activeTerminals: readIntFromJson(json['active_terminals']),
       lastHeartbeatAt: json['last_heartbeat_at'] == null
           ? null
           : DateTime.tryParse(json['last_heartbeat_at'] as String),

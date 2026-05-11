@@ -2,6 +2,7 @@ import 'project_context_snapshot.dart';
 import 'recent_launch_context.dart';
 import 'shortcut_item.dart';
 import 'terminal_shortcut.dart';
+import '../utils/json_helpers.dart';
 
 /// 统一超时/间隔常量，消除各服务文件中重复的 Duration 定义。
 abstract final class TimingConstants {
@@ -176,7 +177,7 @@ class AppConfig {
     return AppConfig(
       serverUrl: serverUrl,
       token: json['token'] as String?,
-      sessionId: json['sessionId'] as String? ?? '',
+      sessionId: readStringFromJson(json['sessionId']),
       autoReconnect: json['autoReconnect'] as bool? ?? true,
       maxRetries: json['maxRetries'] as int? ?? 5,
       reconnectDelay:
@@ -196,8 +197,8 @@ class AppConfig {
               keepRunningInBackground: legacyKeepRunning,
               hadExplicitChoice: legacyExplicitChoice,
             ),
-      desktopAgentWorkdir: json['desktopAgentWorkdir'] as String? ?? '',
-      preferredDeviceId: json['preferredDeviceId'] as String? ?? '',
+      desktopAgentWorkdir: readStringFromJson(json['desktopAgentWorkdir']),
+      preferredDeviceId: readStringFromJson(json['preferredDeviceId']),
       shortcutItems: ((json['shortcutItems'] as List<dynamic>?) ?? const [])
           .whereType<Map<String, dynamic>>()
           .map(ShortcutItem.fromJson)

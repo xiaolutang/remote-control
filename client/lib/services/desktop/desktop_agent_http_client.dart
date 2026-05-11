@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../app_logger.dart';
+import '../http_client_factory.dart';
+import '../../utils/json_helpers.dart';
 
 /// 默认端口范围
 const List<int> kAgentPortRange = [18765, 18766, 18767, 18768, 18769];
@@ -36,8 +38,8 @@ class SkillItem {
 
   factory SkillItem.fromJson(Map<String, dynamic> json) {
     return SkillItem(
-      name: json['name'] as String? ?? '',
-      description: json['description'] as String? ?? '',
+      name: readStringFromJson(json['name']),
+      description: readStringFromJson(json['description']),
       enabled: json['enabled'] as bool? ?? false,
     );
   }
@@ -63,7 +65,7 @@ class KnowledgeItem {
 
   factory KnowledgeItem.fromJson(Map<String, dynamic> json) {
     return KnowledgeItem(
-      filename: json['filename'] as String? ?? '',
+      filename: readStringFromJson(json['filename']),
       enabled: json['enabled'] as bool? ?? false,
     );
   }
@@ -101,12 +103,12 @@ class LocalAgentStatus {
   factory LocalAgentStatus.fromJson(Map<String, dynamic> json) {
     return LocalAgentStatus(
       running: json['running'] as bool? ?? false,
-      pid: json['pid'] as int? ?? 0,
-      port: json['port'] as int? ?? 0,
-      serverUrl: json['server_url'] as String? ?? '',
+      pid: readIntFromJson(json['pid']),
+      port: readIntFromJson(json['port']),
+      serverUrl: readStringFromJson(json['server_url']),
       connected: json['connected'] as bool? ?? false,
-      sessionId: json['session_id'] as String? ?? '',
-      terminalsCount: json['terminals_count'] as int? ?? 0,
+      sessionId: readStringFromJson(json['session_id']),
+      terminalsCount: readIntFromJson(json['terminals_count']),
       keepRunningInBackground:
           json['keep_running_in_background'] as bool? ?? true,
     );
@@ -362,7 +364,7 @@ class DesktopAgentHttpClient {
   // ============== 私有方法 ==============
 
   Future<HttpClient> _getClient() async {
-    _httpClient ??= HttpClient();
+    _httpClient ??= HttpClientFactory.createRaw();
     return _httpClient!;
   }
 

@@ -470,7 +470,7 @@ class TerminalScreenController extends ChangeNotifier {
   String get defaultProjectId => _defaultProjectId;
 
   List<ShortcutItem> sortShortcutItems(Iterable<ShortcutItem> items) {
-    final sorted = items.toList(growable: false).toList();
+    final sorted = items.toList();
     sorted.sort((a, b) {
       final byOrder = a.order.compareTo(b.order);
       if (byOrder != 0) return byOrder;

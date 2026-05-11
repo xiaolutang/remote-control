@@ -1,3 +1,5 @@
+import '../utils/json_helpers.dart';
+
 /// 会话级 usage 累加器，在内存中累积每次 SSE result/error 事件携带的 usage 数据。
 ///
 /// 同一终端对话中多次 agent run（每次 run 有不同 session_id）的 usage 会持续累加。
@@ -26,10 +28,10 @@ class SessionUsageAccumulator {
   void accumulate(Map<String, dynamic>? usage) {
     if (usage == null) return;
 
-    _inputTokens += _readInt(usage['input_tokens']);
-    _outputTokens += _readInt(usage['output_tokens']);
-    _totalTokens += _readInt(usage['total_tokens']);
-    _requests += _readInt(usage['requests']);
+    _inputTokens += readIntFromJson(usage['input_tokens']);
+    _outputTokens += readIntFromJson(usage['output_tokens']);
+    _totalTokens += readIntFromJson(usage['total_tokens']);
+    _requests += readIntFromJson(usage['requests']);
   }
 
   /// 归零所有累计字段。由外部在终端切换/面板关闭时调用。
@@ -47,11 +49,4 @@ class SessionUsageAccumulator {
         'total_tokens': _totalTokens,
         'requests': _requests,
       };
-}
-
-int _readInt(Object? value) {
-  if (value is int) return value;
-  if (value is num) return value.toInt();
-  if (value is String) return int.tryParse(value) ?? 0;
-  return 0;
 }

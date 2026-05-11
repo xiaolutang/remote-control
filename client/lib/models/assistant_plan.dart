@@ -1,3 +1,4 @@
+import '../utils/json_helpers.dart' show readStringFromJson;
 import 'command_sequence_draft.dart';
 
 class AssistantCommandSequence {
@@ -35,9 +36,9 @@ class AssistantCommandSequence {
         .whereType<Map<String, dynamic>>()
         .toList(growable: false);
     return AssistantCommandSequence(
-      summary: (json['summary'] as String? ?? '').trim(),
-      provider: (json['provider'] as String? ?? 'service_llm').trim(),
-      source: (json['source'] as String? ?? 'intent').trim(),
+      summary: readStringFromJson(json['summary']),
+      provider: json['provider'] as String? ?? 'service_llm',
+      source: json['source'] as String? ?? 'intent',
       needConfirm: json['need_confirm'] as bool? ?? true,
       steps: [
         for (var index = 0; index < rawSteps.length; index++)
@@ -46,7 +47,7 @@ class AssistantCommandSequence {
                 .trim(),
             label: (rawSteps[index]['label'] as String? ?? '步骤 ${index + 1}')
                 .trim(),
-            command: (rawSteps[index]['command'] as String? ?? '').trim(),
+            command: readStringFromJson(rawSteps[index]['command']),
           ),
       ],
     );
@@ -64,8 +65,8 @@ class AssistantMessage {
 
   factory AssistantMessage.fromJson(Map<String, dynamic> json) {
     return AssistantMessage(
-      type: (json['type'] as String? ?? 'assistant').trim(),
-      text: (json['text'] as String? ?? '').trim(),
+      type: json['type'] as String? ?? 'assistant',
+      text: readStringFromJson(json['text']),
     );
   }
 }
@@ -83,7 +84,7 @@ class AssistantMessageDelta {
 
   factory AssistantMessageDelta.fromJson(Map<String, dynamic> json) {
     return AssistantMessageDelta(
-      type: (json['type'] as String? ?? 'assistant').trim(),
+      type: json['type'] as String? ?? 'assistant',
       textDelta:
           (json['text_delta'] as String? ?? json['text'] as String? ?? '')
               .trim(),
@@ -107,10 +108,10 @@ class AssistantTraceItem {
 
   factory AssistantTraceItem.fromJson(Map<String, dynamic> json) {
     return AssistantTraceItem(
-      stage: (json['stage'] as String? ?? 'planner').trim(),
-      title: (json['title'] as String? ?? '规划').trim(),
-      status: (json['status'] as String? ?? 'completed').trim(),
-      summary: (json['summary'] as String? ?? '').trim(),
+      stage: json['stage'] as String? ?? 'planner',
+      title: json['title'] as String? ?? '规划',
+      status: json['status'] as String? ?? 'completed',
+      summary: readStringFromJson(json['summary']),
     );
   }
 }
@@ -134,11 +135,11 @@ class AssistantToolCall {
 
   factory AssistantToolCall.fromJson(Map<String, dynamic> json) {
     return AssistantToolCall(
-      id: (json['id'] as String? ?? '').trim(),
+      id: readStringFromJson(json['id']),
       toolName:
           (json['tool_name'] as String? ?? json['name'] as String? ?? '工具')
               .trim(),
-      status: (json['status'] as String? ?? 'running').trim(),
+      status: json['status'] as String? ?? 'running',
       summary: (json['summary'] as String?)?.trim(),
       inputSummary: (json['input_summary'] as String?)?.trim(),
       outputSummary: (json['output_summary'] as String?)?.trim(),
@@ -161,9 +162,9 @@ class AssistantStatusUpdate {
 
   factory AssistantStatusUpdate.fromJson(Map<String, dynamic> json) {
     return AssistantStatusUpdate(
-      stage: (json['stage'] as String? ?? 'planner').trim(),
-      status: (json['status'] as String? ?? 'running').trim(),
-      title: (json['title'] as String? ?? '处理中').trim(),
+      stage: json['stage'] as String? ?? 'planner',
+      status: json['status'] as String? ?? 'running',
+      title: json['title'] as String? ?? '处理中',
       summary: (json['summary'] as String?)?.trim(),
     );
   }
@@ -217,8 +218,8 @@ class AssistantPlanResult {
 
   factory AssistantPlanResult.fromJson(Map<String, dynamic> json) {
     return AssistantPlanResult(
-      conversationId: (json['conversation_id'] as String? ?? '').trim(),
-      messageId: (json['message_id'] as String? ?? '').trim(),
+      conversationId: readStringFromJson(json['conversation_id']),
+      messageId: readStringFromJson(json['message_id']),
       assistantMessages:
           ((json['assistant_messages'] as List<dynamic>?) ?? const [])
               .whereType<Map<String, dynamic>>()
@@ -301,7 +302,7 @@ class AssistantPlanProgressEvent {
 
   factory AssistantPlanProgressEvent.fromJson(Map<String, dynamic> json) {
     return AssistantPlanProgressEvent(
-      type: (json['type'] as String? ?? '').trim(),
+      type: readStringFromJson(json['type']),
       assistantMessage:
           (json['assistant_message'] as Map<String, dynamic>?) != null
               ? AssistantMessage.fromJson(
