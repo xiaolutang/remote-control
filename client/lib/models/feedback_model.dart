@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import '../utils/json_helpers.dart';
 
 /// 反馈分类枚举
@@ -28,21 +27,6 @@ extension FeedbackCategoryX on FeedbackCategory {
     }
   }
 
-  /// 对应图标
-  IconData get icon {
-    switch (this) {
-      case FeedbackCategory.connection:
-        return Icons.wifi_off;
-      case FeedbackCategory.terminal:
-        return Icons.terminal;
-      case FeedbackCategory.crash:
-        return Icons.bug_report;
-      case FeedbackCategory.suggestion:
-        return Icons.lightbulb_outline;
-      case FeedbackCategory.other:
-        return Icons.feedback;
-    }
-  }
 }
 
 /// 反馈提交请求模型

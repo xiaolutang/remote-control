@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/app_environment.dart';
 import '../models/app_environment_presentation.dart';
+import '../widgets/model_icon_extensions.dart';
 import '../services/auth_service.dart';
 import '../services/environment_service.dart';
 import '../services/environment_switch_coordinator.dart';

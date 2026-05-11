@@ -1,5 +1,3 @@
-import 'package:flutter/material.dart';
-
 import 'app_environment.dart';
 
 extension AppEnvironmentPresentation on AppEnvironment {
@@ -36,14 +34,4 @@ extension AppEnvironmentPresentation on AppEnvironment {
     }
   }
 
-  IconData get icon {
-    switch (this) {
-      case AppEnvironment.local:
-        return Icons.lan_outlined;
-      case AppEnvironment.direct:
-        return Icons.route_outlined;
-      case AppEnvironment.production:
-        return Icons.cloud_outlined;
-    }
-  }
 }
