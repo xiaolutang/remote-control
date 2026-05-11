@@ -1191,13 +1191,6 @@ void main() {
   });
 
   group('AgentSessionEvent 模型', () {
-    test('AgentTraceEvent.fromJson 处理缺失字段', () {
-      final event = AgentTraceEvent.fromJson({});
-      expect(event.tool, '');
-      expect(event.inputSummary, '');
-      expect(event.outputSummary, '');
-    });
-
     test('AgentQuestionEvent.fromJson 处理缺失字段', () {
       final event = AgentQuestionEvent.fromJson({});
       expect(event.question, '');

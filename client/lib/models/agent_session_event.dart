@@ -225,35 +225,6 @@ class AgentSessionCreatedEvent extends AgentSessionEvent {
       };
 }
 
-/// Agent 工具调用追踪事件
-@Deprecated('已由 ToolStepEvent 取代，仅保留用于 UI 过渡兼容，F108 移除')
-class AgentTraceEvent extends AgentSessionEvent {
-  const AgentTraceEvent({
-    required this.tool,
-    required this.inputSummary,
-    required this.outputSummary,
-  });
-
-  final String tool;
-  final String inputSummary;
-  final String outputSummary;
-
-  factory AgentTraceEvent.fromJson(Map<String, dynamic> json) {
-    return AgentTraceEvent(
-      tool: readStringFromJson(json['tool']),
-      inputSummary: readStringFromJson(json['input_summary']),
-      outputSummary: readStringFromJson(json['output_summary']),
-    );
-  }
-
-  @override
-  Map<String, dynamic> toJson() => {
-        'tool': tool,
-        'input_summary': inputSummary,
-        'output_summary': outputSummary,
-      };
-}
-
 /// Agent 向用户提问事件
 class AgentQuestionEvent extends AgentSessionEvent {
   const AgentQuestionEvent({
@@ -412,28 +383,6 @@ class AgentResultEvent extends AgentSessionEvent {
         'ai_prompt': aiPrompt,
         if (eventId != null) 'event_id': eventId,
       };
-}
-
-/// Agent 助手中间消息事件（对话过程气泡，非最终结果）
-///
-/// 服务端在 Agent 处理过程中推送的用户可见助手回复。
-/// 与 [AgentResultEvent]（responseType=message）区分：
-/// assistant_message 是中间过程消息，message result 是结构化结果卡片。
-@Deprecated('已由 StreamingTextEvent 取代，仅保留用于 UI 过渡兼容，F108 移除')
-class AgentAssistantMessageEvent extends AgentSessionEvent {
-  const AgentAssistantMessageEvent({required this.content});
-
-  /// 助手消息文本内容
-  final String content;
-
-  factory AgentAssistantMessageEvent.fromJson(Map<String, dynamic> json) {
-    return AgentAssistantMessageEvent(
-      content: readStringFromJson(json['content']),
-    );
-  }
-
-  @override
-  Map<String, dynamic> toJson() => {'content': content};
 }
 
 /// Agent 错误事件

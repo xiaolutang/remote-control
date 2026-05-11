@@ -346,12 +346,6 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
           _restartConversationStreamForCurrentScope();
         }
         _scheduleScrollToLatest();
-      case AgentTraceEvent _:
-        // Trace events are informational only, no UI state change needed.
-        break;
-      case AgentAssistantMessageEvent _:
-        // Assistant messages handled via conversation stream, no panel action needed.
-        break;
     }
   }
 
