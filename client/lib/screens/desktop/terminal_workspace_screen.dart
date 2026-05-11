@@ -510,7 +510,9 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
           ),
         ),
         // F006: 移动端 TerminalPageIndicator（32px 页码指示器）
-        if (!controller.isDesktopPlatform)
+        // 键盘弹出时隐藏，避免与 ShortcutBar 之间产生空白区域
+        if (!controller.isDesktopPlatform &&
+            MediaQuery.of(context).viewInsets.bottom == 0)
           TerminalPageIndicator(
             terminals: terminals,
             selectedTerminalId: terminal.terminalId,
