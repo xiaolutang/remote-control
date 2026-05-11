@@ -110,6 +110,13 @@ class TerminalPageIndicator extends StatelessWidget {
     );
   }
 
+  /// Opens a BottomSheet listing all terminals for quick switching.
+  ///
+  /// **Known limitation**: The BottomSheet captures a snapshot of [terminals]
+  /// at the time it opens. Changes to the terminal list (rename, add, remove)
+  /// while the sheet is visible will not be reflected. This is acceptable
+  /// because the BottomSheet is short-lived (<5 seconds of user interaction);
+  /// closing and reopening it will show the latest data.
   void _showTerminalList(BuildContext context) {
     showModalBottomSheet<void>(
       context: context,

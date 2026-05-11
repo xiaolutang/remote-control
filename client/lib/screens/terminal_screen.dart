@@ -34,7 +34,7 @@ class TerminalScreen extends StatefulWidget {
   final TargetPlatform? platformOverride;
   final bool embedded;
 
-  /// Optional bottom chrome slot for embedded mode (e.g. CompactTabStrip).
+  /// Optional bottom chrome slot for embedded mode (e.g. TerminalPageIndicator).
   /// When provided, rendered above the TerminalShortcutBar.
   /// Desktop mode passes null – no visual change.
   final Widget? bottomChrome;
@@ -527,7 +527,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
               onSelect: _ctrl.sendSpecialKey,
             ),
           ),
-        if (widget.bottomChrome != null) widget.bottomChrome!,
+        if (widget.bottomChrome case final chrome?) chrome,
         if (vc.showShortcutBar &&
             (_ctrl.shortcutLayout.coreItems.isNotEmpty ||
                 _ctrl.shortcutLayout.smartItems.isNotEmpty))

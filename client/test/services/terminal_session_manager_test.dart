@@ -979,9 +979,9 @@ void main() {
       expect(service.isConnected, isTrue);
     });
 
-    test('切换 terminal 前主动断开同 device 同 view 的其他 service', () async {
-      final current = buildMock(deviceId: 'dev-1', terminalId: 'term-1');
-      final next = buildMock(deviceId: 'dev-1', terminalId: 'term-2');
+    test('不同终端互不踢出（修复前会错误踢出兄弟终端）', () async {
+      final t1 = buildMock(deviceId: 'dev-1', terminalId: 'term-1');
+      final t2 = buildMock(deviceId: 'dev-1', terminalId: 'term-2');
       final desktop = buildMock(
         deviceId: 'dev-1',
         terminalId: 'term-3',
@@ -989,22 +989,27 @@ void main() {
       );
       final otherDevice = buildMock(deviceId: 'dev-2', terminalId: 'term-4');
 
-      manager.getOrCreate('dev-1', 'term-1', () => current);
-      manager.getOrCreate('dev-1', 'term-2', () => next);
+      manager.getOrCreate('dev-1', 'term-1', () => t1);
+      manager.getOrCreate('dev-1', 'term-2', () => t2);
       manager.getOrCreate('dev-1', 'term-3', () => desktop);
       manager.getOrCreate('dev-2', 'term-4', () => otherDevice);
 
-      current.setMockConnected(true);
-      next.setMockConnected(true);
+      t1.setMockConnected(true);
+      t2.setMockConnected(true);
       desktop.setMockConnected(true);
       otherDevice.setMockConnected(true);
 
-      await manager.deactivateConflictingTerminalSessions(next);
+      // 连接 term-2 时不应该踢出 term-1（不同终端）
+      await manager.deactivateConflictingTerminalSessions(t2);
 
-      expect(current.disconnectCallCount, 1);
-      expect(next.disconnectCallCount, 0);
-      expect(desktop.disconnectCallCount, 0);
-      expect(otherDevice.disconnectCallCount, 0);
+      expect(t1.disconnectCallCount, 0,
+          reason: '不同终端不应被踢出');
+      expect(t2.disconnectCallCount, 0,
+          reason: '活跃终端自身不应被踢出');
+      expect(desktop.disconnectCallCount, 0,
+          reason: '不同 viewType 不应被踢出');
+      expect(otherDevice.disconnectCallCount, 0,
+          reason: '不同设备不应被踢出');
     });
   });
 
@@ -2219,6 +2224,268 @@ void main() {
       // 尝试 switch 到不存在的 terminal
       manager.switchTerminal('dev-1', 'term-999');
       expect(manager.activeTerminalKeyForTest, 'dev-1::term-1');
+    });
+  });
+
+  // ─── deactivateConflictingSessions 全面测试 ─────────────────────
+
+  group('deactivateConflictingSessions', () {
+    late TerminalSessionManager manager;
+
+    MockWebSocketService buildMock({
+      String deviceId = 'dev-1',
+      String terminalId = 'term-1',
+      ViewType viewType = ViewType.mobile,
+    }) {
+      return MockWebSocketService(
+        deviceId: deviceId,
+        terminalId: terminalId,
+        viewType: viewType,
+      );
+    }
+
+    setUp(() {
+      manager = TerminalSessionManager();
+    });
+
+    tearDown(() {
+      manager.disconnectAll();
+    });
+
+    test('同终端重连时踢出旧连接', () async {
+      final oldService = buildMock(deviceId: 'dev-1', terminalId: 'term-1');
+      final newService = buildMock(deviceId: 'dev-1', terminalId: 'term-1');
+
+      // 模拟同一终端有两个不同 session key（生产路径：先断线再重连）
+      // 用不同 sessionId 区分新旧连接
+      manager.getOrCreate('dev-1', 'term-1', () => oldService);
+      oldService.setMockConnected(true);
+
+      // 新连接触发去活
+      await manager.deactivateConflictingTerminalSessions(newService);
+
+      expect(oldService.disconnectCallCount, 1,
+          reason: '同终端的旧连接应被踢出');
+      expect(newService.disconnectCallCount, 0,
+          reason: '新连接自身不应被踢出');
+    });
+
+    test('多终端互不踢出', () async {
+      final t1 = buildMock(deviceId: 'dev-1', terminalId: 'term-1');
+      final t2 = buildMock(deviceId: 'dev-1', terminalId: 'term-2');
+      final t3 = buildMock(deviceId: 'dev-1', terminalId: 'term-3');
+
+      manager.getOrCreate('dev-1', 'term-1', () => t1);
+      manager.getOrCreate('dev-1', 'term-2', () => t2);
+      manager.getOrCreate('dev-1', 'term-3', () => t3);
+
+      t1.setMockConnected(true);
+      t2.setMockConnected(true);
+      t3.setMockConnected(true);
+
+      // 连接 t2 时不踢 t1 和 t3
+      await manager.deactivateConflictingTerminalSessions(t2);
+
+      expect(t1.disconnectCallCount, 0);
+      expect(t2.disconnectCallCount, 0);
+      expect(t3.disconnectCallCount, 0);
+    });
+
+    test('不同设备互不干扰', () async {
+      final dev1 = buildMock(deviceId: 'dev-1', terminalId: 'term-1');
+      final dev2 = buildMock(deviceId: 'dev-2', terminalId: 'term-1');
+
+      manager.getOrCreate('dev-1', 'term-1', () => dev1);
+      manager.getOrCreate('dev-2', 'term-1', () => dev2);
+
+      dev1.setMockConnected(true);
+      dev2.setMockConnected(true);
+
+      await manager.deactivateConflictingTerminalSessions(dev2);
+
+      expect(dev1.disconnectCallCount, 0,
+          reason: '不同设备的同终端名不应被踢出');
+    });
+
+    test('不同 viewType 互不干扰', () async {
+      final mobile = buildMock(
+        deviceId: 'dev-1',
+        terminalId: 'term-1',
+        viewType: ViewType.mobile,
+      );
+      final desktop = buildMock(
+        deviceId: 'dev-1',
+        terminalId: 'term-1',
+        viewType: ViewType.desktop,
+      );
+
+      manager.getOrCreate('dev-1', 'term-1', () => mobile);
+      manager.getOrCreate('dev-1', 'term-1', () => desktop);
+
+      mobile.setMockConnected(true);
+      desktop.setMockConnected(true);
+
+      // 注意：同一 key 的 service 会被 getOrCreate 复用
+      // 这里需要分开 key 测试，直接通过不同 viewType 验证过滤
+      await manager.deactivateConflictingTerminalSessions(desktop);
+
+      expect(mobile.disconnectCallCount, 0,
+          reason: '不同 viewType 不应互踢');
+    });
+
+    test('已断开的候选不会被踢出（过滤 disconnected）', () async {
+      final disconnected = buildMock(deviceId: 'dev-1', terminalId: 'term-1');
+      disconnected.setMockStatus(ConnectionStatus.disconnected);
+
+      final active = buildMock(deviceId: 'dev-1', terminalId: 'term-1');
+
+      manager.getOrCreate('dev-1', 'term-1', () => disconnected);
+
+      await manager.deactivateConflictingTerminalSessions(active);
+
+      // disconnected 的 service 不应被重复 disconnect
+      expect(disconnected.disconnectCallCount, 0);
+    });
+
+    test('空 terminalId 的活跃服务不触发去活（早返回）', () async {
+      final noTerminalId = MockWebSocketService(
+        deviceId: 'dev-1',
+        terminalId: null,
+        viewType: ViewType.mobile,
+      );
+      final other = buildMock(deviceId: 'dev-1', terminalId: 'term-1');
+
+      manager.getOrCreate('dev-1', '', () => noTerminalId);
+      manager.getOrCreate('dev-1', 'term-1', () => other);
+
+      noTerminalId.setMockConnected(true);
+      other.setMockConnected(true);
+
+      // terminalId 为空 → 不应触发任何去活
+      await manager.deactivateConflictingTerminalSessions(noTerminalId);
+
+      expect(other.disconnectCallCount, 0);
+    });
+
+    test('空 terminalId 的候选不会被去活', () async {
+      final active = buildMock(deviceId: 'dev-1', terminalId: 'term-1');
+      final noTerminalId = MockWebSocketService(
+        deviceId: 'dev-1',
+        terminalId: null,
+        viewType: ViewType.mobile,
+      );
+
+      manager.getOrCreate('dev-1', 'term-1', () => active);
+      manager.getOrCreate('dev-1', '', () => noTerminalId);
+
+      active.setMockConnected(true);
+      noTerminalId.setMockConnected(true);
+
+      await manager.deactivateConflictingTerminalSessions(active);
+
+      expect(noTerminalId.disconnectCallCount, 0,
+          reason: '空 terminalId 的候选应被跳过');
+    });
+
+    test('混合场景：同终端旧连接被踢 + 兄弟终端不受影响', () async {
+      // 场景：用户在 dev-1 上有 term-1(旧) + term-1(新) + term-2 + term-3
+      final t1Old = buildMock(deviceId: 'dev-1', terminalId: 'term-1');
+      final t1New = buildMock(deviceId: 'dev-1', terminalId: 'term-1');
+      final t2 = buildMock(deviceId: 'dev-1', terminalId: 'term-2');
+      final t3 = buildMock(deviceId: 'dev-1', terminalId: 'term-3');
+
+      // 使用不同 sessionId 让两个 term-1 service 共存
+      final t1OldKey = 'dev-1::term-1';
+
+      manager.getOrCreate('dev-1', 'term-1', () => t1Old);
+      manager.getOrCreate('dev-1', 'term-2', () => t2);
+      manager.getOrCreate('dev-1', 'term-3', () => t3);
+
+      t1Old.setMockConnected(true);
+      t2.setMockConnected(true);
+      t3.setMockConnected(true);
+
+      // t1New 连接时应该只踢出 t1Old（同终端旧连接）
+      await manager.deactivateConflictingTerminalSessions(t1New);
+
+      expect(t1Old.disconnectCallCount, 1,
+          reason: '同终端旧连接应被踢出');
+      expect(t2.disconnectCallCount, 0,
+          reason: '兄弟终端 term-2 不应被踢出');
+      expect(t3.disconnectCallCount, 0,
+          reason: '兄弟终端 term-3 不应被踢出');
+    });
+
+    test('reconnecting 状态的同终端候选会被去活（取消旧重连）', () async {
+      final reconnecting = buildMock(deviceId: 'dev-1', terminalId: 'term-1');
+      reconnecting.setMockStatus(ConnectionStatus.reconnecting);
+
+      final active = buildMock(deviceId: 'dev-1', terminalId: 'term-1');
+
+      manager.getOrCreate('dev-1', 'term-1', () => reconnecting);
+
+      await manager.deactivateConflictingTerminalSessions(active);
+
+      expect(reconnecting.disconnectCallCount, 1,
+          reason: 'reconnecting 状态的同终端候选应被取消，让新连接接管');
+    });
+
+    test('connected 状态的候选会被去活', () async {
+      final connected = buildMock(deviceId: 'dev-1', terminalId: 'term-1');
+      connected.setMockConnected(true);
+
+      final active = buildMock(deviceId: 'dev-1', terminalId: 'term-1');
+
+      manager.getOrCreate('dev-1', 'term-1', () => connected);
+
+      await manager.deactivateConflictingTerminalSessions(active);
+
+      expect(connected.disconnectCallCount, 1,
+          reason: 'connected 状态的同终端候选应被去活');
+    });
+
+    test('connecting 状态的候选会被去活', () async {
+      final connecting = buildMock(deviceId: 'dev-1', terminalId: 'term-1');
+      connecting.setMockStatus(ConnectionStatus.connecting);
+
+      final active = buildMock(deviceId: 'dev-1', terminalId: 'term-1');
+
+      manager.getOrCreate('dev-1', 'term-1', () => connecting);
+
+      await manager.deactivateConflictingTerminalSessions(active);
+
+      expect(connecting.disconnectCallCount, 1,
+          reason: 'connecting 状态的同终端候选应被去活');
+    });
+
+    test('去活后 terminal state 重置为 idle', () async {
+      final oldService = buildMock(deviceId: 'dev-1', terminalId: 'term-1');
+      final newService = buildMock(deviceId: 'dev-1', terminalId: 'term-1');
+
+      manager.getOrCreate('dev-1', 'term-1', () => oldService);
+      manager.testEnsureTerminal(
+        'dev-1',
+        'term-1',
+        () => Terminal(maxLines: 10000),
+        service: oldService,
+      );
+
+      // 推到 live 状态
+      await manager.connectTerminal('dev-1', 'term-1');
+      oldService.debugHandleMessage(jsonEncode({'type': 'connected'}));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      oldService.debugHandleMessage(jsonEncode({'type': 'snapshot_complete'}));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(manager.getTerminalState('dev-1', 'term-1'),
+          TerminalSessionState.live);
+
+      // 去活旧连接
+      await manager.deactivateConflictingTerminalSessions(newService);
+
+      // terminal state 应被重置为 idle，以便后续可重新连接
+      expect(manager.getTerminalState('dev-1', 'term-1'),
+          TerminalSessionState.idle);
     });
   });
 }

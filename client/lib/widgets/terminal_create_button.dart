@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// Shared create (+) button used by both [TerminalTabBar] and [CompactTabStrip].
+/// Shared create (+) button used by [TerminalSidebar] and [TerminalPageIndicator].
 class TerminalCreateButton extends StatelessWidget {
   const TerminalCreateButton({
     super.key,

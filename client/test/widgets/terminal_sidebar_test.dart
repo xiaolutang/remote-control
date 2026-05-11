@@ -250,6 +250,61 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('collapsed state has 48px width', (tester) async {
+      final terminals = createTerminals(2);
+
+      await tester.pumpWidget(buildSubject(
+        terminals: terminals,
+        selectedTerminalId: 't0',
+      ));
+
+      // Find the top-level AnimatedContainer that controls sidebar width
+      final sidebar = find.byType(TerminalSidebar);
+      final container = tester.widget<AnimatedContainer>(
+        find.descendant(
+          of: sidebar,
+          matching: find.byType(AnimatedContainer),
+        ).first,
+      );
+
+      // Collapsed width should be 48.0
+      final boxConstraints = container.constraints;
+      expect(boxConstraints?.maxWidth, 48.0);
+      expect(boxConstraints?.minWidth, 48.0);
+    });
+
+    testWidgets('hover expands sidebar to 160px width', (tester) async {
+      final terminals = createTerminals(2);
+
+      await tester.pumpWidget(buildSubject(
+        terminals: terminals,
+        selectedTerminalId: 't0',
+      ));
+
+      // Hover into the sidebar
+      final sidebar = find.byType(TerminalSidebar);
+      final gesture = await tester.createGesture(
+        kind: PointerDeviceKind.mouse,
+      );
+      await gesture.addPointer(location: Offset.zero);
+      await tester.pump();
+      await gesture.moveTo(tester.getCenter(sidebar));
+      await tester.pumpAndSettle();
+
+      // Find the top-level AnimatedContainer that controls sidebar width
+      final container = tester.widget<AnimatedContainer>(
+        find.descendant(
+          of: sidebar,
+          matching: find.byType(AnimatedContainer),
+        ).first,
+      );
+
+      // Expanded width should be 160.0
+      final boxConstraints = container.constraints;
+      expect(boxConstraints?.maxWidth, 160.0);
+      expect(boxConstraints?.minWidth, 160.0);
+    });
+
     testWidgets('leaving sidebar collapses back to 48px', (tester) async {
       final terminals = createTerminals(2);
 

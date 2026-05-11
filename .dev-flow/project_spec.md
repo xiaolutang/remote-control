@@ -1,33 +1,32 @@
 # Remote Control 项目规格
 
-## 当前范围：R059 终端操作体验优化
+## 当前范围：R060 多终端导航 UX 重构
 
-将终端创建/切换/关闭从菜单操作升级为 Tab Bar 直达操作。桌面端顶部 Tab Bar + 移动端底部紧凑 Tab 栏。
+将桌面端顶部 Tab Bar 替换为左侧窄栏（48px 折叠/hover 160px 展开），移动端底部 CompactTabStrip 替换为紧凑页码指示器 `< 1/3 >`（32px）+ BottomSheet 终端列表。
 
 ### 背景
 
-当前终端操作全部通过 BottomSheet 菜单完成（点击 expand_more → 弹菜单 → 选择），高频操作交互层级过深。本轮将终端 CRUD 操作迁移到 Tab 栏一步直达。
+R059 验收后用户反馈多终端交互"感觉怪异"。终端场景与浏览器 Tab 有本质区别：用户通常只有 1-3 个终端、切换频率低、核心操作是"输入命令"而非"切换 Tab"。需要将导航模式改为更适合终端应用的设计。
 
 ### 范围
 
 - 纯客户端 UI 改造，后端零改动
-- 桌面端：顶部 Tab Bar 替代菜单切换
-- 移动端：底部紧凑 Tab 栏（通过 TerminalScreen bottomChrome slot）
-- 菜单瘦身：低频操作迁入设置 PopupMenuButton
-- Widget 测试 + 集成测试（真实 Server）
+- 桌面端：左侧窄栏替代顶部 Tab Bar，终端区域获得全宽
+- 移动端：页码指示器替代底部 Tab Strip，释放垂直空间（48px→32px）
+- 旧组件清理（TerminalTabBar、CompactTabStrip）
+- Widget 测试
 
-### R059 范围（10 个任务）
+### R060 范围（5 个任务）
 
-- **F001**: TerminalTabBar + CompactTabStrip 核心 widget（P0）— done
-- **F002**: 桌面端 Tab Bar 集成（P0）— done，依赖 F001
-- **F003**: 移动端底部 Tab 栏集成（P0）— done，依赖 F001
-- **F004**: Tab 上下文菜单 + 菜单瘦身（P1）— done，依赖 F002 + F003
-- **F005**: 键盘快捷键（P2）— done，依赖 F002
-- **F006**: 集成测试 + 手工 Smoke（P1）— done，依赖 F002-F005 + F007-F009
-- **F007**: 移动端 CompactTabStrip 样式优化（P1）— done，依赖 F001
-- **F008**: IndexedStack 缓存消除终端切换加载圈（P1）— done，依赖 F003 + F004 + F007
-- **F009**: 修复刷新终端时选中态乱串（P1）— done，依赖 F008
-- **F010**: IndexedStack 多终端隔离与刷新保持测试补充（P1）— done，依赖 F009
+- **F001**: TerminalSidebar 桌面端侧边栏组件（P0）— pending
+- **F002**: TerminalPageIndicator 移动端页面指示器组件（P0）— pending
+- **F003**: 桌面端侧边栏集成（P1）— pending，依赖 F001
+- **F004**: 移动端页面指示器集成（P1）— pending，依赖 F002 + F003
+- **F005**: 清理旧组件 + 更新测试（P2）— pending，依赖 F003 + F004
+
+### R059 范围（已归档）
+
+R059（终端操作体验优化）10 个任务已全部完成并归档到 `_archive/R059_terminal-tab-bar-ux/`。
 
 ## 用户路径
 
@@ -39,13 +38,21 @@
 4. 选择直连模式，输入服务器地址和端口
 5. 注册/登录
 6. App 自动发现内嵌 Agent 并启动 → Agent 自动在线
-7. 创建终端 → 输入命令 → 实时输出
+7. 左侧边栏点击终端图标切换，hover 展开查看标题
+8. 点击 + 创建新终端，右键触发上下文菜单
 
 ### 远程服务器用户
 
 1. Docker 部署 Server：`./deploy/deploy.sh --dev`
 2. 在目标机器运行 Agent：`python -m app.cli login && python -m app.cli run`
 3. 从桌面端/手机端连接
+
+### 移动端首用路径（0 终端→首次创建）
+
+1. 打开 App → 连接远程设备 → WorkspaceEmptyState 空状态页面
+2. 点击空状态区域创建按钮 → 首个终端创建
+3. 创建成功 → 页码指示器出现 '1/1' → 左右箭头均禁用
+4. 创建更多终端 → 页码更新为 '1/N'，箭头可用
 
 ## 目标平台
 

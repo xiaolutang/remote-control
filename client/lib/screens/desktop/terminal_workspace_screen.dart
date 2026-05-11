@@ -509,7 +509,7 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
             ],
           ),
         ),
-        // F006: 移动端 TerminalPageIndicator 替换 CompactTabStrip（32px 页码指示器）
+        // F006: 移动端 TerminalPageIndicator（32px 页码指示器）
         if (!controller.isDesktopPlatform)
           TerminalPageIndicator(
             terminals: terminals,

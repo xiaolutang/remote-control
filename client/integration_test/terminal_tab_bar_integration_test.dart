@@ -18,7 +18,7 @@ import 'package:rc_client/services/runtime_selection_controller.dart';
 import 'package:rc_client/services/terminal_session_manager.dart';
 import 'package:rc_client/services/theme_controller.dart';
 import 'package:rc_client/services/websocket_service.dart';
-import 'package:rc_client/widgets/terminal_tab_bar.dart';
+import 'package:rc_client/widgets/terminal_sidebar.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../test/mocks/mock_websocket_service.dart';
@@ -448,7 +448,7 @@ void main() {
       );
     });
 
-    testWidgets('create terminal -> tab appears in TerminalTabBar',
+    testWidgets('create terminal -> tab appears in TerminalSidebar',
         (tester) async {
       await tester.binding.setSurfaceSize(const Size(1200, 800));
       addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -481,15 +481,15 @@ void main() {
           controller: localController, sessionManager: sessionManager);
       await pumpUntil(
         tester,
-        () => find.byType(TerminalTabBar).evaluate().isNotEmpty,
-        reason: 'TerminalTabBar visible with pre-created terminal',
+        () => find.byType(TerminalSidebar).evaluate().isNotEmpty,
+        reason: 'TerminalSidebar visible with pre-created terminal',
         maxTicks: 30,
       );
 
-      // TerminalTabBar should be visible
-      expect(find.byType(TerminalTabBar), findsOneWidget);
+      // TerminalSidebar should be visible
+      expect(find.byType(TerminalSidebar), findsOneWidget);
       // Tab with key: tab-{terminalId}
-      expect(find.byKey(Key('tab-${t1.terminalId}')), findsOneWidget);
+      expect(find.byKey(Key('sidebar-${t1.terminalId}')), findsOneWidget);
       // Empty state should be gone
       expect(find.text('创建第一个终端'), findsNothing);
 
@@ -535,13 +535,13 @@ void main() {
           controller: localController, sessionManager: sessionManager);
       await pumpUntil(
         tester,
-        () => find.byType(TerminalTabBar).evaluate().isNotEmpty,
-        reason: 'TerminalTabBar visible with terminals',
+        () => find.byType(TerminalSidebar).evaluate().isNotEmpty,
+        reason: 'TerminalSidebar visible with terminals',
         maxTicks: 30,
       );
 
-      expect(find.byKey(Key('tab-${t1.terminalId}')), findsOneWidget);
-      expect(find.byKey(Key('tab-${t2.terminalId}')), findsOneWidget);
+      expect(find.byKey(Key('sidebar-${t1.terminalId}')), findsOneWidget);
+      expect(find.byKey(Key('sidebar-${t2.terminalId}')), findsOneWidget);
 
       localRuntimeService.dispose();
     });
@@ -584,8 +584,8 @@ void main() {
           controller: localController, sessionManager: sessionManager);
       await pumpUntil(
         tester,
-        () => find.byType(TerminalTabBar).evaluate().isNotEmpty,
-        reason: 'TerminalTabBar visible with terminals',
+        () => find.byType(TerminalSidebar).evaluate().isNotEmpty,
+        reason: 'TerminalSidebar visible with terminals',
         maxTicks: 30,
       );
 
@@ -596,7 +596,7 @@ void main() {
       // First terminal should be closed in backend
       expect(localRuntimeService._terminals.first.status, 'closed');
       // Second terminal tab should still be visible
-      expect(find.byKey(Key('tab-${t2.terminalId}')), findsOneWidget);
+      expect(find.byKey(Key('sidebar-${t2.terminalId}')), findsOneWidget);
 
       localRuntimeService.dispose();
     });
@@ -633,8 +633,8 @@ void main() {
           controller: localController, sessionManager: sessionManager);
       await pumpUntil(
         tester,
-        () => find.byType(TerminalTabBar).evaluate().isNotEmpty,
-        reason: 'TerminalTabBar visible with terminal',
+        () => find.byType(TerminalSidebar).evaluate().isNotEmpty,
+        reason: 'TerminalSidebar visible with terminal',
         maxTicks: 30,
       );
 
@@ -682,14 +682,14 @@ void main() {
       await pumpUntil(
         tester,
         () =>
-            find.byKey(const Key('tab-bar-create')).evaluate().isNotEmpty,
+            find.byKey(const Key('sidebar-create')).evaluate().isNotEmpty,
         reason: 'tab bar create button visible',
         maxTicks: 30,
       );
 
       final createButton = tester.widget<IconButton>(
         find.descendant(
-          of: find.byKey(const Key('tab-bar-create')),
+          of: find.byKey(const Key('sidebar-create')),
           matching: find.byType(IconButton),
         ),
       );
@@ -731,7 +731,7 @@ void main() {
       runtimeService.dispose();
     });
 
-    testWidgets('create terminal -> compact tab appears', (tester) async {
+    testWidgets('create terminal -> page indicator appears', (tester) async {
       await tester.binding.setSurfaceSize(const Size(390, 844));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -749,8 +749,9 @@ void main() {
       final terminal = await createTerminalDirect(tester, controller,
           title: 'Mobile terminal');
 
+      // TerminalPageIndicator shows page label (e.g. "1/1")
       expect(
-        find.byKey(Key('compact-tab-${terminal.terminalId}')),
+        find.byKey(const Key('page-indicator-label')),
         findsOneWidget,
       );
     });
@@ -779,7 +780,7 @@ void main() {
       expect(runtimeService._terminals.first.status, 'closed');
     });
 
-    testWidgets('max terminals -> create disabled in compact strip',
+    testWidgets('max terminals -> create disabled in page indicator',
         (tester) async {
       runtimeService.setMaxTerminals(1);
       await runtimeService.createTerminal(
@@ -809,18 +810,28 @@ void main() {
 
       await pumpWorkspace(tester,
           controller: localController, sessionManager: sessionManager);
+      // Wait for page indicator to appear
       await pumpUntil(
         tester,
         () => find
-            .byKey(const Key('compact-tab-create'))
+            .byKey(const Key('page-indicator-center'))
             .evaluate()
             .isNotEmpty,
-        reason: 'compact tab create button visible on mobile',
+        reason: 'page indicator center visible on mobile',
       );
 
+      // Open bottom sheet to reveal create button
+      await tester.tap(find.byKey(const Key('page-indicator-center')));
+      await tester.pumpAndSettle(_settleDelay);
+
+      // Verify create button exists and is disabled
+      expect(
+        find.byKey(const Key('page-indicator-create')),
+        findsOneWidget,
+      );
       final createButton = tester.widget<IconButton>(
         find.descendant(
-          of: find.byKey(const Key('compact-tab-create')),
+          of: find.byKey(const Key('page-indicator-create')),
           matching: find.byType(IconButton),
         ),
       );
@@ -966,21 +977,21 @@ void main() {
           controller: localController, sessionManager: sessionManager);
       await pumpUntil(
         tester,
-        () => find.byType(TerminalTabBar).evaluate().isNotEmpty,
-        reason: 'TerminalTabBar visible with terminals',
+        () => find.byType(TerminalSidebar).evaluate().isNotEmpty,
+        reason: 'TerminalSidebar visible with terminals',
         maxTicks: 30,
       );
 
       // Select second terminal by tapping its tab
-      await tester.tap(find.byKey(Key('tab-${t2.terminalId}')));
+      await tester.tap(find.byKey(Key('sidebar-${t2.terminalId}')));
       await tester.pumpAndSettle(_settleDelay);
 
       // Trigger refresh — loadDevices re-fetches from stub
       await localController.loadDevices();
       await tester.pumpAndSettle(_settleDelay);
 
-      // Verify selection is preserved on t2 via TerminalTabBar.selectedTerminalId
-      final tabBar = tester.widget<TerminalTabBar>(find.byType(TerminalTabBar));
+      // Verify selection is preserved on t2 via TerminalSidebar.selectedTerminalId
+      final tabBar = tester.widget<TerminalSidebar>(find.byType(TerminalSidebar));
       expect(tabBar.selectedTerminalId, equals(t2.terminalId),
           reason: 'F009: selection preserved on t2 after loadDevices refresh');
 
@@ -1033,13 +1044,13 @@ void main() {
           controller: localController, sessionManager: sessionManager);
       await pumpUntil(
         tester,
-        () => find.byType(TerminalTabBar).evaluate().isNotEmpty,
-        reason: 'TerminalTabBar visible',
+        () => find.byType(TerminalSidebar).evaluate().isNotEmpty,
+        reason: 'TerminalSidebar visible',
         maxTicks: 30,
       );
 
       // Switch to second terminal
-      await tester.tap(find.byKey(Key('tab-${t2.terminalId}')));
+      await tester.tap(find.byKey(Key('sidebar-${t2.terminalId}')));
       await tester.pumpAndSettle(_settleDelay);
 
       // Should NOT show CircularProgressIndicator — IndexedStack caches all
@@ -1050,8 +1061,8 @@ void main() {
       );
 
       // Both terminal views should exist (IndexedStack children)
-      expect(find.byKey(Key('tab-${t1.terminalId}')), findsOneWidget);
-      expect(find.byKey(Key('tab-${t2.terminalId}')), findsOneWidget);
+      expect(find.byKey(Key('sidebar-${t1.terminalId}')), findsOneWidget);
+      expect(find.byKey(Key('sidebar-${t2.terminalId}')), findsOneWidget);
     });
   });
 }
