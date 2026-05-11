@@ -16,6 +16,11 @@ class CryptoService {
 
   static const _legacyFingerprintPrefsKey = 'rc_server_key_fingerprint';
 
+  SharedPreferences? _prefs;
+
+  Future<SharedPreferences> _ensurePrefs() async =>
+      _prefs ??= await SharedPreferences.getInstance();
+
   RSAPublicKey? _publicKey;
   String? _fingerprint;
   String? _loadedPublicKeyBaseUrl;
@@ -208,7 +213,7 @@ class CryptoService {
     String fingerprint, {
     required String prefsKey,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _ensurePrefs();
     final stored = prefs.getString(prefsKey);
 
     if (stored == null) {
@@ -228,7 +233,7 @@ class CryptoService {
 
   /// 重置已存储的指纹（用户确认信任新密钥时调用）
   Future<void> resetFingerprintForBaseUrl(String httpBaseUrl) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _ensurePrefs();
     await prefs.remove(_fingerprintPrefsKeyForBaseUrl(httpBaseUrl));
     await prefs.remove(_legacyFingerprintPrefsKey);
     if (_loadedPublicKeyBaseUrl == httpBaseUrl ||
@@ -244,7 +249,7 @@ class CryptoService {
       await resetFingerprintForBaseUrl(activeBaseUrl);
       return;
     }
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _ensurePrefs();
     if (_currentFingerprintPrefsKey != null) {
       await prefs.remove(_currentFingerprintPrefsKey!);
     }

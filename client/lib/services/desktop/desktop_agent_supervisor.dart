@@ -78,6 +78,10 @@ class DesktopAgentSupervisor {
   final String? _homeDirectory;
   Future<bool>? _pendingEnsureFuture;
   String? _pendingEnsureKey;
+  SharedPreferences? _prefs;
+
+  Future<SharedPreferences> _ensurePrefs() async =>
+      _prefs ??= await SharedPreferences.getInstance();
 
   bool get supported => !Platform.isAndroid && !Platform.isIOS;
 
@@ -513,7 +517,7 @@ class DesktopAgentSupervisor {
     if (home == null || home.isEmpty) return null;
 
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await _ensurePrefs();
       final resolvedRefreshToken =
           await _secureStorage.read(SecureStorageService.refreshTokenKey);
       final username = prefs.getString('rc_username');

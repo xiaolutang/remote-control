@@ -47,6 +47,11 @@ class EnvironmentService {
   final SharedPreferences? _prefs;
   final bool Function() _debugModeProvider;
 
+  SharedPreferences? _cachedPrefs;
+
+  Future<SharedPreferences> _ensurePrefs() async =>
+      _cachedPrefs ??= _prefs ?? await SharedPreferences.getInstance();
+
   AppEnvironment? _cachedEnvironment;
   String _cachedLocalHost = _defaultLocalHost;
   String _cachedLocalPort = '';
@@ -88,7 +93,7 @@ class EnvironmentService {
 
   /// 从 SharedPreferences 加载持久化状态。首次使用前必须调用。
   Future<void> loadSavedState() async {
-    final prefs = _prefs ?? await SharedPreferences.getInstance();
+    final prefs = await _ensurePrefs();
     final savedEnv = prefs.getString(_keyEnvironment);
     if (savedEnv != null) {
       try {
@@ -118,7 +123,7 @@ class EnvironmentService {
       return currentServerUrl;
     }
     _cachedEnvironment = newEnv;
-    final prefs = _prefs ?? await SharedPreferences.getInstance();
+    final prefs = await _ensurePrefs();
     await prefs.setString(_keyEnvironment, newEnv.name);
     return currentServerUrl;
   }
@@ -128,7 +133,7 @@ class EnvironmentService {
     final sanitized = _sanitizeHost(host);
     if (_cachedLocalHost == sanitized) return;
     _cachedLocalHost = sanitized;
-    final prefs = _prefs ?? await SharedPreferences.getInstance();
+    final prefs = await _ensurePrefs();
     await prefs.setString(_keyLocalHost, sanitized);
   }
 
@@ -137,7 +142,7 @@ class EnvironmentService {
     final sanitized = _sanitizePort(port);
     if (_cachedLocalPort == sanitized) return;
     _cachedLocalPort = sanitized;
-    final prefs = _prefs ?? await SharedPreferences.getInstance();
+    final prefs = await _ensurePrefs();
     await prefs.setString(_keyLocalPort, sanitized);
   }
 
@@ -158,7 +163,7 @@ class EnvironmentService {
     final sanitized = _sanitizeHost(host);
     if (_cachedDirectHost == sanitized) return;
     _cachedDirectHost = sanitized;
-    final prefs = _prefs ?? await SharedPreferences.getInstance();
+    final prefs = await _ensurePrefs();
     await prefs.setString(_keyDirectHost, sanitized);
   }
 
@@ -167,7 +172,7 @@ class EnvironmentService {
     final sanitized = _sanitizePort(port);
     if (_cachedDirectPort == sanitized) return;
     _cachedDirectPort = sanitized;
-    final prefs = _prefs ?? await SharedPreferences.getInstance();
+    final prefs = await _ensurePrefs();
     await prefs.setString(_keyDirectPort, sanitized);
   }
 

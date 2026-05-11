@@ -21,23 +21,27 @@ class DesktopTerminationSnapshotService {
 
   final DesktopExitPolicyService _exitPolicyService;
   final DesktopTerminationSnapshotSync _syncSnapshot;
+  SharedPreferences? _prefs;
+
+  Future<SharedPreferences> _ensurePrefs() async =>
+      _prefs ??= await SharedPreferences.getInstance();
 
   Future<int?> loadManagedAgentPid() async {
     WidgetsFlutterBinding.ensureInitialized();
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _ensurePrefs();
     return prefs.getInt(managedAgentPidPreferenceKey);
   }
 
   Future<void> saveManagedAgentPid(int pid) async {
     WidgetsFlutterBinding.ensureInitialized();
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _ensurePrefs();
     await prefs.setInt(managedAgentPidPreferenceKey, pid);
     await syncCurrentSnapshot(managedAgentPid: pid);
   }
 
   Future<void> clearManagedAgentPid() async {
     WidgetsFlutterBinding.ensureInitialized();
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _ensurePrefs();
     await prefs.remove(managedAgentPidPreferenceKey);
     await syncCurrentSnapshot(managedAgentPid: null);
   }

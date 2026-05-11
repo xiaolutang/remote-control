@@ -13,10 +13,14 @@ class DesktopExitPolicyService {
   }) : _configService = configService;
 
   final ConfigService? _configService;
+  SharedPreferences? _prefs;
+
+  Future<SharedPreferences> _ensurePrefs() async =>
+      _prefs ??= await SharedPreferences.getInstance();
 
   Future<DesktopExitPolicy> loadPolicy() async {
     WidgetsFlutterBinding.ensureInitialized();
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _ensurePrefs();
     final jsonStr = prefs.getString('rc_client_config');
     if (jsonStr == null || jsonStr.isEmpty) {
       return DesktopExitPolicy.stopAgentOnExit;

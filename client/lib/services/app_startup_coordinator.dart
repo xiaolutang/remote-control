@@ -58,11 +58,15 @@ class AppStartupCoordinator {
   final RuntimeDeviceService _runtimeService;
   final DesktopStartupTerminalCleanupService _desktopTerminalCleanupService;
   final bool _isDesktopPlatform;
+  SharedPreferences? _prefs;
+
+  Future<SharedPreferences> _ensurePrefs() async =>
+      _prefs ??= await SharedPreferences.getInstance();
 
   Future<AppStartupResult> restore({
     required DesktopAgentManager agentManager,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _ensurePrefs();
     final savedUsername = prefs.getString('rc_username') ?? '';
     Map<String, String>? savedSession;
 
