@@ -480,13 +480,20 @@ class Buffer {
     // 2. Adjust the width.
     if (newWidth != oldWidth) {
       if (terminal.reflowEnabled && !isAltBuffer) {
-        final reflowResult = reflow(lines, oldWidth, newWidth);
+        try {
+          final reflowResult = reflow(lines, oldWidth, newWidth);
 
-        while (reflowResult.length < newHeight) {
-          reflowResult.add(_newEmptyLine(newWidth));
+          while (reflowResult.length < newHeight) {
+            reflowResult.add(_newEmptyLine(newWidth));
+          }
+
+          lines.replaceWith(reflowResult);
+        } catch (_) {
+          // Reflow may fail on buffers with real content when
+          // IndexAwareCircularBuffer._getChild returns null during
+          // iteration. Fall back to simple per-line resize.
+          lines.forEach((item) => item.resize(newWidth));
         }
-
-        lines.replaceWith(reflowResult);
       } else {
         lines.forEach((item) => item.resize(newWidth));
       }
