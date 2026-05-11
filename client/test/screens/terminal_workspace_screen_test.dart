@@ -13,6 +13,7 @@ import 'package:rc_client/models/runtime_device.dart';
 import 'package:rc_client/models/runtime_terminal.dart';
 import 'package:rc_client/models/terminal_launch_plan.dart';
 import 'package:rc_client/screens/desktop/terminal_workspace_screen.dart';
+import 'package:rc_client/screens/desktop/workspace_shortcut_intents.dart';
 import 'package:rc_client/services/desktop/desktop_agent_bootstrap_service.dart';
 import 'package:rc_client/services/desktop/desktop_agent_manager.dart';
 import 'package:rc_client/services/desktop/desktop_agent_supervisor.dart';

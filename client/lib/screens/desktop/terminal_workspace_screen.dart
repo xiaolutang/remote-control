@@ -21,7 +21,6 @@ import '../../services/runtime_device_service.dart';
 import '../../services/runtime_selection_controller.dart';
 import '../../services/terminal_session_manager.dart';
 import '../../widgets/theme_picker_sheet.dart';
-import '../../widgets/rename_dialog_helper.dart';
 import '../../widgets/snack_bar_helper.dart';
 import '../../services/websocket_service.dart';
 import '../login_screen.dart';
@@ -29,8 +28,10 @@ import '../skill_config_screen.dart';
 import '../terminal_screen.dart';
 import '../../widgets/terminal_page_indicator.dart';
 import '../../widgets/terminal_sidebar.dart';
+import 'terminal_actions_mixin.dart';
 import 'terminal_workspace_header_bar.dart';
 import 'terminal_workspace_empty_state.dart';
+import 'workspace_shortcut_intents.dart';
 
 class TerminalWorkspaceScreen extends StatelessWidget {
   const TerminalWorkspaceScreen({
@@ -89,7 +90,8 @@ class _TerminalWorkspaceView extends StatefulWidget {
   State<_TerminalWorkspaceView> createState() => _TerminalWorkspaceViewState();
 }
 
-class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
+class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
+    with TerminalActionsMixin<_TerminalWorkspaceView> {
   late final DesktopWorkspaceController _workspaceController;
   StreamSubscription<Map<String, dynamic>>? _terminalsChangedSubscription;
   WebSocketService? _lastListenedService;
@@ -97,6 +99,9 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
   String? _pendingToastAction;
   String? _pendingToastTerminalId;
   bool _authDialogShowing = false;
+
+  @override
+  DesktopWorkspaceController get workspaceController => _workspaceController;
 
   @override
   void initState() {
@@ -241,7 +246,7 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
         child: Actions(
           actions: isMacOSDesktop
               ? <Type, Action<Intent>>{
-                  SwitchTerminalIntent: _SwitchTerminalAction(
+                  SwitchTerminalIntent: SwitchTerminalAction(
                     onSwitch: (index) {
                       // 仅索引可附加终端（跳过已关闭的），与 Tab 栏行为一致
                       final attachableTerminals = controller.terminals
@@ -253,12 +258,12 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
                       }
                     },
                   ),
-                  CloseCurrentTerminalIntent: _CloseCurrentTerminalAction(
+                  CloseCurrentTerminalIntent: CloseCurrentTerminalAction(
                     onClose: () {
                       final selectedTerminal =
                           _workspaceController.selectedTerminal;
                       if (selectedTerminal != null) {
-                        unawaited(_confirmCloseTerminal(
+                        unawaited(confirmCloseTerminal(
                           context,
                           controller,
                           selectedTerminal,
@@ -340,7 +345,7 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
                         }
                       },
                       onEditDevice: () {
-                        unawaited(_showRenameDeviceDialog(
+                        unawaited(showRenameDeviceDialog(
                             context, controller, device!));
                       },
                       desktopActionInFlight:
@@ -355,12 +360,12 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
                                   terminals: terminals,
                                   selectedTerminalId:
                                       selectedTerminal?.terminalId,
-                                  onSwitch: _handleSwitchTerminal,
-                                  onCreate: _handleCreateTerminal,
+                                  onSwitch: handleSwitchTerminal,
+                                  onCreate: handleCreateTerminal,
                                   createDisabled: device == null ||
-                                      _isCreateDisabled(device, controller),
+                                      isCreateDisabled(device, controller),
                                   onContextMenu: (terminalId, position) {
-                                    _showTabContextMenu(
+                                    showTabContextMenu(
                                       context,
                                       controller,
                                       terminalId,
@@ -464,7 +469,7 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
         actionLabel: state.deviceReady ? '新建终端' : '启动并创建终端',
         actionKey: const Key('workspace-empty-create-action'),
         onAction: () {
-          unawaited(_createEmptyTerminal(
+          unawaited(createEmptyTerminal(
             context,
             controller,
             snackBarOnError: !controller.isDesktopPlatform,
@@ -510,17 +515,17 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
           TerminalPageIndicator(
             terminals: terminals,
             selectedTerminalId: terminal.terminalId,
-            onSwitch: _handleSwitchTerminal,
+            onSwitch: handleSwitchTerminal,
             onCreate: () {
-              unawaited(_createEmptyTerminal(
+              unawaited(createEmptyTerminal(
                 context,
                 controller,
                 snackBarOnError: true,
               ));
             },
-            createDisabled: _isCreateDisabled(device, controller),
+            createDisabled: isCreateDisabled(device, controller),
             onContextMenu: (terminalId, position) {
-              _showMobileTabContextMenu(
+              showMobileTabContextMenu(
                 context,
                 controller,
                 terminalId,
@@ -552,142 +557,31 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
     );
   }
 
-  /// Shared terminal switch handler (eliminates callback duplication).
-  void _handleSwitchTerminal(String terminalId) {
-    _workspaceController.selectTerminal(terminalId);
-  }
+  // ---------------------------------------------------------------------------
+  // Agent 生命周期
+  // ---------------------------------------------------------------------------
 
-  /// Shared terminal create handler (desktop entry point).
-  void _handleCreateTerminal() {
-    final controller = context.read<RuntimeSelectionController>();
-    unawaited(_createEmptyTerminal(context, controller));
-  }
-
-  /// Unified create-disabled calculation.
-  bool _isCreateDisabled(RuntimeDevice device, RuntimeSelectionController controller) =>
-      !device.canCreateTerminal || controller.creatingTerminal;
-
-  Future<void> _confirmCloseTerminal(
-    BuildContext context,
-    RuntimeSelectionController controller,
-    RuntimeTerminal terminal,
-  ) async {
-    final sessionManager = context.read<TerminalSessionManager>();
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('关闭终端'),
-        content: Text('关闭后将断开 "${terminal.title}" 的连接，并释放终端名额。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('关闭'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-
-    final closed =
-        await controller.closeTerminal(terminal.terminalId);
-    if (!mounted) return;
-    if (closed == null) {
-      // API 失败 → Tab 保留 + SnackBar 错误提示
-      // ignore: use_build_context_synchronously
-      showAppSnackBar(context, '关闭终端失败');
+  Future<void> _handleStartLocalAgent(BuildContext context) async {
+    await _workspaceController.startLocalAgent();
+    if (!mounted || _workspaceController.state.deviceReady) {
       return;
     }
-    // Resync selection immediately before any async gap.
-    // closeTerminal swaps in the closed terminal and notifies listeners,
-    // which triggers a rebuild. Without immediate resync, the IndexedStack
-    // sees selectedIndex=-1 because the closed terminal is filtered out.
-    await _workspaceController.onTerminalClosed(terminal.terminalId);
-    await sessionManager.disconnectTerminal(
-      controller.selectedDeviceId,
-      terminal.terminalId,
-    );
+    // ignore: use_build_context_synchronously
+    showAppSnackBar(context, '本机 Agent 启动失败');
   }
 
-  Future<void> _createEmptyTerminal(
-    BuildContext context,
-    RuntimeSelectionController controller, {
-    bool snackBarOnError = false,
-  }) async {
-    final sessionManager = context.read<TerminalSessionManager>();
-    final result = await _workspaceController.createTerminal(
-      title: '终端',
-      cwd: '~',
-      command: '/bin/bash',
-    );
-    if (result == null) {
-      if (snackBarOnError && mounted) {
-        // ignore: use_build_context_synchronously
-        showAppSnackBar(context, '创建终端失败');
-      }
+  Future<void> _handleStopLocalAgent(BuildContext context) async {
+    final stopped = await _workspaceController.stopLocalAgent();
+    if (!mounted || stopped) {
       return;
     }
-    if (!mounted) return;
-    // 仅注册 service 到 session manager，不提前 connect。
-    // 连接由 TerminalScreen.connectToServer() 发起，
-    // 此时 bindTerminalOutput() 已创建 binding subscription，
-    // CONNECTED/SNAPSHOT 事件不会因 broadcast stream 无 listener 而丢失。
-    sessionManager.getOrCreate(
-      controller.selectedDeviceId,
-      result.terminalId,
-      () => controller.buildTerminalService(result),
-    );
-    _workspaceController.selectTerminal(result.terminalId);
+    // ignore: use_build_context_synchronously
+    showAppSnackBar(context, '当前 Agent 不是由桌面端托管，无法从这里停止');
   }
 
-  Future<void> _showRenameDeviceDialog(
-    BuildContext context,
-    RuntimeSelectionController controller,
-    RuntimeDevice device,
-  ) async {
-    await showRenameDialog(
-      context: context,
-      title: '编辑设备',
-      initialValue: device.name.isEmpty ? device.deviceId : device.name,
-      labelText: '设备名称',
-      inputKey: 'workspace-rename-device-input',
-      submitKey: 'workspace-rename-device-submit',
-      onConfirm: (newName) async {
-        await controller.updateSelectedDevice(name: newName);
-        return true;
-      },
-    );
-  }
-
-  Future<void> _showRenameTerminalDialog(
-    BuildContext context,
-    RuntimeSelectionController controller,
-    RuntimeTerminal terminal,
-  ) async {
-    await showRenameDialog(
-      context: context,
-      title: '编辑终端标题',
-      initialValue: terminal.title,
-      labelText: '终端标题',
-      inputKey: 'workspace-rename-terminal-input',
-      submitKey: 'workspace-rename-terminal-submit',
-      onConfirm: (newName) async {
-        final renamed =
-            await controller.renameTerminal(terminal.terminalId, newName);
-        if (renamed == null) {
-          // 重命名失败 → 保持对话框 + SnackBar 提示
-          if (context.mounted) {
-            showAppSnackBar(context, '重命名终端失败');
-          }
-          return false;
-        }
-        return true;
-      },
-    );
-  }
+  // ---------------------------------------------------------------------------
+  // 管理菜单（桌面端 BottomSheet）
+  // ---------------------------------------------------------------------------
 
   Future<void> _showTerminalMenu(
     BuildContext context,
@@ -760,7 +654,7 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
                   title: const Text('编辑设备名称'),
                   onTap: () {
                     Navigator.of(context).pop();
-                    unawaited(_showRenameDeviceDialog(
+                    unawaited(showRenameDeviceDialog(
                         context, controller, device));
                   },
                 ),
@@ -772,160 +666,9 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
     );
   }
 
-  /// F004: 桌面端右键 Tab → PopupMenu（重命名/关闭）
-  void _showTabContextMenu(
-    BuildContext context,
-    RuntimeSelectionController controller,
-    String terminalId,
-    Offset position,
-  ) {
-    final terminal = _findTerminal(controller, terminalId);
-    if (terminal == null) return;
-
-    showMenu<_TabContextAction>(
-      context: context,
-      position: RelativeRect.fromLTRB(
-        position.dx, position.dy, position.dx + 1, position.dy + 1,
-      ),
-      items: _buildContextMenuItems(context, terminal),
-    ).then((value) {
-      if (!mounted) return;
-      // ignore: use_build_context_synchronously
-      _handleTabContextAction(context, controller, terminal, value);
-    });
-  }
-
-  /// F004: 移动端长按 Tab → BottomSheet（重命名/关闭）
-  Future<void> _showMobileTabContextMenu(
-    BuildContext context,
-    RuntimeSelectionController controller,
-    String terminalId,
-  ) async {
-    final terminal = _findTerminal(controller, terminalId);
-    if (terminal == null) return;
-
-    final selectedAction = await showModalBottomSheet<_TabContextAction>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) {
-        final theme = Theme.of(context);
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  terminal.title,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 8),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.edit_outlined),
-                  title: const Text('重命名'),
-                  onTap: () => Navigator.of(context).pop(_TabContextAction.rename),
-                ),
-                ListTile(
-                  key: const Key('tab-context-close'),
-                  contentPadding: EdgeInsets.zero,
-                  enabled: !terminal.isClosed,
-                  leading: Icon(Icons.close,
-                      color: terminal.isClosed ? theme.disabledColor : null),
-                  title: Text('关闭',
-                      style: terminal.isClosed
-                          ? TextStyle(color: theme.disabledColor) : null),
-                  onTap: terminal.isClosed
-                      ? null
-                      : () => Navigator.of(context).pop(_TabContextAction.close),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-
-    if (!mounted) return;
-    // ignore: use_build_context_synchronously
-    _handleTabContextAction(context, controller, terminal, selectedAction);
-  }
-
-  /// Shared terminal lookup by ID.
-  RuntimeTerminal? _findTerminal(
-    RuntimeSelectionController controller,
-    String terminalId,
-  ) => controller.terminals.where((t) => t.terminalId == terminalId).firstOrNull;
-
-  /// Shared context menu item builder for desktop PopupMenu.
-  List<PopupMenuEntry<_TabContextAction>> _buildContextMenuItems(
-    BuildContext context,
-    RuntimeTerminal terminal,
-  ) {
-    final theme = Theme.of(context);
-    return [
-      const PopupMenuItem<_TabContextAction>(
-        value: _TabContextAction.rename,
-        child: Row(children: [
-          Icon(Icons.edit_outlined, size: 20),
-          SizedBox(width: 12),
-          Text('重命名'),
-        ]),
-      ),
-      PopupMenuItem<_TabContextAction>(
-        key: const Key('tab-context-close'),
-        value: _TabContextAction.close,
-        enabled: !terminal.isClosed,
-        child: Row(children: [
-          Icon(Icons.close, size: 20,
-              color: terminal.isClosed ? theme.disabledColor : null),
-          const SizedBox(width: 12),
-          Text('关闭',
-              style: terminal.isClosed
-                  ? TextStyle(color: theme.disabledColor) : null),
-        ]),
-      ),
-    ];
-  }
-
-  /// Shared context menu action dispatch.
-  void _handleTabContextAction(
-    BuildContext context,
-    RuntimeSelectionController controller,
-    RuntimeTerminal terminal,
-    _TabContextAction? action,
-  ) {
-    if (action == null || !mounted) return;
-    switch (action) {
-      case _TabContextAction.rename:
-        unawaited(_showRenameTerminalDialog(context, controller, terminal));
-      case _TabContextAction.close:
-        unawaited(_confirmCloseTerminal(context, controller, terminal));
-    }
-  }
-
-  Future<void> _handleStartLocalAgent(BuildContext context) async {
-    await _workspaceController.startLocalAgent();
-    if (!mounted || _workspaceController.state.deviceReady) {
-      return;
-    }
-    // ignore: use_build_context_synchronously
-    showAppSnackBar(context, '本机 Agent 启动失败');
-  }
-
-  Future<void> _handleStopLocalAgent(BuildContext context) async {
-    final stopped = await _workspaceController.stopLocalAgent();
-    if (!mounted || stopped) {
-      return;
-    }
-    // ignore: use_build_context_synchronously
-    showAppSnackBar(context, '当前 Agent 不是由桌面端托管，无法从这里停止');
-  }
+  // ---------------------------------------------------------------------------
+  // 账户操作 & 认证
+  // ---------------------------------------------------------------------------
 
   Future<void> _handleAccountAction(
     BuildContext context,
@@ -977,49 +720,5 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
       MaterialPageRoute(builder: (_) => const LoginScreen()),
       (_) => false,
     );
-  }
-}
-
-// Tab context menu actions — type-safe enum replaces string-driven dispatch.
-enum _TabContextAction { rename, close }
-
-// F005: 桌面端键盘快捷键 - Intent 和 Action 定义
-// Intent 类保持 public 以便测试通过 Actions.invoke 直接触发。
-// Flutter Shortcuts 在 test 环境中 key event + modifier 分发不可靠，
-// 这是 Flutter 社区推荐的可测试 Shortcuts 模式。
-
-/// Cmd/Ctrl+1/2/3 切换终端
-class SwitchTerminalIntent extends Intent {
-  const SwitchTerminalIntent(this.index);
-
-  final int index;
-}
-
-class _SwitchTerminalAction extends Action<SwitchTerminalIntent> {
-  _SwitchTerminalAction({required this.onSwitch});
-
-  final void Function(int index) onSwitch;
-
-  @override
-  Object? invoke(SwitchTerminalIntent intent) {
-    onSwitch(intent.index);
-    return null;
-  }
-}
-
-/// Cmd/Ctrl+W 关闭当前终端
-class CloseCurrentTerminalIntent extends Intent {
-  const CloseCurrentTerminalIntent();
-}
-
-class _CloseCurrentTerminalAction extends Action<CloseCurrentTerminalIntent> {
-  _CloseCurrentTerminalAction({required this.onClose});
-
-  final void Function() onClose;
-
-  @override
-  Object? invoke(CloseCurrentTerminalIntent intent) {
-    onClose();
-    return null;
   }
 }
