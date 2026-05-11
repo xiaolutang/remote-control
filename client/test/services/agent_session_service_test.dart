@@ -67,7 +67,7 @@ void main() {
         final step = events[0] as ToolStepEvent;
         expect(step.toolName, 'execute_command');
         expect(step.description, 'ls ~');
-        expect(step.status, 'done');
+        expect(step.status, ToolStepStatus.done);
         expect(step.resultSummary, 'Desktop\nDocuments\n...');
       });
 

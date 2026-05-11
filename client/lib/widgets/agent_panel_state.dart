@@ -355,7 +355,7 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
       _traces.add(ToolStepEvent(
         toolName: readStringFromJson(p['tool']),
         description: readStringFromJson(p['input_summary']),
-        status: 'done',
+        status: ToolStepStatus.done,
         resultSummary: (p['output_summary'] as String?)?.trim(),
       ));
       _terminalConversationClosed = false; _terminalClosedReason = null;
@@ -437,7 +437,7 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
           traces.add(ToolStepEvent(
             toolName: readStringFromJson(p['tool']),
             description: readStringFromJson(p['input_summary']),
-            status: 'done',
+            status: ToolStepStatus.done,
             resultSummary: (p['output_summary'] as String?)?.trim(),
           ));
           result = null; error = null; state = AgentPhase.exploring;
@@ -491,7 +491,7 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
 
   bool _isCommandResult(AgentResultEvent result) {
     final rt = result.responseType;
-    return rt != 'message' && rt != 'ai_prompt';
+    return rt != AgentResponseType.message && rt != AgentResponseType.aiPrompt;
   }
 
   /// 从 conversation events 中提取 feedback_status 并恢复到 _feedbackStatus map。

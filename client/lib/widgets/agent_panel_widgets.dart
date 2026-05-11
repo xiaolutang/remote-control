@@ -211,10 +211,9 @@ class _ToolStepCardState extends State<_ToolStepCard> {
   @override Widget build(BuildContext context) {
     final step = widget.step; final colorScheme = widget.colorScheme;
     final Widget statusIcon = switch (step.status) {
-      'running' => SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: colorScheme.primary)),
-      'done' => Icon(Icons.check_circle, size: 14, color: Colors.green),
-      'error' => Icon(Icons.error, size: 14, color: colorScheme.error),
-      _ => Icon(Icons.build_outlined, size: 14, color: colorScheme.onSurfaceVariant),
+      ToolStepStatus.running => SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: colorScheme.primary)),
+      ToolStepStatus.done => Icon(Icons.check_circle, size: 14, color: Colors.green),
+      ToolStepStatus.error => Icon(Icons.error, size: 14, color: colorScheme.error),
     };
     final hasResult = step.resultSummary != null && step.resultSummary!.isNotEmpty;
     return Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),

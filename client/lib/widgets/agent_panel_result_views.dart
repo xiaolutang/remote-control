@@ -140,9 +140,9 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
     }
     final rt = result.responseType;
     final Widget resultWidget;
-    if (rt == 'message') {
+    if (rt == AgentResponseType.message) {
       resultWidget = _buildMessageResultView(result, colorScheme);
-    } else if (rt == 'ai_prompt') {
+    } else if (rt == AgentResponseType.aiPrompt) {
       resultWidget = _buildAiPromptResultView(result, colorScheme, connected);
     } else {
       resultWidget = _buildCommandResultView(result, colorScheme, connected);
@@ -361,7 +361,7 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
       _buildFeedbackButtons(
         colorScheme: colorScheme,
         feedbackKey: errorKey,
-        feedbackType: 'error_report',
+        feedbackType: FeedbackType.errorReport,
         label: '报告问题',
       ),
     ]);
@@ -413,7 +413,7 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
     required ColorScheme colorScheme,
     required String feedbackKey,
     String? resultEventId,
-    String feedbackType = 'helpful',
+    FeedbackType feedbackType = FeedbackType.helpful,
     String? label,
   }) {
     final hasFeedback = _feedbackStatus.containsKey(feedbackKey);
@@ -422,11 +422,10 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
 
     if (hasFeedback) {
       final chosen = _feedbackStatus[feedbackKey]!;
-      final chosenLabel = switch (chosen) {
-        'helpful' => '有帮助',
-        'needs_improvement' => '需改进',
-        'error_report' => '已报告',
-        _ => chosen,
+      final chosenLabel = switch (FeedbackType.fromJsonString(chosen)) {
+        FeedbackType.helpful => '有帮助',
+        FeedbackType.needsImprovement => '需改进',
+        FeedbackType.errorReport => '已报告',
       };
       return Row(children: [
         Icon(Icons.check_circle_outline,
@@ -439,7 +438,7 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
     }
 
     // error 视图只需要一个按钮
-    if (feedbackType == 'error_report') {
+    if (feedbackType == FeedbackType.errorReport) {
       return Row(children: [
         Expanded(
             child: OutlinedButton.icon(
@@ -458,7 +457,7 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
                     ? null
                     : () => _submitFeedback(
                           feedbackKey: feedbackKey,
-                          feedbackType: 'error_report',
+                          feedbackType: FeedbackType.errorReport.toJsonString(),
                           resultEventId: resultEventId,
                           description: _agentError?.message ?? '错误报告',
                         ),
@@ -489,7 +488,7 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
         _buildFeedbackButton(
           feedbackKey: feedbackKey,
           buttonKey: 'feedback-helpful-$feedbackKey',
-          feedbackType: 'helpful',
+          feedbackType: FeedbackType.helpful.toJsonString(),
           icon: Icons.thumb_up_outlined,
           label: '有帮助',
           resultEventId: resultEventId,
@@ -500,7 +499,7 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
         _buildFeedbackButton(
           feedbackKey: feedbackKey,
           buttonKey: 'feedback-needs_improvement-$feedbackKey',
-          feedbackType: 'needs_improvement',
+          feedbackType: FeedbackType.needsImprovement.toJsonString(),
           icon: Icons.thumb_down_outlined,
           label: '需改进',
           resultEventId: resultEventId,

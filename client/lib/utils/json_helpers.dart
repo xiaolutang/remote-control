@@ -26,6 +26,12 @@ String? readOptionalStringFromJson(Object? value) {
   return null;
 }
 
+/// 安全地将动态 JSON 值转为 bool，null/缺失返回 [defaultValue]。
+bool readBoolFromJson(Object? value, {bool defaultValue = false}) {
+  if (value is bool) return value;
+  return defaultValue;
+}
+
 /// 安全地将动态 JSON 值转为 List<T>，逐元素通过 [fromJson] 转换。
 ///
 /// null 或非 List 输入返回空列表。

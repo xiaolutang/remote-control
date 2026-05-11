@@ -1833,7 +1833,7 @@ void main() {
             source: 'recommended',
             needConfirm: false,
             aliases: const {},
-            responseType: 'message',
+            responseType: AgentResponseType.message,
           ),
         ],
       );
@@ -1880,7 +1880,7 @@ void main() {
             source: 'recommended',
             needConfirm: true,
             aliases: {},
-            responseType: 'command',
+            responseType: AgentResponseType.command,
           ),
         ],
       );
@@ -1917,7 +1917,7 @@ void main() {
             source: 'recommended',
             needConfirm: false,
             aliases: const {},
-            responseType: 'ai_prompt',
+            responseType: AgentResponseType.aiPrompt,
             aiPrompt: 'kubectl apply -f deployment.yaml',
           ),
         ],
@@ -1965,7 +1965,7 @@ void main() {
             source: 'recommended',
             needConfirm: true,
             aliases: {},
-            responseType: 'future_type',
+            responseType: AgentResponseType.command, // unknown falls back to command
           ),
         ],
       );
@@ -2002,7 +2002,7 @@ void main() {
             source: 'recommended',
             needConfirm: false,
             aliases: const {},
-            responseType: 'message',
+            responseType: AgentResponseType.message,
           ),
         ],
       );
@@ -2041,7 +2041,7 @@ void main() {
             source: 'recommended',
             needConfirm: false,
             aliases: const {},
-            responseType: 'ai_prompt',
+            responseType: AgentResponseType.aiPrompt,
             aiPrompt: 'echo injected',
           ),
         ],
@@ -2083,7 +2083,7 @@ void main() {
             source: 'recommended',
             needConfirm: false,
             aliases: const {},
-            responseType: 'ai_prompt',
+            responseType: AgentResponseType.aiPrompt,
             aiPrompt: 'cd /tmp/project\ncodex',
           ),
         ],
@@ -2130,7 +2130,7 @@ void main() {
             source: 'recommended',
             needConfirm: false,
             aliases: const {},
-            responseType: 'ai_prompt',
+            responseType: AgentResponseType.aiPrompt,
             aiPrompt: largePrompt,
           ),
         ],
@@ -2179,7 +2179,7 @@ void main() {
             source: 'recommended',
             needConfirm: false,
             aliases: const {},
-            responseType: 'ai_prompt',
+            responseType: AgentResponseType.aiPrompt,
             aiPrompt: 'echo injected',
           ),
         ],
@@ -2228,7 +2228,7 @@ void main() {
               source: 'recommended',
               needConfirm: false,
               aliases: const {},
-              responseType: 'ai_prompt',
+              responseType: AgentResponseType.aiPrompt,
               aiPrompt: 'echo injected',
             ),
           ]);
@@ -2276,7 +2276,7 @@ void main() {
             source: 'recommended',
             needConfirm: false,
             aliases: const {},
-            responseType: 'ai_prompt',
+            responseType: AgentResponseType.aiPrompt,
             aiPrompt: 'line1\nline2',
           ),
         ],
@@ -2596,7 +2596,7 @@ void main() {
                 source: 'recommended',
                 needConfirm: false,
                 aliases: <String, String>{},
-                responseType: 'message',
+                responseType: AgentResponseType.message,
               ),
             ]);
           }
@@ -2609,7 +2609,7 @@ void main() {
               source: 'recommended',
               needConfirm: false,
               aliases: <String, String>{},
-              responseType: 'message',
+              responseType: AgentResponseType.message,
             ),
           ]);
         },
@@ -2668,7 +2668,7 @@ void main() {
                 source: 'recommended',
                 needConfirm: false,
                 aliases: <String, String>{},
-                responseType: 'message',
+                responseType: AgentResponseType.message,
               ),
             ]);
           }
@@ -2682,7 +2682,7 @@ void main() {
               source: 'recommended',
               needConfirm: false,
               aliases: <String, String>{},
-              responseType: 'message',
+              responseType: AgentResponseType.message,
             ),
           ]);
         },
@@ -2792,7 +2792,7 @@ void main() {
         source: 'recommended',
         needConfirm: false,
         aliases: <String, String>{},
-        responseType: 'message',
+        responseType: AgentResponseType.message,
       ));
       await tester.pump();
       await sseController.close();
@@ -2929,7 +2929,7 @@ void main() {
               source: 'recommended',
               needConfirm: false,
               aliases: <String, String>{},
-              responseType: 'message',
+              responseType: AgentResponseType.message,
             ),
           ]);
         },
@@ -3122,7 +3122,7 @@ void main() {
         source: 'recommended',
         needConfirm: false,
         aliases: <String, String>{},
-        responseType: 'message',
+        responseType: AgentResponseType.message,
       ));
       await sseController.close();
       await tester.pump();
@@ -3323,7 +3323,7 @@ void main() {
         source: 'recommended',
         needConfirm: false,
         aliases: <String, String>{},
-        responseType: 'message',
+        responseType: AgentResponseType.message,
       ));
       await tester.pumpAndSettle();
 
@@ -4044,7 +4044,7 @@ void main() {
               source: 'recommended',
               needConfirm: false,
               aliases: <String, String>{},
-              responseType: 'message',
+              responseType: AgentResponseType.message,
             ),
           ]);
         },
@@ -4114,7 +4114,7 @@ void main() {
               source: 'recommended',
               needConfirm: false,
               aliases: <String, String>{},
-              responseType: 'message',
+              responseType: AgentResponseType.message,
             ),
           ]);
         },
@@ -4181,7 +4181,7 @@ void main() {
                 source: 'recommended',
                 needConfirm: false,
                 aliases: <String, String>{},
-                responseType: 'message',
+                responseType: AgentResponseType.message,
               ),
             ]);
           }
@@ -4194,7 +4194,7 @@ void main() {
               source: 'recommended',
               needConfirm: false,
               aliases: <String, String>{},
-              responseType: 'message',
+              responseType: AgentResponseType.message,
             ),
           ]);
         },
@@ -4319,7 +4319,7 @@ void main() {
               source: 'recommended',
               needConfirm: false,
               aliases: <String, String>{},
-              responseType: 'message',
+              responseType: AgentResponseType.message,
             ),
           ]);
         },
@@ -4421,7 +4421,7 @@ void main() {
         source: 'recommended',
         needConfirm: false,
         aliases: <String, String>{},
-        responseType: 'message',
+        responseType: AgentResponseType.message,
       ));
       await sseController.close();
       await tester.pumpAndSettle();
@@ -4461,7 +4461,7 @@ void main() {
         source: 'recommended',
         needConfirm: false,
         aliases: <String, String>{},
-        responseType: 'message',
+        responseType: AgentResponseType.message,
       ));
       await sseController2.close();
       await tester.pumpAndSettle();
@@ -4601,7 +4601,7 @@ void main() {
               source: 'recommended',
               needConfirm: false,
               aliases: <String, String>{},
-              responseType: 'message',
+              responseType: AgentResponseType.message,
             ),
           ]);
         },

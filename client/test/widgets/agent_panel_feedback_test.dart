@@ -189,7 +189,7 @@ void main() {
             source: 'recommended',
             needConfirm: false,
             aliases: const <String, String>{},
-            responseType: 'message',
+            responseType: AgentResponseType.message,
           ),
         ],
       );
@@ -220,7 +220,7 @@ void main() {
             source: 'recommended',
             needConfirm: false,
             aliases: const <String, String>{},
-            responseType: 'message',
+            responseType: AgentResponseType.message,
           ),
         ],
       );
@@ -273,7 +273,7 @@ void main() {
             source: 'recommended',
             needConfirm: false,
             aliases: const <String, String>{},
-            responseType: 'message',
+            responseType: AgentResponseType.message,
           ),
         ],
       );
@@ -321,7 +321,7 @@ void main() {
             source: 'recommended',
             needConfirm: false,
             aliases: const <String, String>{},
-            responseType: 'message',
+            responseType: AgentResponseType.message,
           ),
         ],
       );
@@ -426,7 +426,7 @@ void main() {
             source: 'recommended',
             needConfirm: false,
             aliases: const <String, String>{},
-            responseType: 'message',
+            responseType: AgentResponseType.message,
           ),
         ],
       );

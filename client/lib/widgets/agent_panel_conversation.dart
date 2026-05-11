@@ -60,8 +60,8 @@ mixin _PanelConversationMixin on _PanelStateFields {
 
     final resultLabel = result != null
         ? switch (result.responseType) {
-            'message' => '回答了你的问题',
-            'ai_prompt' => '生成了 AI Prompt',
+            AgentResponseType.message => '回答了你的问题',
+            AgentResponseType.aiPrompt => '生成了 AI Prompt',
             _ => result.steps.isNotEmpty
                 ? '生成了 ${result.steps.length} 条命令'
                 : '生成了命令',
@@ -316,7 +316,7 @@ mixin _PanelConversationMixin on _PanelStateFields {
       AgentResultEvent result, ColorScheme colorScheme) {
     final rt = result.responseType;
 
-    if (rt == 'message') {
+    if (rt == AgentResponseType.message) {
       return _buildAssistantBubble(
         Text(
           result.summary,
@@ -325,7 +325,7 @@ mixin _PanelConversationMixin on _PanelStateFields {
       );
     }
 
-    if (rt == 'ai_prompt') {
+    if (rt == AgentResponseType.aiPrompt) {
       return _buildAssistantBubble(
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,

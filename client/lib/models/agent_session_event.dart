@@ -1,7 +1,110 @@
 import 'dart:collection';
 
 import '../utils/json_helpers.dart'
-    show readListFromJson, readOptionalStringFromJson, readStringFromJson;
+    show readBoolFromJson, readIntFromJson, readListFromJson,
+        readOptionalStringFromJson, readStringFromJson;
+
+// --- Enums ---
+
+/// Agent 结果响应类型
+enum AgentResponseType {
+  /// 纯文本消息
+  message,
+
+  /// 命令序列
+  command,
+
+  /// AI Prompt 注入
+  aiPrompt;
+
+  /// 从 JSON 字符串解析，未知值回退到 command
+  static AgentResponseType fromJsonString(String? value) {
+    if (value == null) return AgentResponseType.command;
+    switch (value.trim()) {
+      case 'message':
+        return AgentResponseType.message;
+      case 'ai_prompt':
+        return AgentResponseType.aiPrompt;
+      default:
+        return AgentResponseType.command;
+    }
+  }
+
+  /// 转回 JSON 字符串
+  String toJsonString() => switch (this) {
+        AgentResponseType.message => 'message',
+        AgentResponseType.aiPrompt => 'ai_prompt',
+        AgentResponseType.command => 'command',
+      };
+}
+
+/// 反馈类型
+enum FeedbackType {
+  /// 有帮助
+  helpful,
+
+  /// 需改进
+  needsImprovement,
+
+  /// 错误报告
+  errorReport;
+
+  /// 从 JSON 字符串解析，未知值回退到 helpful
+  static FeedbackType fromJsonString(String? value) {
+    if (value == null) return FeedbackType.helpful;
+    switch (value.trim()) {
+      case 'helpful':
+        return FeedbackType.helpful;
+      case 'needs_improvement':
+        return FeedbackType.needsImprovement;
+      case 'error_report':
+        return FeedbackType.errorReport;
+      default:
+        return FeedbackType.helpful;
+    }
+  }
+
+  /// 转回 JSON 字符串
+  String toJsonString() => switch (this) {
+        FeedbackType.helpful => 'helpful',
+        FeedbackType.needsImprovement => 'needs_improvement',
+        FeedbackType.errorReport => 'error_report',
+      };
+}
+
+/// 工具步骤状态
+enum ToolStepStatus {
+  /// 执行中
+  running,
+
+  /// 完成
+  done,
+
+  /// 错误
+  error;
+
+  /// 从 JSON 字符串解析，未知值回退到 running
+  static ToolStepStatus fromJsonString(String? value) {
+    if (value == null) return ToolStepStatus.running;
+    switch (value.trim()) {
+      case 'running':
+        return ToolStepStatus.running;
+      case 'done':
+        return ToolStepStatus.done;
+      case 'error':
+        return ToolStepStatus.error;
+      default:
+        return ToolStepStatus.running;
+    }
+  }
+
+  /// 转回 JSON 字符串
+  String toJsonString() => switch (this) {
+        ToolStepStatus.running => 'running',
+        ToolStepStatus.done => 'done',
+        ToolStepStatus.error => 'error',
+      };
+}
 
 /// Agent SSE 会话事件基类
 sealed class AgentSessionEvent {
@@ -70,8 +173,8 @@ class ToolStepEvent extends AgentSessionEvent {
   /// 步骤描述
   final String description;
 
-  /// 状态：running / done / error
-  final String status;
+  /// 状态
+  final ToolStepStatus status;
 
   /// 结果摘要（done 状态时有值）
   final String? resultSummary;
@@ -80,7 +183,7 @@ class ToolStepEvent extends AgentSessionEvent {
     return ToolStepEvent(
       toolName: readStringFromJson(json['tool_name']),
       description: readStringFromJson(json['description']),
-      status: json['status'] as String? ?? 'running',
+      status: ToolStepStatus.fromJsonString(json['status'] as String?),
       resultSummary: readOptionalStringFromJson(json['result_summary']),
     );
   }
@@ -89,7 +192,7 @@ class ToolStepEvent extends AgentSessionEvent {
   Map<String, dynamic> toJson() => {
         'tool_name': toolName,
         'description': description,
-        'status': status,
+        'status': status.toJsonString(),
         if (resultSummary != null) 'result_summary': resultSummary,
       };
 }
@@ -172,7 +275,7 @@ class AgentQuestionEvent extends AgentSessionEvent {
       options: (json['options'] as List<dynamic>? ?? const [])
           .whereType<String>()
           .toList(growable: false),
-      multiSelect: json['multi_select'] as bool? ?? false,
+      multiSelect: readBoolFromJson(json['multi_select']),
     );
   }
 
@@ -224,10 +327,10 @@ class AgentUsageData {
 
   factory AgentUsageData.fromJson(Map<String, dynamic> json) {
     return AgentUsageData(
-      inputTokens: json['input_tokens'] as int? ?? 0,
-      outputTokens: json['output_tokens'] as int? ?? 0,
-      totalTokens: json['total_tokens'] as int? ?? 0,
-      requests: json['requests'] as int? ?? 0,
+      inputTokens: readIntFromJson(json['input_tokens']),
+      outputTokens: readIntFromJson(json['output_tokens']),
+      totalTokens: readIntFromJson(json['total_tokens']),
+      requests: readIntFromJson(json['requests']),
       modelName: readStringFromJson(json['model_name']),
     );
   }
@@ -247,7 +350,7 @@ class AgentResultEvent extends AgentSessionEvent {
     required this.needConfirm,
     required this.aliases,
     this.usage,
-    this.responseType = 'command',
+    this.responseType = AgentResponseType.command,
     this.aiPrompt = '',
     this.eventId,
   });
@@ -260,8 +363,8 @@ class AgentResultEvent extends AgentSessionEvent {
   final Map<String, String> aliases;
   final AgentUsageData? usage;
 
-  /// 响应类型：'message' | 'command' | 'ai_prompt'，缺失或未知时默认 'command'
-  final String responseType;
+  /// 响应类型，缺失或未知时默认 command
+  final AgentResponseType responseType;
 
   /// ai_prompt 类型的 prompt 文本，用于注入终端 stdin
   final String aiPrompt;
@@ -275,15 +378,15 @@ class AgentResultEvent extends AgentSessionEvent {
       steps: readListFromJson(json['steps'], AgentResultStep.fromJson),
       provider: json['provider'] as String? ?? 'agent',
       source: json['source'] as String? ?? 'recommended',
-      needConfirm: json['need_confirm'] as bool? ?? true,
+      needConfirm: readBoolFromJson(json['need_confirm'], defaultValue: true),
       aliases: UnmodifiableMapView(
-        Map<String, dynamic>.from(json['aliases'] as Map? ?? const {})
-            .map((k, v) => MapEntry(k, v.toString())),
+        (json['aliases'] as Map?)?.map((k, v) => MapEntry(k.toString(), v.toString())) ?? const {},
       ),
       usage: json['usage'] != null
           ? AgentUsageData.fromJson(json['usage'] as Map<String, dynamic>)
           : null,
-      responseType: json['response_type'] as String? ?? 'command',
+      responseType: AgentResponseType.fromJsonString(
+          json['response_type'] as String?),
       aiPrompt: readStringFromJson(json['ai_prompt']),
       eventId: readOptionalStringFromJson(json['event_id']),
     );
@@ -305,7 +408,7 @@ class AgentResultEvent extends AgentSessionEvent {
             'requests': usage!.requests,
             'model_name': usage!.modelName,
           },
-        'response_type': responseType,
+        'response_type': responseType.toJsonString(),
         'ai_prompt': aiPrompt,
         if (eventId != null) 'event_id': eventId,
       };
@@ -349,7 +452,7 @@ class AgentErrorEvent extends AgentSessionEvent {
     return AgentErrorEvent(
       code: json['code'] as String? ?? 'UNKNOWN',
       message: readStringFromJson(json['message']),
-      usage: json['usage'] != null
+      usage: json['usage'] is Map<String, dynamic>
           ? AgentUsageData.fromJson(json['usage'] as Map<String, dynamic>)
           : null,
     );
