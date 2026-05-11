@@ -689,8 +689,8 @@ class RuntimeSelectionController extends ChangeNotifier {
       final statusCompare = rank(a).compareTo(rank(b));
       if (statusCompare != 0) return statusCompare;
 
-      // stable sort by title to prevent order changes on refresh
-      return a.title.compareTo(b.title);
+      // stable sort by terminalId to prevent order changes on rename/refresh
+      return a.terminalId.compareTo(b.terminalId);
     });
     return List.unmodifiable(sorted);
   }
