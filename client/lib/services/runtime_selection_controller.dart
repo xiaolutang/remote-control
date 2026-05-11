@@ -348,11 +348,9 @@ class RuntimeSelectionController extends ChangeNotifier {
       );
       _terminals = _sortTerminals([..._terminals, terminal]);
       _syncSelectedDeviceTerminalCount();
-      notifyListeners();
       return terminal;
     } catch (error) {
       _handleError(error);
-      notifyListeners();
       return null;
     } finally {
       _creatingTerminal = false;
@@ -391,12 +389,12 @@ class RuntimeSelectionController extends ChangeNotifier {
           if (item.terminalId == terminalId) closed else item,
       ]);
       _syncSelectedDeviceTerminalCount();
-      notifyListeners();
       return closed;
     } catch (error) {
       _handleError(error);
-      notifyListeners();
       return null;
+    } finally {
+      notifyListeners();
     }
   }
 
@@ -429,12 +427,12 @@ class RuntimeSelectionController extends ChangeNotifier {
         for (final item in _devices)
           if (item.deviceId == updated.deviceId) updated else item,
       ];
-      notifyListeners();
       return updated;
     } catch (error) {
       _handleError(error);
-      notifyListeners();
       return null;
+    } finally {
+      notifyListeners();
     }
   }
 
@@ -468,12 +466,12 @@ class RuntimeSelectionController extends ChangeNotifier {
         for (final item in _terminals)
           if (item.terminalId == terminalId) updated else item,
       ]);
-      notifyListeners();
       return updated;
     } catch (error) {
       _handleError(error);
-      notifyListeners();
       return null;
+    } finally {
+      notifyListeners();
     }
   }
 
