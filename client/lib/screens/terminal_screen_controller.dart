@@ -9,6 +9,7 @@ import '../models/shortcut_item.dart';
 import '../models/terminal_shortcut.dart';
 import '../services/app_logger.dart';
 import '../services/logout_helper.dart';
+import '../services/desktop/desktop_agent_manager.dart';
 import '../services/runtime_device_service.dart';
 import '../services/shortcut_config_service.dart';
 import '../services/terminal_factory.dart';
@@ -416,9 +417,16 @@ class TerminalScreenController extends ChangeNotifier {
   }
 
   /// 处理 token 过期确认操作（UI 层在弹窗确定按钮调用）
-  Future<void> confirmTokenExpired(BuildContext context) async {
+  Future<void> confirmTokenExpired(
+    BuildContext context, {
+    required DesktopAgentManager agentManager,
+    required TerminalSessionManager sessionManager,
+  }) async {
     clearAuthDialog();
-    await performSessionTeardown(context: context);
+    await performSessionTeardown(
+      agentManager: agentManager,
+      sessionManager: sessionManager,
+    );
     if (!context.mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const LoginScreen()),

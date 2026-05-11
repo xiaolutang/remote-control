@@ -1,17 +1,18 @@
-import 'package:flutter/widgets.dart';
-
 import '../models/app_environment.dart';
 import 'auth_service.dart';
+import 'desktop/desktop_agent_manager.dart';
 import 'environment_service.dart';
 import 'logout_helper.dart';
+import 'terminal_session_manager.dart';
 
 /// 统一编排环境切换的副作用，避免散落在 UI 层。
 class EnvironmentSwitchCoordinator {
   const EnvironmentSwitchCoordinator();
 
   Future<void> switchEnvironment({
-    required BuildContext context,
     required AppEnvironment newEnv,
+    required DesktopAgentManager agentManager,
+    required TerminalSessionManager sessionManager,
     AuthService Function(String serverUrl)? authServiceBuilder,
   }) async {
     if (newEnv == EnvironmentService.instance.currentEnvironment) {
@@ -19,7 +20,8 @@ class EnvironmentSwitchCoordinator {
     }
 
     await performSessionTeardown(
-      context: context,
+      agentManager: agentManager,
+      sessionManager: sessionManager,
       authServiceBuilder: authServiceBuilder,
     );
 

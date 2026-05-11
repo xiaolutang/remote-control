@@ -1046,7 +1046,10 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView> {
     );
 
     if (!context.mounted) return;
-    await performSessionTeardown(context: context);
+    await performSessionTeardown(
+      agentManager: context.read<DesktopAgentManager>(),
+      sessionManager: context.read<TerminalSessionManager>(),
+    );
     if (!context.mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const LoginScreen()),
