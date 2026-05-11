@@ -96,8 +96,6 @@ class _TerminalSidebarState extends State<TerminalSidebar> {
                           terminal: terminal,
                           isSelected: isSelected,
                           isExpanded: _isHovered,
-                          colorScheme: colorScheme,
-                          theme: theme,
                           onSwitch: widget.onSwitch,
                           onContextMenu: widget.onContextMenu,
                         );
@@ -123,8 +121,6 @@ class _TerminalItem extends StatelessWidget {
     required this.terminal,
     required this.isSelected,
     required this.isExpanded,
-    required this.colorScheme,
-    required this.theme,
     required this.onSwitch,
     this.onContextMenu,
   });
@@ -132,13 +128,13 @@ class _TerminalItem extends StatelessWidget {
   final RuntimeTerminal terminal;
   final bool isSelected;
   final bool isExpanded;
-  final ColorScheme colorScheme;
-  final ThemeData theme;
   final ValueChanged<String> onSwitch;
   final void Function(String terminalId, Offset position)? onContextMenu;
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     final canSwitch = terminal.canAttach;
     final fgColor = isSelected
         ? colorScheme.onSurface

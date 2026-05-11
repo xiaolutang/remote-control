@@ -3,21 +3,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:rc_client/models/runtime_terminal.dart';
 import 'package:rc_client/widgets/terminal_page_indicator.dart';
 
+import '../helpers/test_terminals.dart';
+
 void main() {
   group('TerminalPageIndicator', () {
-    List<RuntimeTerminal> createTerminals(int count) {
-      return List.generate(
-        count,
-        (i) => RuntimeTerminal(
-          terminalId: 't$i',
-          title: 'Terminal ${i + 1}',
-          cwd: '~',
-          command: '/bin/bash',
-          status: 'running',
-          views: {},
-        ),
-      );
-    }
 
     Widget buildSubject({
       List<RuntimeTerminal> terminals = const [],
@@ -42,7 +31,7 @@ void main() {
     }
 
     testWidgets('renders "1/3" format page label', (tester) async {
-      final terminals = createTerminals(3);
+      final terminals = createTestTerminals(3);
 
       await tester.pumpWidget(buildSubject(
         terminals: terminals,
@@ -55,7 +44,7 @@ void main() {
 
     testWidgets('clicking left arrow switches to previous terminal',
         (tester) async {
-      final terminals = createTerminals(3);
+      final terminals = createTestTerminals(3);
       String? switchedId;
 
       await tester.pumpWidget(buildSubject(
@@ -72,7 +61,7 @@ void main() {
 
     testWidgets('clicking right arrow switches to next terminal',
         (tester) async {
-      final terminals = createTerminals(3);
+      final terminals = createTestTerminals(3);
       String? switchedId;
 
       await tester.pumpWidget(buildSubject(
@@ -88,7 +77,7 @@ void main() {
     });
 
     testWidgets('left arrow is disabled at first terminal', (tester) async {
-      final terminals = createTerminals(3);
+      final terminals = createTestTerminals(3);
       final switchedIds = <String>[];
 
       await tester.pumpWidget(buildSubject(
@@ -104,7 +93,7 @@ void main() {
     });
 
     testWidgets('right arrow is disabled at last terminal', (tester) async {
-      final terminals = createTerminals(3);
+      final terminals = createTestTerminals(3);
       final switchedIds = <String>[];
 
       await tester.pumpWidget(buildSubject(
@@ -121,7 +110,7 @@ void main() {
 
     testWidgets('tapping center opens BottomSheet with terminal list',
         (tester) async {
-      final terminals = createTerminals(3);
+      final terminals = createTestTerminals(3);
 
       await tester.pumpWidget(buildSubject(
         terminals: terminals,
@@ -141,7 +130,7 @@ void main() {
 
     testWidgets('BottomSheet tapping terminal triggers onSwitch and closes',
         (tester) async {
-      final terminals = createTerminals(3);
+      final terminals = createTestTerminals(3);
       String? switchedId;
 
       await tester.pumpWidget(buildSubject(
@@ -165,7 +154,7 @@ void main() {
     });
 
     testWidgets('BottomSheet tapping create triggers onCreate', (tester) async {
-      final terminals = createTerminals(2);
+      final terminals = createTestTerminals(2);
       var createCalled = false;
 
       await tester.pumpWidget(buildSubject(
@@ -186,7 +175,7 @@ void main() {
     });
 
     testWidgets('long press on center triggers onContextMenu', (tester) async {
-      final terminals = createTerminals(3);
+      final terminals = createTestTerminals(3);
       String? contextMenuId;
 
       await tester.pumpWidget(buildSubject(
@@ -225,7 +214,7 @@ void main() {
 
     testWidgets('1 terminal shows "1/1" with both arrows disabled',
         (tester) async {
-      final terminals = createTerminals(1);
+      final terminals = createTestTerminals(1);
 
       await tester.pumpWidget(buildSubject(
         terminals: terminals,
@@ -246,7 +235,7 @@ void main() {
     });
 
     testWidgets('height is fixed at 32px', (tester) async {
-      final terminals = createTerminals(3);
+      final terminals = createTestTerminals(3);
 
       await tester.pumpWidget(buildSubject(
         terminals: terminals,
@@ -266,7 +255,7 @@ void main() {
 
     testWidgets('page label updates with different selected terminal',
         (tester) async {
-      final terminals = createTerminals(5);
+      final terminals = createTestTerminals(5);
 
       await tester.pumpWidget(buildSubject(
         terminals: terminals,
@@ -278,7 +267,7 @@ void main() {
 
     testWidgets('create button in BottomSheet is disabled when createDisabled',
         (tester) async {
-      final terminals = createTerminals(2);
+      final terminals = createTestTerminals(2);
 
       await tester.pumpWidget(buildSubject(
         terminals: terminals,

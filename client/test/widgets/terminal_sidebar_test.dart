@@ -4,21 +4,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:rc_client/models/runtime_terminal.dart';
 import 'package:rc_client/widgets/terminal_sidebar.dart';
 
+import '../helpers/test_terminals.dart';
+
 void main() {
   group('TerminalSidebar', () {
-    List<RuntimeTerminal> createTerminals(int count) {
-      return List.generate(
-        count,
-        (i) => RuntimeTerminal(
-          terminalId: 't$i',
-          title: 'Terminal ${i + 1}',
-          cwd: '~',
-          command: '/bin/bash',
-          status: 'running',
-          views: {},
-        ),
-      );
-    }
 
     Widget buildSubject({
       List<RuntimeTerminal> terminals = const [],
@@ -49,7 +38,7 @@ void main() {
 
     testWidgets('collapsed state renders N terminal icons with selection indicator',
         (tester) async {
-      final terminals = createTerminals(3);
+      final terminals = createTestTerminals(3);
 
       await tester.pumpWidget(buildSubject(
         terminals: terminals,
@@ -79,7 +68,7 @@ void main() {
     });
 
     testWidgets('hover expands to show terminal titles', (tester) async {
-      final terminals = createTerminals(2);
+      final terminals = createTestTerminals(2);
 
       await tester.pumpWidget(buildSubject(
         terminals: terminals,
@@ -115,7 +104,7 @@ void main() {
 
     testWidgets('clicking terminal item triggers onSwitch with correct terminalId',
         (tester) async {
-      final terminals = createTerminals(3);
+      final terminals = createTestTerminals(3);
       String? switchedId;
 
       await tester.pumpWidget(buildSubject(
@@ -131,7 +120,7 @@ void main() {
     });
 
     testWidgets('clicking create button triggers onCreate', (tester) async {
-      final terminals = createTerminals(2);
+      final terminals = createTestTerminals(2);
       var createCalled = false;
 
       await tester.pumpWidget(buildSubject(
@@ -147,7 +136,7 @@ void main() {
     });
 
     testWidgets('createDisabled=true disables create button', (tester) async {
-      final terminals = createTerminals(5);
+      final terminals = createTestTerminals(5);
 
       await tester.pumpWidget(buildSubject(
         terminals: terminals,
@@ -168,7 +157,7 @@ void main() {
     });
 
     testWidgets('right-click terminal triggers onContextMenu', (tester) async {
-      final terminals = createTerminals(2);
+      final terminals = createTestTerminals(2);
       String? contextMenuId;
       Offset? contextMenuPosition;
 
@@ -213,17 +202,7 @@ void main() {
 
     testWidgets('many terminals are scrollable in ListView', (tester) async {
       // Create enough terminals to overflow a typical test viewport height
-      final terminals = List.generate(
-        30,
-        (i) => RuntimeTerminal(
-          terminalId: 't$i',
-          title: 'Terminal ${i + 1}',
-          cwd: '~',
-          command: '/bin/bash',
-          status: 'running',
-          views: {},
-        ),
-      );
+      final terminals = createTestTerminals(30);
 
       await tester.pumpWidget(buildSubject(
         terminals: terminals,
@@ -251,7 +230,7 @@ void main() {
     });
 
     testWidgets('collapsed state has 48px width', (tester) async {
-      final terminals = createTerminals(2);
+      final terminals = createTestTerminals(2);
 
       await tester.pumpWidget(buildSubject(
         terminals: terminals,
@@ -274,7 +253,7 @@ void main() {
     });
 
     testWidgets('hover expands sidebar to 160px width', (tester) async {
-      final terminals = createTerminals(2);
+      final terminals = createTestTerminals(2);
 
       await tester.pumpWidget(buildSubject(
         terminals: terminals,
@@ -306,7 +285,7 @@ void main() {
     });
 
     testWidgets('leaving sidebar collapses back to 48px', (tester) async {
-      final terminals = createTerminals(2);
+      final terminals = createTestTerminals(2);
 
       await tester.pumpWidget(buildSubject(
         terminals: terminals,
