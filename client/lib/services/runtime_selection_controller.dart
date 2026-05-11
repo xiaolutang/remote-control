@@ -664,10 +664,16 @@ class RuntimeSelectionController extends ChangeNotifier {
     final sorted = terminals.toList();
     int rank(RuntimeTerminal terminal) {
       switch (terminal.status) {
+        case 'live':
+          return 0;
         case 'attached':
           return 0;
+        case 'detached_recoverable':
+          return 1;
         case 'detached':
           return 1;
+        case 'recovering':
+          return 2;
         case 'pending':
           return 2;
         case 'closing':
@@ -683,17 +689,7 @@ class RuntimeSelectionController extends ChangeNotifier {
       final statusCompare = rank(a).compareTo(rank(b));
       if (statusCompare != 0) return statusCompare;
 
-      final aUpdated = a.updatedAt;
-      final bUpdated = b.updatedAt;
-      if (aUpdated != null && bUpdated != null) {
-        final timeCompare = bUpdated.compareTo(aUpdated);
-        if (timeCompare != 0) return timeCompare;
-      } else if (aUpdated != null) {
-        return -1;
-      } else if (bUpdated != null) {
-        return 1;
-      }
-
+      // stable sort by title to prevent order changes on refresh
       return a.title.compareTo(b.title);
     });
     return List.unmodifiable(sorted);
