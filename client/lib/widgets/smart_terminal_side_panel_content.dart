@@ -61,7 +61,7 @@ class _SmartTerminalSidePanelContentState
   @override
   final List<ToolStepEvent> _traces = [];
   @override
-  final List<_TurnEventType> _turnEventOrder = [];
+  final List<TurnEventType> _turnEventOrder = [];
   @override
   final List<StreamingTextEvent> _assistantMessages = [];
   @override
@@ -90,11 +90,11 @@ class _SmartTerminalSidePanelContentState
   @override
   String? _agentIntent; // 当前 Agent 正在处理的意图
   @override
-  final List<_AgentHistoryEntry> _agentHistory = []; // Agent 对话历史
+  final List<AgentHistoryEntry> _agentHistory = []; // Agent 对话历史
   @override
   final Set<int> _expandedHistorySet = {}; // F110: 展开的历史轮次索引
   @override
-  final List<_AgentAnswerEntry> _agentAnswers = []; // 当前 Agent 轮次内的问答
+  final List<AgentAnswerEntry> _agentAnswers = []; // 当前 Agent 轮次内的问答
   @override
   final List<AgentConversationEventItem> _serverConversationEvents = [];
   @override

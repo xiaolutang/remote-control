@@ -53,7 +53,7 @@ mixin _PanelConversationMixin on _PanelStateFields {
   }
 
   /// 从历史条目提取阶段摘要标签
-  String _buildStageLabel(_AgentHistoryEntry entry) {
+  String _buildStageLabel(AgentHistoryEntry entry) {
     final toolCount = entry.traces.length;
     final hasFollowUp = entry.answers.isNotEmpty;
     final result = entry.result;
@@ -263,8 +263,8 @@ mixin _PanelConversationMixin on _PanelStateFields {
 
   /// 按 turnEventOrder 交错渲染 answers 和 assistantMessages
   List<Widget> _buildOrderedTurnEvents({
-    required List<_TurnEventType> order,
-    required List<_AgentAnswerEntry> answers,
+    required List<TurnEventType> order,
+    required List<AgentAnswerEntry> answers,
     required List<StreamingTextEvent> assistantMessages,
     required ColorScheme colorScheme,
     int? historyIndex,
@@ -276,7 +276,7 @@ mixin _PanelConversationMixin on _PanelStateFields {
     var msgIdx = 0;
     for (final type in order) {
       switch (type) {
-        case _TurnEventType.answer:
+        case TurnEventType.answer:
           if (answerIdx < answers.length) {
             widgets.add(_buildAssistantBubble(
               Text(
@@ -295,7 +295,7 @@ mixin _PanelConversationMixin on _PanelStateFields {
             widgets.add(const SizedBox(height: 6));
             answerIdx++;
           }
-        case _TurnEventType.assistantMessage:
+        case TurnEventType.assistantMessage:
           if (msgIdx < assistantMessages.length) {
             widgets.add(_buildAssistantBubble(
               Text(

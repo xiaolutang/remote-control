@@ -20,6 +20,8 @@ import 'mobile_bottom_inset.dart';
 import 'shared/scroll_mixin.dart';
 import 'package:provider/provider.dart';
 import 'design_tokens.dart';
+import 'agent_panel_types.dart';
+import 'agent_panel_shared_widgets.dart';
 
 part 'agent_panel_state.dart';
 part 'agent_panel_handlers.dart';
