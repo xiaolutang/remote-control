@@ -127,7 +127,8 @@ class LoggerService extends ChangeNotifier {
     );
 
     _queue.add(record);
-    notifyListeners();
+    // 注意：不再每条日志都 notifyListeners()
+    // 高频场景（终端输出、协议事件）下，仅在 flush 状态变化时通知 UI
 
     // 达到批量大小立即刷新
     if (_queue.length >= _batchSize) {
@@ -163,12 +164,6 @@ class LoggerService extends ChangeNotifier {
       final logs = <LogRecord>[..._cache, ..._queue];
       _cache.clear();
       _queue.clear();
-
-      if (logs.isEmpty) {
-        _isUploading = false;
-        notifyListeners();
-        return;
-      }
 
       // 上报
       final success = await _uploadLogs(logs);
@@ -296,7 +291,8 @@ class LoggerService extends ChangeNotifier {
   /// 释放资源
   @override
   void dispose() {
-    stop();
+    _flushTimer?.cancel();
+    _flushTimer = null;
     super.dispose();
   }
 }
