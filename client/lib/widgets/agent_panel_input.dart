@@ -11,7 +11,7 @@ mixin _PanelInputMixin on _PanelStateFields {
     final canSend = !isClosed && !_pendingReset && (isAwaitingAnswer ? !_executing : !_executing && !isExploring);
     return Container(padding: const EdgeInsets.fromLTRB(12, 8, 12, 14),
       decoration: BoxDecoration(color: colorScheme.surface,
-        border: Border(top: BorderSide(color: colorScheme.outlineVariant.withValues(alpha: 0.14)))),
+        border: Border(top: BorderSide(color: subtleBorderColor(colorScheme)))),
       child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
         Expanded(child: ConstrainedBox(constraints: const BoxConstraints(minHeight: 44),
           child: Center(child: TextField(key: const Key('side-panel-intent-input'),
@@ -57,7 +57,7 @@ mixin _PanelInputMixin on _PanelStateFields {
       for (final option in question.options) OutlinedButton(
         key: Key('agent-option-${option.hashCode}'),
         style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(borderRadius: AppRadius.cardBorder),
           side: BorderSide(color: colorScheme.outlineVariant.withValues(alpha: 0.4)), backgroundColor: colorScheme.surface),
         onPressed: _pendingReset ? null : () => _handleAgentRespond(option),
         child: Text(option, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colorScheme.onSurface))),
@@ -66,8 +66,8 @@ mixin _PanelInputMixin on _PanelStateFields {
 
   Widget _buildMultiSelectOptions(AgentQuestionEvent question, ColorScheme colorScheme) {
     return Container(padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(color: colorScheme.surfaceContainerLow, borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: colorScheme.outlineVariant.withValues(alpha: 0.14))),
+      decoration: BoxDecoration(color: colorScheme.surfaceContainerLow, borderRadius: AppRadius.cardBorder,
+        border: Border.all(color: subtleBorderColor(colorScheme))),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         for (final option in question.options) _buildCheckboxOption(option, colorScheme),
         const SizedBox(height: 8),

@@ -12,7 +12,7 @@ mixin _PanelWidgetsMixin on _PanelStateFields {
           decoration: BoxDecoration(color: colorScheme.surfaceContainerLow,
             borderRadius: const BorderRadius.only(topLeft: Radius.circular(18), topRight: Radius.circular(18),
                 bottomLeft: Radius.circular(4), bottomRight: Radius.circular(18)),
-            border: Border.all(color: colorScheme.outlineVariant.withValues(alpha: 0.15))),
+            border: Border.all(color: subtleBorderColor(colorScheme))),
           child: child)));
   }
 
@@ -28,8 +28,8 @@ mixin _PanelWidgetsMixin on _PanelStateFields {
 
   /// 可折叠 Agent Trace 列表
   Widget _buildAgentTraceExpansionTile(ColorScheme colorScheme) {
-    return Container(decoration: BoxDecoration(color: colorScheme.surfaceContainerLow, borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: colorScheme.outlineVariant.withValues(alpha: 0.14))),
+    return Container(decoration: BoxDecoration(color: colorScheme.surfaceContainerLow, borderRadius: AppRadius.cardBorder,
+      border: Border.all(color: subtleBorderColor(colorScheme))),
       child: ExpansionTile(key: const Key('agent-trace-expansion'), initiallyExpanded: false,
         tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 8), dense: true,
@@ -70,8 +70,8 @@ mixin _PanelWidgetsMixin on _PanelStateFields {
       key: const Key('side-panel-usage-section'),
       decoration: BoxDecoration(
         color: colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: colorScheme.outlineVariant.withValues(alpha: 0.14)),
+        borderRadius: AppRadius.cardBorder,
+        border: Border.all(color: subtleBorderColor(colorScheme)),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         // 收起/展开摘要行
@@ -218,7 +218,7 @@ class _ToolStepCardState extends State<_ToolStepCard> {
     final hasResult = step.resultSummary != null && step.resultSummary!.isNotEmpty;
     return Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(color: colorScheme.surfaceContainerLow, borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: colorScheme.outlineVariant.withValues(alpha: 0.12))),
+        border: Border.all(color: subtleBorderColor(colorScheme))),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [statusIcon, const SizedBox(width: 8),
           Expanded(child: Text(step.toolName, style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),

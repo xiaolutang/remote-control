@@ -363,7 +363,7 @@ class _SmartTerminalSidePanelContentState
       decoration: BoxDecoration(
         border: Border(
           bottom: BorderSide(
-            color: colorScheme.outlineVariant.withValues(alpha: 0.14),
+            color: subtleBorderColor(colorScheme),
           ),
         ),
       ),

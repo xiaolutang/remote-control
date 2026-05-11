@@ -118,7 +118,7 @@ mixin _PanelConversationMixin on _PanelStateFields {
               color: colorScheme.surfaceContainerLow,
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
-                color: colorScheme.outlineVariant.withValues(alpha: 0.12),
+                color: subtleBorderColor(colorScheme),
               ),
             ),
             child: Row(

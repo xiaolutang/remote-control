@@ -19,6 +19,7 @@ import '../services/websocket_service.dart';
 import 'mobile_bottom_inset.dart';
 import 'shared/scroll_mixin.dart';
 import 'package:provider/provider.dart';
+import 'design_tokens.dart';
 
 part 'agent_panel_state.dart';
 part 'agent_panel_handlers.dart';

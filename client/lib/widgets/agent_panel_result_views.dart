@@ -60,9 +60,9 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
             color: colorScheme.surfaceContainerLow,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: AppRadius.cardBorder,
             border: Border.all(
-                color: colorScheme.outlineVariant.withValues(alpha: 0.14))),
+                color: subtleBorderColor(colorScheme))),
         child: Row(children: [
           SizedBox(
               width: 16,
@@ -106,8 +106,7 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
                         bottomLeft: Radius.circular(18),
                         bottomRight: Radius.circular(4)),
                     border: Border.all(
-                        color: colorScheme.outlineVariant
-                            .withValues(alpha: 0.15))),
+                        color: subtleBorderColor(colorScheme))),
                 child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -188,7 +187,7 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
             color: colorScheme.surfaceContainerLow,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-                color: colorScheme.outlineVariant.withValues(alpha: 0.14))),
+                color: subtleBorderColor(colorScheme))),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             Icon(Icons.smart_toy_outlined,
@@ -263,7 +262,7 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
             color: colorScheme.surfaceContainerLow,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-                color: colorScheme.outlineVariant.withValues(alpha: 0.14))),
+                color: subtleBorderColor(colorScheme))),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             Icon(Icons.check_circle, size: 16, color: colorScheme.primary),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/shortcut_item.dart';
 import '../models/terminal_shortcut.dart';
+import 'design_tokens.dart';
 
 /// 快捷命令菜单 + 设置面板的纯 UI 组件。
 ///
@@ -158,9 +159,9 @@ class ShortcutMenuWidgets {
     final colorScheme = theme.colorScheme;
     return Material(
       color: colorScheme.surface,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: AppRadius.buttonBorder,
       child: InkWell(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: AppRadius.buttonBorder,
         onTap: () async {
           Navigator.of(context).pop();
           await onItemPressed(item);
@@ -370,7 +371,7 @@ class ShortcutMenuWidgets {
   }) {
     return Material(
       color: colorScheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: AppRadius.buttonBorder,
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
@@ -415,7 +416,7 @@ class ShortcutMenuWidgets {
     final colorScheme = theme.colorScheme;
     return Material(
       color: colorScheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: AppRadius.buttonBorder,
       child: Padding(
         padding:
             const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -468,7 +469,7 @@ class ShortcutMenuWidgets {
     final colorScheme = theme.colorScheme;
     return Material(
       color: colorScheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: AppRadius.buttonBorder,
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
