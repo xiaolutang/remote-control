@@ -272,8 +272,10 @@ class RuntimeSelectionController extends ChangeNotifier {
     _projectContextSettings = null;
     _projectContextSnapshot = _config.projectContextSnapshots[deviceId];
     await _persistPreferredDevice(deviceId);
-    await _loadTerminalsForDevice(deviceId, notify: notify);
-    await loadProjectContextSnapshot(forceRefresh: true, notify: notify);
+    await Future.wait([
+      _loadTerminalsForDevice(deviceId, notify: notify),
+      loadProjectContextSnapshot(forceRefresh: true, notify: notify),
+    ]);
   }
 
   /// 刷新当前设备的终端列表（用于跨平台同步等场景）

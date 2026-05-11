@@ -338,12 +338,16 @@ class DesktopWorkspaceController extends ChangeNotifier {
     RuntimeSelectionController controller,
     String deviceId,
   ) async {
-    final keepRunning = await _exitPolicyService.keepAgentRunningInBackground();
-    final state = await _agentBootstrapService.loadAgentState(
-      serverUrl: serverUrl,
-      token: token,
-      deviceId: deviceId,
-    );
+    final results = await Future.wait([
+      _exitPolicyService.keepAgentRunningInBackground(),
+      _agentBootstrapService.loadAgentState(
+        serverUrl: serverUrl,
+        token: token,
+        deviceId: deviceId,
+      ),
+    ]);
+    final keepRunning = results[0] as bool;
+    final state = results[1] as DesktopAgentState;
     if (_lastKnownDeviceId != null && _lastKnownDeviceId != deviceId) {
       return;
     }
