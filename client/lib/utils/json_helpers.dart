@@ -17,3 +17,27 @@ String readStringFromJson(Object? value) {
   if (value is String) return value.trim();
   return '';
 }
+
+/// 安全地将动态 JSON 值转为 trimmed String?，null/缺失返回 null。
+///
+/// 用于 nullable 字段（如 `final String? conversationId`）。
+String? readOptionalStringFromJson(Object? value) {
+  if (value is String) return value.trim();
+  return null;
+}
+
+/// 安全地将动态 JSON 值转为 List<T>，逐元素通过 [fromJson] 转换。
+///
+/// null 或非 List 输入返回空列表。
+List<T> readListFromJson<T>(
+  Object? value,
+  T Function(Map<String, dynamic>) fromJson,
+) {
+  if (value is List) {
+    return value
+        .whereType<Map<String, dynamic>>()
+        .map(fromJson)
+        .toList(growable: false);
+  }
+  return const [];
+}

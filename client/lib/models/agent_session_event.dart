@@ -1,6 +1,7 @@
 import 'dart:collection';
 
-import '../utils/json_helpers.dart' show readStringFromJson;
+import '../utils/json_helpers.dart'
+    show readListFromJson, readOptionalStringFromJson, readStringFromJson;
 
 /// Agent SSE 会话事件基类
 sealed class AgentSessionEvent {
@@ -26,7 +27,7 @@ class PhaseChangeEvent extends AgentSessionEvent {
   factory PhaseChangeEvent.fromJson(Map<String, dynamic> json) {
     return PhaseChangeEvent(
       phase: readStringFromJson(json['phase']),
-      description: (json['description'] as String?)?.trim(),
+      description: readOptionalStringFromJson(json['description']),
     );
   }
 
@@ -80,7 +81,7 @@ class ToolStepEvent extends AgentSessionEvent {
       toolName: readStringFromJson(json['tool_name']),
       description: readStringFromJson(json['description']),
       status: json['status'] as String? ?? 'running',
-      resultSummary: (json['result_summary'] as String?)?.trim(),
+      resultSummary: readOptionalStringFromJson(json['result_summary']),
     );
   }
 
@@ -108,8 +109,8 @@ class AgentSessionCreatedEvent extends AgentSessionEvent {
   factory AgentSessionCreatedEvent.fromJson(Map<String, dynamic> json) {
     return AgentSessionCreatedEvent(
       sessionId: readStringFromJson(json['session_id']),
-      conversationId: (json['conversation_id'] as String?)?.trim(),
-      terminalId: (json['terminal_id'] as String?)?.trim(),
+      conversationId: readOptionalStringFromJson(json['conversation_id']),
+      terminalId: readOptionalStringFromJson(json['terminal_id']),
     );
   }
 
@@ -166,7 +167,7 @@ class AgentQuestionEvent extends AgentSessionEvent {
 
   factory AgentQuestionEvent.fromJson(Map<String, dynamic> json) {
     return AgentQuestionEvent(
-      questionId: (json['question_id'] as String?)?.trim(),
+      questionId: readOptionalStringFromJson(json['question_id']),
       question: readStringFromJson(json['question']),
       options: (json['options'] as List<dynamic>? ?? const [])
           .whereType<String>()
@@ -271,10 +272,7 @@ class AgentResultEvent extends AgentSessionEvent {
   factory AgentResultEvent.fromJson(Map<String, dynamic> json) {
     return AgentResultEvent(
       summary: readStringFromJson(json['summary']),
-      steps: (json['steps'] as List<dynamic>? ?? const [])
-          .whereType<Map<String, dynamic>>()
-          .map(AgentResultStep.fromJson)
-          .toList(growable: false),
+      steps: readListFromJson(json['steps'], AgentResultStep.fromJson),
       provider: json['provider'] as String? ?? 'agent',
       source: json['source'] as String? ?? 'recommended',
       needConfirm: json['need_confirm'] as bool? ?? true,
@@ -287,7 +285,7 @@ class AgentResultEvent extends AgentSessionEvent {
           : null,
       responseType: json['response_type'] as String? ?? 'command',
       aiPrompt: readStringFromJson(json['ai_prompt']),
-      eventId: (json['event_id'] as String?)?.trim(),
+      eventId: readOptionalStringFromJson(json['event_id']),
     );
   }
 

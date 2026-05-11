@@ -1,5 +1,6 @@
-import 'dart:io' show Platform;
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../utils/platform_utils.dart';
 
 /// 用户信息
 class UserInfo {
@@ -25,7 +26,7 @@ class UserInfoService {
     if (username == null) return null;
 
     final loginTime = prefs.getString(_loginTimeKey);
-    final platform = _getPlatform();
+    final platform = getPlatform();
 
     return UserInfo(
       username: username,
@@ -52,12 +53,4 @@ class UserInfoService {
     await prefs.remove(_loginTimeKey);
   }
 
-  String _getPlatform() {
-    if (Platform.isAndroid) return 'android';
-    if (Platform.isIOS) return 'ios';
-    if (Platform.isMacOS) return 'macos';
-    if (Platform.isWindows) return 'windows';
-    if (Platform.isLinux) return 'linux';
-    return 'unknown';
-  }
 }

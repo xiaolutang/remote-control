@@ -6,7 +6,7 @@ class RendererAdapter {
   RendererAdapter(this._terminal);
 
   final Terminal _terminal;
-  final List<String> _outputBuffer = [];
+  final Queue<String> _outputBuffer = Queue<String>();
   final ValueNotifier<String> _outputText = ValueNotifier<String>('');
   bool _disposed = false;
 
@@ -114,7 +114,7 @@ class RendererAdapter {
       if (line.isEmpty) continue;
       _outputBuffer.add(line);
       if (_outputBuffer.length > _maxBufferLines) {
-        _outputBuffer.removeAt(0);
+        _outputBuffer.removeFirst();
       }
     }
     _outputText.value = _outputBuffer.join('\n');

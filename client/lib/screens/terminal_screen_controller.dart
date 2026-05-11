@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -293,7 +294,7 @@ class TerminalScreenController extends ChangeNotifier {
       if (line.isNotEmpty) {
         _localOutputBuffer.add(line);
         if (_localOutputBuffer.length > _maxBufferLines) {
-          _localOutputBuffer.removeAt(0);
+          _localOutputBuffer.removeFirst();
         }
         changed = true;
       }
@@ -303,7 +304,7 @@ class TerminalScreenController extends ChangeNotifier {
     }
   }
 
-  final List<String> _localOutputBuffer = [];
+  final Queue<String> _localOutputBuffer = Queue<String>();
   static const int _maxBufferLines = 50;
 
   // ─── 状态变更监听 ──────────────────────────────────────────────

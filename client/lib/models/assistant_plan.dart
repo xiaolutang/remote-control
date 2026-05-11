@@ -1,4 +1,5 @@
-import '../utils/json_helpers.dart' show readStringFromJson;
+import '../utils/json_helpers.dart'
+    show readListFromJson, readOptionalStringFromJson, readStringFromJson;
 import 'command_sequence_draft.dart';
 
 class AssistantCommandSequence {
@@ -140,9 +141,9 @@ class AssistantToolCall {
           (json['tool_name'] as String? ?? json['name'] as String? ?? '工具')
               .trim(),
       status: json['status'] as String? ?? 'running',
-      summary: (json['summary'] as String?)?.trim(),
-      inputSummary: (json['input_summary'] as String?)?.trim(),
-      outputSummary: (json['output_summary'] as String?)?.trim(),
+      summary: readOptionalStringFromJson(json['summary']),
+      inputSummary: readOptionalStringFromJson(json['input_summary']),
+      outputSummary: readOptionalStringFromJson(json['output_summary']),
     );
   }
 }
@@ -165,7 +166,7 @@ class AssistantStatusUpdate {
       stage: json['stage'] as String? ?? 'planner',
       status: json['status'] as String? ?? 'running',
       title: json['title'] as String? ?? '处理中',
-      summary: (json['summary'] as String?)?.trim(),
+      summary: readOptionalStringFromJson(json['summary']),
     );
   }
 }
@@ -220,21 +221,15 @@ class AssistantPlanResult {
     return AssistantPlanResult(
       conversationId: readStringFromJson(json['conversation_id']),
       messageId: readStringFromJson(json['message_id']),
-      assistantMessages:
-          ((json['assistant_messages'] as List<dynamic>?) ?? const [])
-              .whereType<Map<String, dynamic>>()
-              .map(AssistantMessage.fromJson)
-              .toList(growable: false),
-      trace: ((json['trace'] as List<dynamic>?) ?? const [])
-          .whereType<Map<String, dynamic>>()
-          .map(AssistantTraceItem.fromJson)
-          .toList(growable: false),
+      assistantMessages: readListFromJson(
+          json['assistant_messages'], AssistantMessage.fromJson),
+      trace: readListFromJson(json['trace'], AssistantTraceItem.fromJson),
       commandSequence: AssistantCommandSequence.fromJson(
         (json['command_sequence'] as Map<String, dynamic>?) ??
             const <String, dynamic>{},
       ),
       fallbackUsed: json['fallback_used'] as bool? ?? false,
-      fallbackReason: (json['fallback_reason'] as String?)?.trim(),
+      fallbackReason: readOptionalStringFromJson(json['fallback_reason']),
       limits: AssistantPlanLimits.fromJson(
         (json['limits'] as Map<String, dynamic>?) ?? const <String, dynamic>{},
       ),
@@ -339,8 +334,8 @@ class AssistantPlanProgressEvent {
               json['plan'] as Map<String, dynamic>,
             )
           : null,
-      reason: (json['reason'] as String?)?.trim(),
-      message: (json['message'] as String?)?.trim(),
+      reason: readOptionalStringFromJson(json['reason']),
+      message: readOptionalStringFromJson(json['message']),
       retryAfter: json['retry_after'] as int?,
     );
   }

@@ -1,9 +1,9 @@
 import 'dart:convert';
-import 'dart:io' show Platform;
 
 import 'package:http/http.dart' as http;
 
 import '../models/feedback_model.dart';
+import '../utils/platform_utils.dart';
 import 'app_logger.dart';
 import 'http_client_factory.dart';
 import 'server_url_helper.dart';
@@ -28,16 +28,6 @@ class FeedbackService {
   /// 将 WebSocket URL 转换为 HTTP URL
   String _getHttpUrl() => serverUrlToHttpBase(serverUrl);
 
-  /// 获取当前平台标识
-  String _getPlatform() {
-    if (Platform.isAndroid) return 'android';
-    if (Platform.isIOS) return 'ios';
-    if (Platform.isMacOS) return 'macos';
-    if (Platform.isWindows) return 'windows';
-    if (Platform.isLinux) return 'linux';
-    return 'unknown';
-  }
-
   /// 提交反馈
   ///
   /// 自动附加 platform 和 appVersion。
@@ -52,7 +42,7 @@ class FeedbackService {
       sessionId: sessionId,
       category: category,
       description: description,
-      platform: _getPlatform(),
+      platform: getPlatform(),
       appVersion: _appVersion,
     );
 

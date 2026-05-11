@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
@@ -156,27 +157,6 @@ class TerminalSessionManager extends ChangeNotifier
     return _sessions[_key(deviceId, terminalId)];
   }
 
-  /// F073: 已废弃，上层应通过 getRendererAdapter 获取 RendererAdapter。
-  /// 完整迁移在 F074（UI 瘦身）中完成。
-  @Deprecated('Use getRendererAdapter instead. Will be removed in F074.')
-  // ignore: unnecessary_non_null_assertion
-  Terminal getOrCreateTerminal(
-    String? deviceId,
-    String terminalId,
-    Terminal Function() create, {
-    WebSocketService? service,
-  }) {
-    final key = _key(deviceId, terminalId);
-    final state = _terminals.putIfAbsent(key, () => _TerminalState(create()));
-    // F072: 新创建的 terminal 自动成为 active terminal
-    _activeTerminalKey = key;
-    if (service != null) {
-      _sessions[key] = service;
-      bindTerminalOutput(deviceId, terminalId, service);
-    }
-    return state.renderer._terminal;
-  }
-
   /// F074: 创建或复用 terminal，并返回稳定的 RendererAdapter。
   RendererAdapter ensureRendererAdapter(
     String? deviceId,
@@ -192,12 +172,6 @@ class TerminalSessionManager extends ChangeNotifier
       bindTerminalOutput(deviceId, terminalId, service);
     }
     return state.renderer;
-  }
-
-  /// F073: 已废弃，上层应通过 getRendererAdapter 获取 RendererAdapter。
-  @Deprecated('Use getRendererAdapter instead. Will be removed in F074.')
-  Terminal? getTerminal(String? deviceId, String terminalId) {
-    return _terminals[_key(deviceId, terminalId)]?.renderer._terminal;
   }
 
   /// F073: 获取指定 terminal 的 RendererAdapter

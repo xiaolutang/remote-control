@@ -1,32 +1,20 @@
 # Remote Control 项目规格
 
-## 当前范围：R060 多终端导航 UX 重构
+## 当前范围：R061 客户端代码收敛
 
-将桌面端顶部 Tab Bar 替换为左侧窄栏（48px 折叠/hover 160px 展开），移动端底部 CompactTabStrip 替换为紧凑页码指示器 `< 1/3 >`（32px）+ BottomSheet 终端列表。
+基于 4 轮全项目 xlfoundry-simplify 审查发现的 17 类问题，系统性地修复架构违规、模式收敛、效率优化、复用提取和大文件拆分。纯客户端重构，后端零改动。
 
 ### 背景
 
-R059 验收后用户反馈多终端交互"感觉怪异"。终端场景与浏览器 Tab 有本质区别：用户通常只有 1-3 个终端、切换频率低、核心操作是"输入命令"而非"切换 Tab"。需要将导航模式改为更适合终端应用的设计。
+R057-R060 连续 4 个需求包快速迭代后，simplify 审查发现架构层（services→screens 反向依赖、models 依赖 UI）、模式层（字符串分派 vs enum）、效率层（SP 无缓存、串行 await、双重 notify）和复用层（对话框重复、设计 token 散落）积累了显著技术债。
 
-### 范围
+### 范围（5 个 Phase，15 个任务）
 
-- 纯客户端 UI 改造，后端零改动
-- 桌面端：左侧窄栏替代顶部 Tab Bar，终端区域获得全宽
-- 移动端：页码指示器替代底部 Tab Strip，释放垂直空间（48px→32px）
-- 旧组件清理（TerminalTabBar、CompactTabStrip）
-- Widget 测试
-
-### R060 范围（5 个任务）
-
-- **F001**: TerminalSidebar 桌面端侧边栏组件（P0）— pending
-- **F002**: TerminalPageIndicator 移动端页面指示器组件（P0）— pending
-- **F003**: 桌面端侧边栏集成（P1）— pending，依赖 F001
-- **F004**: 移动端页面指示器集成（P1）— pending，依赖 F002 + F003
-- **F005**: 清理旧组件 + 更新测试（P2）— pending，依赖 F003 + F004
-
-### R059 范围（已归档）
-
-R059（终端操作体验优化）10 个任务已全部完成并归档到 `_archive/R059_terminal-tab-bar-ux/`。
+- **Phase 1** — 架构违规修复（F001-F004）：services→screens 反向依赖、UI 代码泄漏到 services/models
+- **Phase 2** — 模式收敛（F005-F006）：字符串分派→enum、@Deprecated 清理
+- **Phase 3** — 效率优化（F007-F011）：SP 缓存、双重 notify、串行→并行、dispose、节流
+- **Phase 4** — 复用提取（F012-F013）：重命名对话框、SnackBar、设计 token
+- **Phase 5** — 大文件拆分（F014-F015）：side panel 3570 行、workspace 1100 行
 
 ## 用户路径
 

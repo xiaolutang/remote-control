@@ -1,47 +1,45 @@
-# Alignment Checklist — R060
+# Alignment Checklist — R061
 
 ## 架构一致性
 
-- [x] 不涉及 architecture.md 变更
-- [x] 不涉及后端改动
-- [x] 终端切换仍然是纯客户端行为（selectTerminal + notifyListeners）
-- [x] 所有终端 WebSocket 连接同时保持，切换只改显示
-- [x] IndexedStack 缓存机制保持不变
+- [x] architecture.md 新增客户端模块边界规则，与所有任务方向一致
+- [ ] F001-F004 完成后 services/ 无 screens/ import，models/ 无 flutter/material.dart import
+- [ ] 不涉及后端改动
+- [ ] 不涉及 API 契约变更（api_contracts.md 标记 N/A）
 
-## 无 API 契约变更确认
+## 模块边界收敛
 
-- [x] 后端 4 个 Terminal API 不变（create/list/close/rename）
-- [x] 终端切换无独立 API
+- [ ] F001: account_menu_action_handler 不在 services/ 目录
+- [ ] F002: services/ui_helpers.dart 不含 UI Widget 代码
+- [ ] F003: models/ 下无 flutter/material.dart import
+- [ ] F004: services/ 无 BuildContext / context.read 依赖
 
-## 平台分支安全
+## 模式收敛
 
-- [x] F003 仅改桌面端布局（Row[Sidebar, Expanded(body)]），移动端保持不变
-- [x] F003 修改 HeaderBar 移除 TerminalTabBar 参数，不影响移动端 HeaderBar
-- [x] F004 仅改移动端底部（CompactTabStrip → TerminalPageIndicator），桌面端保持不变
-- [x] F003/F004 修改同一文件 terminal_workspace_screen.dart，但各自只改对应平台分支
+- [ ] F005: AgentResponseType / FeedbackType / ToolStepStatus 三个 enum 创建
+- [ ] F005: agent_session_event.dart 所有 JSON 字段使用 json_helpers.dart
+- [ ] F006: @Deprecated 类及 switch-case 分支移除
 
-## 错误反馈策略
+## 效率优化安全
 
-- [x] 侧边栏/页码指示器操作失败统一使用 SnackBar（局部提示）
-- [x] 不修改现有 errorMessage + MaterialBanner 通道
-- [x] 不出现重复提示
+- [ ] F007: SharedPreferences 缓存不引入新的初始化时序依赖
+- [ ] F008: notifyListeners 修复不影响成功路径
+- [ ] F009a: selectDevice 并行化不改变最终状态
+- [ ] F009b: _refreshDesktopState 中 syncNativeTerminationState 仍在 keepRunning 之后
+- [ ] F010: DesktopWorkspaceController dispose 不遗漏资源
+- [ ] F011: LoggerService 节流不影响 pendingCount 最终一致性
 
-## 菜单架构
+## 复用提取
 
-- [x] Agent 管理/设备编辑保持在 workspace 局部（WorkspaceHeaderBar 设置 PopupMenuButton）
-- [x] 不扩展共享 account_menu_actions.dart
-- [x] 不泄漏 workspace 专属动作到其他页面
+- [ ] F012: 重命名对话框提取后两处调用行为一致
+- [ ] F013: 设计 token 不改变 UI 视觉效果
 
-## terminals_changed 同步
+## 大文件拆分
 
-- [x] F003 验收条件包含侧边栏 terminals_changed 即时同步
-- [x] F004 验收条件包含页码指示器 terminals_changed 即时同步
-- [x] 远端关闭当前选中终端 → 自动切换到相邻
-- [x] 远端重命名 → 侧边栏/BottomSheet 标题即时刷新
+- [ ] F014: side panel 拆分不引入新的 part 文件
+- [ ] F015: workspace 拆分提取部分有独立测试
 
-## 组件替换策略
+## 回归安全
 
-- [x] F001 TerminalSidebar 接口与 TerminalTabBar 一致，无缝替换
-- [x] F002 TerminalPageIndicator 接口覆盖 CompactTabStrip 全部能力
-- [x] F005 清理旧组件前确认无其他引用
-- [x] 旧 widget 测试在 F005 统一清理，不在 F003/F004 中删除
+- [ ] 所有任务完成后 flutter test 全通过（不含预存 desktop_agent_manager_test 失败）
+- [ ] 所有任务完成后 flutter analyze 零 error/warning
