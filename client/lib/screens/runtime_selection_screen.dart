@@ -11,7 +11,7 @@ import '../services/runtime_device_service.dart';
 import '../services/terminal_launch_session_service.dart';
 import '../services/runtime_selection_controller.dart';
 import '../services/terminal_session_manager.dart';
-import '../services/ui_helpers.dart';
+import '../widgets/theme_picker_sheet.dart';
 import '../services/websocket_service.dart';
 import '../widgets/shared/status_pill.dart';
 import '../widgets/smart_terminal_create_dialog.dart';

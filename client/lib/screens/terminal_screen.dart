@@ -12,7 +12,7 @@ import '../services/config_service.dart';
 import '../services/runtime_selection_controller.dart';
 import '../services/terminal_session_manager.dart';
 import '../services/terminal_view_config.dart';
-import '../services/ui_helpers.dart';
+import '../widgets/theme_picker_sheet.dart';
 import '../services/websocket_service.dart';
 import '../models/shortcut_item.dart';
 import '../widgets/shortcut_menu_widgets.dart';

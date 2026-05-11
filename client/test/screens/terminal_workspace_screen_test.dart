@@ -1319,12 +1319,12 @@ void main() {
           reason: 'refresh() 必须通过 _refreshDevicesAndSync 统一刷新');
     });
 
-    test('ui_helpers provides shared showThemePickerSheet', () async {
-      // 验证：共享 UI helper 文件存在且包含正确的实现
-      final source = await File('lib/services/ui_helpers.dart').readAsString();
+    test('theme_picker_sheet provides shared showThemePickerSheet', () async {
+      // 验证：共享 UI Widget 文件存在且包含正确的实现
+      final source = await File('lib/widgets/theme_picker_sheet.dart').readAsString();
 
       expect(source.contains('Future<void> showThemePickerSheet'), isTrue,
-          reason: 'ui_helpers.dart 必须提供共享的 showThemePickerSheet 函数');
+          reason: 'theme_picker_sheet.dart 必须提供共享的 showThemePickerSheet 函数');
       expect(source.contains('ThemeController'), isTrue,
           reason: 'showThemePickerSheet 必须使用 ThemeController');
     });
