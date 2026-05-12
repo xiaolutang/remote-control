@@ -88,6 +88,7 @@ class ScheduledTaskBadge extends StatelessWidget {
   String _formatTime(String isoStr) {
     final dt = DateTime.tryParse(isoStr);
     if (dt == null) return isoStr;
-    return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    final local = dt.toLocal();
+    return '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
   }
 }

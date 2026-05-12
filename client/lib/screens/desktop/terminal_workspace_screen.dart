@@ -20,6 +20,7 @@ import '../../services/logout_helper.dart';
 import '../../services/runtime_device_service.dart';
 import '../../services/runtime_selection_controller.dart';
 import '../../services/scheduled_task_poller.dart';
+import '../../widgets/scheduled_task_badge.dart';
 import '../../services/terminal_session_manager.dart';
 import '../../widgets/theme_picker_sheet.dart';
 import '../../widgets/snack_bar_helper.dart';
@@ -102,6 +103,7 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
   String? _pendingToastAction;
   String? _pendingToastTerminalId;
   bool _authDialogShowing = false;
+  String? _pollerSessionId;
 
   @override
   DesktopWorkspaceController get workspaceController => _workspaceController;
@@ -366,7 +368,9 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
                               .allTasksForTerminal(t.terminalId),
                           poller: _scheduledTaskPoller,
                           token: widget.token,
-                        );
+                        ).then((_) {
+                          // sheet 关闭后不需要额外操作，poller 持续刷新
+                        });
                       },
                     ),
                     // F003: 桌面端用 Row 包裹 Sidebar + Body
@@ -526,14 +530,29 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
         );
     _listenToTerminalsChangedIfNeeded(selectedService);
 
-    // 启动定时任务轮询
+    // 启动定时任务轮询（仅在 session 变化时重启，避免 build 中重复调用）
     final deviceId = controller.selectedDeviceId;
     if (deviceId != null && terminal.terminalId.isNotEmpty) {
-      _scheduledTaskPoller.startPolling(widget.token, deviceId);
+      if (_pollerSessionId != deviceId) {
+        _pollerSessionId = deviceId;
+        _scheduledTaskPoller.startPolling(widget.token, deviceId);
+      }
     }
 
     final terminalBody = Column(
       children: [
+        // 定时任务 badge：显示当前终端的 pending 任务
+        AnimatedBuilder(
+          animation: _scheduledTaskPoller,
+          builder: (context, _) {
+            final pendingTasks = _scheduledTaskPoller
+                .pendingTasksForTerminal(terminal.terminalId);
+            return ScheduledTaskBadge(
+              tasks: pendingTasks,
+              onCancel: (taskId) => _scheduledTaskPoller.deleteTask(taskId),
+            );
+          },
+        ),
         Expanded(
           child: IndexedStack(
             index: selectedIndex.clamp(0, terminals.length - 1),

@@ -25,6 +25,7 @@ from app.services.scheduler import (
     _process_task,
     _send_text_to_terminal,
     _next_daily_execute_at,
+    _is_terminal_live,
 )
 
 TEST_DB = "/tmp/test_rc_scheduler.db"
@@ -116,7 +117,8 @@ async def test_process_task_one_time_online(store):
 
     task = await store.get_by_id(task_id)
 
-    with patch("app.services.scheduler._send_text_to_terminal", return_value=True):
+    with patch("app.services.scheduler._is_terminal_live", return_value=True), \
+         patch("app.services.scheduler._send_text_to_terminal", return_value=True):
         await _process_task(store, task)
 
     updated = await store.get_by_id(task_id)
@@ -132,7 +134,8 @@ async def test_process_task_one_time_offline(store):
 
     task = await store.get_by_id(task_id)
 
-    with patch("app.services.scheduler._send_text_to_terminal", return_value=False):
+    with patch("app.services.scheduler._is_terminal_live", return_value=True), \
+         patch("app.services.scheduler._send_text_to_terminal", return_value=False):
         await _process_task(store, task)
 
     updated = await store.get_by_id(task_id)
@@ -148,7 +151,8 @@ async def test_process_task_daily_online(store):
 
     task = await store.get_by_id(task_id)
 
-    with patch("app.services.scheduler._send_text_to_terminal", return_value=True):
+    with patch("app.services.scheduler._is_terminal_live", return_value=True), \
+         patch("app.services.scheduler._send_text_to_terminal", return_value=True):
         await _process_task(store, task)
 
     updated = await store.get_by_id(task_id)
@@ -164,7 +168,44 @@ async def test_process_task_daily_offline(store):
 
     task = await store.get_by_id(task_id)
 
-    with patch("app.services.scheduler._send_text_to_terminal", return_value=False):
+    with patch("app.services.scheduler._is_terminal_live", return_value=True), \
+         patch("app.services.scheduler._send_text_to_terminal", return_value=False):
+        await _process_task(store, task)
+
+    updated = await store.get_by_id(task_id)
+    assert updated["status"] == "pending"
+    assert updated["execute_at"] == "2026-05-13T08:00:00+00:00"
+
+
+# ---------------------------------------------------------------------------
+# _process_task — terminal not live
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_process_task_one_time_terminal_not_live(store):
+    """到点 + terminal 不存在/已关闭 + 一次性 → 状态变 expired。"""
+    execute_at = datetime.now(timezone.utc).isoformat()
+    task_id = await store.create("user1", "session-1", "t1", "echo hello", execute_at, "none")
+
+    task = await store.get_by_id(task_id)
+
+    with patch("app.services.scheduler._is_terminal_live", return_value=False):
+        await _process_task(store, task)
+
+    updated = await store.get_by_id(task_id)
+    assert updated["status"] == "expired"
+    assert updated["executed_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_process_task_daily_terminal_not_live(store):
+    """到点 + terminal 不存在/已关闭 + 每日 → 跳过本轮，execute_at 推到次日。"""
+    execute_at = "2026-05-12T08:00:00+00:00"
+    task_id = await store.create("user1", "session-1", "t1", "git pull", execute_at, "daily")
+
+    task = await store.get_by_id(task_id)
+
+    with patch("app.services.scheduler._is_terminal_live", return_value=False):
         await _process_task(store, task)
 
     updated = await store.get_by_id(task_id)
@@ -197,7 +238,8 @@ async def test_poll_once_multiple_due_tasks(store):
     await store.create("user1", "session-1", "t2", "cmd2", past, "daily")
     await store.create("user1", "session-2", "t3", "cmd3", past, "none")
 
-    with patch("app.services.scheduler._send_text_to_terminal", return_value=True):
+    with patch("app.services.scheduler._is_terminal_live", return_value=True), \
+         patch("app.services.scheduler._send_text_to_terminal", return_value=True):
         await _poll_once(store)
 
     # 验证所有任务都被处理了
@@ -229,7 +271,8 @@ async def test_poll_once_ws_exception_one_time_expired(store):
     past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
     task_id = await store.create("user1", "session-1", "t1", "cmd1", past, "none")
 
-    with patch("app.services.scheduler._send_text_to_terminal", return_value=False):
+    with patch("app.services.scheduler._is_terminal_live", return_value=True), \
+         patch("app.services.scheduler._send_text_to_terminal", return_value=False):
         await _poll_once(store)
 
     task = await store.get_by_id(task_id)
@@ -242,7 +285,8 @@ async def test_poll_once_ws_exception_daily_skip(store):
     execute_at = "2026-05-12T08:00:00+00:00"
     task_id = await store.create("user1", "session-1", "t1", "cmd1", execute_at, "daily")
 
-    with patch("app.services.scheduler._send_text_to_terminal", return_value=False):
+    with patch("app.services.scheduler._is_terminal_live", return_value=True), \
+         patch("app.services.scheduler._send_text_to_terminal", return_value=False):
         await _poll_once(store)
 
     task = await store.get_by_id(task_id)

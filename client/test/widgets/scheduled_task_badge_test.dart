@@ -3,11 +3,18 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:rc_client/models/scheduled_task.dart';
 import 'package:rc_client/widgets/scheduled_task_badge.dart';
 
+/// 使用本地时间创建 ISO 字符串，确保 toLocal() 后显示一致
+String _localTimeStr(int hour, int minute) {
+  final now = DateTime.now();
+  final dt = DateTime(now.year, now.month, now.day, hour, minute);
+  return dt.toIso8601String();
+}
+
 ScheduledTask _makeTask({
   int id = 1,
   String terminalId = 'term-1',
   String textContent = 'ls -la',
-  String executeAt = '2026-05-13T08:30:00Z',
+  String? executeAt,
   ScheduledTaskRepeatType repeatType = ScheduledTaskRepeatType.once,
   ScheduledTaskStatus status = ScheduledTaskStatus.pending,
 }) {
@@ -16,7 +23,7 @@ ScheduledTask _makeTask({
     sessionId: 'sess-1',
     terminalId: terminalId,
     textContent: textContent,
-    executeAt: executeAt,
+    executeAt: executeAt ?? _localTimeStr(8, 30),
     repeatType: repeatType,
     status: status,
     createdAt: '2026-05-12T10:00:00Z',
@@ -52,7 +59,7 @@ void main() {
       final task = _makeTask();
       await tester.pumpWidget(buildSubject(tasks: [task]));
 
-      // 显示时间 08:30
+      // 显示本地时间 08:30
       expect(find.text('08:30'), findsOneWidget);
       // 显示命令摘要
       expect(find.text('ls -la'), findsOneWidget);
@@ -102,8 +109,8 @@ void main() {
 
     testWidgets('多个任务 → 显示多行', (tester) async {
       final tasks = [
-        _makeTask(id: 1, textContent: 'cmd1', executeAt: '2026-05-13T08:00:00Z'),
-        _makeTask(id: 2, textContent: 'cmd2', executeAt: '2026-05-13T09:00:00Z'),
+        _makeTask(id: 1, textContent: 'cmd1', executeAt: _localTimeStr(8, 0)),
+        _makeTask(id: 2, textContent: 'cmd2', executeAt: _localTimeStr(9, 0)),
       ];
       await tester.pumpWidget(buildSubject(tasks: tasks));
 

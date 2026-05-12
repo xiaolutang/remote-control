@@ -7,14 +7,16 @@ import '../services/scheduled_task_poller.dart';
 ///
 /// 展示当前终端的定时任务列表，支持取消 pending 任务和删除已结束任务。
 /// 客户端过滤：executed/expired 超过 24 小时的任务不展示。
-class ScheduledTaskListSheet extends StatelessWidget {
-  final List<ScheduledTask> tasks;
+///
+/// 监听 [ScheduledTaskPoller] 变化，删除/取消后自动刷新列表。
+class ScheduledTaskListSheet extends StatefulWidget {
+  final String terminalId;
   final ScheduledTaskPoller poller;
   final String token;
 
   const ScheduledTaskListSheet({
     super.key,
-    required this.tasks,
+    required this.terminalId,
     required this.poller,
     required this.token,
   });
@@ -26,29 +28,55 @@ class ScheduledTaskListSheet extends StatelessWidget {
     required ScheduledTaskPoller poller,
     required String token,
   }) {
+    // 从 tasks 快照中提取 terminalId（列表非空时取第一个）
+    final terminalId = tasks.isNotEmpty ? tasks.first.terminalId : '';
     return showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
       builder: (_) => ScheduledTaskListSheet(
-        tasks: tasks,
+        terminalId: terminalId,
         poller: poller,
         token: token,
       ),
     );
   }
 
+  @override
+  State<ScheduledTaskListSheet> createState() => _ScheduledTaskListSheetState();
+}
+
+class _ScheduledTaskListSheetState extends State<ScheduledTaskListSheet> {
+  @override
+  void initState() {
+    super.initState();
+    widget.poller.addListener(_onPollerChanged);
+  }
+
+  @override
+  void dispose() {
+    widget.poller.removeListener(_onPollerChanged);
+    super.dispose();
+  }
+
+  void _onPollerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  List<ScheduledTask> get _tasks =>
+      widget.poller.allTasksForTerminal(widget.terminalId);
+
   /// 过滤掉 executed/expired 超过 24 小时的任务
   List<ScheduledTask> get _visibleTasks {
     final now = DateTime.now();
-    return tasks.where((t) {
+    return _tasks.where((t) {
       if (t.status == ScheduledTaskStatus.pending) return true;
       // executed/expired 任务检查是否在 24 小时内
       final endTime = t.executedAt != null && t.executedAt!.isNotEmpty
           ? DateTime.tryParse(t.executedAt!)
           : null;
       if (endTime == null) return true; // 无时间戳则保留
-      return now.difference(endTime).inHours < 24;
+      return now.difference(endTime).inSeconds < 86400;
     }).toList();
   }
 
@@ -151,7 +179,7 @@ class ScheduledTaskListSheet extends StatelessWidget {
           size: 18,
           color: theme.disabledColor,
         ),
-        onPressed: () => poller.deleteTask(task.id),
+        onPressed: () => widget.poller.deleteTask(task.id),
       ),
     );
   }
@@ -159,6 +187,7 @@ class ScheduledTaskListSheet extends StatelessWidget {
   String _formatTime(String isoStr) {
     final dt = DateTime.tryParse(isoStr);
     if (dt == null) return isoStr;
-    return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    final local = dt.toLocal();
+    return '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
   }
 }

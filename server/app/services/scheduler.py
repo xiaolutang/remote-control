@@ -14,6 +14,7 @@ import logging
 from datetime import datetime, timezone, timedelta
 
 from app.store.scheduled_task import ScheduledTaskStore
+from app.store.session import list_session_terminals
 from app.ws.agent_connection import get_agent_connection
 from app.infra.message_types import MessageType
 
@@ -38,6 +39,20 @@ async def _send_text_to_terminal(session_id: str, terminal_id: str, text: str) -
         return True
     except Exception:
         logger.exception("WS send failed for session=%s terminal=%s", session_id, terminal_id)
+        return False
+
+
+async def _is_terminal_live(session_id: str, terminal_id: str) -> bool:
+    """检查 terminal 是否存在且状态为 live。"""
+    try:
+        terminals = await list_session_terminals(session_id)
+        terminal = next(
+            (t for t in terminals if t.get("terminal_id") == terminal_id),
+            None,
+        )
+        return terminal is not None and terminal.get("status") == "live"
+    except Exception:
+        logger.exception("Failed to check terminal liveness for session=%s terminal=%s", session_id, terminal_id)
         return False
 
 
@@ -91,9 +106,25 @@ async def _process_task(store: ScheduledTaskStore, task: dict):
     text_content = task["text_content"]
     repeat_type = task["repeat_type"]
 
-    success = await _send_text_to_terminal(session_id, terminal_id, text_content)
-
     now_iso = datetime.now(timezone.utc).isoformat()
+
+    # 检查 terminal 是否仍然存在且为 live
+    terminal_live = await _is_terminal_live(session_id, terminal_id)
+
+    if not terminal_live:
+        # terminal 不存在或已关闭
+        if repeat_type == "daily":
+            # 每日任务：跳过本轮，推到次日
+            next_execute_at = _next_daily_execute_at(task["execute_at"])
+            await store.update_execute_at(task_id, next_execute_at)
+            logger.warning("Daily task %d skipped (terminal not live), next at %s", task_id, next_execute_at)
+        else:
+            # 一次性任务：标记为 expired
+            await store.update_status(task_id, "expired", executed_at=now_iso)
+            logger.warning("One-time task %d expired (terminal not live)", task_id)
+        return
+
+    success = await _send_text_to_terminal(session_id, terminal_id, text_content)
 
     if repeat_type == "daily":
         next_execute_at = _next_daily_execute_at(task["execute_at"])
