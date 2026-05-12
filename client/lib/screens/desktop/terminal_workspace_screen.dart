@@ -444,6 +444,7 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
     // 仅在无终端且正在加载时显示 loading
     if ((controller.loadingDevices || controller.loadingTerminals) &&
         terminal == null) {
+      _stopScheduledTaskPoller();
       return const Center(child: CircularProgressIndicator());
     }
 
@@ -453,6 +454,7 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
     }
 
     if (state.kind == WorkspaceStateKind.deviceOffline) {
+      _stopScheduledTaskPoller();
       return WorkspaceEmptyState(
         icon: Icons.computer_outlined,
         title: '电脑离线',
