@@ -169,7 +169,7 @@ class AppConfig {
 
   factory AppConfig.fromJson(Map<String, dynamic> json,
       {String serverUrl = ''}) {
-    final explicitExitPolicy = json['desktopExitPolicy'] as String?;
+    final explicitExitPolicy = json['desktopExitPolicy'];
     final legacyKeepRunning =
         json['keepAgentRunningInBackground'] as bool? ?? false;
     final legacyExplicitChoice =
@@ -186,12 +186,12 @@ class AppConfig {
           Duration(milliseconds: json['heartbeatIntervalMs'] as int? ?? 30000),
       themeMode: enumFromJson(
         AppThemeMode.values,
-        json['themeMode'] as String?,
+        json['themeMode'],
         AppThemeMode.system,
       ),
       claudeNavigationMode: enumFromJson(
         ClaudeNavigationMode.values,
-        json['claudeNavigationMode'] as String?,
+        json['claudeNavigationMode'],
         ClaudeNavigationMode.standard,
       ),
       desktopExitPolicy: explicitExitPolicy != null

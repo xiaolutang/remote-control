@@ -245,6 +245,18 @@ void main() {
       expect(config.desktopExitPolicy, DesktopExitPolicy.stopAgentOnExit);
     });
 
+    test('fromJson handles non-string enum values safely', () {
+      final config = AppConfig.fromJson({
+        'themeMode': 42,
+        'claudeNavigationMode': true,
+        'desktopExitPolicy': null,
+      });
+      // 非字符串类型应回退到默认
+      expect(config.themeMode, AppThemeMode.system);
+      expect(config.claudeNavigationMode, ClaudeNavigationMode.standard);
+      expect(config.desktopExitPolicy, DesktopExitPolicy.stopAgentOnExit);
+    });
+
     test('fromJson handles malformed shortcutItems gracefully', () {
       final config = AppConfig.fromJson({
         'shortcutItems': [

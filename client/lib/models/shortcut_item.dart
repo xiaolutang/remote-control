@@ -110,12 +110,12 @@ class ShortcutItem {
       label: json['label'] as String? ?? '',
       source: enumFromJson(
         ShortcutItemSource.values,
-        json['source'] as String?,
+        json['source'],
         ShortcutItemSource.builtin,
       ),
       section: enumFromJson(
         ShortcutItemSection.values,
-        json['section'] as String?,
+        json['section'],
         ShortcutItemSection.smart,
       ),
       action: json['action'] is Map<String, dynamic>
@@ -135,7 +135,7 @@ class ShortcutItem {
           : null,
       scope: enumFromJson(
         ShortcutItemScope.values,
-        json['scope'] as String?,
+        json['scope'],
         ShortcutItemScope.global,
       ),
       description: json['description'] as String?,

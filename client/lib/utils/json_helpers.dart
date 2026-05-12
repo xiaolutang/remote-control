@@ -59,23 +59,20 @@ List<T> readListFromJson<T>(
 /// 安全地将枚举名称映射为枚举值，未知名称返回 [fallback]。
 ///
 /// 替代 `values.byName(name)` —— byName 遇到未知值会抛 ArgumentError。
+/// 接受 Object? 而非 String?，内部做类型防御。
 T enumFromJson<T extends Enum>(
   List<T> values,
-  String? name,
+  Object? raw,
   T fallback,
 ) {
-  if (name == null) return fallback;
+  if (raw is! String) return fallback;
   for (final v in values) {
-    if (v.name == name) return v;
+    if (v.name == raw) return v;
   }
   return fallback;
 }
 
 /// 安全地将 Map<String, dynamic> 的 value 转为 int。
 ///
-/// 兼容 int、num（double → toInt）、String 三种 JSON 数值类型。
-int safeIntFromMapValue(Object? value) {
-  if (value is int) return value;
-  if (value is num) return value.toInt();
-  return 0;
-}
+/// 与 [readIntFromJson] 行为一致：兼容 int、num、String，失败返回 0。
+int safeIntFromMapValue(Object? value) => readIntFromJson(value);

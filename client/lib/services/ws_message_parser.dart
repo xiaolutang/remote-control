@@ -176,7 +176,9 @@ bool _wsApplyTerminalMeta(WebSocketService s, Map<String, dynamic> data) {
 
   final viewsData = data['views'] as Map<String, dynamic>?;
   if (viewsData != null) {
-    final nextViews = viewsData.map((k, v) => MapEntry(k, v as int));
+    final nextViews = viewsData.map(
+      (k, v) => MapEntry(k, safeIntFromMapValue(v)),
+    );
     if (!mapEquals(nextViews, s._views)) {
       s._views = nextViews;
       s._presenceController.add(s._views);

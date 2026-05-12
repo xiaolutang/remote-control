@@ -12,6 +12,7 @@ import 'crypto_service.dart';
 import '../constants/message_types.dart';
 import 'app_logger.dart';
 import '../models/config.dart';
+import '../utils/json_helpers.dart';
 
 export '../models/terminal_protocol.dart';
 

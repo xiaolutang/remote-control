@@ -130,6 +130,21 @@ void main() {
       expect(minimal.label, '');
       expect(minimal.source, ShortcutItemSource.builtin);
     });
+
+    test('fromJson handles non-string enum values', () {
+      final item = ShortcutItem.fromJson({
+        'id': 'test',
+        'label': 'test',
+        'source': 42,
+        'section': true,
+        'action': {'type': 'sendText', 'value': 'ls'},
+        'scope': null,
+      });
+      // 非字符串类型应回退到默认
+      expect(item.source, ShortcutItemSource.builtin);
+      expect(item.section, ShortcutItemSection.smart);
+      expect(item.scope, ShortcutItemScope.global);
+    });
   });
 
   group('ShortcutItemSorter', () {
