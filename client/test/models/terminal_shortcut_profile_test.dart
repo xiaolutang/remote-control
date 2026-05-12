@@ -141,5 +141,65 @@ void main() {
             reason: '${entry.key} should produce ${entry.value.replaceAll("\x1b", "ESC")}');
       }
     });
+
+    test('fromJson preserves control characters \\r \\t \\x1b', () {
+      final json = {'type': 'sendText', 'value': 'pnpm test\r'};
+      final action = TerminalShortcutAction.fromJson(json);
+      expect(action.value, 'pnpm test\r');
+      expect(action.type, TerminalShortcutActionType.sendText);
+
+      final escapeJson = {'type': 'sendEscapeSequence', 'value': '\x1b[A'};
+      final escapeAction = TerminalShortcutAction.fromJson(escapeJson);
+      expect(escapeAction.value, '\x1b[A');
+    });
+
+    test('fromJson round-trips through toJson preserving control bytes', () {
+      const original = TerminalShortcutAction(
+        type: TerminalShortcutActionType.sendText,
+        value: 'line1\r\nline2\ttab\x1besc',
+      );
+      final decoded = TerminalShortcutAction.fromJson(original.toJson());
+      expect(decoded.value, original.value);
+      expect(decoded.type, original.type);
+    });
+
+    test('fromJson handles malformed type gracefully', () {
+      // Unknown type → fallback to sendText
+      final unknown = TerminalShortcutAction.fromJson(
+        {'type': 'nonExistentType', 'value': 'test'},
+      );
+      expect(unknown.type, TerminalShortcutActionType.sendText);
+      expect(unknown.value, 'test');
+
+      // Non-string type → fallback to sendText
+      final intType = TerminalShortcutAction.fromJson(
+        {'type': 42, 'value': 'test'},
+      );
+      expect(intType.type, TerminalShortcutActionType.sendText);
+
+      // Missing type → fallback to sendText
+      final missing = TerminalShortcutAction.fromJson({'value': 'test'});
+      expect(missing.type, TerminalShortcutActionType.sendText);
+    });
+
+    test('fromJson handles malformed value gracefully', () {
+      // Non-string value → empty string
+      final intVal = TerminalShortcutAction.fromJson(
+        {'type': 'sendText', 'value': 123},
+      );
+      expect(intVal.value, '');
+
+      // Missing value → empty string
+      final missing = TerminalShortcutAction.fromJson(
+        {'type': 'sendText'},
+      );
+      expect(missing.value, '');
+
+      // null value → empty string
+      final nullVal = TerminalShortcutAction.fromJson(
+        {'type': 'sendText', 'value': null},
+      );
+      expect(nullVal.value, '');
+    });
   });
 }
