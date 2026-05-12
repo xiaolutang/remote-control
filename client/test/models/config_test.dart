@@ -233,6 +233,32 @@ void main() {
       expect(config.desktopAgentWorkdir, isEmpty);
     });
 
+    test('fromJson handles unknown enum values safely', () {
+      final config = AppConfig.fromJson({
+        'themeMode': 'nonExistentMode',
+        'claudeNavigationMode': 'garbage',
+        'desktopExitPolicy': 'unknownPolicy',
+      });
+      // 未知枚举值应回退到默认
+      expect(config.themeMode, AppThemeMode.system);
+      expect(config.claudeNavigationMode, ClaudeNavigationMode.standard);
+      expect(config.desktopExitPolicy, DesktopExitPolicy.stopAgentOnExit);
+    });
+
+    test('fromJson handles malformed shortcutItems gracefully', () {
+      final config = AppConfig.fromJson({
+        'shortcutItems': [
+          {'action': 42}, // action 不是 Map，应降级
+          {'id': 'ok', 'label': 'OK', 'action': {'type': 'sendText', 'value': 'ls\r'}},
+          null, // null 元素应被跳过
+        ],
+      });
+      // 第一个 item action 降级为空的 sendText
+      expect(config.shortcutItems.length, 2);
+      expect(config.shortcutItems[0].action.value, '');
+      expect(config.shortcutItems[1].action.value, 'ls\r');
+    });
+
     test('copyWith', () {
       const original = AppConfig(
         serverUrl: 'ws://localhost:8080',

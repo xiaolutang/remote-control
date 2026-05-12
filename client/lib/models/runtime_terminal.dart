@@ -59,7 +59,9 @@ class RuntimeTerminal {
           ? null
           : DateTime.tryParse(json['updated_at'] as String),
       disconnectReason: json['disconnect_reason'] as String?,
-      views: rawViews.map((key, value) => MapEntry(key, value as int)),
+      views: rawViews.map(
+        (key, value) => MapEntry(key, safeIntFromMapValue(value)),
+      ),
     );
   }
 }

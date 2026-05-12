@@ -99,6 +99,37 @@ void main() {
       expect(item.id, 'claude_help');
       expect(item.description, isNull);
     });
+
+    test('fromJson handles malformed data gracefully', () {
+      // 非法的 source/section/scope → 回退到默认值
+      final item = ShortcutItem.fromJson({
+        'id': 'test',
+        'label': 'test',
+        'source': 'unknown_source',
+        'section': 'invalid_section',
+        'action': {'type': 'sendText', 'value': 'ls'},
+        'scope': 'bad_scope',
+        'lastUsedAt': 'not-a-date',
+      });
+      expect(item.source, ShortcutItemSource.builtin);
+      expect(item.section, ShortcutItemSection.smart);
+      expect(item.scope, ShortcutItemScope.global);
+      expect(item.lastUsedAt, isNull); // tryParse 失败
+
+      // action 不是 Map → 降级为空 action
+      final noAction = ShortcutItem.fromJson({
+        'id': 'x',
+        'label': 'x',
+        'action': 42,
+      });
+      expect(noAction.action.value, '');
+
+      // 缺失字段 → 默认值
+      final minimal = ShortcutItem.fromJson({});
+      expect(minimal.id, '');
+      expect(minimal.label, '');
+      expect(minimal.source, ShortcutItemSource.builtin);
+    });
   });
 
   group('ShortcutItemSorter', () {

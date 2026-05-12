@@ -184,15 +184,22 @@ class AppConfig {
           Duration(milliseconds: json['reconnectDelayMs'] as int? ?? 1000),
       heartbeatInterval:
           Duration(milliseconds: json['heartbeatIntervalMs'] as int? ?? 30000),
-      themeMode: AppThemeMode.values.byName(
-        json['themeMode'] as String? ?? AppThemeMode.system.name,
+      themeMode: enumFromJson(
+        AppThemeMode.values,
+        json['themeMode'] as String?,
+        AppThemeMode.system,
       ),
-      claudeNavigationMode: ClaudeNavigationMode.values.byName(
-        json['claudeNavigationMode'] as String? ??
-            ClaudeNavigationMode.standard.name,
+      claudeNavigationMode: enumFromJson(
+        ClaudeNavigationMode.values,
+        json['claudeNavigationMode'] as String?,
+        ClaudeNavigationMode.standard,
       ),
       desktopExitPolicy: explicitExitPolicy != null
-          ? DesktopExitPolicy.values.byName(explicitExitPolicy)
+          ? enumFromJson(
+              DesktopExitPolicy.values,
+              explicitExitPolicy,
+              DesktopExitPolicy.stopAgentOnExit,
+            )
           : _legacyDesktopExitPolicy(
               keepRunningInBackground: legacyKeepRunning,
               hadExplicitChoice: legacyExplicitChoice,
