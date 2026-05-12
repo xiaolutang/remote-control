@@ -53,15 +53,15 @@ mixin _PanelConversationMixin on _PanelStateFields {
   }
 
   /// 从历史条目提取阶段摘要标签
-  String _buildStageLabel(_AgentHistoryEntry entry) {
+  String _buildStageLabel(AgentHistoryEntry entry) {
     final toolCount = entry.traces.length;
     final hasFollowUp = entry.answers.isNotEmpty;
     final result = entry.result;
 
     final resultLabel = result != null
         ? switch (result.responseType) {
-            'message' => '回答了你的问题',
-            'ai_prompt' => '生成了 AI Prompt',
+            AgentResponseType.message => '回答了你的问题',
+            AgentResponseType.aiPrompt => '生成了 AI Prompt',
             _ => result.steps.isNotEmpty
                 ? '生成了 ${result.steps.length} 条命令'
                 : '生成了命令',
@@ -118,7 +118,7 @@ mixin _PanelConversationMixin on _PanelStateFields {
               color: colorScheme.surfaceContainerLow,
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
-                color: colorScheme.outlineVariant.withValues(alpha: 0.12),
+                color: subtleBorderColor(colorScheme),
               ),
             ),
             child: Row(
@@ -263,8 +263,8 @@ mixin _PanelConversationMixin on _PanelStateFields {
 
   /// 按 turnEventOrder 交错渲染 answers 和 assistantMessages
   List<Widget> _buildOrderedTurnEvents({
-    required List<_TurnEventType> order,
-    required List<_AgentAnswerEntry> answers,
+    required List<TurnEventType> order,
+    required List<AgentAnswerEntry> answers,
     required List<StreamingTextEvent> assistantMessages,
     required ColorScheme colorScheme,
     int? historyIndex,
@@ -276,7 +276,7 @@ mixin _PanelConversationMixin on _PanelStateFields {
     var msgIdx = 0;
     for (final type in order) {
       switch (type) {
-        case _TurnEventType.answer:
+        case TurnEventType.answer:
           if (answerIdx < answers.length) {
             widgets.add(_buildAssistantBubble(
               Text(
@@ -295,7 +295,7 @@ mixin _PanelConversationMixin on _PanelStateFields {
             widgets.add(const SizedBox(height: 6));
             answerIdx++;
           }
-        case _TurnEventType.assistantMessage:
+        case TurnEventType.assistantMessage:
           if (msgIdx < assistantMessages.length) {
             widgets.add(_buildAssistantBubble(
               Text(
@@ -316,7 +316,7 @@ mixin _PanelConversationMixin on _PanelStateFields {
       AgentResultEvent result, ColorScheme colorScheme) {
     final rt = result.responseType;
 
-    if (rt == 'message') {
+    if (rt == AgentResponseType.message) {
       return _buildAssistantBubble(
         Text(
           result.summary,
@@ -325,7 +325,7 @@ mixin _PanelConversationMixin on _PanelStateFields {
       );
     }
 
-    if (rt == 'ai_prompt') {
+    if (rt == AgentResponseType.aiPrompt) {
       return _buildAssistantBubble(
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,

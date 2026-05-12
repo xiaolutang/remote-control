@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -114,6 +113,10 @@ class DesktopAgentManager extends ChangeNotifier {
   final ConfigService _configService;
   final DesktopExitPolicyService _exitPolicyService;
   final Duration? _recoveryRetryDelayOverride;
+  SharedPreferences? _prefs;
+
+  Future<SharedPreferences> _ensurePrefs() async =>
+      _prefs ??= await SharedPreferences.getInstance();
 
   DesktopAgentState _state =
       const DesktopAgentState(kind: DesktopAgentStateKind.unconfigured);
@@ -642,7 +645,7 @@ class DesktopAgentManager extends ChangeNotifier {
 
   Future<AgentOwnershipInfo?> _loadSavedOwnership() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await _ensurePrefs();
       final jsonStr = prefs.getString(_ownershipKey);
       if (jsonStr == null || jsonStr.isEmpty) return null;
       final json = jsonDecode(jsonStr) as Map<String, dynamic>;
@@ -655,7 +658,7 @@ class DesktopAgentManager extends ChangeNotifier {
 
   Future<void> _saveOwnership(AgentOwnershipInfo ownership) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await _ensurePrefs();
       await prefs.setString(_ownershipKey, jsonEncode(ownership.toJson()));
     } catch (e) {
       _log.info('_saveOwnership: error - $e');
@@ -664,7 +667,7 @@ class DesktopAgentManager extends ChangeNotifier {
 
   Future<void> _clearSavedOwnership() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await _ensurePrefs();
       await prefs.remove(_ownershipKey);
     } catch (e) {
       _log.info('_clearSavedOwnership: error - $e');

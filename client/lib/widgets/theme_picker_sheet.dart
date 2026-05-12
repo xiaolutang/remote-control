@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import 'theme_controller.dart';
+import '../services/theme_controller.dart';
 
 /// 显示主题选择器底部弹窗
 ///

@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:io' show HttpClient, HttpHeaders, Platform, SystemEncoding;
+import 'dart:io' show HttpHeaders, Platform, SystemEncoding;
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -49,6 +49,7 @@ class AuthService {
   final http.Client _client;
   final CryptoService _crypto;
   final SecureStorageService _secureStorage;
+  SharedPreferences? _prefs;
 
   AuthService({
     required this.serverUrl,
@@ -66,6 +67,9 @@ class AuthService {
 
   ServerEndpointProfile get _endpointProfile =>
       ServerEndpointProfile.fromServerUrl(serverUrl);
+
+  Future<SharedPreferences> _ensurePrefs() async =>
+      _prefs ??= await SharedPreferences.getInstance();
 
   /// 注册
   Future<Map<String, dynamic>> register(
@@ -231,13 +235,10 @@ class AuthService {
     required String password,
     required bool useSystemProxy,
   }) async {
-    final client = HttpClient()
-      ..connectionTimeout = TimingConstants.httpConnectionTimeout;
-    if (kDebugMode) {
-      client.badCertificateCallback = (_, __, ___) => true;
-    }
-    client.findProxy =
-        useSystemProxy ? HttpClient.findProxyFromEnvironment : (_) => 'DIRECT';
+    final client = HttpClientFactory.createRawConfigured(
+      useSystemProxy: useSystemProxy,
+    );
+    client.connectionTimeout = TimingConstants.httpConnectionTimeout;
 
     try {
       final request = await client.postUrl(uri);
@@ -266,7 +267,7 @@ class AuthService {
     required String password,
     required Map<String, dynamic> session,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _ensurePrefs();
     await prefs.setString('rc_username', username);
     await prefs.setString('rc_session_id', session['session_id'] ?? '');
     await prefs.setString('rc_expires_at', session['expires_at'] ?? '');
@@ -296,7 +297,7 @@ class AuthService {
 
   /// 获取保存的凭证
   Future<Map<String, String>?> getSavedCredentials() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _ensurePrefs();
     final username = prefs.getString('rc_username');
     final trackedSecrets = await _secureStorage.readTrackedEntries(
       const <String>[SecureStorageService.passwordKey],
@@ -324,7 +325,7 @@ class AuthService {
   Future<Map<String, String>?> getSavedSession({
     bool includeRefreshToken = false,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _ensurePrefs();
     final sessionId = prefs.getString('rc_session_id');
     final trackedSecrets = await _secureStorage.readTrackedEntries(
       includeRefreshToken
@@ -387,7 +388,7 @@ class AuthService {
   /// Agent 生命周期由调用方负责：在调用 logout() 之前，
   /// 调用方应先通过 DesktopAgentManager.onLogout() 关闭 Agent。
   Future<void> logout() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _ensurePrefs();
     await prefs.remove('rc_username');
     await prefs.remove('rc_session_id');
     await prefs.remove('rc_expires_at');

@@ -2,6 +2,7 @@ import 'project_context_snapshot.dart';
 import 'recent_launch_context.dart';
 import 'shortcut_item.dart';
 import 'terminal_shortcut.dart';
+import '../utils/json_helpers.dart';
 
 /// 统一超时/间隔常量，消除各服务文件中重复的 Duration 定义。
 abstract final class TimingConstants {
@@ -168,50 +169,59 @@ class AppConfig {
 
   factory AppConfig.fromJson(Map<String, dynamic> json,
       {String serverUrl = ''}) {
-    final explicitExitPolicy = json['desktopExitPolicy'] as String?;
+    final explicitExitPolicy = json['desktopExitPolicy'];
     final legacyKeepRunning =
-        json['keepAgentRunningInBackground'] as bool? ?? false;
+        readBoolFromJson(json['keepAgentRunningInBackground']);
     final legacyExplicitChoice =
-        json['desktopBackgroundModeUserSet'] as bool? ?? false;
+        readBoolFromJson(json['desktopBackgroundModeUserSet']);
     return AppConfig(
       serverUrl: serverUrl,
-      token: json['token'] as String?,
-      sessionId: json['sessionId'] as String? ?? '',
-      autoReconnect: json['autoReconnect'] as bool? ?? true,
-      maxRetries: json['maxRetries'] as int? ?? 5,
-      reconnectDelay:
-          Duration(milliseconds: json['reconnectDelayMs'] as int? ?? 1000),
-      heartbeatInterval:
-          Duration(milliseconds: json['heartbeatIntervalMs'] as int? ?? 30000),
-      themeMode: AppThemeMode.values.byName(
-        json['themeMode'] as String? ?? AppThemeMode.system.name,
+      token: json['token'] is String ? json['token'] as String : null,
+      sessionId: readStringFromJson(json['sessionId']),
+      autoReconnect: readBoolFromJson(json['autoReconnect'], defaultValue: true),
+      maxRetries: json['maxRetries'] is num
+          ? (json['maxRetries'] as num).toInt()
+          : 5,
+      reconnectDelay: Duration(
+          milliseconds: json['reconnectDelayMs'] is num
+              ? (json['reconnectDelayMs'] as num).toInt()
+              : 1000),
+      heartbeatInterval: Duration(
+          milliseconds: json['heartbeatIntervalMs'] is num
+              ? (json['heartbeatIntervalMs'] as num).toInt()
+              : 30000),
+      themeMode: enumFromJson(
+        AppThemeMode.values,
+        json['themeMode'],
+        AppThemeMode.system,
       ),
-      claudeNavigationMode: ClaudeNavigationMode.values.byName(
-        json['claudeNavigationMode'] as String? ??
-            ClaudeNavigationMode.standard.name,
+      claudeNavigationMode: enumFromJson(
+        ClaudeNavigationMode.values,
+        json['claudeNavigationMode'],
+        ClaudeNavigationMode.standard,
       ),
       desktopExitPolicy: explicitExitPolicy != null
-          ? DesktopExitPolicy.values.byName(explicitExitPolicy)
+          ? enumFromJson(
+              DesktopExitPolicy.values,
+              explicitExitPolicy,
+              DesktopExitPolicy.stopAgentOnExit,
+            )
           : _legacyDesktopExitPolicy(
               keepRunningInBackground: legacyKeepRunning,
               hadExplicitChoice: legacyExplicitChoice,
             ),
-      desktopAgentWorkdir: json['desktopAgentWorkdir'] as String? ?? '',
-      preferredDeviceId: json['preferredDeviceId'] as String? ?? '',
-      shortcutItems: ((json['shortcutItems'] as List<dynamic>?) ?? const [])
-          .whereType<Map<String, dynamic>>()
-          .map(ShortcutItem.fromJson)
-          .toList(growable: false),
+      desktopAgentWorkdir: readStringFromJson(json['desktopAgentWorkdir']),
+      preferredDeviceId: readStringFromJson(json['preferredDeviceId']),
+      shortcutItems: readListFromJson(
+          json['shortcutItems'], ShortcutItem.fromJson),
       projectShortcutItems:
-          (((json['projectShortcutItems'] as Map<String, dynamic>?) ??
-                  const <String, dynamic>{}))
+          (json['projectShortcutItems'] is Map<String, dynamic>
+                  ? json['projectShortcutItems'] as Map<String, dynamic>
+                  : const <String, dynamic>{})
               .map(
         (key, value) => MapEntry(
           key,
-          ((value as List<dynamic>?) ?? const [])
-              .whereType<Map<String, dynamic>>()
-              .map(ShortcutItem.fromJson)
-              .toList(growable: false),
+          readListFromJson(value, ShortcutItem.fromJson),
         ),
       ),
       recentLaunchContexts: _parseRecentLaunchContexts(

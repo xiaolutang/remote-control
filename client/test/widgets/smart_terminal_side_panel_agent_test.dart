@@ -477,42 +477,6 @@ void main() {
       expect(find.byKey(const Key('side-panel-intent-input')), findsOneWidget);
     });
 
-    testWidgets('exploring state shows assistant_message bubble from live SSE',
-        (tester) async {
-      final controller = _AgentFakeController();
-      final agentService = _FakeAgentSessionService(
-        events: [
-          const AgentSessionCreatedEvent(sessionId: 'session-am-live'),
-          const AgentAssistantMessageEvent(content: '正在分析你的项目结构...'),
-          AgentResultEvent(
-            summary: '项目结构已分析',
-            steps: const [],
-            provider: 'agent',
-            source: 'recommended',
-            needConfirm: false,
-            aliases: const {},
-          ),
-        ],
-      );
-      await tester.pumpWidget(_buildTestApp(
-        controller: controller,
-        agentSessionServiceBuilder: (_) => agentService,
-      ));
-
-      await _openSidePanel(tester);
-      await tester.enterText(
-        find.byKey(const Key('side-panel-intent-input')),
-        '分析项目',
-      );
-      await tester.tap(find.byKey(const Key('side-panel-send')));
-      await tester.pumpAndSettle();
-
-      // assistant_message 应渲染为气泡（在活跃区域）
-      expect(find.text('正在分析你的项目结构...'), findsOneWidget);
-      // result 应渲染（面板进入 result 状态）
-      expect(find.text('项目结构已分析'), findsOneWidget);
-    });
-
     testWidgets('asking state shows option buttons', (tester) async {
       final controller = _AgentFakeController();
       final agentService = _FakeAgentSessionService(
@@ -1093,11 +1057,6 @@ void main() {
           conversationId: 'conv-sync',
         );
         if (runSessionCall == 1) {
-          yield AgentTraceEvent(
-            tool: 'execute_command',
-            inputSummary: 'ls',
-            outputSummary: 'project',
-          );
           yield AgentResultEvent(
             summary: '第一个意图结果',
             steps: [],
@@ -1723,17 +1682,6 @@ void main() {
   });
 
   group('Agent models', () {
-    test('AgentTraceEvent parses correctly', () {
-      final event = AgentTraceEvent.fromJson({
-        'tool': 'bash',
-        'input_summary': 'ls -la',
-        'output_summary': 'file list',
-      });
-      expect(event.tool, 'bash');
-      expect(event.inputSummary, 'ls -la');
-      expect(event.outputSummary, 'file list');
-    });
-
     test('AgentQuestionEvent parses correctly', () {
       final event = AgentQuestionEvent.fromJson({
         'question': 'Which project?',
@@ -1833,7 +1781,7 @@ void main() {
             source: 'recommended',
             needConfirm: false,
             aliases: const {},
-            responseType: 'message',
+            responseType: AgentResponseType.message,
           ),
         ],
       );
@@ -1880,7 +1828,7 @@ void main() {
             source: 'recommended',
             needConfirm: true,
             aliases: {},
-            responseType: 'command',
+            responseType: AgentResponseType.command,
           ),
         ],
       );
@@ -1917,7 +1865,7 @@ void main() {
             source: 'recommended',
             needConfirm: false,
             aliases: const {},
-            responseType: 'ai_prompt',
+            responseType: AgentResponseType.aiPrompt,
             aiPrompt: 'kubectl apply -f deployment.yaml',
           ),
         ],
@@ -1965,7 +1913,7 @@ void main() {
             source: 'recommended',
             needConfirm: true,
             aliases: {},
-            responseType: 'future_type',
+            responseType: AgentResponseType.command, // unknown falls back to command
           ),
         ],
       );
@@ -2002,7 +1950,7 @@ void main() {
             source: 'recommended',
             needConfirm: false,
             aliases: const {},
-            responseType: 'message',
+            responseType: AgentResponseType.message,
           ),
         ],
       );
@@ -2041,7 +1989,7 @@ void main() {
             source: 'recommended',
             needConfirm: false,
             aliases: const {},
-            responseType: 'ai_prompt',
+            responseType: AgentResponseType.aiPrompt,
             aiPrompt: 'echo injected',
           ),
         ],
@@ -2083,7 +2031,7 @@ void main() {
             source: 'recommended',
             needConfirm: false,
             aliases: const {},
-            responseType: 'ai_prompt',
+            responseType: AgentResponseType.aiPrompt,
             aiPrompt: 'cd /tmp/project\ncodex',
           ),
         ],
@@ -2130,7 +2078,7 @@ void main() {
             source: 'recommended',
             needConfirm: false,
             aliases: const {},
-            responseType: 'ai_prompt',
+            responseType: AgentResponseType.aiPrompt,
             aiPrompt: largePrompt,
           ),
         ],
@@ -2179,7 +2127,7 @@ void main() {
             source: 'recommended',
             needConfirm: false,
             aliases: const {},
-            responseType: 'ai_prompt',
+            responseType: AgentResponseType.aiPrompt,
             aiPrompt: 'echo injected',
           ),
         ],
@@ -2228,7 +2176,7 @@ void main() {
               source: 'recommended',
               needConfirm: false,
               aliases: const {},
-              responseType: 'ai_prompt',
+              responseType: AgentResponseType.aiPrompt,
               aiPrompt: 'echo injected',
             ),
           ]);
@@ -2276,7 +2224,7 @@ void main() {
             source: 'recommended',
             needConfirm: false,
             aliases: const {},
-            responseType: 'ai_prompt',
+            responseType: AgentResponseType.aiPrompt,
             aiPrompt: 'line1\nline2',
           ),
         ],
@@ -2596,7 +2544,7 @@ void main() {
                 source: 'recommended',
                 needConfirm: false,
                 aliases: <String, String>{},
-                responseType: 'message',
+                responseType: AgentResponseType.message,
               ),
             ]);
           }
@@ -2609,7 +2557,7 @@ void main() {
               source: 'recommended',
               needConfirm: false,
               aliases: <String, String>{},
-              responseType: 'message',
+              responseType: AgentResponseType.message,
             ),
           ]);
         },
@@ -2668,7 +2616,7 @@ void main() {
                 source: 'recommended',
                 needConfirm: false,
                 aliases: <String, String>{},
-                responseType: 'message',
+                responseType: AgentResponseType.message,
               ),
             ]);
           }
@@ -2682,7 +2630,7 @@ void main() {
               source: 'recommended',
               needConfirm: false,
               aliases: <String, String>{},
-              responseType: 'message',
+              responseType: AgentResponseType.message,
             ),
           ]);
         },
@@ -2758,12 +2706,12 @@ void main() {
       await _pressSidePanelSend(tester);
       await tester.pump();
 
-      // SSE 活跃中：推送 session created + trace（进入 exploring）
+      // SSE 活跃中：推送 session created + tool step（进入 exploring）
       sseController.add(const AgentSessionCreatedEvent(sessionId: 's1'));
-      sseController.add(const AgentTraceEvent(
-        tool: 'bash',
-        inputSummary: '思考中...',
-        outputSummary: '',
+      sseController.add(const ToolStepEvent(
+        toolName: 'bash',
+        description: '思考中...',
+        status: ToolStepStatus.running,
       ));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
@@ -2781,8 +2729,8 @@ void main() {
 
       // 关键：SSE 活跃期间不应清空当前页面（exploring 状态仍然可见）
       expect(find.byKey(const Key('agent-cancel')), findsOneWidget);
-      // trace 被记录在 exploring 视图中（折叠在 ExpansionTile 内）
-      expect(find.text('探索进度 (1)'), findsOneWidget);
+      // tool step 被记录在 exploring 视图中
+      expect(find.text('bash'), findsOneWidget);
 
       // SSE 结束：关闭 SSE 流，触发 onDone
       sseController.add(AgentResultEvent(
@@ -2792,7 +2740,7 @@ void main() {
         source: 'recommended',
         needConfirm: false,
         aliases: <String, String>{},
-        responseType: 'message',
+        responseType: AgentResponseType.message,
       ));
       await tester.pump();
       await sseController.close();
@@ -2866,10 +2814,10 @@ void main() {
       await tester.pump();
 
       sseController.add(const AgentSessionCreatedEvent(sessionId: 's-reset'));
-      sseController.add(const AgentTraceEvent(
-        tool: 'bash',
-        inputSummary: '工作中',
-        outputSummary: '',
+      sseController.add(const ToolStepEvent(
+        toolName: 'bash',
+        description: '工作中',
+        status: ToolStepStatus.running,
       ));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
@@ -2929,7 +2877,7 @@ void main() {
               source: 'recommended',
               needConfirm: false,
               aliases: <String, String>{},
-              responseType: 'message',
+              responseType: AgentResponseType.message,
             ),
           ]);
         },
@@ -2985,10 +2933,10 @@ void main() {
       await tester.pump();
 
       sseController.add(const AgentSessionCreatedEvent(sessionId: 's-multi'));
-      sseController.add(const AgentTraceEvent(
-        tool: 'bash',
-        inputSummary: '处理中',
-        outputSummary: '',
+      sseController.add(const ToolStepEvent(
+        toolName: 'bash',
+        description: '处理中',
+        status: ToolStepStatus.running,
       ));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
@@ -3020,7 +2968,7 @@ void main() {
 
       // SSE 仍然活跃，页面内容不应消失（exploring 状态仍然可见）
       expect(find.byKey(const Key('agent-cancel')), findsOneWidget);
-      expect(find.text('探索进度 (1)'), findsOneWidget);
+      expect(find.text('bash'), findsOneWidget);
 
       // SSE 结束：pendingReset 导致的关闭是预期行为
       await sseController.close();
@@ -3095,10 +3043,10 @@ void main() {
       await tester.pump();
 
       sseController.add(const AgentSessionCreatedEvent(sessionId: 's-integ'));
-      sseController.add(const AgentTraceEvent(
-        tool: 'bash',
-        inputSummary: '执行步骤1',
-        outputSummary: '',
+      sseController.add(const ToolStepEvent(
+        toolName: 'bash',
+        description: '执行步骤1',
+        status: ToolStepStatus.running,
       ));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
@@ -3122,7 +3070,7 @@ void main() {
         source: 'recommended',
         needConfirm: false,
         aliases: <String, String>{},
-        responseType: 'message',
+        responseType: AgentResponseType.message,
       ));
       await sseController.close();
       await tester.pump();
@@ -3204,17 +3152,17 @@ void main() {
       await tester.pump();
 
       sseController.add(const AgentSessionCreatedEvent(sessionId: 's-clear'));
-      sseController.add(const AgentTraceEvent(
-        tool: 'bash',
-        inputSummary: '执行中',
-        outputSummary: '',
+      sseController.add(const ToolStepEvent(
+        toolName: 'bash',
+        description: '执行中',
+        status: ToolStepStatus.running,
       ));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
       // 验证 exploring UI 可见
       expect(find.byKey(const Key('agent-cancel')), findsOneWidget);
-      expect(find.text('探索进度 (1)'), findsOneWidget);
+      expect(find.text('bash'), findsOneWidget);
 
       // conversation_reset 到达（SSE 活跃时）
       convStreamController.add(const AgentConversationEventItem(
@@ -3235,7 +3183,7 @@ void main() {
       // 关键断言：SSE 关闭后 UI 立即清空（setState 已触发）
       // exploring 视图的元素应该消失
       expect(find.byKey(const Key('agent-cancel')), findsNothing);
-      expect(find.text('探索进度 (1)'), findsNothing);
+      expect(find.text('bash'), findsNothing);
       // 无 STREAM_CLOSED 错误
       expect(find.text('Agent 会话意外关闭'), findsNothing);
 
@@ -3279,10 +3227,10 @@ void main() {
       await tester.pump();
 
       sseController1.add(const AgentSessionCreatedEvent(sessionId: 's-leak'));
-      sseController1.add(const AgentTraceEvent(
-        tool: 'bash',
-        inputSummary: '第一轮执行',
-        outputSummary: '',
+      sseController1.add(const ToolStepEvent(
+        toolName: 'bash',
+        description: '第一轮执行',
+        status: ToolStepStatus.running,
       ));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
@@ -3323,7 +3271,7 @@ void main() {
         source: 'recommended',
         needConfirm: false,
         aliases: <String, String>{},
-        responseType: 'message',
+        responseType: AgentResponseType.message,
       ));
       await tester.pumpAndSettle();
 
@@ -3375,10 +3323,10 @@ void main() {
       await tester.pump();
 
       sseController1.add(const AgentSessionCreatedEvent(sessionId: 's-retry'));
-      sseController1.add(const AgentTraceEvent(
-        tool: 'bash',
-        inputSummary: '旧执行',
-        outputSummary: '',
+      sseController1.add(const ToolStepEvent(
+        toolName: 'bash',
+        description: '旧执行',
+        status: ToolStepStatus.running,
       ));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
@@ -3404,7 +3352,7 @@ void main() {
       // 但 _resetAgentRenderState 会将状态重置为 idle
       // UI 已清空
       expect(find.byKey(const Key('agent-cancel')), findsNothing);
-      expect(find.text('探索进度 (1)'), findsNothing);
+      expect(find.text('bash'), findsNothing);
 
       // conversation stream 推送新事件
       convStreamController.add(const AgentConversationEventItem(
@@ -4044,7 +3992,7 @@ void main() {
               source: 'recommended',
               needConfirm: false,
               aliases: <String, String>{},
-              responseType: 'message',
+              responseType: AgentResponseType.message,
             ),
           ]);
         },
@@ -4114,7 +4062,7 @@ void main() {
               source: 'recommended',
               needConfirm: false,
               aliases: <String, String>{},
-              responseType: 'message',
+              responseType: AgentResponseType.message,
             ),
           ]);
         },
@@ -4181,7 +4129,7 @@ void main() {
                 source: 'recommended',
                 needConfirm: false,
                 aliases: <String, String>{},
-                responseType: 'message',
+                responseType: AgentResponseType.message,
               ),
             ]);
           }
@@ -4194,7 +4142,7 @@ void main() {
               source: 'recommended',
               needConfirm: false,
               aliases: <String, String>{},
-              responseType: 'message',
+              responseType: AgentResponseType.message,
             ),
           ]);
         },
@@ -4319,7 +4267,7 @@ void main() {
               source: 'recommended',
               needConfirm: false,
               aliases: <String, String>{},
-              responseType: 'message',
+              responseType: AgentResponseType.message,
             ),
           ]);
         },
@@ -4421,7 +4369,7 @@ void main() {
         source: 'recommended',
         needConfirm: false,
         aliases: <String, String>{},
-        responseType: 'message',
+        responseType: AgentResponseType.message,
       ));
       await sseController.close();
       await tester.pumpAndSettle();
@@ -4461,7 +4409,7 @@ void main() {
         source: 'recommended',
         needConfirm: false,
         aliases: <String, String>{},
-        responseType: 'message',
+        responseType: AgentResponseType.message,
       ));
       await sseController2.close();
       await tester.pumpAndSettle();
@@ -4601,7 +4549,7 @@ void main() {
               source: 'recommended',
               needConfirm: false,
               aliases: <String, String>{},
-              responseType: 'message',
+              responseType: AgentResponseType.message,
             ),
           ]);
         },

@@ -1,7 +1,7 @@
 {
   "version": "1.4",
   "project": "remote-control",
-  "updated_at": "2026-05-09T14:30:00+08:00",
+  "updated_at": "2026-05-12T00:00:00+08:00",
   "status": "idle",
   "archived_requirement_cycles": [
     {
@@ -84,6 +84,30 @@
       "archive_dir": "_archive/R058_code-optimization-perf",
       "total_tasks": 23,
       "completed_at": "2026-05-09"
+    },
+    {
+      "id": "R059",
+      "name": "terminal-tab-bar-ux",
+      "status": "completed",
+      "archive_dir": "_archive/R059_terminal-tab-bar-ux",
+      "total_tasks": 10,
+      "completed_at": "2026-05-11"
+    },
+    {
+      "id": "R060",
+      "name": "terminal-navigation-redesign",
+      "status": "completed",
+      "archive_dir": "_archive/R060_terminal-navigation-redesign",
+      "total_tasks": 5,
+      "completed_at": "2026-05-11"
+    },
+    {
+      "id": "R061",
+      "name": "client-code-convergence",
+      "status": "completed",
+      "archive_dir": "_archive/R061_client-code-convergence",
+      "total_tasks": 16,
+      "completed_at": "2026-05-12"
     }
   ],
   "archived_phases": [],

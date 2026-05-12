@@ -3,6 +3,7 @@ import 'dart:io';
 import '../models/server_endpoint_profile.dart';
 import '../models/config.dart';
 import 'app_logger.dart';
+import 'http_client_factory.dart';
 
 class NetworkDiagnosticCheck {
   const NetworkDiagnosticCheck({
@@ -255,13 +256,11 @@ class NetworkDiagnosticService {
   }
 
   HttpClient _createClient(bool useSystemProxy, bool trustAllCertificates) {
-    final client = HttpClient()
-      ..connectionTimeout = TimingConstants.httpConnectionTimeout;
-    client.findProxy =
-        useSystemProxy ? HttpClient.findProxyFromEnvironment : (_) => 'DIRECT';
-    if (trustAllCertificates) {
-      client.badCertificateCallback = (_, __, ___) => true;
-    }
+    final client = HttpClientFactory.createRawConfigured(
+      trustAllCertificates: trustAllCertificates,
+      useSystemProxy: useSystemProxy,
+    );
+    client.connectionTimeout = TimingConstants.httpConnectionTimeout;
     return client;
   }
 

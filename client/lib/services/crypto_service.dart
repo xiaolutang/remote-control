@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -8,6 +7,7 @@ import 'package:pointycastle/export.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/message_types.dart';
 import '../models/config.dart';
+import 'http_client_factory.dart';
 
 /// 应用层加密服务：RSA-OAEP + AES-256-GCM + TOFU 公钥信任
 class CryptoService {
@@ -15,6 +15,11 @@ class CryptoService {
   static final CryptoService instance = CryptoService();
 
   static const _legacyFingerprintPrefsKey = 'rc_server_key_fingerprint';
+
+  SharedPreferences? _prefs;
+
+  Future<SharedPreferences> _ensurePrefs() async =>
+      _prefs ??= await SharedPreferences.getInstance();
 
   RSAPublicKey? _publicKey;
   String? _fingerprint;
@@ -63,12 +68,11 @@ class CryptoService {
     required bool trustAllCertificates,
   }) async {
     final uri = Uri.parse('$httpBaseUrl/api/public-key');
-    final client = HttpClient();
+    final client = HttpClientFactory.createRawConfigured(
+      trustAllCertificates: trustAllCertificates,
+    );
     try {
       client.connectionTimeout = TimingConstants.httpConnectionTimeout;
-      if (trustAllCertificates) {
-        client.badCertificateCallback = (_, __, ___) => true;
-      }
       final request = await client.getUrl(uri);
       final response = await request.close();
       final body = await response.transform(utf8.decoder).join();
@@ -209,7 +213,7 @@ class CryptoService {
     String fingerprint, {
     required String prefsKey,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _ensurePrefs();
     final stored = prefs.getString(prefsKey);
 
     if (stored == null) {
@@ -229,7 +233,7 @@ class CryptoService {
 
   /// 重置已存储的指纹（用户确认信任新密钥时调用）
   Future<void> resetFingerprintForBaseUrl(String httpBaseUrl) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _ensurePrefs();
     await prefs.remove(_fingerprintPrefsKeyForBaseUrl(httpBaseUrl));
     await prefs.remove(_legacyFingerprintPrefsKey);
     if (_loadedPublicKeyBaseUrl == httpBaseUrl ||
@@ -245,7 +249,7 @@ class CryptoService {
       await resetFingerprintForBaseUrl(activeBaseUrl);
       return;
     }
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _ensurePrefs();
     if (_currentFingerprintPrefsKey != null) {
       await prefs.remove(_currentFingerprintPrefsKey!);
     }

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
@@ -60,21 +59,33 @@ class DesktopWorkspaceController extends ChangeNotifier {
   String? _lastKnownDeviceId;
   bool _lastWasDesktopPlatform = false;
   bool? _lastKnownAgentOnline; // 手机端缓存上次的在线状态
+  bool _disposed = false;
+  WorkspaceState? _cachedState;
+
   bool get keepAgentRunningInBackground => _keepAgentRunningInBackground;
   bool get desktopActionInFlight => _desktopActionInFlight;
   DesktopAgentState? get desktopAgentState => _desktopAgentState;
 
-  WorkspaceState get state => _deriveWorkspaceState();
+  WorkspaceState get state => _cachedState ??= _deriveWorkspaceState();
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
+  /// 统一通知入口：清缓存 + 检查 disposed + notifyListeners
+  void _notify() {
+    _cachedState = null;
+    if (_disposed) return;
+    notifyListeners();
+  }
 
   RuntimeTerminal? get selectedTerminal {
     final runtime = _runtimeController;
     if (runtime == null) {
       return null;
     }
-    _selectedTerminalId = _resolveSelectedTerminalId(
-      runtime.terminals,
-      _selectedTerminalId,
-    );
     return _findTerminal(runtime.terminals, _selectedTerminalId);
   }
 
@@ -86,7 +97,12 @@ class DesktopWorkspaceController extends ChangeNotifier {
     if (!isSameController) {
       _lastKnownDeviceId = controller.selectedDevice?.deviceId;
     }
+    _syncSelectedTerminalId();
+    // RuntimeSelectionController 状态已变化（终端列表、重命名等），
+    // 需要刷新缓存并通知 AnimatedBuilder 重建。
+    _cachedState = null;
     _syncDesktopState(controller);
+    _notify();
   }
 
   Future<void> refresh() async {
@@ -107,7 +123,7 @@ class DesktopWorkspaceController extends ChangeNotifier {
       keepRunningInBackground: value,
     );
     _keepAgentRunningInBackground = value;
-    notifyListeners();
+    _notify();
   }
 
   Future<void> retryAutoBootstrap() async {
@@ -131,7 +147,7 @@ class DesktopWorkspaceController extends ChangeNotifier {
       kind: DesktopAgentStateKind.starting,
       workdir: _desktopAgentState?.workdir,
     );
-    notifyListeners();
+    _notify();
     _desktopAgentState = await _agentBootstrapService.startAgent(
       serverUrl: serverUrl,
       token: token,
@@ -145,7 +161,7 @@ class DesktopWorkspaceController extends ChangeNotifier {
       await _refreshDevicesAndSync(runtime);
     }
     _desktopActionInFlight = false;
-    notifyListeners();
+    _notify();
   }
 
   Future<bool> stopLocalAgent() async {
@@ -155,7 +171,7 @@ class DesktopWorkspaceController extends ChangeNotifier {
       return false;
     }
     _desktopActionInFlight = true;
-    notifyListeners();
+    _notify();
     final stopped = await _agentBootstrapService.stopManagedAgent(
       serverUrl: serverUrl,
       token: token,
@@ -163,7 +179,7 @@ class DesktopWorkspaceController extends ChangeNotifier {
     );
     await _refreshDevicesAndSync(runtime);
     _desktopActionInFlight = false;
-    notifyListeners();
+    _notify();
     return stopped;
   }
 
@@ -192,7 +208,7 @@ class DesktopWorkspaceController extends ChangeNotifier {
           kind: DesktopAgentStateKind.starting,
           workdir: _desktopAgentState?.workdir,
         );
-        notifyListeners();
+        _notify();
         _desktopAgentState = await _agentBootstrapService.startAgent(
           serverUrl: serverUrl,
           token: token,
@@ -209,7 +225,7 @@ class DesktopWorkspaceController extends ChangeNotifier {
             'createTerminal abort after bootstrap recovered=$recovered refreshedOnline=${refreshed?.agentOnline}',
           );
           _desktopActionInFlight = false;
-          notifyListeners();
+          _notify();
           return null;
         }
         effectiveDevice = refreshed;
@@ -231,11 +247,11 @@ class DesktopWorkspaceController extends ChangeNotifier {
       _log.info(
         'createTerminal denied canCreate=false deviceOnline=${effectiveDevice.agentOnline} active=${effectiveDevice.activeTerminals}/${effectiveDevice.maxTerminals}',
       );
-      notifyListeners();
+      _notify();
       return null;
     }
 
-    notifyListeners();
+    _notify();
     final terminal = await runtime.createTerminal(
       title: title,
       cwd: cwd,
@@ -247,7 +263,7 @@ class DesktopWorkspaceController extends ChangeNotifier {
     if (terminal != null) {
       _selectedTerminalId = terminal.terminalId;
     }
-    notifyListeners();
+    _notify();
     return terminal;
   }
 
@@ -269,12 +285,12 @@ class DesktopWorkspaceController extends ChangeNotifier {
         _desktopAgentState = null;
       }
     }
-    notifyListeners();
+    _notify();
   }
 
   void selectTerminal(String? terminalId) {
     _selectedTerminalId = terminalId;
-    notifyListeners();
+    _notify();
   }
 
   Future<void> handleViewDispose() async {
@@ -292,6 +308,9 @@ class DesktopWorkspaceController extends ChangeNotifier {
   }
 
   void _syncDesktopState(RuntimeSelectionController controller) {
+    // 每次 RuntimeSelectionController 通知变化时，同步 _selectedTerminalId
+    // 这确保在 _loadTerminalsForDevice 替换 terminals 列表后，选中态仍然正确
+    _syncSelectedTerminalId();
     final device = controller.selectedDevice;
     _log.info(
       '_syncDesktopState called isDesktop=${controller.isDesktopPlatform} '
@@ -312,7 +331,7 @@ class DesktopWorkspaceController extends ChangeNotifier {
         _log.info(
           '_syncDesktopState: mobile state changed deviceChanged=$deviceChanged onlineChanged=$onlineChanged agentOnline=$agentOnline',
         );
-        notifyListeners();
+        _notify();
       }
       _log.info(
           '_syncDesktopState: early return - not desktop or no device');
@@ -339,12 +358,16 @@ class DesktopWorkspaceController extends ChangeNotifier {
     RuntimeSelectionController controller,
     String deviceId,
   ) async {
-    final keepRunning = await _exitPolicyService.keepAgentRunningInBackground();
-    final state = await _agentBootstrapService.loadAgentState(
-      serverUrl: serverUrl,
-      token: token,
-      deviceId: deviceId,
-    );
+    final results = await Future.wait([
+      _exitPolicyService.keepAgentRunningInBackground(),
+      _agentBootstrapService.loadAgentState(
+        serverUrl: serverUrl,
+        token: token,
+        deviceId: deviceId,
+      ),
+    ]);
+    final keepRunning = results[0] as bool;
+    final state = results[1] as DesktopAgentState;
     if (_lastKnownDeviceId != null && _lastKnownDeviceId != deviceId) {
       return;
     }
@@ -353,7 +376,7 @@ class DesktopWorkspaceController extends ChangeNotifier {
     );
     _keepAgentRunningInBackground = keepRunning;
     _desktopAgentState = state;
-    notifyListeners();
+    _notify();
   }
 
   /// 统一刷新设备列表并同步桌面状态
@@ -472,5 +495,24 @@ class DesktopWorkspaceController extends ChangeNotifier {
       }
     }
     return null;
+  }
+
+  /// 同步 _selectedTerminalId，确保它在当前 terminals 列表中有效。
+  ///
+  /// 必须在所有可能改变 terminals 列表的时机调用：
+  /// - attachRuntimeController（controller 实例变化）
+  /// - _syncDesktopState（RuntimeSelectionController notifyListeners 回调）
+  /// - onTerminalClosed（关闭终端后）
+  ///
+  /// 返回 true 表示 _selectedTerminalId 有变化。
+  bool _syncSelectedTerminalId() {
+    final runtime = _runtimeController;
+    if (runtime == null) return false;
+    final prev = _selectedTerminalId;
+    _selectedTerminalId = _resolveSelectedTerminalId(
+      runtime.terminals,
+      _selectedTerminalId,
+    );
+    return prev != _selectedTerminalId;
   }
 }

@@ -11,9 +11,13 @@ class ConfigService {
   static const String _keyPrefix = 'rc_client_';
 
   final EnvironmentService _environmentService;
+  SharedPreferences? _prefs;
+
+  Future<SharedPreferences> _ensurePrefs() async =>
+      _prefs ??= await SharedPreferences.getInstance();
 
   Future<AppConfig> loadConfig() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _ensurePrefs();
     final jsonStr = prefs.getString('${_keyPrefix}config');
 
     final serverUrl = _environmentService.currentServerUrl;
@@ -31,12 +35,12 @@ class ConfigService {
   }
 
   Future<void> saveConfig(AppConfig config) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _ensurePrefs();
     await prefs.setString('${_keyPrefix}config', jsonEncode(config.toJson()));
   }
 
   Future<void> clearConfig() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _ensurePrefs();
     await prefs.remove('${_keyPrefix}config');
   }
 }

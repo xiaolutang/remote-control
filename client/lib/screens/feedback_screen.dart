@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 
 import '../models/feedback_model.dart';
+import '../widgets/model_icon_extensions.dart';
 import '../services/feedback_service.dart';
 
 /// 反馈问题屏幕

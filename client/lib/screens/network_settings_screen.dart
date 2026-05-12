@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../models/app_environment.dart';
 import '../models/app_environment_presentation.dart';
+import '../widgets/model_icon_extensions.dart';
 import '../services/auth_service.dart';
+import '../services/desktop/desktop_agent_manager.dart';
 import '../services/environment_service.dart';
 import '../services/environment_switch_coordinator.dart';
 import '../services/network_diagnostic_service.dart';
+import '../services/terminal_session_manager.dart';
 
 class NetworkSettingsScreen extends StatefulWidget {
   const NetworkSettingsScreen({
@@ -93,8 +97,9 @@ class _NetworkSettingsScreenState extends State<NetworkSettingsScreen> {
     setState(() => _isBusy = true);
     try {
       await widget.switchCoordinator.switchEnvironment(
-        context: context,
         newEnv: newEnv,
+        agentManager: context.read<DesktopAgentManager>(),
+        sessionManager: context.read<TerminalSessionManager>(),
       );
       if (!mounted) {
         return;

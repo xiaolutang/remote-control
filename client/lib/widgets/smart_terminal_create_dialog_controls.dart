@@ -14,7 +14,7 @@ class _SmartTerminalManualConfirm extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     return InkWell(
       key: const Key('smart-create-confirm-manual'),
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: AppRadius.buttonBorder,
       onTap: onChanged == null ? null : () => onChanged!(!accepted),
       child: Container(
         width: double.infinity,
@@ -23,7 +23,7 @@ class _SmartTerminalManualConfirm extends StatelessWidget {
           color: accepted
               ? const Color(0xFFEAF6EE)
               : colorScheme.tertiaryContainer.withValues(alpha: 0.56),
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: AppRadius.buttonBorder,
           border: Border.all(
             color: accepted
                 ? const Color(0xFFB9DFC2)
@@ -142,7 +142,7 @@ class _SmartTerminalIntentComposer extends StatelessWidget {
                 style: FilledButton.styleFrom(
                   minimumSize: const Size(52, 52),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(18),
+                    borderRadius: AppRadius.buttonBorder,
                   ),
                   padding: EdgeInsets.zero,
                   backgroundColor: const Color(0xFF1F5EFF),

@@ -451,7 +451,8 @@ Future<void> _deactivateConflictingSessions({
     if ((candidateTerminalId ?? '').isEmpty) {
       return false;
     }
-    if (candidateTerminalId == activeTerminalId) {
+    // 只去活同一终端的旧连接，不同终端互不干扰
+    if (candidateTerminalId != activeTerminalId) {
       return false;
     }
     return candidate.status != ConnectionStatus.disconnected;

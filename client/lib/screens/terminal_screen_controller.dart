@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -8,8 +9,10 @@ import '../models/shortcut_item.dart';
 import '../models/terminal_shortcut.dart';
 import '../services/app_logger.dart';
 import '../services/logout_helper.dart';
+import '../services/desktop/desktop_agent_manager.dart';
 import '../services/runtime_device_service.dart';
 import '../services/shortcut_config_service.dart';
+import '../services/terminal_factory.dart';
 import '../services/terminal_session_manager.dart';
 import '../services/websocket_service.dart';
 import 'login_screen.dart';
@@ -110,6 +113,7 @@ class TerminalScreenController extends ChangeNotifier {
       );
       if (adapter != null) {
         _terminal = adapter.terminalForView;
+        _normalizeTerminalConfiguration(_terminal!);
         _terminalOutputText = adapter.outputText;
         sessionManager.bindTerminalOutput(
           service.deviceId,
@@ -125,15 +129,17 @@ class TerminalScreenController extends ChangeNotifier {
         final adapter = sessionManager.ensureRendererAdapter(
           service.deviceId,
           terminalId,
-          () => Terminal(maxLines: 10000),
+          () => buildAppTerminal(),
           service: service,
         );
         _terminal = adapter.terminalForView;
+        _normalizeTerminalConfiguration(_terminal!);
         _terminalOutputText = adapter.outputText;
         _configureTerminalCallbacks(service, _terminal!);
       }
     } else {
-      _terminal ??= Terminal(maxLines: 10000);
+      _terminal ??= buildAppTerminal();
+      _normalizeTerminalConfiguration(_terminal!);
       _terminalOutputText = _localTerminalOutputText;
       _configureTerminalCallbacks(service, _terminal!);
     }
@@ -163,6 +169,10 @@ class TerminalScreenController extends ChangeNotifier {
       }
       service.resize(height, width);
     };
+  }
+
+  void _normalizeTerminalConfiguration(Terminal terminal) {
+    terminal.reflowEnabled = false;
   }
 
   void _detachServiceBindings() {
@@ -285,7 +295,7 @@ class TerminalScreenController extends ChangeNotifier {
       if (line.isNotEmpty) {
         _localOutputBuffer.add(line);
         if (_localOutputBuffer.length > _maxBufferLines) {
-          _localOutputBuffer.removeAt(0);
+          _localOutputBuffer.removeFirst();
         }
         changed = true;
       }
@@ -295,7 +305,7 @@ class TerminalScreenController extends ChangeNotifier {
     }
   }
 
-  final List<String> _localOutputBuffer = [];
+  final Queue<String> _localOutputBuffer = Queue<String>();
   static const int _maxBufferLines = 50;
 
   // ─── 状态变更监听 ──────────────────────────────────────────────
@@ -407,9 +417,16 @@ class TerminalScreenController extends ChangeNotifier {
   }
 
   /// 处理 token 过期确认操作（UI 层在弹窗确定按钮调用）
-  Future<void> confirmTokenExpired(BuildContext context) async {
+  Future<void> confirmTokenExpired(
+    BuildContext context, {
+    required DesktopAgentManager agentManager,
+    required TerminalSessionManager sessionManager,
+  }) async {
     clearAuthDialog();
-    await performSessionTeardown(context: context);
+    await performSessionTeardown(
+      agentManager: agentManager,
+      sessionManager: sessionManager,
+    );
     if (!context.mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const LoginScreen()),
@@ -462,7 +479,7 @@ class TerminalScreenController extends ChangeNotifier {
   String get defaultProjectId => _defaultProjectId;
 
   List<ShortcutItem> sortShortcutItems(Iterable<ShortcutItem> items) {
-    final sorted = items.toList(growable: false).toList();
+    final sorted = items.toList();
     sorted.sort((a, b) {
       final byOrder = a.order.compareTo(b.order);
       if (byOrder != 0) return byOrder;

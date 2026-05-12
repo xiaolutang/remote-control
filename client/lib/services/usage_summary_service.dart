@@ -48,12 +48,12 @@ class UsageSummaryScope {
       return const UsageSummaryScope.empty();
     }
     return UsageSummaryScope(
-      totalSessions: _readInt(json['total_sessions']),
-      totalInputTokens: _readInt(json['total_input_tokens']),
-      totalOutputTokens: _readInt(json['total_output_tokens']),
-      totalTokens: _readInt(json['total_tokens']),
-      totalRequests: _readInt(json['total_requests']),
-      latestModelName: (json['latest_model_name'] as String? ?? '').trim(),
+      totalSessions: readIntFromJson(json['total_sessions']),
+      totalInputTokens: readIntFromJson(json['total_input_tokens']),
+      totalOutputTokens: readIntFromJson(json['total_output_tokens']),
+      totalTokens: readIntFromJson(json['total_tokens']),
+      totalRequests: readIntFromJson(json['total_requests']),
+      latestModelName: readStringFromJson(json['latest_model_name']),
     );
   }
 }
@@ -137,7 +137,7 @@ class UsageSummaryService {
         return detail.trim();
       }
       if (detail is Map<String, dynamic>) {
-        final message = (detail['message'] as String? ?? '').trim();
+        final message = readStringFromJson(detail['message']);
         if (message.isNotEmpty) {
           return message;
         }
@@ -147,17 +147,4 @@ class UsageSummaryService {
     }
     return '$fallback (${response.statusCode})';
   }
-}
-
-int _readInt(Object? value) {
-  if (value is int) {
-    return value;
-  }
-  if (value is num) {
-    return value.toInt();
-  }
-  if (value is String) {
-    return int.tryParse(value) ?? 0;
-  }
-  return 0;
 }

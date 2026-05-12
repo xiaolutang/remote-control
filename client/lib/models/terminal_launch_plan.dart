@@ -91,7 +91,8 @@ class TerminalLaunchPlan {
   }
 
   factory TerminalLaunchPlan.fromJson(Map<String, dynamic> json) {
-    final tool = TerminalLaunchToolCodec.fromJson(json['tool'] as String?) ??
+    final tool = TerminalLaunchToolCodec.fromJson(
+        json['tool'] is String ? json['tool'] as String : null) ??
         TerminalLaunchTool.shell;
     final cwd = normalizedString(json['cwd']) ?? '~';
     final defaults = TerminalLaunchPlanDefaults.forTool(tool);
@@ -102,29 +103,30 @@ class TerminalLaunchPlan {
       cwd: cwd,
       command: normalizedString(json['command']) ?? defaults.command,
       entryStrategy: TerminalEntryStrategyCodec.fromJson(
-              json['entry_strategy'] as String?) ??
+              json['entry_strategy'] is String ? json['entry_strategy'] as String : null) ??
           defaults.entryStrategy,
       postCreateInput:
-          (json['post_create_input'] as String?) ?? defaults.postCreateInput,
+          json['post_create_input'] is String ? json['post_create_input'] as String : defaults.postCreateInput,
       source: TerminalLaunchPlanSourceCodec.fromJson(
-            json['source'] as String?,
+            json['source'] is String ? json['source'] as String : null,
           ) ??
           TerminalLaunchPlanSource.recommended,
       intent: normalizedString(json['intent']),
       confidence: TerminalLaunchConfidenceCodec.fromJson(
-            json['confidence'] as String?,
+            json['confidence'] is String ? json['confidence'] as String : null,
           ) ??
           TerminalLaunchConfidence.high,
       requiresManualConfirmation:
-          json['requires_manual_confirmation'] as bool? ?? false,
+          json['requires_manual_confirmation'] is bool
+              ? json['requires_manual_confirmation'] as bool
+              : false,
     );
   }
 
   static String? normalizedString(Object? value) {
-    final trimmed = (value as String?)?.trim();
-    if (trimmed == null || trimmed.isEmpty) {
-      return null;
-    }
+    if (value is! String) return null;
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return null;
     return trimmed;
   }
 }

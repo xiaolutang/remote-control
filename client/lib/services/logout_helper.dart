@@ -1,8 +1,5 @@
 import 'dart:io';
 
-import 'package:flutter/widgets.dart';
-import 'package:provider/provider.dart';
-
 import 'app_logger.dart';
 import 'auth_service.dart';
 import 'desktop/desktop_agent_manager.dart';
@@ -17,11 +14,10 @@ import 'terminal_session_manager.dart';
 ///
 /// 调用方负责后续的 UI 跳转。
 Future<void> performSessionTeardown({
-  required BuildContext context,
+  required DesktopAgentManager agentManager,
+  required TerminalSessionManager sessionManager,
   AuthService Function(String serverUrl)? authServiceBuilder,
 }) async {
-  final agentManager = context.read<DesktopAgentManager>();
-  final sessionManager = context.read<TerminalSessionManager>();
   final serverUrl = EnvironmentService.instance.currentServerUrl;
   final authService =
       authServiceBuilder?.call(serverUrl) ?? AuthService(serverUrl: serverUrl);

@@ -68,15 +68,15 @@ class ClaudeCliCommandPlanner extends PlannerProvider {
         return null;
       }
       final command =
-          PlannerIntentUtils.normalizeString(item['command'] as String?);
+          PlannerIntentUtils.normalizeString(item['command']);
       if (command == null || _isDangerousCommand(command)) {
         return null;
       }
       steps.add(
         CommandSequenceStep(
-          id: PlannerIntentUtils.normalizeString(item['id'] as String?) ??
+          id: PlannerIntentUtils.normalizeString(item['id']) ??
               'step_${index + 1}',
-          label: PlannerIntentUtils.normalizeString(item['label'] as String?) ??
+          label: PlannerIntentUtils.normalizeString(item['label']) ??
               '步骤 ${index + 1}',
           command: command,
         ),
@@ -87,7 +87,9 @@ class ClaudeCliCommandPlanner extends PlannerProvider {
         PlannerIntentUtils.extractExplicitPaths(request.normalizedIntent);
     final matchedCandidate = _resolveCandidate(
       request.candidates,
-      payload['matched_candidate_id'] as String?,
+      payload['matched_candidate_id'] is String
+          ? payload['matched_candidate_id'] as String
+          : null,
     );
     final derivedCwd = _deriveCwd(steps, request.fallbackPlan.cwd);
     final tool = _inferTool(steps, request.fallbackPlan.tool);
@@ -104,9 +106,10 @@ class ClaudeCliCommandPlanner extends PlannerProvider {
             : TerminalLaunchConfidence.medium);
     final normalizedCwd =
         PlannerIntentUtils.normalizeCwd(derivedCwd, defaultCwd: '~');
-    final source = _resolveSource(payload['source'] as String?);
+    final source = _resolveSource(
+        payload['source'] is String ? payload['source'] as String : null);
     final summary = PlannerIntentUtils.normalizeString(
-          payload['summary'] as String?,
+          payload['summary'],
         ) ??
         _buildSummary(tool, normalizedCwd);
     final sequence = CommandSequenceDraft(
@@ -133,7 +136,7 @@ class ClaudeCliCommandPlanner extends PlannerProvider {
       plan: plan,
       sequence: sequence,
       reasoningKind: PlannerIntentUtils.normalizeString(
-            payload['reasoning_kind'] as String?,
+            payload['reasoning_kind'],
           ) ??
           'claude_cli',
       matchedCandidateId: matchedCandidate?.candidateId ??
@@ -295,7 +298,7 @@ ${jsonEncode(payload)}
     required ProjectContextCandidate? matchedCandidate,
     required Object? payloadValue,
   }) {
-    final payloadFlag = payloadValue as bool?;
+    final payloadFlag = payloadValue is bool ? payloadValue : null;
     if (payloadFlag == true) {
       return true;
     }

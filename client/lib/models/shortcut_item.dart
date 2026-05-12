@@ -1,4 +1,5 @@
 import 'terminal_shortcut.dart';
+import '../utils/json_helpers.dart';
 
 enum ShortcutItemSource {
   builtin,
@@ -105,28 +106,41 @@ class ShortcutItem {
 
   factory ShortcutItem.fromJson(Map<String, dynamic> json) {
     return ShortcutItem(
-      id: json['id'] as String,
-      label: json['label'] as String,
-      source: ShortcutItemSource.values.byName(
-        json['source'] as String? ?? ShortcutItemSource.builtin.name,
+      id: readStringFromJson(json['id']),
+      label: readStringFromJson(json['label']),
+      source: enumFromJson(
+        ShortcutItemSource.values,
+        json['source'],
+        ShortcutItemSource.builtin,
       ),
-      section: ShortcutItemSection.values.byName(
-        json['section'] as String? ?? ShortcutItemSection.smart.name,
+      section: enumFromJson(
+        ShortcutItemSection.values,
+        json['section'],
+        ShortcutItemSection.smart,
       ),
-      action: TerminalShortcutAction.fromJson(
-        json['action'] as Map<String, dynamic>? ?? const {},
+      action: json['action'] is Map<String, dynamic>
+          ? TerminalShortcutAction.fromJson(
+              json['action'] as Map<String, dynamic>,
+            )
+          : const TerminalShortcutAction(
+              type: TerminalShortcutActionType.sendText,
+              value: '',
+            ),
+      enabled: readBoolFromJson(json['enabled'], defaultValue: true),
+      pinned: readBoolFromJson(json['pinned']),
+      order: readIntFromJson(json['order']),
+      useCount: readIntFromJson(json['useCount']),
+      lastUsedAt: json['lastUsedAt'] is String
+          ? DateTime.tryParse(json['lastUsedAt'] as String)?.toUtc()
+          : null,
+      scope: enumFromJson(
+        ShortcutItemScope.values,
+        json['scope'],
+        ShortcutItemScope.global,
       ),
-      enabled: json['enabled'] as bool? ?? true,
-      pinned: json['pinned'] as bool? ?? false,
-      order: json['order'] as int? ?? 0,
-      useCount: json['useCount'] as int? ?? 0,
-      lastUsedAt: json['lastUsedAt'] == null
-          ? null
-          : DateTime.parse(json['lastUsedAt'] as String).toUtc(),
-      scope: ShortcutItemScope.values.byName(
-        json['scope'] as String? ?? ShortcutItemScope.global.name,
-      ),
-      description: json['description'] as String?,
+      description: json['description'] is String
+          ? json['description'] as String
+          : null,
     );
   }
 

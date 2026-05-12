@@ -1,3 +1,4 @@
+import '../utils/json_helpers.dart';
 import 'terminal_launch_plan.dart';
 
 class RecentLaunchContext {
@@ -56,7 +57,8 @@ class RecentLaunchContext {
 
     final lastCwd = TerminalLaunchPlan.normalizedString(json['last_cwd']) ?? '~';
     final rawLastTool =
-        TerminalLaunchToolCodec.fromJson(json['last_tool'] as String?);
+        TerminalLaunchToolCodec.fromJson(
+            json['last_tool'] is String ? json['last_tool'] as String : null);
 
     final rawPlan = json['last_successful_plan'];
     final lastSuccessfulPlan = rawPlan is Map
@@ -65,7 +67,8 @@ class RecentLaunchContext {
     final lastTool = rawLastTool ?? lastSuccessfulPlan.tool;
 
     final updatedAt =
-        DateTime.tryParse((json['updated_at'] as String?) ?? '') ??
+        DateTime.tryParse(
+            json['updated_at'] is String ? json['updated_at'] as String : '') ??
             DateTime.fromMillisecondsSinceEpoch(0);
 
     return RecentLaunchContext(

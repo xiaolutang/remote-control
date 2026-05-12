@@ -346,12 +346,6 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
           _restartConversationStreamForCurrentScope();
         }
         _scheduleScrollToLatest();
-      case AgentTraceEvent _:
-        // Trace events are informational only, no UI state change needed.
-        break;
-      case AgentAssistantMessageEvent _:
-        // Assistant messages handled via conversation stream, no panel action needed.
-        break;
     }
   }
 
@@ -380,7 +374,7 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
   void _archiveAgentTurn({AgentResultEvent? result, AgentErrorEvent? error}) {
     final intent = _agentIntent;
     if (intent == null || intent.isEmpty) return;
-    _agentHistory.add(_AgentHistoryEntry(
+    _agentHistory.add(AgentHistoryEntry(
         intent: intent,
         traces: List.of(_traces),
         turnEventOrder: List.of(_turnEventOrder),
@@ -428,8 +422,8 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
     setState(() {
       if (question != null) {
         _agentAnswers.add(
-            _AgentAnswerEntry(question: question.question, answer: answer));
-        _turnEventOrder.add(_TurnEventType.answer);
+            AgentAnswerEntry(question: question.question, answer: answer));
+        _turnEventOrder.add(TurnEventType.answer);
       }
       _currentPhase = AgentPhase.exploring;
       _phaseDescription = '正在执行工具调用...';
@@ -598,7 +592,7 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
     if (!mounted) return;
     setState(() {
       if (_agentIntent != null && _agentIntent!.isNotEmpty) {
-        _agentHistory.add(_AgentHistoryEntry(
+        _agentHistory.add(AgentHistoryEntry(
             intent: _agentIntent!,
             traces: List.of(_traces),
             turnEventOrder: List.of(_turnEventOrder),
@@ -769,7 +763,7 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
         var answersSeen = 0;
         var truncateAt = _turnEventOrder.length;
         for (var i = 0; i < _turnEventOrder.length; i++) {
-          if (_turnEventOrder[i] == _TurnEventType.answer) {
+          if (_turnEventOrder[i] == TurnEventType.answer) {
             if (answersSeen == answerIndex) {
               truncateAt = i;
               break;
@@ -781,9 +775,9 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
         var answerKeep = 0;
         var msgKeep = 0;
         for (final type in _turnEventOrder) {
-          if (type == _TurnEventType.answer) {
+          if (type == TurnEventType.answer) {
             answerKeep++;
-          } else if (type == _TurnEventType.assistantMessage) {
+          } else if (type == TurnEventType.assistantMessage) {
             msgKeep++;
           }
         }

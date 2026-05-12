@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/app_environment_presentation.dart';
+import '../widgets/model_icon_extensions.dart';
 import '../services/app_logger.dart';
 import '../services/auth_service.dart';
 import '../services/desktop/desktop_agent_manager.dart';

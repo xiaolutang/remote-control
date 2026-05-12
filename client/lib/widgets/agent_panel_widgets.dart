@@ -12,7 +12,7 @@ mixin _PanelWidgetsMixin on _PanelStateFields {
           decoration: BoxDecoration(color: colorScheme.surfaceContainerLow,
             borderRadius: const BorderRadius.only(topLeft: Radius.circular(18), topRight: Radius.circular(18),
                 bottomLeft: Radius.circular(4), bottomRight: Radius.circular(18)),
-            border: Border.all(color: colorScheme.outlineVariant.withValues(alpha: 0.15))),
+            border: Border.all(color: subtleBorderColor(colorScheme))),
           child: child)));
   }
 
@@ -23,13 +23,13 @@ mixin _PanelWidgetsMixin on _PanelStateFields {
     ]));
   }
 
-  Widget _buildBlinkingCursor(ColorScheme colorScheme) => _BlinkingCursor(colorScheme: colorScheme);
-  Widget _buildToolStepCard(ToolStepEvent step, ColorScheme colorScheme) => _ToolStepCard(step: step, colorScheme: colorScheme);
+  Widget _buildBlinkingCursor(ColorScheme colorScheme) => BlinkingCursor(colorScheme: colorScheme);
+  Widget _buildToolStepCard(ToolStepEvent step, ColorScheme colorScheme) => ToolStepCard(step: step, colorScheme: colorScheme);
 
   /// 可折叠 Agent Trace 列表
   Widget _buildAgentTraceExpansionTile(ColorScheme colorScheme) {
-    return Container(decoration: BoxDecoration(color: colorScheme.surfaceContainerLow, borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: colorScheme.outlineVariant.withValues(alpha: 0.14))),
+    return Container(decoration: BoxDecoration(color: colorScheme.surfaceContainerLow, borderRadius: AppRadius.cardBorder,
+      border: Border.all(color: subtleBorderColor(colorScheme))),
       child: ExpansionTile(key: const Key('agent-trace-expansion'), initiallyExpanded: false,
         tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 8), dense: true,
@@ -43,7 +43,7 @@ mixin _PanelWidgetsMixin on _PanelStateFields {
 
   Widget _buildAgentTraceItem(ToolStepEvent trace, ColorScheme colorScheme) {
     return _buildAssistantBubble(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(children: [_SidePanelStagePill(stage: 'tool'), const SizedBox(width: 8),
+      Row(children: [SidePanelStagePill(stage: 'tool'), const SizedBox(width: 8),
         Expanded(child: Text(trace.toolName, style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600)))]),
       const SizedBox(height: 4),
       Text(trace.description, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant, height: 1.4)),
@@ -70,8 +70,8 @@ mixin _PanelWidgetsMixin on _PanelStateFields {
       key: const Key('side-panel-usage-section'),
       decoration: BoxDecoration(
         color: colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: colorScheme.outlineVariant.withValues(alpha: 0.14)),
+        borderRadius: AppRadius.cardBorder,
+        border: Border.all(color: subtleBorderColor(colorScheme)),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         // 收起/展开摘要行
@@ -121,7 +121,7 @@ mixin _PanelWidgetsMixin on _PanelStateFields {
               const SizedBox(height: 4),
               if (summary != null) ...[
                 _buildUsageStatRow('终端', summary.device.totalTokens, summary.device.totalRequests, colorScheme),
-                const SizedBox(height: 2),
+                const SizedBox(width: 2),
                 _buildUsageStatRow('我的', summary.user.totalTokens, summary.user.totalRequests, colorScheme),
               ] else ...[
                 Text(_usageSummaryError ?? '—',
@@ -158,83 +158,4 @@ mixin _PanelWidgetsMixin on _PanelStateFields {
     ]);
   }
 
-}
-
-// --- 独立 Widget 组件 ---
-
-class _SidePanelStagePill extends StatelessWidget {
-  const _SidePanelStagePill({required this.stage});
-  final String stage;
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final (label, bg, fg) = switch (stage) {
-      'tool' || 'tools' => ('工具', colorScheme.primaryContainer, colorScheme.primary),
-      'context' => ('上下文', colorScheme.tertiaryContainer, colorScheme.tertiary),
-      'plan' || 'planner' => ('思考', colorScheme.secondaryContainer, colorScheme.secondary),
-      'running' => ('执行中', colorScheme.secondaryContainer, colorScheme.secondary),
-      'done' => ('完成', colorScheme.primaryContainer, colorScheme.primary),
-      'error' => ('错误', colorScheme.errorContainer, colorScheme.error),
-      _ => ('处理', colorScheme.surfaceContainerHighest, colorScheme.onSurfaceVariant),
-    };
-    return Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(999)),
-      child: Text(label, style: Theme.of(context).textTheme.labelSmall?.copyWith(color: fg, fontWeight: FontWeight.w600, fontSize: 10)));
-  }
-}
-
-class _BlinkingCursor extends StatefulWidget {
-  const _BlinkingCursor({required this.colorScheme});
-  final ColorScheme colorScheme;
-  @override State<_BlinkingCursor> createState() => _BlinkingCursorState();
-}
-
-class _BlinkingCursorState extends State<_BlinkingCursor> with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  @override void initState() { super.initState(); _controller = AnimationController(vsync: this,
-    duration: const Duration(milliseconds: 800), lowerBound: 0.15, upperBound: 1.0)..repeat(reverse: true); }
-  @override void dispose() { _controller.dispose(); super.dispose(); }
-  @override Widget build(BuildContext context) => AnimatedBuilder(animation: _controller,
-    builder: (context, child) => Opacity(opacity: _controller.value, child: child),
-    child: Container(width: 2, height: 14,
-      decoration: BoxDecoration(color: widget.colorScheme.primary, borderRadius: BorderRadius.circular(1))));
-}
-
-class _ToolStepCard extends StatefulWidget {
-  const _ToolStepCard({required this.step, required this.colorScheme});
-  final ToolStepEvent step; final ColorScheme colorScheme;
-  @override State<_ToolStepCard> createState() => _ToolStepCardState();
-}
-
-class _ToolStepCardState extends State<_ToolStepCard> {
-  bool _expanded = false;
-  @override Widget build(BuildContext context) {
-    final step = widget.step; final colorScheme = widget.colorScheme;
-    final Widget statusIcon = switch (step.status) {
-      'running' => SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: colorScheme.primary)),
-      'done' => Icon(Icons.check_circle, size: 14, color: Colors.green),
-      'error' => Icon(Icons.error, size: 14, color: colorScheme.error),
-      _ => Icon(Icons.build_outlined, size: 14, color: colorScheme.onSurfaceVariant),
-    };
-    final hasResult = step.resultSummary != null && step.resultSummary!.isNotEmpty;
-    return Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(color: colorScheme.surfaceContainerLow, borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: colorScheme.outlineVariant.withValues(alpha: 0.12))),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [statusIcon, const SizedBox(width: 8),
-          Expanded(child: Text(step.toolName, style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
-            maxLines: 1, overflow: TextOverflow.ellipsis)),
-          if (hasResult) GestureDetector(onTap: () => setState(() => _expanded = !_expanded),
-            child: Icon(_expanded ? Icons.expand_less : Icons.expand_more, size: 16, color: colorScheme.onSurfaceVariant)),
-        ]),
-        if (step.description.isNotEmpty) ...[const SizedBox(height: 4),
-          Text(step.description, style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: colorScheme.onSurfaceVariant, height: 1.4), maxLines: 3, overflow: TextOverflow.ellipsis)],
-        if (hasResult && _expanded) ...[const SizedBox(height: 6),
-          Container(width: double.infinity, padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            decoration: BoxDecoration(color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5), borderRadius: BorderRadius.circular(6)),
-            child: Text(step.resultSummary!, style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: colorScheme.onSurfaceVariant.withValues(alpha: 0.8), height: 1.3)))],
-      ]));
-  }
 }

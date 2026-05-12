@@ -7,12 +7,13 @@ import 'package:xterm/xterm.dart';
 
 import '../models/terminal_shortcut.dart';
 import '../navigation/account_menu_actions.dart';
-import '../services/account_menu_action_handler.dart';
+import '../navigation/account_menu_action_handler.dart';
+import '../services/desktop/desktop_agent_manager.dart';
 import '../services/config_service.dart';
 import '../services/runtime_selection_controller.dart';
 import '../services/terminal_session_manager.dart';
 import '../services/terminal_view_config.dart';
-import '../services/ui_helpers.dart';
+import '../widgets/theme_picker_sheet.dart';
 import '../services/websocket_service.dart';
 import '../models/shortcut_item.dart';
 import '../widgets/shortcut_menu_widgets.dart';
@@ -133,7 +134,11 @@ class _TerminalScreenState extends State<TerminalScreen> {
         content: const Text('您的登录已过期，请重新登录。'),
         actions: [
           TextButton(
-            onPressed: () => _ctrl.confirmTokenExpired(ctx),
+            onPressed: () => _ctrl.confirmTokenExpired(
+              ctx,
+              agentManager: context.read<DesktopAgentManager>(),
+              sessionManager: context.read<TerminalSessionManager>(),
+            ),
             child: const Text('重新登录'),
           ),
         ],

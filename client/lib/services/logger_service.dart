@@ -63,6 +63,10 @@ class LoggerService extends ChangeNotifier {
   Timer? _flushTimer;
   bool _isUploading = false;
   String _uid = ''; // 缓存 uid，start() 时读取一次
+  SharedPreferences? _prefs;
+
+  Future<SharedPreferences> _ensurePrefs() async =>
+      _prefs ??= await SharedPreferences.getInstance();
 
   LoggerService({
     required this.serverUrl,
@@ -123,7 +127,8 @@ class LoggerService extends ChangeNotifier {
     );
 
     _queue.add(record);
-    notifyListeners();
+    // 注意：不再每条日志都 notifyListeners()
+    // 高频场景（终端输出、协议事件）下，仅在 flush 状态变化时通知 UI
 
     // 达到批量大小立即刷新
     if (_queue.length >= _batchSize) {
@@ -159,12 +164,6 @@ class LoggerService extends ChangeNotifier {
       final logs = <LogRecord>[..._cache, ..._queue];
       _cache.clear();
       _queue.clear();
-
-      if (logs.isEmpty) {
-        _isUploading = false;
-        notifyListeners();
-        return;
-      }
 
       // 上报
       final success = await _uploadLogs(logs);
@@ -228,7 +227,7 @@ class LoggerService extends ChangeNotifier {
   /// 保存缓存到本地
   Future<void> _saveCache() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await _ensurePrefs();
       final cacheData = _cache.map((l) => jsonEncode(l.toJson())).toList();
       await prefs.setStringList('rc_log_cache_$sessionId', cacheData);
     } catch (e) {
@@ -239,7 +238,7 @@ class LoggerService extends ChangeNotifier {
   /// 从 SharedPreferences 读取 uid（username），缓存到内存
   Future<void> _loadUid() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await _ensurePrefs();
       _uid = prefs.getString('rc_username') ?? '';
     } catch (e) {
       _loggerLog.error('_loadUid failed: $e');
@@ -249,7 +248,7 @@ class LoggerService extends ChangeNotifier {
   /// 从本地加载缓存
   Future<void> _loadCache() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await _ensurePrefs();
       final cacheData = prefs.getStringList('rc_log_cache_$sessionId');
 
       if (cacheData != null) {
@@ -282,17 +281,21 @@ class LoggerService extends ChangeNotifier {
   /// 清除本地缓存
   Future<void> _clearCache() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await _ensurePrefs();
       await prefs.remove('rc_log_cache_$sessionId');
     } catch (e) {
       _loggerLog.error('Clear cache error: $e');
     }
   }
 
-  /// 释放资源
+  /// 释放资源。
+  ///
+  /// 注意：此方法不执行 flush。调用方应在 dispose 前先 `await stop()`
+  /// 以确保待上传日志不会丢失。
   @override
   void dispose() {
-    stop();
+    _flushTimer?.cancel();
+    _flushTimer = null;
     super.dispose();
   }
 }

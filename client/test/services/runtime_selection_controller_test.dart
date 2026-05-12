@@ -525,7 +525,7 @@ void main() {
       expect(controller.errorMessage, contains('离线'));
     });
 
-    test('sorts terminals by status then updatedAt', () async {
+    test('sorts terminals by status then title (stable, no updated_at)', () async {
       runtimeService.devices = const [
         RuntimeDevice(
           deviceId: 'mbp-01',
@@ -540,7 +540,7 @@ void main() {
         'mbp-01': [
           RuntimeTerminal(
             terminalId: 'closed-old',
-            title: 'Closed',
+            title: 'Z-Closed',
             cwd: '/tmp/closed',
             command: '/bin/bash',
             status: 'closed',
@@ -548,22 +548,22 @@ void main() {
             updatedAt: DateTime.parse('2026-03-29T01:00:00Z'),
           ),
           RuntimeTerminal(
-            terminalId: 'detached-new',
-            title: 'Detached',
-            cwd: '/tmp/detached',
+            terminalId: 'live-b',
+            title: 'Bravo',
+            cwd: '/tmp/live',
             command: '/bin/bash',
-            status: 'detached',
-            views: const {'mobile': 0, 'desktop': 0},
-            updatedAt: DateTime.parse('2026-03-29T03:00:00Z'),
-          ),
-          RuntimeTerminal(
-            terminalId: 'attached-old',
-            title: 'Attached',
-            cwd: '/tmp/attached',
-            command: '/bin/bash',
-            status: 'attached',
+            status: 'live',
             views: const {'mobile': 1, 'desktop': 0},
             updatedAt: DateTime.parse('2026-03-29T00:00:00Z'),
+          ),
+          RuntimeTerminal(
+            terminalId: 'live-a',
+            title: 'Alpha',
+            cwd: '/tmp/live2',
+            command: '/bin/bash',
+            status: 'live',
+            views: const {'mobile': 0, 'desktop': 1},
+            updatedAt: DateTime.parse('2026-03-29T03:00:00Z'),
           ),
         ],
       };
@@ -576,9 +576,139 @@ void main() {
       );
       await controller.initialize();
 
+      // live terminals sorted by title (Alpha before Bravo), closed last.
+      // updated_at is ignored — Alpha has newer updated_at but still comes first.
       expect(
         controller.terminals.map((terminal) => terminal.terminalId).toList(),
-        ['attached-old', 'detached-new', 'closed-old'],
+        ['live-a', 'live-b', 'closed-old'],
+      );
+    });
+
+    test('sort order is stable across refreshes (updated_at changes ignored)',
+        () async {
+      runtimeService.devices = const [
+        RuntimeDevice(
+          deviceId: 'mbp-01',
+          name: 'Online',
+          owner: 'user1',
+          agentOnline: true,
+          maxTerminals: 3,
+          activeTerminals: 2,
+        ),
+      ];
+
+      // Initial load
+      runtimeService.terminalsByDevice = {
+        'mbp-01': [
+          RuntimeTerminal(
+            terminalId: 't1',
+            title: 'Alpha',
+            cwd: '/tmp',
+            command: '/bin/bash',
+            status: 'live',
+            views: const {'mobile': 1, 'desktop': 0},
+            updatedAt: DateTime.parse('2026-03-29T00:00:00Z'),
+          ),
+          RuntimeTerminal(
+            terminalId: 't2',
+            title: 'Bravo',
+            cwd: '/tmp',
+            command: '/bin/bash',
+            status: 'live',
+            views: const {'mobile': 0, 'desktop': 1},
+            updatedAt: DateTime.parse('2026-03-29T01:00:00Z'),
+          ),
+        ],
+      };
+
+      final controller = RuntimeSelectionController(
+        serverUrl: 'ws://localhost:8888',
+        token: 'token',
+        runtimeService: runtimeService,
+        configService: configService,
+      );
+      await controller.initialize();
+
+      final firstOrder =
+          controller.terminals.map((t) => t.terminalId).toList();
+
+      // Simulate refresh where updated_at changed (e.g. views updated)
+      runtimeService.terminalsByDevice = {
+        'mbp-01': [
+          RuntimeTerminal(
+            terminalId: 't1',
+            title: 'Alpha',
+            cwd: '/tmp',
+            command: '/bin/bash',
+            status: 'live',
+            views: const {'mobile': 1, 'desktop': 0},
+            updatedAt: DateTime.parse('2026-03-29T05:00:00Z'), // newer
+          ),
+          RuntimeTerminal(
+            terminalId: 't2',
+            title: 'Bravo',
+            cwd: '/tmp',
+            command: '/bin/bash',
+            status: 'live',
+            views: const {'mobile': 0, 'desktop': 1},
+            updatedAt: DateTime.parse('2026-03-29T01:00:00Z'),
+          ),
+        ],
+      };
+      await controller.initialize();
+
+      final refreshedOrder =
+          controller.terminals.map((t) => t.terminalId).toList();
+
+      // Order must be identical after refresh
+      expect(refreshedOrder, firstOrder);
+    });
+
+    test('recognizes server-side status names (live, detached_recoverable)',
+        () async {
+      runtimeService.devices = const [
+        RuntimeDevice(
+          deviceId: 'mbp-01',
+          name: 'Online',
+          owner: 'user1',
+          agentOnline: true,
+          maxTerminals: 3,
+          activeTerminals: 2,
+        ),
+      ];
+      runtimeService.terminalsByDevice = {
+        'mbp-01': [
+          RuntimeTerminal(
+            terminalId: 'detached',
+            title: 'Detached',
+            cwd: '/tmp',
+            command: '/bin/bash',
+            status: 'detached_recoverable',
+            views: const {'mobile': 0, 'desktop': 0},
+          ),
+          RuntimeTerminal(
+            terminalId: 'live',
+            title: 'Live',
+            cwd: '/tmp',
+            command: '/bin/bash',
+            status: 'live',
+            views: const {'mobile': 1, 'desktop': 0},
+          ),
+        ],
+      };
+
+      final controller = RuntimeSelectionController(
+        serverUrl: 'ws://localhost:8888',
+        token: 'token',
+        runtimeService: runtimeService,
+        configService: configService,
+      );
+      await controller.initialize();
+
+      // live (rank 0) comes before detached_recoverable (rank 1)
+      expect(
+        controller.terminals.map((t) => t.terminalId).toList(),
+        ['live', 'detached'],
       );
     });
 

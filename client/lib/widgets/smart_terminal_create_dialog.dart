@@ -9,6 +9,7 @@ import '../services/runtime_selection_controller.dart';
 import 'shared/status_pill.dart';
 import 'shared/chat_bubble.dart';
 import 'shared/scroll_mixin.dart';
+import 'design_tokens.dart';
 
 part 'smart_terminal_create_dialog_models.dart';
 part 'smart_terminal_create_dialog_conversation.dart';

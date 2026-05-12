@@ -2,86 +2,6 @@
 
 part of 'smart_terminal_side_panel.dart';
 
-/// Agent 面板 Phase 驱动状态
-enum AgentPhase {
-  /// 空闲/初始状态
-  idle,
-  /// THINKING 阶段：正在思考
-  thinking,
-  /// EXPLORING 阶段：执行工具调用
-  exploring,
-  /// ANALYZING 阶段：分析结果
-  analyzing,
-  /// RESPONDING 阶段：流式文本输出
-  responding,
-  /// CONFIRMING 阶段：ask_user 等待确认
-  confirming,
-  /// RESULT 阶段：显示结果卡片
-  result,
-  /// 错误
-  error,
-}
-
-// --- 内部模型 ---
-
-class _AgentHistoryEntry {
-  const _AgentHistoryEntry({
-    required this.intent,
-    required this.traces,
-    required this.turnEventOrder,
-    this.assistantMessages = const [],
-    this.answers = const [],
-    this.result,
-    this.error,
-  });
-  final String intent;
-  final List<ToolStepEvent> traces;
-  final List<_TurnEventType> turnEventOrder;
-  final List<StreamingTextEvent> assistantMessages;
-  final List<_AgentAnswerEntry> answers;
-  final AgentResultEvent? result;
-  final AgentErrorEvent? error;
-}
-
-class _AgentAnswerEntry {
-  const _AgentAnswerEntry({required this.question, required this.answer});
-  final String question;
-  final String answer;
-}
-
-enum _TurnEventType { answer, assistantMessage }
-
-class _AgentRenderState {
-  const _AgentRenderState({
-    required this.state,
-    required this.history,
-    required this.traces,
-    required this.turnEventOrder,
-    required this.assistantMessages,
-    required this.answers,
-    this.phaseDescription = '',
-    this.intent,
-    this.currentQuestion,
-    this.result,
-    this.error,
-    this.resultEventId,
-    this.errorEventId,
-  });
-  final AgentPhase state;
-  final String phaseDescription;
-  final List<_AgentHistoryEntry> history;
-  final String? intent;
-  final List<ToolStepEvent> traces;
-  final List<_TurnEventType> turnEventOrder;
-  final List<StreamingTextEvent> assistantMessages;
-  final List<_AgentAnswerEntry> answers;
-  final AgentQuestionEvent? currentQuestion;
-  final AgentResultEvent? result;
-  final AgentErrorEvent? error;
-  final String? resultEventId;
-  final String? errorEventId;
-}
-
 /// 面板 mixin 共享字段声明
 mixin _PanelStateFields on State<_SmartTerminalSidePanelContent> {
   TextEditingController get _intentController;
@@ -97,7 +17,7 @@ mixin _PanelStateFields on State<_SmartTerminalSidePanelContent> {
   String get _phaseDescription;
   set _phaseDescription(String v);
   List<ToolStepEvent> get _traces;
-  List<_TurnEventType> get _turnEventOrder;
+  List<TurnEventType> get _turnEventOrder;
   List<StreamingTextEvent> get _assistantMessages;
   StringBuffer get _streamingTextBuffer;
   List<ToolStepEvent> get _toolSteps;
@@ -116,9 +36,9 @@ mixin _PanelStateFields on State<_SmartTerminalSidePanelContent> {
   Set<String> get _multiSelectChosen;
   String? get _agentIntent;
   set _agentIntent(String? v);
-  List<_AgentHistoryEntry> get _agentHistory;
+  List<AgentHistoryEntry> get _agentHistory;
   Set<int> get _expandedHistorySet;
-  List<_AgentAnswerEntry> get _agentAnswers;
+  List<AgentAnswerEntry> get _agentAnswers;
   List<AgentConversationEventItem> get _serverConversationEvents;
   String? get _agentConversationId;
   set _agentConversationId(String? v);
@@ -205,7 +125,7 @@ mixin _PanelStateFields on State<_SmartTerminalSidePanelContent> {
   void _markTerminalConversationClosed(String message);
   void _applyConversationProjection(AgentConversationProjection projection);
   void _applyConversationEventItem(AgentConversationEventItem event);
-  _AgentRenderState _deriveAgentRenderState(List<AgentConversationEventItem> events);
+  AgentRenderState _deriveAgentRenderState(List<AgentConversationEventItem> events);
   CommandSequenceDraft _buildDraftFromAgentResult(AgentResultEvent result);
   bool _isCommandResult(AgentResultEvent result);
 
@@ -353,9 +273,9 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
     if (event.type == 'trace') {
       final p = Map<String, dynamic>.from(event.payload);
       _traces.add(ToolStepEvent(
-        toolName: (p['tool'] as String? ?? '').trim(),
-        description: (p['input_summary'] as String? ?? '').trim(),
-        status: 'done',
+        toolName: readStringFromJson(p['tool']),
+        description: readStringFromJson(p['input_summary']),
+        status: ToolStepStatus.done,
         resultSummary: (p['output_summary'] as String?)?.trim(),
       ));
       _terminalConversationClosed = false; _terminalClosedReason = null;
@@ -364,9 +284,9 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
     }
     if (event.type == 'assistant_message') {
       _assistantMessages.add(StreamingTextEvent(
-        textDelta: (event.payload['content'] as String? ?? '').trim(),
+        textDelta: readStringFromJson(event.payload['content']),
       ));
-      _turnEventOrder.add(_TurnEventType.assistantMessage);
+      _turnEventOrder.add(TurnEventType.assistantMessage);
       _terminalConversationClosed = false; _terminalClosedReason = null;
       if (_currentPhase == AgentPhase.idle) _currentPhase = AgentPhase.exploring;
       return;
@@ -400,12 +320,12 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
     if (_agentResult != null) _draft = _buildDraftFromAgentResult(_agentResult!);
   }
 
-  _AgentRenderState _deriveAgentRenderState(List<AgentConversationEventItem> events) {
-    final history = <_AgentHistoryEntry>[];
+  AgentRenderState _deriveAgentRenderState(List<AgentConversationEventItem> events) {
+    final history = <AgentHistoryEntry>[];
     final traces = <ToolStepEvent>[];
-    final turnEventOrder = <_TurnEventType>[];
+    final turnEventOrder = <TurnEventType>[];
     final assistantMessages = <StreamingTextEvent>[];
-    final answers = <_AgentAnswerEntry>[];
+    final answers = <AgentAnswerEntry>[];
     String? activeIntent, lastQuestionText;
     AgentQuestionEvent? currentQuestion;
     AgentResultEvent? result;
@@ -417,7 +337,7 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
     void archiveCurrent({AgentResultEvent? archivedResult, AgentErrorEvent? archivedError}) {
       final intent = activeIntent?.trim();
       if (intent == null || intent.isEmpty) return;
-      history.add(_AgentHistoryEntry(intent: intent, traces: List.of(traces),
+      history.add(AgentHistoryEntry(intent: intent, traces: List.of(traces),
           turnEventOrder: List.of(turnEventOrder), assistantMessages: List.of(assistantMessages),
           answers: List.of(answers), result: archivedResult, error: archivedError));
       activeIntent = null; traces.clear(); turnEventOrder.clear();
@@ -435,18 +355,18 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
         case 'trace':
           final p = Map<String, dynamic>.from(event.payload);
           traces.add(ToolStepEvent(
-            toolName: (p['tool'] as String? ?? '').trim(),
-            description: (p['input_summary'] as String? ?? '').trim(),
-            status: 'done',
+            toolName: readStringFromJson(p['tool']),
+            description: readStringFromJson(p['input_summary']),
+            status: ToolStepStatus.done,
             resultSummary: (p['output_summary'] as String?)?.trim(),
           ));
           result = null; error = null; state = AgentPhase.exploring;
           phaseDescription = '正在执行工具调用...';
         case 'assistant_message':
           assistantMessages.add(StreamingTextEvent(
-            textDelta: (event.payload['content'] as String? ?? '').trim(),
+            textDelta: readStringFromJson(event.payload['content']),
           ));
-          turnEventOrder.add(_TurnEventType.assistantMessage);
+          turnEventOrder.add(TurnEventType.assistantMessage);
           result = null; error = null; state = AgentPhase.responding;
         case 'question':
           currentQuestion = AgentQuestionEvent.fromJson({...Map<String, dynamic>.from(event.payload),
@@ -457,8 +377,8 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
         case 'answer':
           final answer = (event.payload['text']?.toString() ?? '').trim();
           if (answer.isNotEmpty) {
-            answers.add(_AgentAnswerEntry(question: lastQuestionText ?? '', answer: answer));
-            turnEventOrder.add(_TurnEventType.answer);
+            answers.add(AgentAnswerEntry(question: lastQuestionText ?? '', answer: answer));
+            turnEventOrder.add(TurnEventType.answer);
           }
           currentQuestion = null; result = null; error = null;
           state = AgentPhase.exploring; phaseDescription = '正在执行工具调用...';
@@ -473,7 +393,7 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
           result = null; resultEventId = null; state = AgentPhase.error;
       }
     }
-    return _AgentRenderState(state: state, phaseDescription: phaseDescription, history: history,
+    return AgentRenderState(state: state, phaseDescription: phaseDescription, history: history,
         intent: activeIntent, traces: List.of(traces), turnEventOrder: List.of(turnEventOrder),
         assistantMessages: List.of(assistantMessages), answers: List.of(answers),
         currentQuestion: currentQuestion, result: result, error: error,
@@ -491,7 +411,7 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
 
   bool _isCommandResult(AgentResultEvent result) {
     final rt = result.responseType;
-    return rt != 'message' && rt != 'ai_prompt';
+    return rt != AgentResponseType.message && rt != AgentResponseType.aiPrompt;
   }
 
   /// 从 conversation events 中提取 feedback_status 并恢复到 _feedbackStatus map。

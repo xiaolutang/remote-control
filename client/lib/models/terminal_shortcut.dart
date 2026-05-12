@@ -1,3 +1,5 @@
+import '../utils/json_helpers.dart';
+
 enum TerminalShortcutActionType {
   sendText,
   sendControl,
@@ -10,9 +12,9 @@ enum ClaudeNavigationMode {
 }
 
 TerminalShortcutActionType _actionTypeFromName(String? name) {
-  return TerminalShortcutActionType.values.byName(
-    name ?? TerminalShortcutActionType.sendText.name,
-  );
+  if (name == null) return TerminalShortcutActionType.sendText;
+  return TerminalShortcutActionType.values.asNameMap()[name] ??
+      TerminalShortcutActionType.sendText;
 }
 
 class TerminalShortcutAction {
@@ -45,8 +47,12 @@ class TerminalShortcutAction {
 
   factory TerminalShortcutAction.fromJson(Map<String, dynamic> json) {
     return TerminalShortcutAction(
-      type: _actionTypeFromName(json['type'] as String?),
-      value: json['value'] as String? ?? '',
+      // type: 防御性解析，非字符串或未知值回退到 sendText
+      type: _actionTypeFromName(
+        json['type'] is String ? json['type'] as String : null,
+      ),
+      // readRawStringFromJson: 不 trim，保留 \r/\t/\x1b 等终端控制字符
+      value: readRawStringFromJson(json['value']),
     );
   }
 }

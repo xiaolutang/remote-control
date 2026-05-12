@@ -170,7 +170,7 @@ class _CommandSequencePreview extends StatelessWidget {
         color: Colors.white.withValues(alpha: 0.82),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: colorScheme.outlineVariant.withValues(alpha: 0.14),
+          color: subtleBorderColor(colorScheme),
         ),
       ),
       child: Column(

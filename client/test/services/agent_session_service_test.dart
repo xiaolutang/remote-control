@@ -67,7 +67,7 @@ void main() {
         final step = events[0] as ToolStepEvent;
         expect(step.toolName, 'execute_command');
         expect(step.description, 'ls ~');
-        expect(step.status, 'done');
+        expect(step.status, ToolStepStatus.done);
         expect(step.resultSummary, 'Desktop\nDocuments\n...');
       });
 
@@ -1191,13 +1191,6 @@ void main() {
   });
 
   group('AgentSessionEvent 模型', () {
-    test('AgentTraceEvent.fromJson 处理缺失字段', () {
-      final event = AgentTraceEvent.fromJson({});
-      expect(event.tool, '');
-      expect(event.inputSummary, '');
-      expect(event.outputSummary, '');
-    });
-
     test('AgentQuestionEvent.fromJson 处理缺失字段', () {
       final event = AgentQuestionEvent.fromJson({});
       expect(event.question, '');

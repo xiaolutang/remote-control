@@ -1,3 +1,6 @@
+import '../utils/json_helpers.dart'
+    show readBoolFromJson, readListFromJson, readStringFromJson;
+
 class ProjectContextCandidate {
   const ProjectContextCandidate({
     required this.candidateId,
@@ -35,22 +38,24 @@ class ProjectContextCandidate {
 
   factory ProjectContextCandidate.fromJson(Map<String, dynamic> json) {
     DateTime? parseDate(String key) {
-      final raw = json[key] as String?;
-      return raw == null ? null : DateTime.tryParse(raw);
+      final raw = json[key];
+      if (raw is! String) return null;
+      return DateTime.tryParse(raw);
     }
 
+    final source = readStringFromJson(json['source']);
     return ProjectContextCandidate(
-      candidateId: json['candidate_id'] as String? ?? '',
-      deviceId: json['device_id'] as String? ?? '',
-      label: json['label'] as String? ?? '',
-      cwd: json['cwd'] as String? ?? '',
-      source: json['source'] as String? ?? 'recent_terminal',
-      toolHints: ((json['tool_hints'] as List<dynamic>?) ?? const [])
-          .whereType<String>()
-          .toList(growable: false),
+      candidateId: readStringFromJson(json['candidate_id']),
+      deviceId: readStringFromJson(json['device_id']),
+      label: readStringFromJson(json['label']),
+      cwd: readStringFromJson(json['cwd']),
+      source: source.isEmpty ? 'recent_terminal' : source,
+      toolHints: json['tool_hints'] is List
+          ? (json['tool_hints'] as List).whereType<String>().toList(growable: false)
+          : const <String>[],
       updatedAt: parseDate('updated_at'),
       lastUsedAt: parseDate('last_used_at'),
-      requiresConfirmation: json['requires_confirmation'] as bool? ?? false,
+      requiresConfirmation: readBoolFromJson(json['requires_confirmation']),
     );
   }
 }
@@ -74,13 +79,12 @@ class DeviceProjectContextSnapshot {
 
   factory DeviceProjectContextSnapshot.fromJson(Map<String, dynamic> json) {
     return DeviceProjectContextSnapshot(
-      deviceId: json['device_id'] as String? ?? '',
-      generatedAt: DateTime.tryParse(json['generated_at'] as String? ?? '') ??
+      deviceId: readStringFromJson(json['device_id']),
+      generatedAt: DateTime.tryParse(
+              json['generated_at'] is String ? json['generated_at'] as String : '') ??
           DateTime.fromMillisecondsSinceEpoch(0),
-      candidates: ((json['candidates'] as List<dynamic>?) ?? const [])
-          .whereType<Map<String, dynamic>>()
-          .map(ProjectContextCandidate.fromJson)
-          .toList(growable: false),
+      candidates: readListFromJson(
+          json['candidates'], ProjectContextCandidate.fromJson),
     );
   }
 }

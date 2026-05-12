@@ -3,6 +3,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../app_logger.dart';
+import '../http_client_factory.dart';
+import '../../utils/json_helpers.dart'
+    show readBoolFromJson, readIntFromJson, readStringFromJson;
 
 /// 默认端口范围
 const List<int> kAgentPortRange = [18765, 18766, 18767, 18768, 18769];
@@ -36,9 +39,9 @@ class SkillItem {
 
   factory SkillItem.fromJson(Map<String, dynamic> json) {
     return SkillItem(
-      name: json['name'] as String? ?? '',
-      description: json['description'] as String? ?? '',
-      enabled: json['enabled'] as bool? ?? false,
+      name: readStringFromJson(json['name']),
+      description: readStringFromJson(json['description']),
+      enabled: readBoolFromJson(json['enabled']),
     );
   }
 
@@ -63,8 +66,8 @@ class KnowledgeItem {
 
   factory KnowledgeItem.fromJson(Map<String, dynamic> json) {
     return KnowledgeItem(
-      filename: json['filename'] as String? ?? '',
-      enabled: json['enabled'] as bool? ?? false,
+      filename: readStringFromJson(json['filename']),
+      enabled: readBoolFromJson(json['enabled']),
     );
   }
 
@@ -100,15 +103,15 @@ class LocalAgentStatus {
 
   factory LocalAgentStatus.fromJson(Map<String, dynamic> json) {
     return LocalAgentStatus(
-      running: json['running'] as bool? ?? false,
-      pid: json['pid'] as int? ?? 0,
-      port: json['port'] as int? ?? 0,
-      serverUrl: json['server_url'] as String? ?? '',
-      connected: json['connected'] as bool? ?? false,
-      sessionId: json['session_id'] as String? ?? '',
-      terminalsCount: json['terminals_count'] as int? ?? 0,
+      running: readBoolFromJson(json['running']),
+      pid: readIntFromJson(json['pid']),
+      port: readIntFromJson(json['port']),
+      serverUrl: readStringFromJson(json['server_url']),
+      connected: readBoolFromJson(json['connected']),
+      sessionId: readStringFromJson(json['session_id']),
+      terminalsCount: readIntFromJson(json['terminals_count']),
       keepRunningInBackground:
-          json['keep_running_in_background'] as bool? ?? true,
+          readBoolFromJson(json['keep_running_in_background'], defaultValue: true),
     );
   }
 }
@@ -249,9 +252,9 @@ class DesktopAgentHttpClient {
       if (response.statusCode == 200) {
         final body = await _readResponseBody(response);
         final json = jsonDecode(body) as Map<String, dynamic>;
-        final skills = json['skills'] as List<dynamic>? ?? [];
+        final skills = json['skills'] is List ? json['skills'] as List : [];
         return skills
-            .cast<Map<String, dynamic>>()
+            .whereType<Map<String, dynamic>>()
             .map(SkillItem.fromJson)
             .toList();
       }
@@ -296,9 +299,9 @@ class DesktopAgentHttpClient {
       if (response.statusCode == 200) {
         final body = await _readResponseBody(response);
         final json = jsonDecode(body) as Map<String, dynamic>;
-        final knowledge = json['knowledge'] as List<dynamic>? ?? [];
+        final knowledge = json['knowledge'] is List ? json['knowledge'] as List : [];
         return knowledge
-            .cast<Map<String, dynamic>>()
+            .whereType<Map<String, dynamic>>()
             .map(KnowledgeItem.fromJson)
             .toList();
       }
@@ -343,8 +346,8 @@ class DesktopAgentHttpClient {
       if (response.statusCode == 200) {
         final body = await _readResponseBody(response);
         final json = jsonDecode(body) as Map<String, dynamic>;
-        final terminals = json['terminals'] as List<dynamic>? ?? [];
-        return terminals.cast<Map<String, dynamic>>();
+        final terminals = json['terminals'] is List ? json['terminals'] as List : [];
+        return terminals.whereType<Map<String, dynamic>>().toList();
       }
       return [];
     } catch (e) {
@@ -362,7 +365,7 @@ class DesktopAgentHttpClient {
   // ============== 私有方法 ==============
 
   Future<HttpClient> _getClient() async {
-    _httpClient ??= HttpClient();
+    _httpClient ??= HttpClientFactory.createRaw();
     return _httpClient!;
   }
 
@@ -375,8 +378,8 @@ class DesktopAgentHttpClient {
     try {
       final content = await stateFile.readAsString();
       final json = jsonDecode(content) as Map<String, dynamic>;
-      final pid = json['pid'] as int?;
-      final port = json['port'] as int?;
+      final pid = json['pid'] is num ? (json['pid'] as num).toInt() : null;
+      final port = json['port'] is num ? (json['port'] as num).toInt() : null;
 
       if (pid == null || port == null) {
         return null;

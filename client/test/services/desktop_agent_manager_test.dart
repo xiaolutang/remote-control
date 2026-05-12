@@ -463,6 +463,18 @@ void main() {
 
     final manager = DesktopAgentManager(
       supervisor: DesktopAgentSupervisor(
+        runtimeService: _FakeRuntimeDeviceService([
+          const [
+            RuntimeDevice(
+              deviceId: 'dev-1',
+              name: 'mac-phone',
+              owner: 'user',
+              agentOnline: false,
+              maxTerminals: 3,
+              activeTerminals: 0,
+            ),
+          ],
+        ]),
         processRunner: (executable, arguments) async {
           return ProcessResult(0, 1, '', '');
         },

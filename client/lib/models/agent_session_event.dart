@@ -1,5 +1,111 @@
 import 'dart:collection';
 
+import '../utils/json_helpers.dart'
+    show readBoolFromJson, readIntFromJson, readListFromJson,
+        readOptionalStringFromJson, readStringFromJson;
+
+// --- Enums ---
+
+/// Agent 结果响应类型
+enum AgentResponseType {
+  /// 纯文本消息
+  message,
+
+  /// 命令序列
+  command,
+
+  /// AI Prompt 注入
+  aiPrompt;
+
+  /// 从 JSON 字符串解析，未知值回退到 command
+  static AgentResponseType fromJsonString(String? value) {
+    if (value == null) return AgentResponseType.command;
+    switch (value.trim()) {
+      case 'message':
+        return AgentResponseType.message;
+      case 'ai_prompt':
+        return AgentResponseType.aiPrompt;
+      default:
+        return AgentResponseType.command;
+    }
+  }
+
+  /// 转回 JSON 字符串
+  String toJsonString() => switch (this) {
+        AgentResponseType.message => 'message',
+        AgentResponseType.aiPrompt => 'ai_prompt',
+        AgentResponseType.command => 'command',
+      };
+}
+
+/// 反馈类型
+enum FeedbackType {
+  /// 有帮助
+  helpful,
+
+  /// 需改进
+  needsImprovement,
+
+  /// 错误报告
+  errorReport;
+
+  /// 从 JSON 字符串解析，未知值回退到 helpful
+  static FeedbackType fromJsonString(String? value) {
+    if (value == null) return FeedbackType.helpful;
+    switch (value.trim()) {
+      case 'helpful':
+        return FeedbackType.helpful;
+      case 'needs_improvement':
+        return FeedbackType.needsImprovement;
+      case 'error_report':
+        return FeedbackType.errorReport;
+      default:
+        return FeedbackType.helpful;
+    }
+  }
+
+  /// 转回 JSON 字符串
+  String toJsonString() => switch (this) {
+        FeedbackType.helpful => 'helpful',
+        FeedbackType.needsImprovement => 'needs_improvement',
+        FeedbackType.errorReport => 'error_report',
+      };
+}
+
+/// 工具步骤状态
+enum ToolStepStatus {
+  /// 执行中
+  running,
+
+  /// 完成
+  done,
+
+  /// 错误
+  error;
+
+  /// 从 JSON 字符串解析，未知值回退到 running
+  static ToolStepStatus fromJsonString(String? value) {
+    if (value == null) return ToolStepStatus.running;
+    switch (value.trim()) {
+      case 'running':
+        return ToolStepStatus.running;
+      case 'done':
+        return ToolStepStatus.done;
+      case 'error':
+        return ToolStepStatus.error;
+      default:
+        return ToolStepStatus.running;
+    }
+  }
+
+  /// 转回 JSON 字符串
+  String toJsonString() => switch (this) {
+        ToolStepStatus.running => 'running',
+        ToolStepStatus.done => 'done',
+        ToolStepStatus.error => 'error',
+      };
+}
+
 /// Agent SSE 会话事件基类
 sealed class AgentSessionEvent {
   const AgentSessionEvent();
@@ -23,8 +129,8 @@ class PhaseChangeEvent extends AgentSessionEvent {
 
   factory PhaseChangeEvent.fromJson(Map<String, dynamic> json) {
     return PhaseChangeEvent(
-      phase: (json['phase'] as String? ?? '').trim(),
-      description: (json['description'] as String?)?.trim(),
+      phase: readStringFromJson(json['phase']),
+      description: readOptionalStringFromJson(json['description']),
     );
   }
 
@@ -44,7 +150,7 @@ class StreamingTextEvent extends AgentSessionEvent {
 
   factory StreamingTextEvent.fromJson(Map<String, dynamic> json) {
     return StreamingTextEvent(
-      textDelta: (json['text_delta'] as String? ?? '').trim(),
+      textDelta: readStringFromJson(json['text_delta']),
     );
   }
 
@@ -67,18 +173,19 @@ class ToolStepEvent extends AgentSessionEvent {
   /// 步骤描述
   final String description;
 
-  /// 状态：running / done / error
-  final String status;
+  /// 状态
+  final ToolStepStatus status;
 
   /// 结果摘要（done 状态时有值）
   final String? resultSummary;
 
   factory ToolStepEvent.fromJson(Map<String, dynamic> json) {
     return ToolStepEvent(
-      toolName: (json['tool_name'] as String? ?? '').trim(),
-      description: (json['description'] as String? ?? '').trim(),
-      status: (json['status'] as String? ?? 'running').trim(),
-      resultSummary: (json['result_summary'] as String?)?.trim(),
+      toolName: readStringFromJson(json['tool_name']),
+      description: readStringFromJson(json['description']),
+      status: ToolStepStatus.fromJsonString(
+          json['status'] is String ? json['status'] as String : null),
+      resultSummary: readOptionalStringFromJson(json['result_summary']),
     );
   }
 
@@ -86,7 +193,7 @@ class ToolStepEvent extends AgentSessionEvent {
   Map<String, dynamic> toJson() => {
         'tool_name': toolName,
         'description': description,
-        'status': status,
+        'status': status.toJsonString(),
         if (resultSummary != null) 'result_summary': resultSummary,
       };
 }
@@ -105,9 +212,9 @@ class AgentSessionCreatedEvent extends AgentSessionEvent {
 
   factory AgentSessionCreatedEvent.fromJson(Map<String, dynamic> json) {
     return AgentSessionCreatedEvent(
-      sessionId: (json['session_id'] as String? ?? '').trim(),
-      conversationId: (json['conversation_id'] as String?)?.trim(),
-      terminalId: (json['terminal_id'] as String?)?.trim(),
+      sessionId: readStringFromJson(json['session_id']),
+      conversationId: readOptionalStringFromJson(json['conversation_id']),
+      terminalId: readOptionalStringFromJson(json['terminal_id']),
     );
   }
 
@@ -116,35 +223,6 @@ class AgentSessionCreatedEvent extends AgentSessionEvent {
         'session_id': sessionId,
         if (conversationId != null) 'conversation_id': conversationId,
         if (terminalId != null) 'terminal_id': terminalId,
-      };
-}
-
-/// Agent 工具调用追踪事件
-@Deprecated('已由 ToolStepEvent 取代，仅保留用于 UI 过渡兼容，F108 移除')
-class AgentTraceEvent extends AgentSessionEvent {
-  const AgentTraceEvent({
-    required this.tool,
-    required this.inputSummary,
-    required this.outputSummary,
-  });
-
-  final String tool;
-  final String inputSummary;
-  final String outputSummary;
-
-  factory AgentTraceEvent.fromJson(Map<String, dynamic> json) {
-    return AgentTraceEvent(
-      tool: (json['tool'] as String? ?? '').trim(),
-      inputSummary: (json['input_summary'] as String? ?? '').trim(),
-      outputSummary: (json['output_summary'] as String? ?? '').trim(),
-    );
-  }
-
-  @override
-  Map<String, dynamic> toJson() => {
-        'tool': tool,
-        'input_summary': inputSummary,
-        'output_summary': outputSummary,
       };
 }
 
@@ -164,12 +242,12 @@ class AgentQuestionEvent extends AgentSessionEvent {
 
   factory AgentQuestionEvent.fromJson(Map<String, dynamic> json) {
     return AgentQuestionEvent(
-      questionId: (json['question_id'] as String?)?.trim(),
-      question: (json['question'] as String? ?? '').trim(),
-      options: (json['options'] as List<dynamic>? ?? const [])
-          .whereType<String>()
-          .toList(growable: false),
-      multiSelect: json['multi_select'] as bool? ?? false,
+      questionId: readOptionalStringFromJson(json['question_id']),
+      question: readStringFromJson(json['question']),
+      options: json['options'] is List
+          ? (json['options'] as List).whereType<String>().toList(growable: false)
+          : const <String>[],
+      multiSelect: readBoolFromJson(json['multi_select']),
     );
   }
 
@@ -196,9 +274,9 @@ class AgentResultStep {
 
   factory AgentResultStep.fromJson(Map<String, dynamic> json) {
     return AgentResultStep(
-      id: (json['id'] as String? ?? '').trim(),
-      label: (json['label'] as String? ?? '').trim(),
-      command: (json['command'] as String? ?? '').trim(),
+      id: readStringFromJson(json['id']),
+      label: readStringFromJson(json['label']),
+      command: readStringFromJson(json['command']),
     );
   }
 }
@@ -221,11 +299,11 @@ class AgentUsageData {
 
   factory AgentUsageData.fromJson(Map<String, dynamic> json) {
     return AgentUsageData(
-      inputTokens: json['input_tokens'] as int? ?? 0,
-      outputTokens: json['output_tokens'] as int? ?? 0,
-      totalTokens: json['total_tokens'] as int? ?? 0,
-      requests: json['requests'] as int? ?? 0,
-      modelName: (json['model_name'] as String? ?? '').trim(),
+      inputTokens: readIntFromJson(json['input_tokens']),
+      outputTokens: readIntFromJson(json['output_tokens']),
+      totalTokens: readIntFromJson(json['total_tokens']),
+      requests: readIntFromJson(json['requests']),
+      modelName: readStringFromJson(json['model_name']),
     );
   }
 
@@ -244,7 +322,7 @@ class AgentResultEvent extends AgentSessionEvent {
     required this.needConfirm,
     required this.aliases,
     this.usage,
-    this.responseType = 'command',
+    this.responseType = AgentResponseType.command,
     this.aiPrompt = '',
     this.eventId,
   });
@@ -257,8 +335,8 @@ class AgentResultEvent extends AgentSessionEvent {
   final Map<String, String> aliases;
   final AgentUsageData? usage;
 
-  /// 响应类型：'message' | 'command' | 'ai_prompt'，缺失或未知时默认 'command'
-  final String responseType;
+  /// 响应类型，缺失或未知时默认 command
+  final AgentResponseType responseType;
 
   /// ai_prompt 类型的 prompt 文本，用于注入终端 stdin
   final String aiPrompt;
@@ -268,24 +346,28 @@ class AgentResultEvent extends AgentSessionEvent {
 
   factory AgentResultEvent.fromJson(Map<String, dynamic> json) {
     return AgentResultEvent(
-      summary: (json['summary'] as String? ?? '').trim(),
-      steps: (json['steps'] as List<dynamic>? ?? const [])
-          .whereType<Map<String, dynamic>>()
-          .map(AgentResultStep.fromJson)
-          .toList(growable: false),
-      provider: (json['provider'] as String? ?? 'agent').trim(),
-      source: (json['source'] as String? ?? 'recommended').trim(),
-      needConfirm: json['need_confirm'] as bool? ?? true,
+      summary: readStringFromJson(json['summary']),
+      steps: readListFromJson(json['steps'], AgentResultStep.fromJson),
+      provider: readStringFromJson(json['provider']).isEmpty
+          ? 'agent'
+          : readStringFromJson(json['provider']),
+      source: readStringFromJson(json['source']).isEmpty
+          ? 'recommended'
+          : readStringFromJson(json['source']),
+      needConfirm: readBoolFromJson(json['need_confirm'], defaultValue: true),
       aliases: UnmodifiableMapView(
-        Map<String, dynamic>.from(json['aliases'] as Map? ?? const {})
-            .map((k, v) => MapEntry(k, v.toString())),
+        json['aliases'] is Map
+            ? (json['aliases'] as Map)
+                .map((k, v) => MapEntry(k.toString(), v.toString()))
+            : const {},
       ),
       usage: json['usage'] != null
           ? AgentUsageData.fromJson(json['usage'] as Map<String, dynamic>)
           : null,
-      responseType: (json['response_type'] as String? ?? 'command').trim(),
-      aiPrompt: (json['ai_prompt'] as String? ?? '').trim(),
-      eventId: (json['event_id'] as String?)?.trim(),
+      responseType: AgentResponseType.fromJsonString(
+          json['response_type'] is String ? json['response_type'] as String : null),
+      aiPrompt: readStringFromJson(json['ai_prompt']),
+      eventId: readOptionalStringFromJson(json['event_id']),
     );
   }
 
@@ -305,32 +387,10 @@ class AgentResultEvent extends AgentSessionEvent {
             'requests': usage!.requests,
             'model_name': usage!.modelName,
           },
-        'response_type': responseType,
+        'response_type': responseType.toJsonString(),
         'ai_prompt': aiPrompt,
         if (eventId != null) 'event_id': eventId,
       };
-}
-
-/// Agent 助手中间消息事件（对话过程气泡，非最终结果）
-///
-/// 服务端在 Agent 处理过程中推送的用户可见助手回复。
-/// 与 [AgentResultEvent]（responseType=message）区分：
-/// assistant_message 是中间过程消息，message result 是结构化结果卡片。
-@Deprecated('已由 StreamingTextEvent 取代，仅保留用于 UI 过渡兼容，F108 移除')
-class AgentAssistantMessageEvent extends AgentSessionEvent {
-  const AgentAssistantMessageEvent({required this.content});
-
-  /// 助手消息文本内容
-  final String content;
-
-  factory AgentAssistantMessageEvent.fromJson(Map<String, dynamic> json) {
-    return AgentAssistantMessageEvent(
-      content: (json['content'] as String? ?? '').trim(),
-    );
-  }
-
-  @override
-  Map<String, dynamic> toJson() => {'content': content};
 }
 
 /// Agent 错误事件
@@ -347,9 +407,11 @@ class AgentErrorEvent extends AgentSessionEvent {
 
   factory AgentErrorEvent.fromJson(Map<String, dynamic> json) {
     return AgentErrorEvent(
-      code: (json['code'] as String? ?? 'UNKNOWN').trim(),
-      message: (json['message'] as String? ?? '').trim(),
-      usage: json['usage'] != null
+      code: readStringFromJson(json['code']).isEmpty
+          ? 'UNKNOWN'
+          : readStringFromJson(json['code']),
+      message: readStringFromJson(json['message']),
+      usage: json['usage'] is Map<String, dynamic>
           ? AgentUsageData.fromJson(json['usage'] as Map<String, dynamic>)
           : null,
     );

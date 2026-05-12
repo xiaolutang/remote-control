@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
-import '../navigation/account_menu_actions.dart';
+import 'account_menu_actions.dart';
 import '../screens/feedback_screen.dart';
 import '../screens/skill_config_screen.dart';
 import '../screens/user_profile_screen.dart';
-import 'auth_service.dart';
-import 'logout_helper.dart';
+import '../services/auth_service.dart';
+import '../services/desktop/desktop_agent_manager.dart';
+import '../services/logout_helper.dart';
+import '../services/terminal_session_manager.dart';
 
 Future<void> handleAccountMenuAction(
   BuildContext context, {
@@ -108,7 +111,10 @@ Future<void> _confirmAndLogout(
     return;
   }
 
-  await performSessionTeardown(context: context);
+  await performSessionTeardown(
+    agentManager: context.read<DesktopAgentManager>(),
+    sessionManager: context.read<TerminalSessionManager>(),
+  );
   if (!context.mounted) return;
   Navigator.of(context).pushAndRemoveUntil(
     MaterialPageRoute(builder: destinationBuilder),

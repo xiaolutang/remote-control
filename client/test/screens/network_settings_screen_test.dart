@@ -53,8 +53,9 @@ class _FakeEnvironmentSwitchCoordinator extends EnvironmentSwitchCoordinator {
 
   @override
   Future<void> switchEnvironment({
-    required BuildContext context,
     required AppEnvironment newEnv,
+    required DesktopAgentManager agentManager,
+    required TerminalSessionManager sessionManager,
     authServiceBuilder,
   }) async {
     switchCallCount += 1;

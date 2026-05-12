@@ -272,8 +272,10 @@ class RuntimeSelectionController extends ChangeNotifier {
     _projectContextSettings = null;
     _projectContextSnapshot = _config.projectContextSnapshots[deviceId];
     await _persistPreferredDevice(deviceId);
-    await _loadTerminalsForDevice(deviceId, notify: notify);
-    await loadProjectContextSnapshot(forceRefresh: true, notify: notify);
+    await Future.wait([
+      _loadTerminalsForDevice(deviceId, notify: notify),
+      loadProjectContextSnapshot(forceRefresh: true, notify: notify),
+    ]);
   }
 
   /// 刷新当前设备的终端列表（用于跨平台同步等场景）
@@ -348,11 +350,9 @@ class RuntimeSelectionController extends ChangeNotifier {
       );
       _terminals = _sortTerminals([..._terminals, terminal]);
       _syncSelectedDeviceTerminalCount();
-      notifyListeners();
       return terminal;
     } catch (error) {
       _handleError(error);
-      notifyListeners();
       return null;
     } finally {
       _creatingTerminal = false;
@@ -391,12 +391,12 @@ class RuntimeSelectionController extends ChangeNotifier {
           if (item.terminalId == terminalId) closed else item,
       ]);
       _syncSelectedDeviceTerminalCount();
-      notifyListeners();
       return closed;
     } catch (error) {
       _handleError(error);
-      notifyListeners();
       return null;
+    } finally {
+      notifyListeners();
     }
   }
 
@@ -429,12 +429,12 @@ class RuntimeSelectionController extends ChangeNotifier {
         for (final item in _devices)
           if (item.deviceId == updated.deviceId) updated else item,
       ];
-      notifyListeners();
       return updated;
     } catch (error) {
       _handleError(error);
-      notifyListeners();
       return null;
+    } finally {
+      notifyListeners();
     }
   }
 
@@ -468,12 +468,12 @@ class RuntimeSelectionController extends ChangeNotifier {
         for (final item in _terminals)
           if (item.terminalId == terminalId) updated else item,
       ]);
-      notifyListeners();
       return updated;
     } catch (error) {
       _handleError(error);
-      notifyListeners();
       return null;
+    } finally {
+      notifyListeners();
     }
   }
 
@@ -664,10 +664,16 @@ class RuntimeSelectionController extends ChangeNotifier {
     final sorted = terminals.toList();
     int rank(RuntimeTerminal terminal) {
       switch (terminal.status) {
+        case 'live':
+          return 0;
         case 'attached':
           return 0;
+        case 'detached_recoverable':
+          return 1;
         case 'detached':
           return 1;
+        case 'recovering':
+          return 2;
         case 'pending':
           return 2;
         case 'closing':
@@ -683,18 +689,8 @@ class RuntimeSelectionController extends ChangeNotifier {
       final statusCompare = rank(a).compareTo(rank(b));
       if (statusCompare != 0) return statusCompare;
 
-      final aUpdated = a.updatedAt;
-      final bUpdated = b.updatedAt;
-      if (aUpdated != null && bUpdated != null) {
-        final timeCompare = bUpdated.compareTo(aUpdated);
-        if (timeCompare != 0) return timeCompare;
-      } else if (aUpdated != null) {
-        return -1;
-      } else if (bUpdated != null) {
-        return 1;
-      }
-
-      return a.title.compareTo(b.title);
+      // stable sort by terminalId to prevent order changes on rename/refresh
+      return a.terminalId.compareTo(b.terminalId);
     });
     return List.unmodifiable(sorted);
   }

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 
 Map<String, String>? _cachedLocalEnv;
 
@@ -17,6 +18,29 @@ String integrationEnv(
   }
 
   return fallback;
+}
+
+/// 判断当前集成测试是否运行在本地 Docker 环境。
+///
+/// 优先读取环境变量 `RC_TEST_IS_LOCAL`（值为 "true" 时为本地）；
+/// 未设置时回退到 IP 推断（通过 [_isPrivateIp] 判断 RFC 1918 私有地址）。
+bool isLocalTestEnv(String serverIp) {
+  final explicit = integrationEnv('RC_TEST_IS_LOCAL');
+  if (explicit.isNotEmpty) {
+    return explicit.toLowerCase() == 'true';
+  }
+  return isPrivateIp(serverIp);
+}
+
+/// 纯函数：判断 IP 是否为本地/私有地址（loopback + RFC 1918）。
+@visibleForTesting
+bool isPrivateIp(String ip) {
+  if (ip == 'localhost' || ip == '127.0.0.1') return true;
+  if (ip.startsWith('192.168.')) return true;
+  if (ip.startsWith('10.')) return true;
+  final match = RegExp(r'^172\.(1[6-9]|2\d|3[01])\.').firstMatch(ip);
+  if (match != null) return true;
+  return false;
 }
 
 Map<String, String> _loadLocalEnv() {

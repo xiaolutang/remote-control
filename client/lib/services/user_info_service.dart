@@ -1,5 +1,6 @@
-import 'dart:io' show Platform;
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../utils/platform_utils.dart';
 
 /// 用户信息
 class UserInfo {
@@ -18,14 +19,19 @@ class UserInfo {
 class UserInfoService {
   static const _loginTimeKey = 'rc_login_time';
 
+  SharedPreferences? _prefs;
+
+  Future<SharedPreferences> _ensurePrefs() async =>
+      _prefs ??= await SharedPreferences.getInstance();
+
   /// 获取用户信息
   Future<UserInfo?> getUserInfo() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _ensurePrefs();
     final username = prefs.getString('rc_username');
     if (username == null) return null;
 
     final loginTime = prefs.getString(_loginTimeKey);
-    final platform = _getPlatform();
+    final platform = getPlatform();
 
     return UserInfo(
       username: username,
@@ -36,7 +42,7 @@ class UserInfoService {
 
   /// 保存登录时间（仅在 rc_login_time 不存在时写入，保留首次显式登录时间）
   Future<void> saveLoginTime() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _ensurePrefs();
     final existing = prefs.getString(_loginTimeKey);
     if (existing == null) {
       await prefs.setString(
@@ -48,16 +54,8 @@ class UserInfoService {
 
   /// 清除登录时间（logout 时调用）
   Future<void> clearLoginTime() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _ensurePrefs();
     await prefs.remove(_loginTimeKey);
   }
 
-  String _getPlatform() {
-    if (Platform.isAndroid) return 'android';
-    if (Platform.isIOS) return 'ios';
-    if (Platform.isMacOS) return 'macos';
-    if (Platform.isWindows) return 'windows';
-    if (Platform.isLinux) return 'linux';
-    return 'unknown';
-  }
 }

@@ -6,12 +6,13 @@ import '../models/runtime_terminal.dart';
 import '../models/command_sequence_draft.dart';
 import '../models/terminal_launch_plan.dart';
 import '../navigation/account_menu_actions.dart';
-import '../services/account_menu_action_handler.dart';
+import '../navigation/account_menu_action_handler.dart';
 import '../services/runtime_device_service.dart';
 import '../services/terminal_launch_session_service.dart';
 import '../services/runtime_selection_controller.dart';
 import '../services/terminal_session_manager.dart';
-import '../services/ui_helpers.dart';
+import '../widgets/theme_picker_sheet.dart';
+import '../widgets/rename_dialog_helper.dart';
 import '../services/websocket_service.dart';
 import '../widgets/shared/status_pill.dart';
 import '../widgets/smart_terminal_create_dialog.dart';
@@ -669,46 +670,18 @@ class _TerminalPanel extends StatelessWidget {
     RuntimeSelectionController controller,
     RuntimeDevice device,
   ) async {
-    final nameController = TextEditingController(
-      text: device.name.isEmpty ? device.deviceId : device.name,
-    );
-
-    await showDialog<void>(
+    await showRenameDialog(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('编辑设备'),
-          content: SingleChildScrollView(
-            child: TextField(
-              key: const Key('rename-device-input'),
-              controller: nameController,
-              decoration: const InputDecoration(labelText: '设备名称'),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              key: const Key('rename-device-submit'),
-              onPressed: () async {
-                await controller.updateSelectedDevice(
-                  name: nameController.text,
-                );
-                if (!context.mounted) return;
-                Navigator.of(context).pop();
-              },
-              child: const Text('保存'),
-            ),
-          ],
-        );
+      title: '编辑设备',
+      initialValue: device.name.isEmpty ? device.deviceId : device.name,
+      labelText: '设备名称',
+      inputKey: 'rename-device-input',
+      submitKey: 'rename-device-submit',
+      onConfirm: (newName) async {
+        await controller.updateSelectedDevice(name: newName);
+        return true;
       },
     );
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      nameController.dispose();
-    });
   }
 
   Future<void> _showRenameTerminalDialog(
@@ -716,45 +689,18 @@ class _TerminalPanel extends StatelessWidget {
     RuntimeSelectionController controller,
     RuntimeTerminal terminal,
   ) async {
-    final titleController = TextEditingController(text: terminal.title);
-
-    await showDialog<void>(
+    await showRenameDialog(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('编辑终端标题'),
-          content: SingleChildScrollView(
-            child: TextField(
-              key: const Key('rename-terminal-input'),
-              controller: titleController,
-              decoration: const InputDecoration(labelText: '终端标题'),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              key: const Key('rename-terminal-submit'),
-              onPressed: () async {
-                await controller.renameTerminal(
-                  terminal.terminalId,
-                  titleController.text,
-                );
-                if (!context.mounted) return;
-                Navigator.of(context).pop();
-              },
-              child: const Text('保存'),
-            ),
-          ],
-        );
+      title: '编辑终端标题',
+      initialValue: terminal.title,
+      labelText: '终端标题',
+      inputKey: 'rename-terminal-input',
+      submitKey: 'rename-terminal-submit',
+      onConfirm: (newName) async {
+        await controller.renameTerminal(terminal.terminalId, newName);
+        return true;
       },
     );
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      titleController.dispose();
-    });
   }
 
   Future<void> _openTerminal(

@@ -10,6 +10,7 @@ import '../models/runtime_terminal.dart';
 import 'auth_service.dart';
 import 'http_client_factory.dart';
 import 'server_url_helper.dart';
+import '../utils/json_helpers.dart' show readListFromJson;
 
 class RuntimeApiException implements Exception {
   RuntimeApiException({
@@ -91,10 +92,8 @@ class RuntimeDeviceService {
       _throwError(response, '加载设备失败');
     }
     final data = jsonDecode(response.body) as Map<String, dynamic>;
-    final devices = (data['devices'] as List<dynamic>? ?? const [])
-        .whereType<Map<String, dynamic>>()
-        .map(RuntimeDevice.fromJson)
-        .toList(growable: false);
+    final devices =
+        readListFromJson(data['devices'], RuntimeDevice.fromJson);
     return devices;
   }
 
@@ -108,10 +107,7 @@ class RuntimeDeviceService {
       _throwError(response, '加载终端失败');
     }
     final data = jsonDecode(response.body) as Map<String, dynamic>;
-    return (data['terminals'] as List<dynamic>? ?? const [])
-        .whereType<Map<String, dynamic>>()
-        .map(RuntimeTerminal.fromJson)
-        .toList(growable: false);
+    return readListFromJson(data['terminals'], RuntimeTerminal.fromJson);
   }
 
   Future<RuntimeTerminal?> getTerminal(

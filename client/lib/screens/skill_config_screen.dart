@@ -88,14 +88,14 @@ class _SkillConfigScreenState extends State<SkillConfigScreen> {
       setState(() {
         _togglingKnowledge.remove(key);
       });
-      _showHint('新建终端后生效');
+      _showSnackBar('新建终端后生效');
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _togglingKnowledge.remove(key);
         _knowledge[index] = item;
       });
-      _showError('切换失败：$e');
+      _showSnackBar('切换失败：$e');
     }
   }
 
@@ -106,11 +106,11 @@ class _SkillConfigScreenState extends State<SkillConfigScreen> {
 
       await _service.importKnowledgeFile(sourcePath);
       if (!mounted) return;
-      _showSuccess('已导入知识文件');
+      _showSnackBar('已导入知识文件');
       await _loadData();
     } catch (e) {
       if (!mounted) return;
-      _showError('导入失败：$e');
+      _showSnackBar('导入失败：$e');
     }
   }
 
@@ -141,11 +141,11 @@ class _SkillConfigScreenState extends State<SkillConfigScreen> {
     try {
       await _service.deleteKnowledgeFile(item.filename);
       if (!mounted) return;
-      _showSuccess('已删除');
+      _showSnackBar('已删除');
       await _loadData();
     } catch (e) {
       if (!mounted) return;
-      _showError('删除失败：$e');
+      _showSnackBar('删除失败：$e');
     }
   }
 
@@ -189,28 +189,14 @@ class _SkillConfigScreenState extends State<SkillConfigScreen> {
 
       if (saved != true || !mounted) return;
       await _service.writeKnowledgeContent(item.filename, controller.text);
-      _showSuccess('已保存');
+      _showSnackBar('已保存');
     } catch (e) {
       if (!mounted) return;
-      _showError('编辑失败：$e');
+      _showSnackBar('编辑失败：$e');
     }
   }
 
-  void _showHint(String message) {
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
-    );
-  }
-
-  void _showError(String message) {
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
-    );
-  }
-
-  void _showSuccess(String message) {
+  void _showSnackBar(String message) {
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), duration: const Duration(seconds: 2)),

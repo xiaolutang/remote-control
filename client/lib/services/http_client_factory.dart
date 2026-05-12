@@ -5,30 +5,48 @@ import 'package:http/http.dart' as http;
 
 /// HTTP 客户端工厂
 ///
-/// Debug 模式：允许自签证书（本地开发用）
-/// Release 模式：严格验证证书（生产环境）
-/// 自动使用系统代理（解决 TUN 模式下 TLS 问题）
+/// 集中管理证书信任和代理配置，所有 HttpClient 创建都应通过本工厂。
 class HttpClientFactory {
   HttpClientFactory._();
 
   /// 创建 HTTP Client（用于 REST API 请求）
   static http.Client create() {
-    final httpClient = HttpClient();
-    if (kDebugMode) {
-      httpClient.badCertificateCallback = (_, __, ___) => true;
-    }
-    // 使用系统代理设置（macOS/Windows/Linux）
-    httpClient.findProxy = HttpClient.findProxyFromEnvironment;
-    return IOClient(httpClient);
+    return IOClient(createRaw());
   }
 
-  /// 创建 HttpClient（用于 WebSocket 连接）
+  /// 创建 HttpClient（用于 WebSocket 连接等需要原始 HttpClient 的场景）
   static HttpClient createRaw() {
-    final client = HttpClient();
-    if (kDebugMode) {
+    return _configure(HttpClient());
+  }
+
+  /// 创建可配置的原始 HttpClient。
+  ///
+  /// [trustAllCertificates] 为 null 时走 kDebugMode 自动判断；
+  /// [useSystemProxy] 为 null 时默认使用系统代理。
+  static HttpClient createRawConfigured({
+    bool? trustAllCertificates,
+    bool? useSystemProxy,
+  }) {
+    return _configure(
+      HttpClient(),
+      trustAllCertificates: trustAllCertificates,
+      useSystemProxy: useSystemProxy,
+    );
+  }
+
+  /// 统一配置 HttpClient 的证书和代理。
+  static HttpClient _configure(
+    HttpClient client, {
+    bool? trustAllCertificates,
+    bool? useSystemProxy,
+  }) {
+    final trust = trustAllCertificates ?? kDebugMode;
+    if (trust) {
       client.badCertificateCallback = (_, __, ___) => true;
     }
-    client.findProxy = HttpClient.findProxyFromEnvironment;
+    final useProxy = useSystemProxy ?? true;
+    client.findProxy =
+        useProxy ? HttpClient.findProxyFromEnvironment : (_) => 'DIRECT';
     return client;
   }
 }

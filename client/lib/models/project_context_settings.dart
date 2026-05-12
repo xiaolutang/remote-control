@@ -1,3 +1,5 @@
+import '../utils/json_helpers.dart';
+
 class PinnedProject {
   const PinnedProject({
     required this.label,
@@ -24,8 +26,8 @@ class PinnedProject {
 
   factory PinnedProject.fromJson(Map<String, dynamic> json) {
     return PinnedProject(
-      label: json['label'] as String? ?? '',
-      cwd: json['cwd'] as String? ?? '',
+      label: readStringFromJson(json['label']),
+      cwd: readStringFromJson(json['cwd']),
     );
   }
 }
@@ -61,9 +63,11 @@ class ApprovedScanRoot {
 
   factory ApprovedScanRoot.fromJson(Map<String, dynamic> json) {
     return ApprovedScanRoot(
-      rootPath: json['root_path'] as String? ?? '',
-      scanDepth: json['scan_depth'] as int? ?? 2,
-      enabled: json['enabled'] as bool? ?? true,
+      rootPath: readStringFromJson(json['root_path']),
+      scanDepth: json['scan_depth'] is num
+          ? (json['scan_depth'] as num).toInt()
+          : 2,
+      enabled: readBoolFromJson(json['enabled'], defaultValue: true),
     );
   }
 }
@@ -110,13 +114,17 @@ class PlannerRuntimeConfigModel {
 
   factory PlannerRuntimeConfigModel.fromJson(Map<String, dynamic> json) {
     return PlannerRuntimeConfigModel(
-      provider: json['provider'] as String? ?? 'claude_cli',
-      llmEnabled: json['llm_enabled'] as bool? ?? true,
-      endpointProfile:
-          json['endpoint_profile'] as String? ?? 'openai_compatible',
-      credentialsMode:
-          json['credentials_mode'] as String? ?? 'client_secure_storage',
-      requiresExplicitOptIn: json['requires_explicit_opt_in'] as bool? ?? false,
+      provider: readStringFromJson(json['provider']).isEmpty
+          ? 'claude_cli'
+          : readStringFromJson(json['provider']),
+      llmEnabled: readBoolFromJson(json['llm_enabled'], defaultValue: true),
+      endpointProfile: readStringFromJson(json['endpoint_profile']).isEmpty
+          ? 'openai_compatible'
+          : readStringFromJson(json['endpoint_profile']),
+      credentialsMode: readStringFromJson(json['credentials_mode']).isEmpty
+          ? 'client_secure_storage'
+          : readStringFromJson(json['credentials_mode']),
+      requiresExplicitOptIn: readBoolFromJson(json['requires_explicit_opt_in']),
     );
   }
 }
@@ -158,19 +166,15 @@ class ProjectContextSettings {
 
   factory ProjectContextSettings.fromJson(Map<String, dynamic> json) {
     return ProjectContextSettings(
-      deviceId: json['device_id'] as String? ?? '',
-      pinnedProjects: ((json['pinned_projects'] as List<dynamic>?) ?? const [])
-          .whereType<Map<String, dynamic>>()
-          .map(PinnedProject.fromJson)
-          .toList(growable: false),
-      approvedScanRoots:
-          ((json['approved_scan_roots'] as List<dynamic>?) ?? const [])
-              .whereType<Map<String, dynamic>>()
-              .map(ApprovedScanRoot.fromJson)
-              .toList(growable: false),
+      deviceId: readStringFromJson(json['device_id']),
+      pinnedProjects: readListFromJson(
+          json['pinned_projects'], PinnedProject.fromJson),
+      approvedScanRoots: readListFromJson(
+          json['approved_scan_roots'], ApprovedScanRoot.fromJson),
       plannerConfig: PlannerRuntimeConfigModel.fromJson(
-        (json['planner_config'] as Map<String, dynamic>?) ??
-            const <String, dynamic>{},
+        json['planner_config'] is Map<String, dynamic>
+            ? json['planner_config'] as Map<String, dynamic>
+            : const <String, dynamic>{},
       ),
     );
   }

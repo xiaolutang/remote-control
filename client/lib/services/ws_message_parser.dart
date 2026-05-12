@@ -176,7 +176,9 @@ bool _wsApplyTerminalMeta(WebSocketService s, Map<String, dynamic> data) {
 
   final viewsData = data['views'] as Map<String, dynamic>?;
   if (viewsData != null) {
-    final nextViews = viewsData.map((k, v) => MapEntry(k, v as int));
+    final nextViews = viewsData.map(
+      (k, v) => MapEntry(k, safeIntFromMapValue(v)),
+    );
     if (!mapEquals(nextViews, s._views)) {
       s._views = nextViews;
       s._presenceController.add(s._views);
@@ -191,10 +193,10 @@ void _wsApplyConnectedMessage(WebSocketService s, Map<String, dynamic> data) {
   _wsResetTerminalDecoders(s);
   s._status = ConnectionStatus.connected;
   s._retryCount = 0;
-  s._agentOnline = data['agent_online'] ?? false;
-  s._deviceOnline = data['device_online'] ?? s._agentOnline;
-  s._owner = data['owner'] ?? '';
-  s._terminalStatus = data['terminal_status'] as String?;
+  s._agentOnline = data['agent_online'] is bool ? data['agent_online'] as bool : false;
+  s._deviceOnline = data['device_online'] is bool ? data['device_online'] as bool : s._agentOnline;
+  s._owner = data['owner'] is String ? data['owner'] as String : '';
+  s._terminalStatus = data['terminal_status'] is String ? data['terminal_status'] as String : null;
   final attachEpoch = data['attach_epoch'];
   s._attachEpoch = attachEpoch is num ? attachEpoch.toInt() : null;
   final recoveryEpoch = data['recovery_epoch'];
@@ -247,7 +249,7 @@ void _wsHandleMessage(WebSocketService s, String message) {
       }
     }
 
-    final type = data['type'] as String?;
+    final type = data['type'] is String ? data['type'] as String : null;
     switch (type) {
       case MessageType.connected:
         _wsApplyConnectedMessage(s, data);
@@ -271,7 +273,7 @@ void _wsHandleMessage(WebSocketService s, String message) {
             s._snapshotUtf8Decoder.reset();
             s._lastSnapshotActiveBuffer = TerminalBufferKind.main;
           }
-          final payload = data['payload'] as String?;
+          final payload = data['payload'] is String ? data['payload'] as String : null;
           if (payload != null) {
             final isSnapshotPayload = type == MessageType.snapshot ||
                 type == MessageType.snapshotStart ||
@@ -372,7 +374,7 @@ void _wsHandleMessage(WebSocketService s, String message) {
       case MessageType.pong:
         break;
       case MessageType.error:
-        s._errorMessage = data['message'] as String?;
+        s._errorMessage = data['message'] is String ? data['message'] as String : null;
         s._notify();
         break;
       case MessageType.terminalClosed:

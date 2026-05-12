@@ -46,4 +46,24 @@ void main() {
     expect(detached.canAttach, isTrue);
     expect(closed.canAttach, isFalse);
   });
+
+  test('runtime terminal views handles non-int values', () {
+    final terminal = RuntimeTerminal.fromJson({
+      'terminal_id': 'term-1',
+      'title': 'Test',
+      'cwd': '/tmp',
+      'command': '/bin/bash',
+      'status': 'active',
+      'views': {
+        'mobile': 3,
+        'desktop': 2.7, // double → toInt → 2
+        'other': '5',   // string → readIntFromJson → 5
+        'bad': true,     // bool → 0
+      },
+    });
+    expect(terminal.views['mobile'], 3);
+    expect(terminal.views['desktop'], 2);
+    expect(terminal.views['other'], 5);
+    expect(terminal.views['bad'], 0);
+  });
 }
