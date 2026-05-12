@@ -138,6 +138,10 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
     _terminalsChangedSubscription?.cancel();
     _terminalsChangedSubscription = null;
     _lastListenedService = null;
+    _refreshDebounceTimer?.cancel();
+    _refreshDebounceTimer = null;
+    _pendingToastAction = null;
+    _pendingToastTerminalId = null;
   }
 
   /// 停止定时任务轮询并重置 session 标记。
