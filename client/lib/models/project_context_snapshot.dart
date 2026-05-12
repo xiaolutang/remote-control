@@ -50,9 +50,9 @@ class ProjectContextCandidate {
       label: readStringFromJson(json['label']),
       cwd: readStringFromJson(json['cwd']),
       source: source.isEmpty ? 'recent_terminal' : source,
-      toolHints: ((json['tool_hints'] as List<dynamic>?) ?? const [])
-          .whereType<String>()
-          .toList(growable: false),
+      toolHints: json['tool_hints'] is List
+          ? (json['tool_hints'] as List).whereType<String>().toList(growable: false)
+          : const <String>[],
       updatedAt: parseDate('updated_at'),
       lastUsedAt: parseDate('last_used_at'),
       requiresConfirmation: readBoolFromJson(json['requires_confirmation']),

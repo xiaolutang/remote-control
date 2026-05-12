@@ -244,9 +244,9 @@ class AgentQuestionEvent extends AgentSessionEvent {
     return AgentQuestionEvent(
       questionId: readOptionalStringFromJson(json['question_id']),
       question: readStringFromJson(json['question']),
-      options: (json['options'] as List<dynamic>? ?? const [])
-          .whereType<String>()
-          .toList(growable: false),
+      options: json['options'] is List
+          ? (json['options'] as List).whereType<String>().toList(growable: false)
+          : const <String>[],
       multiSelect: readBoolFromJson(json['multi_select']),
     );
   }

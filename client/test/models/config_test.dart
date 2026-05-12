@@ -271,6 +271,31 @@ void main() {
       expect(config.shortcutItems[1].action.value, 'ls\r');
     });
 
+    test('fromJson preserves zero values (maxRetries=0 round-trip)', () {
+      final config = AppConfig(
+        serverUrl: '',
+        maxRetries: 0,
+        reconnectDelay: Duration.zero,
+        heartbeatInterval: Duration.zero,
+      );
+      final json = config.toJson();
+      final restored = AppConfig.fromJson(json);
+      expect(restored.maxRetries, 0);
+      expect(restored.reconnectDelay, Duration.zero);
+      expect(restored.heartbeatInterval, Duration.zero);
+    });
+
+    test('fromJson handles non-num numeric fields safely', () {
+      final config = AppConfig.fromJson({
+        'maxRetries': 'five',  // non-num → default 5
+        'reconnectDelayMs': true, // non-num → default 1000
+        'heartbeatIntervalMs': null, // null → default 30000
+      });
+      expect(config.maxRetries, 5);
+      expect(config.reconnectDelay, const Duration(milliseconds: 1000));
+      expect(config.heartbeatInterval, const Duration(seconds: 30));
+    });
+
     test('copyWith', () {
       const original = AppConfig(
         serverUrl: 'ws://localhost:8080',

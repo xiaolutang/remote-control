@@ -34,9 +34,9 @@ class AssistantCommandSequence {
       };
 
   factory AssistantCommandSequence.fromJson(Map<String, dynamic> json) {
-    final rawSteps = (json['steps'] as List<dynamic>? ?? const [])
-        .whereType<Map<String, dynamic>>()
-        .toList(growable: false);
+    final rawSteps = json['steps'] is List
+        ? (json['steps'] as List).whereType<Map<String, dynamic>>().toList(growable: false)
+        : const <Map<String, dynamic>>[];
     final provider = readStringFromJson(json['provider']);
     final source = readStringFromJson(json['source']);
     return AssistantCommandSequence(
@@ -202,9 +202,9 @@ class AssistantPlanLimits {
     return AssistantPlanLimits(
       rateLimited: readBoolFromJson(json['rate_limited']),
       budgetBlocked: readBoolFromJson(json['budget_blocked']),
-      providerTimeoutMs: readIntFromJson(json['provider_timeout_ms']) == 0
-          ? 12000
-          : readIntFromJson(json['provider_timeout_ms']),
+      providerTimeoutMs: json['provider_timeout_ms'] is num
+          ? (json['provider_timeout_ms'] as num).toInt()
+          : 12000,
       retryAfter: json['retry_after'] is num
           ? (json['retry_after'] as num).toInt()
           : null,

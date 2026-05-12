@@ -64,9 +64,9 @@ class ApprovedScanRoot {
   factory ApprovedScanRoot.fromJson(Map<String, dynamic> json) {
     return ApprovedScanRoot(
       rootPath: readStringFromJson(json['root_path']),
-      scanDepth: readIntFromJson(json['scan_depth']) == 0
-          ? 2
-          : readIntFromJson(json['scan_depth']),
+      scanDepth: json['scan_depth'] is num
+          ? (json['scan_depth'] as num).toInt()
+          : 2,
       enabled: readBoolFromJson(json['enabled'], defaultValue: true),
     );
   }

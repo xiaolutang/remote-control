@@ -252,9 +252,9 @@ class DesktopAgentHttpClient {
       if (response.statusCode == 200) {
         final body = await _readResponseBody(response);
         final json = jsonDecode(body) as Map<String, dynamic>;
-        final skills = json['skills'] as List<dynamic>? ?? [];
+        final skills = json['skills'] is List ? json['skills'] as List : [];
         return skills
-            .cast<Map<String, dynamic>>()
+            .whereType<Map<String, dynamic>>()
             .map(SkillItem.fromJson)
             .toList();
       }
@@ -299,9 +299,9 @@ class DesktopAgentHttpClient {
       if (response.statusCode == 200) {
         final body = await _readResponseBody(response);
         final json = jsonDecode(body) as Map<String, dynamic>;
-        final knowledge = json['knowledge'] as List<dynamic>? ?? [];
+        final knowledge = json['knowledge'] is List ? json['knowledge'] as List : [];
         return knowledge
-            .cast<Map<String, dynamic>>()
+            .whereType<Map<String, dynamic>>()
             .map(KnowledgeItem.fromJson)
             .toList();
       }
@@ -346,8 +346,8 @@ class DesktopAgentHttpClient {
       if (response.statusCode == 200) {
         final body = await _readResponseBody(response);
         final json = jsonDecode(body) as Map<String, dynamic>;
-        final terminals = json['terminals'] as List<dynamic>? ?? [];
-        return terminals.cast<Map<String, dynamic>>();
+        final terminals = json['terminals'] is List ? json['terminals'] as List : [];
+        return terminals.whereType<Map<String, dynamic>>().toList();
       }
       return [];
     } catch (e) {
@@ -378,8 +378,8 @@ class DesktopAgentHttpClient {
     try {
       final content = await stateFile.readAsString();
       final json = jsonDecode(content) as Map<String, dynamic>;
-      final pid = json['pid'] as int?;
-      final port = json['port'] as int?;
+      final pid = json['pid'] is num ? (json['pid'] as num).toInt() : null;
+      final port = json['port'] is num ? (json['port'] as num).toInt() : null;
 
       if (pid == null || port == null) {
         return null;

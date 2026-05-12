@@ -57,9 +57,9 @@ class RuntimeDevice {
       agentOnline: readBoolFromJson(json['agent_online']),
       platform: readStringFromJson(json['platform']),
       hostname: readStringFromJson(json['hostname']),
-      maxTerminals: readIntFromJson(json['max_terminals']) == 0
-          ? 3
-          : readIntFromJson(json['max_terminals']),
+      maxTerminals: json['max_terminals'] is num
+          ? (json['max_terminals'] as num).toInt()
+          : 3,
       activeTerminals: readIntFromJson(json['active_terminals']),
       lastHeartbeatAt: json['last_heartbeat_at'] is String
           ? DateTime.tryParse(json['last_heartbeat_at'] as String)

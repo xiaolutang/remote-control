@@ -179,17 +179,17 @@ class AppConfig {
       token: json['token'] is String ? json['token'] as String : null,
       sessionId: readStringFromJson(json['sessionId']),
       autoReconnect: readBoolFromJson(json['autoReconnect'], defaultValue: true),
-      maxRetries: readIntFromJson(json['maxRetries']) == 0
-          ? 5
-          : readIntFromJson(json['maxRetries']),
+      maxRetries: json['maxRetries'] is num
+          ? (json['maxRetries'] as num).toInt()
+          : 5,
       reconnectDelay: Duration(
-          milliseconds: readIntFromJson(json['reconnectDelayMs']) == 0
-              ? 1000
-              : readIntFromJson(json['reconnectDelayMs'])),
+          milliseconds: json['reconnectDelayMs'] is num
+              ? (json['reconnectDelayMs'] as num).toInt()
+              : 1000),
       heartbeatInterval: Duration(
-          milliseconds: readIntFromJson(json['heartbeatIntervalMs']) == 0
-              ? 30000
-              : readIntFromJson(json['heartbeatIntervalMs'])),
+          milliseconds: json['heartbeatIntervalMs'] is num
+              ? (json['heartbeatIntervalMs'] as num).toInt()
+              : 30000),
       themeMode: enumFromJson(
         AppThemeMode.values,
         json['themeMode'],
