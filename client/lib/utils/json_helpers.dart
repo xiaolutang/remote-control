@@ -26,6 +26,14 @@ String? readOptionalStringFromJson(Object? value) {
   return null;
 }
 
+/// 安全地将动态 JSON 值转为 String（不 trim），null/缺失/非字符串返回空串。
+///
+/// 用于控制字符有语义的场景（终端 payload 中的 \\r、\\t、\\x1b 等）。
+String readRawStringFromJson(Object? value) {
+  if (value is String) return value;
+  return '';
+}
+
 /// 安全地将动态 JSON 值转为 bool，null/缺失返回 [defaultValue]。
 bool readBoolFromJson(Object? value, {bool defaultValue = false}) {
   if (value is bool) return value;

@@ -1,3 +1,5 @@
+import '../utils/json_helpers.dart';
+
 enum TerminalShortcutActionType {
   sendText,
   sendControl,
@@ -46,8 +48,8 @@ class TerminalShortcutAction {
   factory TerminalShortcutAction.fromJson(Map<String, dynamic> json) {
     return TerminalShortcutAction(
       type: _actionTypeFromName(json['type'] as String?),
-      // Do NOT trim — \r, \n, \t are semantically significant in terminal payloads.
-      value: (json['value'] as String?) ?? '',
+      // readRawStringFromJson: 不 trim，保留 \r/\t/\x1b 等终端控制字符
+      value: readRawStringFromJson(json['value']),
     );
   }
 }

@@ -102,8 +102,7 @@ void main() {
 
     test('IP+Host TLS: https://$serverIp/rc + Host: $domainHost → login',
         () async {
-      final isLocal =
-          serverIp == 'localhost' || serverIp == '127.0.0.1';
+      final isLocal = isLocalTestEnv(serverIp);
       final response = await client.post(
         Uri.parse('https://$serverIp/rc/api/login'),
         headers: {
@@ -133,8 +132,7 @@ void main() {
 
     test('IP+Host TLS: https://$serverIp/rc + Host: $domainHost → register',
         () async {
-      final isLocal =
-          serverIp == 'localhost' || serverIp == '127.0.0.1';
+      final isLocal = isLocalTestEnv(serverIp);
       final timestamp = DateTime.now().millisecondsSinceEpoch;
 
       final response = await client.post(
