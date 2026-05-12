@@ -135,7 +135,7 @@
       "description": "定义 ScheduledTask 数据模型和 REST API 契约。包括：任务 ID、目标 session_id/terminal_id、文本内容、执行时间（ISO 带时区）、重复类型（once/daily）、状态（pending/executed/expired）、创建时间。Pydantic schema 定义创建/列表/删除请求和响应。不包含 cron_expr 和 cancelled 状态。",
       "verification": "L1",
       "depends_on": [],
-      "status": "pending",
+      "status": "completed",
       "priority": 1,
       "acceptance_criteria": [
         "Pydantic schemas 定义完整（CreateRequest/Response/ListResponse/DeleteResponse）",
@@ -145,7 +145,10 @@
       "risk_tags": [],
       "files": [
         "server/app/api/schemas.py"
-      ]
+      ],
+      "commit": "5593ba2",
+      "evidence_file": ".dev-flow/evidence/S001.md",
+      "completed_at": "2026-05-12T20:00:00+08:00"
     },
     {
       "id": "B001",
@@ -155,7 +158,7 @@
       "description": "在 _schema.py 新增 scheduled_tasks 表（id, user_id, session_id, terminal_id, text_content, execute_at, repeat_type, status, created_at, executed_at）。实现 store/scheduled_task.py 的 CRUD 函数（create/list/get/update_status/delete）。不包含 cron_expr（不做 cron）和 cancelled 状态（用户直接删除）。",
       "verification": "L1",
       "depends_on": ["S001"],
-      "status": "pending",
+      "status": "completed",
       "priority": 1,
       "acceptance_criteria": [
         "scheduled_tasks 表在 Database.init_db() 时自动创建",
@@ -173,7 +176,10 @@
       "files": [
         "server/app/store/_schema.py",
         "server/app/store/scheduled_task.py"
-      ]
+      ],
+      "commit": "c9b94b1",
+      "evidence_file": ".dev-flow/evidence/B001.md",
+      "completed_at": "2026-05-12T20:00:00+08:00"
     },
     {
       "id": "B002",
@@ -183,7 +189,7 @@
       "description": "新增 /api/scheduled-tasks 路由组。POST 创建、GET 列表（支持 ?session_id= 过滤）、DELETE /{task_id} 删除。创建时验证目标 session 归属当前用户（复用 verify_session_ownership）、terminal 存在且 Agent 在线。所有路由通过 async_verify_token 鉴权。",
       "verification": "L2",
       "depends_on": ["B001"],
-      "status": "pending",
+      "status": "completed",
       "priority": 1,
       "acceptance_criteria": [
         "POST /api/scheduled-tasks 创建任务，返回 201 + task_id",
@@ -217,7 +223,10 @@
       "files": [
         "server/app/api/scheduled_task_api.py",
         "server/app/api/routes.py"
-      ]
+      ],
+      "commit": "c1cf64a",
+      "evidence_file": ".dev-flow/evidence/B002.md",
+      "completed_at": "2026-05-12T20:00:00+08:00"
     },
     {
       "id": "B003",
@@ -227,7 +236,7 @@
       "description": "在 FastAPI lifespan 中通过 asyncio.create_task 启动后台轮询协程。每 30 秒轮询 scheduled_tasks 表中 status=pending 且 execute_at <= now 的任务（一次性 + 每日统一处理）。找到后：查找目标 session 的 Agent WS 连接，通过现有 DATA 消息通道发送 text_content 到目标 terminal。发送成功标记 status=executed。Agent 不在线时：一次性任务标记 expired，每日任务跳过本轮（保持 pending，execute_at 推到次日）。每日重复任务执行后计算下次 execute_at（次日同 time-of-day + timezone）并更新。不引入 APScheduler 依赖，复用现有 asyncio.create_task 模式。",
       "verification": "L2",
       "depends_on": ["B002"],
-      "status": "pending",
+      "status": "completed",
       "priority": 2,
       "acceptance_criteria": [
         "后台轮询协程在 lifespan 启动时通过 asyncio.create_task 初始化",
@@ -257,7 +266,10 @@
       "files": [
         "server/app/services/scheduler.py",
         "server/app/__init__.py"
-      ]
+      ],
+      "commit": "1dca52d",
+      "evidence_file": ".dev-flow/evidence/B003.md",
+      "completed_at": "2026-05-12T20:00:00+08:00"
     },
     {
       "id": "F001",
@@ -267,7 +279,7 @@
       "description": "客户端 Dart 侧定义 ScheduledTask 数据模型（fromJson/toJson）。新建 ScheduledTaskService 提供 create/list/delete 方法调用 Server REST API。接入现有 HttpClientFactory 和 json_helpers。",
       "verification": "F1",
       "depends_on": ["B002"],
-      "status": "pending",
+      "status": "completed",
       "priority": 2,
       "acceptance_criteria": [
         "ScheduledTask model 定义完整，fromJson/toJson 正确",
@@ -287,7 +299,10 @@
       "files": [
         "client/lib/models/scheduled_task.dart",
         "client/lib/services/scheduled_task_service.dart"
-      ]
+      ],
+      "commit": "fdce030",
+      "evidence_file": ".dev-flow/evidence/F001.md",
+      "completed_at": "2026-05-12T20:00:00+08:00"
     },
     {
       "id": "F002",
@@ -297,7 +312,7 @@
       "description": "客户端通过 ScheduledTaskService.list() 轮询当前终端的 pending 定时任务（统一路径：一次性 + 每日都走 Server）。在终端上方展示定时标签（时间 + 命令摘要 + 取消按钮）。取消操作调用 DELETE API。轮询间隔 30 秒，与 Server 调度周期对齐。不使用本地 Timer、不使用 SharedPreferences 存储任务。",
       "verification": "F1",
       "depends_on": ["F001"],
-      "status": "pending",
+      "status": "completed",
       "priority": 2,
       "acceptance_criteria": [
         "定时任务列表通过 Server API 获取，统一管理一次性 + 每日任务",
@@ -324,7 +339,10 @@
       "files": [
         "client/lib/services/scheduled_task_poller.dart",
         "client/lib/widgets/scheduled_task_badge.dart"
-      ]
+      ],
+      "commit": "f46c713",
+      "evidence_file": ".dev-flow/evidence/F002.md",
+      "completed_at": "2026-05-12T20:00:00+08:00"
     },
     {
       "id": "F003",
@@ -334,7 +352,7 @@
       "description": "在终端发送按钮上添加长按手势，弹出定时选项菜单。桌面端发送按钮在 TerminalView 内嵌的输入框区域；移动端发送按钮在 MobileInputDelegate 内。F003 需同时适配两处入口。弹出底部菜单选项：「5 分钟后」「30 分钟后」「1 小时后」「自定义时间」「每日重复」（不含「立即发送」，它由现有短按发送按钮直接完成）。选择后通过 ScheduledTaskService.create() 调用 Server API。同时实现自定义时间选择器和每日重复配置。自定义时间限制只能选未来时间。每日重复首次执行时间：若所选 time-of-day 已过今日，首次执行为明日；否则为今日。",
       "verification": "F2",
       "depends_on": ["F002"],
-      "status": "pending",
+      "status": "completed",
       "priority": 3,
       "acceptance_criteria": [
         "长按发送按钮弹出定时选项菜单（桌面端 + 移动端均适配）",
@@ -360,7 +378,10 @@
         "client/lib/widgets/mobile_input_delegate.dart",
         "client/lib/screens/terminal_screen.dart",
         "client/lib/widgets/schedule_bottom_sheet.dart"
-      ]
+      ],
+      "commit": "1aaca98",
+      "evidence_file": ".dev-flow/evidence/F003.md",
+      "completed_at": "2026-05-12T20:00:00+08:00"
     },
     {
       "id": "F004",
@@ -370,7 +391,7 @@
       "description": "在终端侧边栏/上下文菜单中添加「定时任务」入口，显示当前终端的定时任务列表。支持取消 pending 任务（调用 DELETE API）和删除已结束任务（同样调用 DELETE API）。列表展示任务文本、执行时间、状态（pending/executed/expired）。客户端展示时过滤掉 executed/expired 超过 24 小时的任务（不依赖 Server 清理）。",
       "verification": "F2",
       "depends_on": ["F003"],
-      "status": "pending",
+      "status": "completed",
       "priority": 3,
       "acceptance_criteria": [
         "侧边栏/菜单中有「定时任务」入口",
@@ -391,13 +412,16 @@
       ],
       "files": [
         "client/lib/widgets/scheduled_task_list_sheet.dart"
-      ]
+      ],
+      "commit": "bb87db5",
+      "evidence_file": ".dev-flow/evidence/F004.md",
+      "completed_at": "2026-05-12T20:00:00+08:00"
     }
   ],
   "summary": {
     "total": 8,
-    "completed": 0,
-    "pending": 8,
+    "completed": 8,
+    "pending": 0,
     "blocked": 0
   }
 }
