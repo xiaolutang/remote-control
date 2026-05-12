@@ -380,7 +380,7 @@
         "client/lib/screens/desktop/terminal_workspace_screen.dart",
         "client/lib/widgets/mobile_input_delegate.dart"
       ],
-      "commit": "1aaca98",
+      "commit": "a060afa",
       "evidence_file": ".dev-flow/evidence/F003.md",
       "completed_at": "2026-05-12T20:00:00+08:00"
     },

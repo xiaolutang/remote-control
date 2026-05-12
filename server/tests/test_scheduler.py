@@ -113,7 +113,7 @@ async def test_send_text_to_terminal_ws_error():
 async def test_process_task_one_time_online(store):
     """到点 + Agent 在线 + 一次性 → 状态变 executed。"""
     execute_at = datetime.now(timezone.utc).isoformat()
-    task_id = await store.create("user1", "session-1", "t1", "echo hello", execute_at, "none")
+    task_id = await store.create("user1", "session-1", "t1", "echo hello", execute_at, "once")
 
     task = await store.get_by_id(task_id)
 
@@ -130,7 +130,7 @@ async def test_process_task_one_time_online(store):
 async def test_process_task_one_time_offline(store):
     """到点 + Agent 离线 + 一次性 → 状态变 expired。"""
     execute_at = datetime.now(timezone.utc).isoformat()
-    task_id = await store.create("user1", "session-1", "t1", "echo hello", execute_at, "none")
+    task_id = await store.create("user1", "session-1", "t1", "echo hello", execute_at, "once")
 
     task = await store.get_by_id(task_id)
 
@@ -185,7 +185,7 @@ async def test_process_task_daily_offline(store):
 async def test_process_task_one_time_terminal_not_live(store):
     """到点 + terminal 不存在/已关闭 + 一次性 → 状态变 expired。"""
     execute_at = datetime.now(timezone.utc).isoformat()
-    task_id = await store.create("user1", "session-1", "t1", "echo hello", execute_at, "none")
+    task_id = await store.create("user1", "session-1", "t1", "echo hello", execute_at, "once")
 
     task = await store.get_by_id(task_id)
 
@@ -222,7 +222,7 @@ async def test_poll_once_no_pending_tasks(store):
     """无 pending 任务 → 无操作。"""
     # 创建一个 executed 状态的任务（不是 pending）
     execute_at = datetime.now(timezone.utc).isoformat()
-    task_id = await store.create("user1", "session-1", "t1", "echo hello", execute_at, "none")
+    task_id = await store.create("user1", "session-1", "t1", "echo hello", execute_at, "once")
     await store.update_status(task_id, "executed", executed_at=execute_at)
 
     with patch("app.services.scheduler._process_task") as mock_process:
@@ -234,9 +234,9 @@ async def test_poll_once_no_pending_tasks(store):
 async def test_poll_once_multiple_due_tasks(store):
     """多任务同时到点 → 全部执行。"""
     past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
-    await store.create("user1", "session-1", "t1", "cmd1", past, "none")
+    await store.create("user1", "session-1", "t1", "cmd1", past, "once")
     await store.create("user1", "session-1", "t2", "cmd2", past, "daily")
-    await store.create("user1", "session-2", "t3", "cmd3", past, "none")
+    await store.create("user1", "session-2", "t3", "cmd3", past, "once")
 
     with patch("app.services.scheduler._is_terminal_live", return_value=True), \
          patch("app.services.scheduler._send_text_to_terminal", return_value=True):
@@ -258,7 +258,7 @@ async def test_poll_once_multiple_due_tasks(store):
 async def test_poll_once_future_task_not_picked(store):
     """未到点的任务不会被拾取。"""
     future = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
-    await store.create("user1", "session-1", "t1", "cmd1", future, "none")
+    await store.create("user1", "session-1", "t1", "cmd1", future, "once")
 
     with patch("app.services.scheduler._process_task") as mock_process:
         await _poll_once(store)
@@ -269,7 +269,7 @@ async def test_poll_once_future_task_not_picked(store):
 async def test_poll_once_ws_exception_one_time_expired(store):
     """WS 发送异常 → 一次性标记 expired。"""
     past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
-    task_id = await store.create("user1", "session-1", "t1", "cmd1", past, "none")
+    task_id = await store.create("user1", "session-1", "t1", "cmd1", past, "once")
 
     with patch("app.services.scheduler._is_terminal_live", return_value=True), \
          patch("app.services.scheduler._send_text_to_terminal", return_value=False):

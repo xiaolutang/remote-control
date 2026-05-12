@@ -182,7 +182,7 @@ SCHEMA_STATEMENTS = [
         terminal_id TEXT NOT NULL,
         text_content TEXT NOT NULL,
         execute_at TEXT NOT NULL,
-        repeat_type TEXT NOT NULL DEFAULT 'none',
+        repeat_type TEXT NOT NULL DEFAULT 'once',
         status TEXT NOT NULL DEFAULT 'pending',
         created_at TEXT NOT NULL,
         executed_at TEXT

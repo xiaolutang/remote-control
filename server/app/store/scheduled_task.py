@@ -30,7 +30,7 @@ class ScheduledTaskStore:
         terminal_id: str,
         text_content: str,
         execute_at: str,
-        repeat_type: str = "none",
+        repeat_type: str = "once",
     ) -> int:
         """创建定时任务。
 

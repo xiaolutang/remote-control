@@ -89,7 +89,7 @@ async def test_create_and_get_by_id(store):
         terminal_id="terminal-001",
         text_content="ls -la",
         execute_at=execute_at,
-        repeat_type="none",
+        repeat_type="once",
     )
     assert task_id is not None
     assert isinstance(task_id, int)
@@ -101,7 +101,7 @@ async def test_create_and_get_by_id(store):
     assert task["terminal_id"] == "terminal-001"
     assert task["text_content"] == "ls -la"
     assert task["execute_at"] == execute_at
-    assert task["repeat_type"] == "none"
+    assert task["repeat_type"] == "once"
     assert task["status"] == "pending"
     assert task["created_at"] is not None
     assert task["executed_at"] is None
@@ -122,9 +122,9 @@ async def test_get_by_id_not_found(store):
 async def test_list_by_user(store):
     """按 user_id 查询 → 返回该用户所有任务。"""
     execute_at = datetime.now(timezone.utc).isoformat()
-    await store.create("user1", "session-a", "t1", "cmd1", execute_at, "none")
+    await store.create("user1", "session-a", "t1", "cmd1", execute_at, "once")
     await store.create("user1", "session-b", "t2", "cmd2", execute_at, "daily")
-    await store.create("user2", "session-c", "t3", "cmd3", execute_at, "none")
+    await store.create("user2", "session-c", "t3", "cmd3", execute_at, "once")
 
     tasks = await store.list_by_user("user1")
     assert len(tasks) == 2
@@ -143,8 +143,8 @@ async def test_list_by_user_empty(store):
 async def test_list_by_user_with_status_filter(store):
     """按 user_id + status 过滤。"""
     execute_at = datetime.now(timezone.utc).isoformat()
-    id1 = await store.create("user1", "s1", "t1", "cmd1", execute_at, "none")
-    await store.create("user1", "s2", "t2", "cmd2", execute_at, "none")
+    id1 = await store.create("user1", "s1", "t1", "cmd1", execute_at, "once")
+    await store.create("user1", "s2", "t2", "cmd2", execute_at, "once")
 
     # 将第一个任务状态更新为 executed
     await store.update_status(id1, "executed")
@@ -168,9 +168,9 @@ async def test_list_by_user_with_status_filter(store):
 async def test_list_by_session(store):
     """按 session_id 查询 → 返回该 session 所有任务。"""
     execute_at = datetime.now(timezone.utc).isoformat()
-    await store.create("user1", "session-x", "t1", "cmd1", execute_at, "none")
-    await store.create("user2", "session-x", "t2", "cmd2", execute_at, "hourly")
-    await store.create("user1", "session-y", "t3", "cmd3", execute_at, "none")
+    await store.create("user1", "session-x", "t1", "cmd1", execute_at, "once")
+    await store.create("user2", "session-x", "t2", "cmd2", execute_at, "daily")
+    await store.create("user1", "session-y", "t3", "cmd3", execute_at, "once")
 
     tasks = await store.list_by_session("session-x")
     assert len(tasks) == 2
@@ -189,8 +189,8 @@ async def test_list_by_session_empty(store):
 async def test_list_by_session_with_status_filter(store):
     """按 session_id + status 过滤。"""
     execute_at = datetime.now(timezone.utc).isoformat()
-    id1 = await store.create("user1", "s1", "t1", "cmd1", execute_at, "none")
-    await store.create("user1", "s1", "t2", "cmd2", execute_at, "none")
+    id1 = await store.create("user1", "s1", "t1", "cmd1", execute_at, "once")
+    await store.create("user1", "s1", "t2", "cmd2", execute_at, "once")
 
     await store.update_status(id1, "executed")
 
@@ -209,7 +209,7 @@ async def test_list_by_session_with_status_filter(store):
 async def test_update_status_pending_to_executed(store):
     """更新状态 pending→executed → 验证状态和时间戳。"""
     execute_at = datetime.now(timezone.utc).isoformat()
-    task_id = await store.create("user1", "s1", "t1", "echo hello", execute_at, "none")
+    task_id = await store.create("user1", "s1", "t1", "echo hello", execute_at, "once")
 
     # 初始状态
     task = await store.get_by_id(task_id)
@@ -229,12 +229,12 @@ async def test_update_status_pending_to_executed(store):
 async def test_update_status_without_executed_at(store):
     """更新状态不传 executed_at 时，executed_at 为 None。"""
     execute_at = datetime.now(timezone.utc).isoformat()
-    task_id = await store.create("user1", "s1", "t1", "cmd", execute_at, "none")
+    task_id = await store.create("user1", "s1", "t1", "cmd", execute_at, "once")
 
-    await store.update_status(task_id, "failed")
+    await store.update_status(task_id, "expired")
 
     task = await store.get_by_id(task_id)
-    assert task["status"] == "failed"
+    assert task["status"] == "expired"
     assert task["executed_at"] is None
 
 
@@ -253,7 +253,7 @@ async def test_update_status_nonexistent_task(store):
 async def test_delete(store):
     """删除任务 → 再查询返回 None。"""
     execute_at = datetime.now(timezone.utc).isoformat()
-    task_id = await store.create("user1", "s1", "t1", "rm -rf /", execute_at, "none")
+    task_id = await store.create("user1", "s1", "t1", "rm -rf /", execute_at, "once")
 
     task = await store.get_by_id(task_id)
     assert task is not None
