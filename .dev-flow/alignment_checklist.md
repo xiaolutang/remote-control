@@ -40,7 +40,7 @@
 
 - [x] F001: ScheduledTask model + ScheduledTaskService 通过 HttpClientFactory
 - [x] F002: 轮询 30 秒间隔 + 创建后即时刷新
-- [x] F003: 长按发送→菜单→统一走 Server API 创建
+- [x] F003: Header bar「定时发送」菜单→带输入框的 schedule bottom sheet→Server API 创建
 - [x] F004: 列表展示 + 客户端过滤 24 小时
 - [x] 跨设备：Server 单一数据源，天然同步
 
