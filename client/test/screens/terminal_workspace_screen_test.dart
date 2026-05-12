@@ -4885,5 +4885,25 @@ void main() {
       // Still in empty state — no crash, no stale refresh
       expect(find.byType(IndexedStack), findsNothing);
     });
+
+    testWidgets('desktop header bar shows schedule send menu item',
+        (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: [testDevice()],
+        terminals: [makeTerminal('term-1')],
+        isDesktop: true,
+      );
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // Open settings popup menu
+      await tester.tap(find.byIcon(Icons.settings_outlined));
+      await tester.pumpAndSettle();
+
+      // Should find the schedule send menu item
+      expect(find.byKey(const Key('workspace-settings-schedule-send')),
+          findsOneWidget);
+      expect(find.text('定时发送'), findsOneWidget);
+    });
   });
 }

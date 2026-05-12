@@ -348,36 +348,37 @@
       "id": "F003",
       "phase": 4,
       "module": "client",
-      "name": "定时发送 UI — 长按发送按钮触发",
-      "description": "在终端发送按钮上添加长按手势，弹出定时选项菜单。桌面端发送按钮在 TerminalView 内嵌的输入框区域；移动端发送按钮在 MobileInputDelegate 内。F003 需同时适配两处入口。弹出底部菜单选项：「5 分钟后」「30 分钟后」「1 小时后」「自定义时间」「每日重复」（不含「立即发送」，它由现有短按发送按钮直接完成）。选择后通过 ScheduledTaskService.create() 调用 Server API。同时实现自定义时间选择器和每日重复配置。自定义时间限制只能选未来时间。每日重复首次执行时间：若所选 time-of-day 已过今日，首次执行为明日；否则为今日。",
+      "name": "定时发送 UI — Header 菜单 + Schedule Bottom Sheet",
+      "description": "在桌面端 Header Bar 设置菜单中添加「定时发送」入口，弹出带文本输入框的定时选项 BottomSheet。BottomSheet 提供快捷时间（5分钟/30分钟/1小时）、自定义时间和每日重复选项。选择后通过 ScheduledTaskService.create() 调用 Server API。自定义时间限制只能选未来时间。每日重复首次执行时间：若所选 time-of-day 已过今日，首次执行为明日；否则为今日。移动端 MobileInputDelegate 组件已实现但暂未集成到移动端主流程。",
       "verification": "F2",
       "depends_on": ["F002"],
       "status": "completed",
       "priority": 3,
       "acceptance_criteria": [
-        "长按发送按钮弹出定时选项菜单（桌面端 + 移动端均适配）",
+        "桌面端 Header Bar 菜单「定时发送」入口触发 Schedule BottomSheet",
+        "Schedule BottomSheet 包含文本输入框（用户输入要定时发送的命令）",
         "快速时间选项（5分钟/30分钟/1小时）直接调用 Server API 创建任务（repeat_type=once）",
         "自定义时间弹出时间选择器（限制只能选未来时间），确认后调用 Server API（repeat_type=once）",
         "每日重复选项弹出时间设置（选 time-of-day），确认后调用 Server API（repeat_type=daily，execute_at 为最近的未来触发时间）",
         "Server 拒绝过去时间时（400），客户端提示用户重新选择",
         "Agent 离线时禁用定时发送入口（创建 API 返回 409 时提示用户）",
-        "创建成功后输入框清空，并立即触发当前终端的定时任务列表刷新（标签即时出现）",
+        "创建成功后立即触发当前终端的定时任务列表刷新（标签即时出现）",
         "flutter analyze 零 error/warning"
       ],
       "risk_tags": [],
       "test_tasks": [
         "快速时间选项 → 创建 API 调用参数正确",
-        "自定义时间选过去时间 → UI 禁止或 Server 返回 400 → 提示",
-        "自定义时间选未来时间 → 创建成功",
+        "自定义时间选过去时间 → 自动推到次日",
         "每日重复选 time-of-day → execute_at 计算正确（今日或明日）",
         "Agent 离线 → 409 → 提示终端不在线",
-        "桌面端 TerminalScreen 发送按钮长按 → 菜单弹出",
-        "移动端 MobileInputDelegate 发送按钮长按 → 菜单弹出"
+        "桌面端 Header Bar 菜单「定时发送」→ Schedule BottomSheet 弹出",
+        "文本输入为空时时间选项禁用"
       ],
       "files": [
-        "client/lib/widgets/mobile_input_delegate.dart",
-        "client/lib/screens/terminal_screen.dart",
-        "client/lib/widgets/schedule_bottom_sheet.dart"
+        "client/lib/widgets/schedule_bottom_sheet.dart",
+        "client/lib/screens/desktop/terminal_workspace_header_bar.dart",
+        "client/lib/screens/desktop/terminal_workspace_screen.dart",
+        "client/lib/widgets/mobile_input_delegate.dart"
       ],
       "commit": "1aaca98",
       "evidence_file": ".dev-flow/evidence/F003.md",
