@@ -236,5 +236,40 @@ void main() {
         expect(tile.enabled, isTrue);
       }
     });
+
+    testWidgets('选择快捷时间后 BottomSheet 关闭', (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => ElevatedButton(
+              onPressed: () => showScheduleBottomSheet(
+                context: context,
+                token: 'tok',
+                sessionId: 's1',
+                terminalId: 't1',
+                serverUrl: 'http://nonexistent-host.invalid',
+                // 使用不存在的 host，API 调用会失败
+                // 但 BottomSheet 应该先关闭
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      // 输入文本使选项可用
+      await tester.enterText(find.byType(TextField), 'ls');
+      await tester.pump();
+
+      // 点击 5 分钟后
+      await tester.tap(find.text('5 分钟后'));
+      await tester.pumpAndSettle();
+
+      // BottomSheet 应该已关闭（回到只有 'open' 按钮的状态）
+      expect(find.text('30 分钟后'), findsNothing);
+    });
   });
 }

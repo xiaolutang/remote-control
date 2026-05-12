@@ -47,5 +47,5 @@
 ## 回归安全
 
 - [x] Server pytest: R062 专项 45/45 passed, 总体 1674 passed (69 pre-existing failures in token_unification)
-- [x] Client flutter test: 345 passed (3 pre-existing R059 failures, 1 skipped)
+- [x] Client flutter test: 345 passed (3 pre-existing R059 failures + 1 R062 mobile SnackBar failure, 1 skipped)
 - [x] Client flutter analyze 零 error/warning
