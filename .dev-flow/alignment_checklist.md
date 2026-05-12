@@ -1,45 +1,51 @@
-# Alignment Checklist — R061
+# Alignment Checklist — R062
 
 ## 架构一致性
 
-- [x] architecture.md 新增客户端模块边界规则，与所有任务方向一致
-- [ ] F001-F004 完成后 services/ 无 screens/ import，models/ 无 flutter/material.dart import
-- [ ] 不涉及后端改动
-- [ ] 不涉及 API 契约变更（api_contracts.md 标记 N/A）
+- [ ] 所有定时任务（一次性 + 每日）统一走 Server REST API，不使用客户端本地 Timer
+- [ ] Server 调度使用 asyncio.create_task，不引入 APScheduler 依赖
+- [ ] 定时任务发送复用现有 WS DATA 消息通道，不新增消息类型
+- [ ] Server 仍然是消息中继中心，Agent 仍是无状态终端代理
 
-## 模块边界收敛
+## API 契约对齐
 
-- [ ] F001: account_menu_action_handler 不在 services/ 目录
-- [ ] F002: services/ui_helpers.dart 不含 UI Widget 代码
-- [ ] F003: models/ 下无 flutter/material.dart import
-- [ ] F004: services/ 无 BuildContext / context.read 依赖
+- [ ] POST /api/scheduled-tasks 鉴权（async_verify_token）
+- [ ] GET /api/scheduled-tasks 支持按 session_id/status 过滤
+- [ ] DELETE /api/scheduled-tasks/{id} 仅允许删除本人任务
+- [ ] 创建时验证 Agent 在线（409 返回）
+- [ ] 每日任务 execute_at 语义：time-of-day + timezone 锚点
 
-## 模式收敛
+## 调度语义
 
-- [ ] F005: AgentResponseType / FeedbackType / ToolStepStatus 三个 enum 创建
-- [ ] F005: agent_session_event.dart 所有 JSON 字段使用 json_helpers.dart
-- [ ] F006: @Deprecated 类及 switch-case 分支移除
+- [ ] 一次性任务：执行后 status=executed
+- [ ] 每日任务：执行后计算下次 execute_at（次日同 time-of-day + timezone）
+- [ ] 一次性 + Agent 离线：status=expired
+- [ ] 每日 + Agent 离线：跳过本轮，保持 pending，execute_at 推到次日
+- [ ] WS 发送异常与 Agent 离线同逻辑
+- [ ] 过去时间 execute_at：创建时拒绝(400)
+- [ ] 每日首次触发：所选 time-of-day 已过今日→首次执行为明日；未过→今日
+- [ ] 不包含 cron_expr 字段，不包含 cancelled 状态
 
-## 效率优化安全
+## API 行为对齐
 
-- [ ] F007: SharedPreferences 缓存不引入新的初始化时序依赖
-- [ ] F008: notifyListeners 修复不影响成功路径
-- [ ] F009a: selectDevice 并行化不改变最终状态
-- [ ] F009b: _refreshDesktopState 中 syncNativeTerminationState 仍在 keepRunning 之后
-- [ ] F010: DesktopWorkspaceController dispose 不遗漏资源
-- [ ] F011: LoggerService 节流不影响 pendingCount 最终一致性
+- [ ] GET 支持 session_id 过滤
+- [ ] GET 支持 status 过滤（pending/executed/expired）
+- [ ] GET 支持 session_id + status 组合过滤
+- [ ] POST 验证 session 存在（不存在→404）
+- [ ] POST 验证 terminal 存在（不存在→404）
+- [ ] POST 验证 execute_at 为未来时间（过去→400）
+- [ ] Redis 不可用时 fail-closed(503)
 
-## 复用提取
+## 客户端集成
 
-- [ ] F012: 重命名对话框提取后两处调用行为一致
-- [ ] F013: 设计 token 不改变 UI 视觉效果
-
-## 大文件拆分
-
-- [ ] F014: side panel 拆分不引入新的 part 文件
-- [ ] F015: workspace 拆分提取部分有独立测试
+- [ ] F001: ScheduledTask model + ScheduledTaskService 通过 HttpClientFactory
+- [ ] F002: 轮询 30 秒间隔 + 创建后即时刷新
+- [ ] F003: 长按发送→菜单→统一走 Server API 创建
+- [ ] F004: 列表展示 + 客户端过滤 24 小时
+- [ ] 跨设备：Server 单一数据源，天然同步
 
 ## 回归安全
 
-- [ ] 所有任务完成后 flutter test 全通过（不含预存 desktop_agent_manager_test 失败）
-- [ ] 所有任务完成后 flutter analyze 零 error/warning
+- [ ] Server pytest 全通过
+- [ ] Client flutter test 全通过
+- [ ] Client flutter analyze 零 error/warning
