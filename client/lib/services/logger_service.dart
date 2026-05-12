@@ -288,7 +288,10 @@ class LoggerService extends ChangeNotifier {
     }
   }
 
-  /// 释放资源
+  /// 释放资源。
+  ///
+  /// 注意：此方法不执行 flush。调用方应在 dispose 前先 `await stop()`
+  /// 以确保待上传日志不会丢失。
   @override
   void dispose() {
     _flushTimer?.cancel();

@@ -97,10 +97,12 @@ class DesktopWorkspaceController extends ChangeNotifier {
     if (!isSameController) {
       _lastKnownDeviceId = controller.selectedDevice?.deviceId;
     }
-    final changed = _syncSelectedTerminalId();
+    _syncSelectedTerminalId();
+    // RuntimeSelectionController 状态已变化（终端列表、重命名等），
+    // 需要刷新缓存并通知 AnimatedBuilder 重建。
+    _cachedState = null;
     _syncDesktopState(controller);
-    // 终端选中态变化时通知 UI（_syncDesktopState 内部按需通知）
-    if (changed) _notify();
+    _notify();
   }
 
   Future<void> refresh() async {
