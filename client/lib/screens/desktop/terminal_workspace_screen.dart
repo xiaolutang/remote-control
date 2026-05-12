@@ -25,6 +25,7 @@ import '../../services/terminal_session_manager.dart';
 import '../../widgets/theme_picker_sheet.dart';
 import '../../widgets/snack_bar_helper.dart';
 import '../../widgets/scheduled_task_list_sheet.dart';
+import '../../widgets/schedule_bottom_sheet.dart';
 import '../../services/websocket_service.dart';
 import '../login_screen.dart';
 import '../skill_config_screen.dart';
@@ -382,6 +383,20 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
                           poller: _scheduledTaskPoller,
                           token: widget.token,
                         );
+                      },
+                      onScheduleSend: () async {
+                        final t = selectedTerminal;
+                        if (t == null || device == null) return;
+                        final success = await showScheduleBottomSheet(
+                          context: context,
+                          token: widget.token,
+                          sessionId: device.deviceId,
+                          terminalId: t.terminalId,
+                          serverUrl: EnvironmentService.instance.currentServerUrl,
+                        );
+                        if (success) {
+                          _scheduledTaskPoller.refresh();
+                        }
                       },
                     ),
                     // F003: 桌面端用 Row 包裹 Sidebar + Body

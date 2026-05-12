@@ -11,6 +11,7 @@ import '../../services/desktop/desktop_workspace_controller.dart';
 enum _DesktopSettingsAction {
   agentAction,
   editDevice,
+  scheduleSend,
   scheduledTasks,
   theme,
   knowledgeConfig,
@@ -39,6 +40,7 @@ class WorkspaceHeaderBar extends StatelessWidget {
     this.onEditDevice,
     this.desktopActionInFlight = false,
     this.onScheduledTasks,
+    this.onScheduleSend,
   });
 
   final RuntimeDevice? device;
@@ -70,6 +72,9 @@ class WorkspaceHeaderBar extends StatelessWidget {
 
   /// Callback for viewing scheduled tasks for the current terminal.
   final VoidCallback? onScheduledTasks;
+
+  /// Callback for scheduling a new task for the current terminal.
+  final VoidCallback? onScheduleSend;
 
   @override
   Widget build(BuildContext context) {
@@ -277,6 +282,8 @@ class WorkspaceHeaderBar extends StatelessWidget {
                   onAgentAction?.call();
                 case _DesktopSettingsAction.editDevice:
                   onEditDevice?.call();
+                case _DesktopSettingsAction.scheduleSend:
+                  onScheduleSend?.call();
                 case _DesktopSettingsAction.scheduledTasks:
                   onScheduledTasks?.call();
                 case _DesktopSettingsAction.theme:
@@ -333,6 +340,20 @@ class WorkspaceHeaderBar extends StatelessWidget {
                   ],
                 ),
               ),
+              // 定时发送
+              if (onScheduleSend != null)
+                PopupMenuItem<_DesktopSettingsAction>(
+                  key: const Key('workspace-settings-schedule-send'),
+                  value: _DesktopSettingsAction.scheduleSend,
+                  enabled: terminal != null,
+                  child: const Row(
+                    children: [
+                      Icon(Icons.schedule_send, size: 20),
+                      SizedBox(width: 12),
+                      Text('定时发送'),
+                    ],
+                  ),
+                ),
               // 定时任务列表
               if (onScheduledTasks != null)
                 PopupMenuItem<_DesktopSettingsAction>(
