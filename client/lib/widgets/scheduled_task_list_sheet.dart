@@ -24,12 +24,10 @@ class ScheduledTaskListSheet extends StatefulWidget {
   /// 显示定时任务列表
   static Future<void> show({
     required BuildContext context,
-    required List<ScheduledTask> tasks,
+    required String terminalId,
     required ScheduledTaskPoller poller,
     required String token,
   }) {
-    // 从 tasks 快照中提取 terminalId（列表非空时取第一个）
-    final terminalId = tasks.isNotEmpty ? tasks.first.terminalId : '';
     return showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,

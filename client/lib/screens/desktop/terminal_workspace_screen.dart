@@ -140,6 +140,14 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
     _lastListenedService = null;
   }
 
+  /// 停止定时任务轮询并重置 session 标记
+  void _stopScheduledTaskPoller() {
+    if (_pollerSessionId != null) {
+      _scheduledTaskPoller.stopPolling();
+      _pollerSessionId = null;
+    }
+  }
+
   /// 在终端 WebSocket 连接上监听 terminals_changed 消息
   /// 使用 identical() 避免重复订阅同一个 service 实例
   ///
@@ -364,13 +372,10 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
                         if (t == null) return;
                         ScheduledTaskListSheet.show(
                           context: context,
-                          tasks: _scheduledTaskPoller
-                              .allTasksForTerminal(t.terminalId),
+                          terminalId: t.terminalId,
                           poller: _scheduledTaskPoller,
                           token: widget.token,
-                        ).then((_) {
-                          // sheet 关闭后不需要额外操作，poller 持续刷新
-                        });
+                        );
                       },
                     ),
                     // F003: 桌面端用 Row 包裹 Sidebar + Body
@@ -443,6 +448,7 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
     }
 
     if (device == null) {
+      _stopScheduledTaskPoller();
       return const Center(child: Text('当前没有可用设备'));
     }
 
@@ -460,6 +466,7 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
     }
 
     if (terminal == null) {
+      _stopScheduledTaskPoller();
       if (state.kind == WorkspaceStateKind.bootstrappingAgent) {
         return const WorkspaceEmptyState(
           icon: Icons.sync,

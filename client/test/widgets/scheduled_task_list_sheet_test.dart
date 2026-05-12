@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:rc_client/models/scheduled_task.dart';
+import 'package:rc_client/services/scheduled_task_poller.dart';
 import 'package:rc_client/widgets/scheduled_task_list_sheet.dart';
 
 /// 使用本地时间创建 ISO 字符串，确保 toLocal() 后显示一致
@@ -34,202 +35,175 @@ ScheduledTask _makeTask({
   );
 }
 
+/// 可控的 FakePoller，直接操作 tasks 列表并通知监听者
+class _FakePoller extends ScheduledTaskPoller {
+  _FakePoller() : super(serverUrl: 'http://localhost');
+
+  List<ScheduledTask> _fakeTasks = [];
+
+  void setTasks(List<ScheduledTask> tasks) {
+    _fakeTasks = tasks;
+    notifyListeners();
+  }
+
+  @override
+  List<ScheduledTask> allTasksForTerminal(String terminalId) {
+    return _fakeTasks.where((t) => t.terminalId == terminalId).toList();
+  }
+
+  @override
+  List<ScheduledTask> pendingTasksForTerminal(String terminalId) {
+    return _fakeTasks
+        .where((t) =>
+            t.terminalId == terminalId &&
+            t.status == ScheduledTaskStatus.pending)
+        .toList();
+  }
+
+  @override
+  Future<void> deleteTask(int taskId) async {
+    _fakeTasks = _fakeTasks.where((t) => t.id != taskId).toList();
+    notifyListeners();
+  }
+}
+
+/// 构建测试用的 widget 树，包含真实的 ScheduledTaskListSheet + FakePoller
+Widget _buildTestWidget({
+  required String terminalId,
+  required _FakePoller poller,
+}) {
+  return MaterialApp(
+    home: Scaffold(
+      body: ScheduledTaskListSheet(
+        terminalId: terminalId,
+        poller: poller,
+        token: 'test-token',
+      ),
+    ),
+  );
+}
+
 void main() {
   group('ScheduledTaskListSheet', () {
-    // 因为 ScheduledTaskListSheet 现在是 StatefulWidget 依赖 poller，
-    // 这里用 _FakePoller 提供可控的 task 数据。
-    // 直接使用 widget 的 `_visibleTasks` 逻辑验证渲染。
+    testWidgets('空任务列表显示空状态提示', (tester) async {
+      final poller = _FakePoller();
+      poller.setTasks([]);
 
-    testWidgets('空 terminalId 显示空状态提示', (tester) async {
-      // terminalId 为空时，poller 返回空列表
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-          body: _TestSheetWrapper(
-            terminalId: 't1',
-            tasks: [],
-          ),
-        ),
+      await tester.pumpWidget(_buildTestWidget(
+        terminalId: 't1',
+        poller: poller,
       ));
 
       expect(find.text('暂无定时任务'), findsOneWidget);
+      poller.dispose();
     });
 
     testWidgets('pending 任务显示时间和命令', (tester) async {
-      final tasks = [
-        _makeTask(id: 1, textContent: 'ls -la'),
-      ];
+      final poller = _FakePoller();
+      poller.setTasks([_makeTask(id: 1, textContent: 'ls -la')]);
 
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-          body: _TestSheetWrapper(
-            terminalId: 't1',
-            tasks: tasks,
-          ),
-        ),
+      await tester.pumpWidget(_buildTestWidget(
+        terminalId: 't1',
+        poller: poller,
       ));
 
       expect(find.text('ls -la'), findsOneWidget);
       // 时间格式化为 HH:mm（本地时间）
       expect(find.textContaining(':30'), findsWidgets);
+      poller.dispose();
     });
 
     testWidgets('每日任务显示每日标签', (tester) async {
-      final tasks = [
-        _makeTask(id: 2, textContent: 'git pull', repeatType: ScheduledTaskRepeatType.daily),
-      ];
+      final poller = _FakePoller();
+      poller.setTasks([
+        _makeTask(
+            id: 2,
+            textContent: 'git pull',
+            repeatType: ScheduledTaskRepeatType.daily),
+      ]);
 
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-          body: _TestSheetWrapper(
-            terminalId: 't1',
-            tasks: tasks,
-          ),
-        ),
+      await tester.pumpWidget(_buildTestWidget(
+        terminalId: 't1',
+        poller: poller,
       ));
 
       expect(find.text('每日'), findsOneWidget);
+      poller.dispose();
     });
 
     testWidgets('executed 任务显示"已执行"', (tester) async {
-      final tasks = [
+      final poller = _FakePoller();
+      poller.setTasks([
         _makeTask(
           id: 3,
           textContent: 'cmd',
           status: ScheduledTaskStatus.executed,
           executedAt: DateTime.now().toIso8601String(),
         ),
-      ];
+      ]);
 
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-          body: _TestSheetWrapper(
-            terminalId: 't1',
-            tasks: tasks,
-          ),
-        ),
+      await tester.pumpWidget(_buildTestWidget(
+        terminalId: 't1',
+        poller: poller,
       ));
 
       expect(find.text('已执行'), findsOneWidget);
+      poller.dispose();
     });
 
     testWidgets('长命令截断显示', (tester) async {
+      final poller = _FakePoller();
       final longCmd = 'a' * 50;
-      final tasks = [
-        _makeTask(id: 4, textContent: longCmd),
-      ];
+      poller.setTasks([_makeTask(id: 4, textContent: longCmd)]);
 
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-          body: _TestSheetWrapper(
-            terminalId: 't1',
-            tasks: tasks,
-          ),
-        ),
+      await tester.pumpWidget(_buildTestWidget(
+        terminalId: 't1',
+        poller: poller,
       ));
 
       // 显示截断后的文本（前30字符 + ...）
       expect(find.textContaining('aaa'), findsOneWidget);
+      poller.dispose();
+    });
+
+    testWidgets('poller 更新后 sheet 自动刷新', (tester) async {
+      final poller = _FakePoller();
+      poller.setTasks([]);
+
+      await tester.pumpWidget(_buildTestWidget(
+        terminalId: 't1',
+        poller: poller,
+      ));
+
+      // 初始为空
+      expect(find.text('暂无定时任务'), findsOneWidget);
+      expect(find.text('new-cmd'), findsNothing);
+
+      // 模拟 poller 收到新任务
+      poller.setTasks([_makeTask(id: 10, textContent: 'new-cmd')]);
+      await tester.pump();
+
+      // 应该自动刷新显示新任务
+      expect(find.text('暂无定时任务'), findsNothing);
+      expect(find.text('new-cmd'), findsOneWidget);
+      poller.dispose();
+    });
+
+    testWidgets('不同 terminalId 隔离数据', (tester) async {
+      final poller = _FakePoller();
+      poller.setTasks([
+        _makeTask(id: 1, terminalId: 't1', textContent: 'cmd-t1'),
+        _makeTask(id: 2, terminalId: 't2', textContent: 'cmd-t2'),
+      ]);
+
+      await tester.pumpWidget(_buildTestWidget(
+        terminalId: 't1',
+        poller: poller,
+      ));
+
+      expect(find.text('cmd-t1'), findsOneWidget);
+      expect(find.text('cmd-t2'), findsNothing);
+      poller.dispose();
     });
   });
-}
-
-/// 测试用的包装 widget，直接构建 ScheduledTaskListSheet 并注入 poller 数据
-class _TestSheetWrapper extends StatelessWidget {
-  final String terminalId;
-  final List<ScheduledTask> tasks;
-
-  const _TestSheetWrapper({
-    required this.terminalId,
-    required this.tasks,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    // 使用 ScheduledTaskListSheet 的静态构造不能绕过 poller，
-    // 所以直接用 _StaticTaskListSheet 测试渲染逻辑
-    return _StaticTaskListSheet(tasks: tasks);
-  }
-}
-
-/// 简化版渲染 widget，复用 ScheduledTaskListSheet 的过滤和渲染逻辑
-/// 不依赖 poller，仅用于测试渲染输出
-class _StaticTaskListSheet extends StatelessWidget {
-  final List<ScheduledTask> tasks;
-
-  const _StaticTaskListSheet({required this.tasks});
-
-  List<ScheduledTask> get _visibleTasks {
-    final now = DateTime.now();
-    return tasks.where((t) {
-      if (t.status == ScheduledTaskStatus.pending) return true;
-      final endTime = t.executedAt != null && t.executedAt!.isNotEmpty
-          ? DateTime.tryParse(t.executedAt!)
-          : null;
-      if (endTime == null) return true;
-      return now.difference(endTime).inSeconds < 86400;
-    }).toList();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final visibleTasks = _visibleTasks;
-    final theme = Theme.of(context);
-
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('定时任务', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-            const SizedBox(height: 8),
-            if (visibleTasks.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 24),
-                child: Center(child: Text('暂无定时任务', style: TextStyle(color: theme.disabledColor))),
-              )
-            else
-              ...visibleTasks.map((task) {
-                final isPending = task.status == ScheduledTaskStatus.pending;
-                final dt = DateTime.tryParse(task.executeAt);
-                final local = dt?.toLocal();
-                final timeStr = local != null
-                    ? '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}'
-                    : task.executeAt;
-                final cmdPreview = task.textContent.length > 30
-                    ? '${task.textContent.substring(0, 30)}...'
-                    : task.textContent;
-
-                return ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(
-                    isPending ? Icons.schedule : Icons.check_circle_outline,
-                    color: isPending ? Colors.orange : theme.disabledColor,
-                    size: 20,
-                  ),
-                  title: Text(cmdPreview, maxLines: 1, overflow: TextOverflow.ellipsis),
-                  subtitle: Row(children: [
-                    Text(timeStr, style: TextStyle(fontSize: 12, color: isPending ? Colors.orange : theme.disabledColor)),
-                    if (task.repeatType == ScheduledTaskRepeatType.daily) ...[
-                      const SizedBox(width: 4),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                        decoration: BoxDecoration(color: Colors.orange.shade100, borderRadius: BorderRadius.circular(4)),
-                        child: const Text('每日', style: TextStyle(fontSize: 10, color: Colors.orange)),
-                      ),
-                    ],
-                    if (!isPending) ...[
-                      const SizedBox(width: 4),
-                      Text(task.status == ScheduledTaskStatus.executed ? '已执行' : '已过期',
-                          style: TextStyle(fontSize: 10, color: theme.disabledColor)),
-                    ],
-                  ]),
-                );
-              }),
-          ],
-        ),
-      ),
-    );
-  }
 }
