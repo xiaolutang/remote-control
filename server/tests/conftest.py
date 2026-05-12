@@ -14,6 +14,11 @@ os.environ.setdefault("TRUSTED_PROXY_TLS_TOKEN", "trusted-proxy-token-for-pytest
 os.environ.setdefault("OPENAI_API_KEY", "test-openai-key-for-pytest")
 
 
+def pytest_addoption(parser):
+    parser.addoption("--url", default="http://localhost:8880",
+                     help="Server base URL for integration tests (default: http://localhost:8880)")
+
+
 @pytest.fixture(autouse=True)
 def _clear_projection_cache():
     """每个测试前后清空 SSE 全量投影缓存，防止跨测试泄露。"""

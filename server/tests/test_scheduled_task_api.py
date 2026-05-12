@@ -63,7 +63,7 @@ MOCK_SESSION_OTHER = {
 }
 
 MOCK_TERMINALS = [
-    {"terminal_id": "term-1", "title": "Terminal 1", "status": "active"},
+    {"terminal_id": "term-1", "title": "Terminal 1", "status": "live"},
 ]
 
 MOCK_TASK = {

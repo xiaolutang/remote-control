@@ -61,7 +61,7 @@ class ScheduledTaskService {
     );
     if (response.statusCode == 201) {
       final data = jsonDecode(response.body) as Map<String, dynamic>;
-      return readIntFromJson(data['task_id']);
+      return readIntFromJson(data['id']);
     }
     _throwError(response, '创建定时任务失败');
   }

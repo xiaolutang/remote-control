@@ -10,7 +10,7 @@ import '../models/scheduled_task.dart';
 /// 使用方式：
 /// ```dart
 /// ScheduledTaskBadge(
-///   tasks: poller.tasksForTerminal(terminalId),
+///   tasks: poller.pendingTasksForTerminal(terminalId),
 ///   onCancel: (taskId) => poller.deleteTask(taskId),
 /// )
 /// ```

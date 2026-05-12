@@ -68,6 +68,9 @@ async def create_scheduled_task(
             detail="execute_at 必须是未来时间",
         )
 
+    # 将 execute_at normalize 为 UTC ISO 字符串，确保 SQLite 字典序排序正确
+    execute_at_utc = execute_at_dt.astimezone(timezone.utc).isoformat()
+
     # 2. 验证 session 存在且属于当前用户
     session = await _deps.verify_session_ownership(body.session_id, user_id)
     if not session or not session.get("user_id"):
@@ -76,15 +79,21 @@ async def create_scheduled_task(
             detail="Session 不存在",
         )
 
-    # 3. 验证 terminal 存在
+    # 3. 验证 terminal 存在且状态为 live
     terminals = await _deps.list_session_terminals(body.session_id)
-    terminal_found = any(
-        t.get("terminal_id") == body.terminal_id for t in terminals
+    terminal = next(
+        (t for t in terminals if t.get("terminal_id") == body.terminal_id),
+        None,
     )
-    if not terminal_found:
+    if not terminal:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Terminal 不存在",
+        )
+    if terminal.get("status") != "live":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="终端已关闭或未就绪",
         )
 
     # 4. 验证 Agent 在线
@@ -101,7 +110,7 @@ async def create_scheduled_task(
         session_id=body.session_id,
         terminal_id=body.terminal_id,
         text_content=body.text_content,
-        execute_at=body.execute_at,
+        execute_at=execute_at_utc,
         repeat_type=body.repeat_type.value,
     )
 

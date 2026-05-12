@@ -23,7 +23,7 @@ void main() {
         expect(body['text_content'], 'ls -la');
         expect(body['execute_at'], '2026-05-13T08:00:00Z');
         expect(body['repeat_type'], 'once');
-        return http.Response(jsonEncode({'task_id': 42}), 201);
+        return http.Response(jsonEncode({'id': 42}), 201);
       });
 
       final service = ScheduledTaskService(

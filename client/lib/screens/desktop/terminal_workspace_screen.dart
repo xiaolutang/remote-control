@@ -19,9 +19,11 @@ import '../../services/environment_service.dart';
 import '../../services/logout_helper.dart';
 import '../../services/runtime_device_service.dart';
 import '../../services/runtime_selection_controller.dart';
+import '../../services/scheduled_task_poller.dart';
 import '../../services/terminal_session_manager.dart';
 import '../../widgets/theme_picker_sheet.dart';
 import '../../widgets/snack_bar_helper.dart';
+import '../../widgets/scheduled_task_list_sheet.dart';
 import '../../services/websocket_service.dart';
 import '../login_screen.dart';
 import '../skill_config_screen.dart';
@@ -93,6 +95,7 @@ class _TerminalWorkspaceView extends StatefulWidget {
 class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
     with TerminalActionsMixin<_TerminalWorkspaceView> {
   late final DesktopWorkspaceController _workspaceController;
+  late final ScheduledTaskPoller _scheduledTaskPoller;
   StreamSubscription<Map<String, dynamic>>? _terminalsChangedSubscription;
   WebSocketService? _lastListenedService;
   Timer? _refreshDebounceTimer;
@@ -112,6 +115,9 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
       agentBootstrapService: widget.agentBootstrapService,
       configService: ConfigService(),
     );
+    _scheduledTaskPoller = ScheduledTaskPoller(
+      serverUrl: EnvironmentService.instance.currentServerUrl,
+    );
   }
 
   @override
@@ -119,6 +125,7 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
     _terminalsChangedSubscription?.cancel();
     _cleanupServiceListener();
     _refreshDebounceTimer?.cancel();
+    _scheduledTaskPoller.dispose();
     unawaited(_workspaceController.handleViewDispose());
     _workspaceController.dispose();
     super.dispose();
@@ -350,6 +357,17 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
                       },
                       desktopActionInFlight:
                           _workspaceController.desktopActionInFlight,
+                      onScheduledTasks: () {
+                        final t = workspaceState.selectedTerminal;
+                        if (t == null) return;
+                        ScheduledTaskListSheet.show(
+                          context: context,
+                          tasks: _scheduledTaskPoller
+                              .allTasksForTerminal(t.terminalId),
+                          poller: _scheduledTaskPoller,
+                          token: widget.token,
+                        );
+                      },
                     ),
                     // F003: 桌面端用 Row 包裹 Sidebar + Body
                     Expanded(
@@ -507,6 +525,12 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
           () => controller.buildTerminalService(terminal),
         );
     _listenToTerminalsChangedIfNeeded(selectedService);
+
+    // 启动定时任务轮询
+    final deviceId = controller.selectedDeviceId;
+    if (deviceId != null && terminal.terminalId.isNotEmpty) {
+      _scheduledTaskPoller.startPolling(widget.token, deviceId);
+    }
 
     final terminalBody = Column(
       children: [

@@ -87,7 +87,7 @@ void main() {
       poller.dispose();
     });
 
-    test('tasksForTerminal 按 terminalId 过滤', () async {
+    test('pendingTasksForTerminal 按 terminalId 过滤', () async {
       final tasks = [
         _makeTask(id: 1, terminalId: 'term-a'),
         _makeTask(id: 2, terminalId: 'term-b'),
@@ -102,11 +102,11 @@ void main() {
       poller.startPolling('test-token', 'sess-1');
       await Future<void>.delayed(const Duration(milliseconds: 50));
 
-      final termATasks = poller.tasksForTerminal('term-a');
+      final termATasks = poller.pendingTasksForTerminal('term-a');
       expect(termATasks, hasLength(2));
       expect(termATasks.every((t) => t.terminalId == 'term-a'), isTrue);
 
-      final termBTasks = poller.tasksForTerminal('term-b');
+      final termBTasks = poller.pendingTasksForTerminal('term-b');
       expect(termBTasks, hasLength(1));
 
       poller.dispose();

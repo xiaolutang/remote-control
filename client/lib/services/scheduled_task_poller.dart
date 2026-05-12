@@ -50,7 +50,6 @@ class ScheduledTaskPoller extends ChangeNotifier {
       _tasks = await _service.list(
         token: _token!,
         sessionId: _sessionId,
-        status: 'pending',
       );
     } catch (_) {
       // 轮询失败静默处理，保持上次结果
@@ -67,8 +66,17 @@ class ScheduledTaskPoller extends ChangeNotifier {
     await refresh(); // 删除后立即刷新
   }
 
-  /// 获取指定 terminal 的 pending 任务
-  List<ScheduledTask> tasksForTerminal(String terminalId) {
+  /// 获取指定 terminal 的 pending 任务（用于 badge 展示）
+  List<ScheduledTask> pendingTasksForTerminal(String terminalId) {
+    return _tasks
+        .where((t) =>
+            t.terminalId == terminalId &&
+            t.status == ScheduledTaskStatus.pending)
+        .toList();
+  }
+
+  /// 获取指定 terminal 的全部任务（用于管理列表）
+  List<ScheduledTask> allTasksForTerminal(String terminalId) {
     return _tasks.where((t) => t.terminalId == terminalId).toList();
   }
 
