@@ -140,8 +140,10 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
     _lastListenedService = null;
   }
 
-  /// 停止定时任务轮询并重置 session 标记
+  /// 停止定时任务轮询并重置 session 标记。
+  /// 同时清理 service 状态监听器，避免旧 session 的 terminals_changed 回调。
   void _stopScheduledTaskPoller() {
+    _cleanupServiceListener();
     if (_pollerSessionId != null) {
       _scheduledTaskPoller.stopPolling();
       _pollerSessionId = null;
