@@ -1,5 +1,6 @@
 import '../utils/json_helpers.dart'
-    show readListFromJson, readOptionalStringFromJson, readStringFromJson;
+    show readBoolFromJson, readIntFromJson, readListFromJson,
+        readOptionalStringFromJson, readRawStringFromJson, readStringFromJson;
 import 'command_sequence_draft.dart';
 
 class AssistantCommandSequence {
@@ -36,18 +37,22 @@ class AssistantCommandSequence {
     final rawSteps = (json['steps'] as List<dynamic>? ?? const [])
         .whereType<Map<String, dynamic>>()
         .toList(growable: false);
+    final provider = readStringFromJson(json['provider']);
+    final source = readStringFromJson(json['source']);
     return AssistantCommandSequence(
       summary: readStringFromJson(json['summary']),
-      provider: json['provider'] as String? ?? 'service_llm',
-      source: json['source'] as String? ?? 'intent',
-      needConfirm: json['need_confirm'] as bool? ?? true,
+      provider: provider.isEmpty ? 'service_llm' : provider,
+      source: source.isEmpty ? 'intent' : source,
+      needConfirm: readBoolFromJson(json['need_confirm'], defaultValue: true),
       steps: [
         for (var index = 0; index < rawSteps.length; index++)
           CommandSequenceStep(
-            id: (rawSteps[index]['id'] as String? ?? 'step_${index + 1}')
-                .trim(),
-            label: (rawSteps[index]['label'] as String? ?? '步骤 ${index + 1}')
-                .trim(),
+            id: readStringFromJson(rawSteps[index]['id']).isEmpty
+                ? 'step_${index + 1}'
+                : readStringFromJson(rawSteps[index]['id']),
+            label: readStringFromJson(rawSteps[index]['label']).isEmpty
+                ? '步骤 ${index + 1}'
+                : readStringFromJson(rawSteps[index]['label']),
             command: readStringFromJson(rawSteps[index]['command']),
           ),
       ],
@@ -65,8 +70,9 @@ class AssistantMessage {
   final String text;
 
   factory AssistantMessage.fromJson(Map<String, dynamic> json) {
+    final type = readStringFromJson(json['type']);
     return AssistantMessage(
-      type: json['type'] as String? ?? 'assistant',
+      type: type.isEmpty ? 'assistant' : type,
       text: readStringFromJson(json['text']),
     );
   }
@@ -84,12 +90,13 @@ class AssistantMessageDelta {
   final bool replace;
 
   factory AssistantMessageDelta.fromJson(Map<String, dynamic> json) {
+    final type = readStringFromJson(json['type']);
     return AssistantMessageDelta(
-      type: json['type'] as String? ?? 'assistant',
-      textDelta:
-          (json['text_delta'] as String? ?? json['text'] as String? ?? '')
-              .trim(),
-      replace: json['replace'] as bool? ?? false,
+      type: type.isEmpty ? 'assistant' : type,
+      textDelta: readRawStringFromJson(
+        json['text_delta'] ?? json['text'],
+      ),
+      replace: readBoolFromJson(json['replace']),
     );
   }
 }
@@ -108,10 +115,13 @@ class AssistantTraceItem {
   final String summary;
 
   factory AssistantTraceItem.fromJson(Map<String, dynamic> json) {
+    final stage = readStringFromJson(json['stage']);
+    final title = readStringFromJson(json['title']);
+    final status = readStringFromJson(json['status']);
     return AssistantTraceItem(
-      stage: json['stage'] as String? ?? 'planner',
-      title: json['title'] as String? ?? '规划',
-      status: json['status'] as String? ?? 'completed',
+      stage: stage.isEmpty ? 'planner' : stage,
+      title: title.isEmpty ? '规划' : title,
+      status: status.isEmpty ? 'completed' : status,
       summary: readStringFromJson(json['summary']),
     );
   }
@@ -135,12 +145,13 @@ class AssistantToolCall {
   final String? outputSummary;
 
   factory AssistantToolCall.fromJson(Map<String, dynamic> json) {
+    final toolName =
+        readStringFromJson(json['tool_name'] ?? json['name']);
+    final status = readStringFromJson(json['status']);
     return AssistantToolCall(
       id: readStringFromJson(json['id']),
-      toolName:
-          (json['tool_name'] as String? ?? json['name'] as String? ?? '工具')
-              .trim(),
-      status: json['status'] as String? ?? 'running',
+      toolName: toolName.isEmpty ? '工具' : toolName,
+      status: status.isEmpty ? 'running' : status,
       summary: readOptionalStringFromJson(json['summary']),
       inputSummary: readOptionalStringFromJson(json['input_summary']),
       outputSummary: readOptionalStringFromJson(json['output_summary']),
@@ -162,10 +173,13 @@ class AssistantStatusUpdate {
   final String? summary;
 
   factory AssistantStatusUpdate.fromJson(Map<String, dynamic> json) {
+    final stage = readStringFromJson(json['stage']);
+    final status = readStringFromJson(json['status']);
+    final title = readStringFromJson(json['title']);
     return AssistantStatusUpdate(
-      stage: json['stage'] as String? ?? 'planner',
-      status: json['status'] as String? ?? 'running',
-      title: json['title'] as String? ?? '处理中',
+      stage: stage.isEmpty ? 'planner' : stage,
+      status: status.isEmpty ? 'running' : status,
+      title: title.isEmpty ? '处理中' : title,
       summary: readOptionalStringFromJson(json['summary']),
     );
   }
@@ -186,10 +200,14 @@ class AssistantPlanLimits {
 
   factory AssistantPlanLimits.fromJson(Map<String, dynamic> json) {
     return AssistantPlanLimits(
-      rateLimited: json['rate_limited'] as bool? ?? false,
-      budgetBlocked: json['budget_blocked'] as bool? ?? false,
-      providerTimeoutMs: json['provider_timeout_ms'] as int? ?? 12000,
-      retryAfter: json['retry_after'] as int?,
+      rateLimited: readBoolFromJson(json['rate_limited']),
+      budgetBlocked: readBoolFromJson(json['budget_blocked']),
+      providerTimeoutMs: readIntFromJson(json['provider_timeout_ms']) == 0
+          ? 12000
+          : readIntFromJson(json['provider_timeout_ms']),
+      retryAfter: json['retry_after'] is num
+          ? (json['retry_after'] as num).toInt()
+          : null,
     );
   }
 }
@@ -225,17 +243,21 @@ class AssistantPlanResult {
           json['assistant_messages'], AssistantMessage.fromJson),
       trace: readListFromJson(json['trace'], AssistantTraceItem.fromJson),
       commandSequence: AssistantCommandSequence.fromJson(
-        (json['command_sequence'] as Map<String, dynamic>?) ??
-            const <String, dynamic>{},
+        json['command_sequence'] is Map<String, dynamic>
+            ? json['command_sequence'] as Map<String, dynamic>
+            : const <String, dynamic>{},
       ),
-      fallbackUsed: json['fallback_used'] as bool? ?? false,
+      fallbackUsed: readBoolFromJson(json['fallback_used']),
       fallbackReason: readOptionalStringFromJson(json['fallback_reason']),
       limits: AssistantPlanLimits.fromJson(
-        (json['limits'] as Map<String, dynamic>?) ?? const <String, dynamic>{},
+        json['limits'] is Map<String, dynamic>
+            ? json['limits'] as Map<String, dynamic>
+            : const <String, dynamic>{},
       ),
       evaluationContext:
-          (json['evaluation_context'] as Map<String, dynamic>?) ??
-              const <String, dynamic>{},
+          json['evaluation_context'] is Map<String, dynamic>
+              ? json['evaluation_context'] as Map<String, dynamic>
+              : const <String, dynamic>{},
     );
   }
 }
@@ -299,44 +321,45 @@ class AssistantPlanProgressEvent {
     return AssistantPlanProgressEvent(
       type: readStringFromJson(json['type']),
       assistantMessage:
-          (json['assistant_message'] as Map<String, dynamic>?) != null
+          json['assistant_message'] is Map<String, dynamic>
               ? AssistantMessage.fromJson(
                   json['assistant_message'] as Map<String, dynamic>,
                 )
               : null,
-      assistantDelta: (json['assistant_delta'] as Map<String, dynamic>?) != null
+      assistantDelta: json['assistant_delta'] is Map<String, dynamic>
           ? AssistantMessageDelta.fromJson(
               json['assistant_delta'] as Map<String, dynamic>,
             )
           : null,
-      traceItem: (json['trace_item'] as Map<String, dynamic>?) != null
+      traceItem: json['trace_item'] is Map<String, dynamic>
           ? AssistantTraceItem.fromJson(
               json['trace_item'] as Map<String, dynamic>,
             )
           : null,
-      toolCall: (json['tool_call'] as Map<String, dynamic>?) != null
+      toolCall: json['tool_call'] is Map<String, dynamic>
           ? AssistantToolCall.fromJson(
               json['tool_call'] as Map<String, dynamic>,
             )
           : null,
-      statusUpdate: ((json['status_update'] as Map<String, dynamic>?) ??
-                  (json['status'] is Map<String, dynamic>
-                      ? json['status'] as Map<String, dynamic>
-                      : null)) !=
-              null
+      statusUpdate: json['status_update'] is Map<String, dynamic>
           ? AssistantStatusUpdate.fromJson(
-              ((json['status_update'] as Map<String, dynamic>?) ??
-                  json['status'] as Map<String, dynamic>),
+              json['status_update'] as Map<String, dynamic>,
             )
-          : null,
-      result: (json['plan'] as Map<String, dynamic>?) != null
+          : json['status'] is Map<String, dynamic>
+              ? AssistantStatusUpdate.fromJson(
+                  json['status'] as Map<String, dynamic>,
+                )
+              : null,
+      result: json['plan'] is Map<String, dynamic>
           ? AssistantPlanResult.fromJson(
               json['plan'] as Map<String, dynamic>,
             )
           : null,
       reason: readOptionalStringFromJson(json['reason']),
       message: readOptionalStringFromJson(json['message']),
-      retryAfter: json['retry_after'] as int?,
+      retryAfter: json['retry_after'] is num
+          ? (json['retry_after'] as num).toInt()
+          : null,
     );
   }
 }

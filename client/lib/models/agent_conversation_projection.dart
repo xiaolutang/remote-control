@@ -1,5 +1,6 @@
 import '../utils/json_helpers.dart'
-    show readListFromJson, readOptionalStringFromJson, readStringFromJson;
+    show readBoolFromJson, readIntFromJson, readListFromJson,
+        readOptionalStringFromJson, readStringFromJson;
 
 class AgentConversationProjection {
   const AgentConversationProjection({
@@ -23,14 +24,15 @@ class AgentConversationProjection {
   final int truncationEpoch;
 
   factory AgentConversationProjection.fromJson(Map<String, dynamic> json) {
+    final status = readStringFromJson(json['status']);
     return AgentConversationProjection(
       deviceId: readStringFromJson(json['device_id']),
       terminalId: readStringFromJson(json['terminal_id']),
-      status: json['status'] as String? ?? 'empty',
-      nextEventIndex: json['next_event_index'] as int? ?? 0,
+      status: status.isEmpty ? 'empty' : status,
+      nextEventIndex: readIntFromJson(json['next_event_index']),
       conversationId: readOptionalStringFromJson(json['conversation_id']),
       activeSessionId: readOptionalStringFromJson(json['active_session_id']),
-      truncationEpoch: json['truncation_epoch'] as int? ?? 0,
+      truncationEpoch: readIntFromJson(json['truncation_epoch']),
       events: readListFromJson(
           json['events'], AgentConversationEventItem.fromJson),
     );
@@ -72,13 +74,13 @@ class AgentConversationEventItem {
 
   factory AgentConversationEventItem.fromJson(Map<String, dynamic> json) {
     return AgentConversationEventItem(
-      eventIndex: json['event_index'] as int? ?? 0,
+      eventIndex: readIntFromJson(json['event_index']),
       eventId: readStringFromJson(json['event_id']),
       type: readStringFromJson(json['type']),
       role: readStringFromJson(json['role']),
-      payload: Map<String, dynamic>.from(
-        json['payload'] as Map<String, dynamic>? ?? const {},
-      ),
+      payload: json['payload'] is Map<String, dynamic>
+          ? Map<String, dynamic>.from(json['payload'] as Map<String, dynamic>)
+          : const <String, dynamic>{},
       sessionId: readOptionalStringFromJson(json['session_id']),
       questionId: readOptionalStringFromJson(json['question_id']),
       clientEventId: readOptionalStringFromJson(json['client_event_id']),
@@ -158,10 +160,11 @@ class TurnToolStep {
   final String? resultSummary;
 
   factory TurnToolStep.fromJson(Map<String, dynamic> json) {
+    final status = readStringFromJson(json['status']);
     return TurnToolStep(
       toolName: readStringFromJson(json['tool_name']),
       description: readStringFromJson(json['description']),
-      status: json['status'] as String? ?? 'running',
+      status: status.isEmpty ? 'running' : status,
       resultSummary: readOptionalStringFromJson(json['result_summary']),
     );
   }

@@ -171,19 +171,25 @@ class AppConfig {
       {String serverUrl = ''}) {
     final explicitExitPolicy = json['desktopExitPolicy'];
     final legacyKeepRunning =
-        json['keepAgentRunningInBackground'] as bool? ?? false;
+        readBoolFromJson(json['keepAgentRunningInBackground']);
     final legacyExplicitChoice =
-        json['desktopBackgroundModeUserSet'] as bool? ?? false;
+        readBoolFromJson(json['desktopBackgroundModeUserSet']);
     return AppConfig(
       serverUrl: serverUrl,
-      token: json['token'] as String?,
+      token: json['token'] is String ? json['token'] as String : null,
       sessionId: readStringFromJson(json['sessionId']),
-      autoReconnect: json['autoReconnect'] as bool? ?? true,
-      maxRetries: json['maxRetries'] as int? ?? 5,
-      reconnectDelay:
-          Duration(milliseconds: json['reconnectDelayMs'] as int? ?? 1000),
-      heartbeatInterval:
-          Duration(milliseconds: json['heartbeatIntervalMs'] as int? ?? 30000),
+      autoReconnect: readBoolFromJson(json['autoReconnect'], defaultValue: true),
+      maxRetries: readIntFromJson(json['maxRetries']) == 0
+          ? 5
+          : readIntFromJson(json['maxRetries']),
+      reconnectDelay: Duration(
+          milliseconds: readIntFromJson(json['reconnectDelayMs']) == 0
+              ? 1000
+              : readIntFromJson(json['reconnectDelayMs'])),
+      heartbeatInterval: Duration(
+          milliseconds: readIntFromJson(json['heartbeatIntervalMs']) == 0
+              ? 30000
+              : readIntFromJson(json['heartbeatIntervalMs'])),
       themeMode: enumFromJson(
         AppThemeMode.values,
         json['themeMode'],
@@ -206,20 +212,16 @@ class AppConfig {
             ),
       desktopAgentWorkdir: readStringFromJson(json['desktopAgentWorkdir']),
       preferredDeviceId: readStringFromJson(json['preferredDeviceId']),
-      shortcutItems: ((json['shortcutItems'] as List<dynamic>?) ?? const [])
-          .whereType<Map<String, dynamic>>()
-          .map(ShortcutItem.fromJson)
-          .toList(growable: false),
+      shortcutItems: readListFromJson(
+          json['shortcutItems'], ShortcutItem.fromJson),
       projectShortcutItems:
-          (((json['projectShortcutItems'] as Map<String, dynamic>?) ??
-                  const <String, dynamic>{}))
+          (json['projectShortcutItems'] is Map<String, dynamic>
+                  ? json['projectShortcutItems'] as Map<String, dynamic>
+                  : const <String, dynamic>{})
               .map(
         (key, value) => MapEntry(
           key,
-          ((value as List<dynamic>?) ?? const [])
-              .whereType<Map<String, dynamic>>()
-              .map(ShortcutItem.fromJson)
-              .toList(growable: false),
+          readListFromJson(value, ShortcutItem.fromJson),
         ),
       ),
       recentLaunchContexts: _parseRecentLaunchContexts(

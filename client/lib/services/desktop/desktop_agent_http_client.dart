@@ -4,7 +4,8 @@ import 'dart:io';
 
 import '../app_logger.dart';
 import '../http_client_factory.dart';
-import '../../utils/json_helpers.dart';
+import '../../utils/json_helpers.dart'
+    show readBoolFromJson, readIntFromJson, readStringFromJson;
 
 /// 默认端口范围
 const List<int> kAgentPortRange = [18765, 18766, 18767, 18768, 18769];
@@ -40,7 +41,7 @@ class SkillItem {
     return SkillItem(
       name: readStringFromJson(json['name']),
       description: readStringFromJson(json['description']),
-      enabled: json['enabled'] as bool? ?? false,
+      enabled: readBoolFromJson(json['enabled']),
     );
   }
 
@@ -66,7 +67,7 @@ class KnowledgeItem {
   factory KnowledgeItem.fromJson(Map<String, dynamic> json) {
     return KnowledgeItem(
       filename: readStringFromJson(json['filename']),
-      enabled: json['enabled'] as bool? ?? false,
+      enabled: readBoolFromJson(json['enabled']),
     );
   }
 
@@ -102,15 +103,15 @@ class LocalAgentStatus {
 
   factory LocalAgentStatus.fromJson(Map<String, dynamic> json) {
     return LocalAgentStatus(
-      running: json['running'] as bool? ?? false,
+      running: readBoolFromJson(json['running']),
       pid: readIntFromJson(json['pid']),
       port: readIntFromJson(json['port']),
       serverUrl: readStringFromJson(json['server_url']),
-      connected: json['connected'] as bool? ?? false,
+      connected: readBoolFromJson(json['connected']),
       sessionId: readStringFromJson(json['session_id']),
       terminalsCount: readIntFromJson(json['terminals_count']),
       keepRunningInBackground:
-          json['keep_running_in_background'] as bool? ?? true,
+          readBoolFromJson(json['keep_running_in_background'], defaultValue: true),
     );
   }
 }

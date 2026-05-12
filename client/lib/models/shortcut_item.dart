@@ -106,8 +106,8 @@ class ShortcutItem {
 
   factory ShortcutItem.fromJson(Map<String, dynamic> json) {
     return ShortcutItem(
-      id: json['id'] as String? ?? '',
-      label: json['label'] as String? ?? '',
+      id: readStringFromJson(json['id']),
+      label: readStringFromJson(json['label']),
       source: enumFromJson(
         ShortcutItemSource.values,
         json['source'],
@@ -126,10 +126,10 @@ class ShortcutItem {
               type: TerminalShortcutActionType.sendText,
               value: '',
             ),
-      enabled: json['enabled'] as bool? ?? true,
-      pinned: json['pinned'] as bool? ?? false,
-      order: json['order'] as int? ?? 0,
-      useCount: json['useCount'] as int? ?? 0,
+      enabled: readBoolFromJson(json['enabled'], defaultValue: true),
+      pinned: readBoolFromJson(json['pinned']),
+      order: readIntFromJson(json['order']),
+      useCount: readIntFromJson(json['useCount']),
       lastUsedAt: json['lastUsedAt'] is String
           ? DateTime.tryParse(json['lastUsedAt'] as String)?.toUtc()
           : null,
@@ -138,7 +138,9 @@ class ShortcutItem {
         json['scope'],
         ShortcutItemScope.global,
       ),
-      description: json['description'] as String?,
+      description: json['description'] is String
+          ? json['description'] as String
+          : null,
     );
   }
 

@@ -183,7 +183,8 @@ class ToolStepEvent extends AgentSessionEvent {
     return ToolStepEvent(
       toolName: readStringFromJson(json['tool_name']),
       description: readStringFromJson(json['description']),
-      status: ToolStepStatus.fromJsonString(json['status'] as String?),
+      status: ToolStepStatus.fromJsonString(
+          json['status'] is String ? json['status'] as String : null),
       resultSummary: readOptionalStringFromJson(json['result_summary']),
     );
   }
@@ -347,17 +348,24 @@ class AgentResultEvent extends AgentSessionEvent {
     return AgentResultEvent(
       summary: readStringFromJson(json['summary']),
       steps: readListFromJson(json['steps'], AgentResultStep.fromJson),
-      provider: json['provider'] as String? ?? 'agent',
-      source: json['source'] as String? ?? 'recommended',
+      provider: readStringFromJson(json['provider']).isEmpty
+          ? 'agent'
+          : readStringFromJson(json['provider']),
+      source: readStringFromJson(json['source']).isEmpty
+          ? 'recommended'
+          : readStringFromJson(json['source']),
       needConfirm: readBoolFromJson(json['need_confirm'], defaultValue: true),
       aliases: UnmodifiableMapView(
-        (json['aliases'] as Map?)?.map((k, v) => MapEntry(k.toString(), v.toString())) ?? const {},
+        json['aliases'] is Map
+            ? (json['aliases'] as Map)
+                .map((k, v) => MapEntry(k.toString(), v.toString()))
+            : const {},
       ),
       usage: json['usage'] != null
           ? AgentUsageData.fromJson(json['usage'] as Map<String, dynamic>)
           : null,
       responseType: AgentResponseType.fromJsonString(
-          json['response_type'] as String?),
+          json['response_type'] is String ? json['response_type'] as String : null),
       aiPrompt: readStringFromJson(json['ai_prompt']),
       eventId: readOptionalStringFromJson(json['event_id']),
     );
@@ -399,7 +407,9 @@ class AgentErrorEvent extends AgentSessionEvent {
 
   factory AgentErrorEvent.fromJson(Map<String, dynamic> json) {
     return AgentErrorEvent(
-      code: json['code'] as String? ?? 'UNKNOWN',
+      code: readStringFromJson(json['code']).isEmpty
+          ? 'UNKNOWN'
+          : readStringFromJson(json['code']),
       message: readStringFromJson(json['message']),
       usage: json['usage'] is Map<String, dynamic>
           ? AgentUsageData.fromJson(json['usage'] as Map<String, dynamic>)

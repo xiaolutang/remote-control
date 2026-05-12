@@ -48,17 +48,21 @@ class RuntimeTerminal {
   }
 
   factory RuntimeTerminal.fromJson(Map<String, dynamic> json) {
-    final rawViews = json['views'] as Map<String, dynamic>? ?? const {};
+    final rawViews =
+        json['views'] is Map<String, dynamic> ? json['views'] as Map<String, dynamic> : const <String, dynamic>{};
+    final status = readStringFromJson(json['status']);
     return RuntimeTerminal(
       terminalId: readStringFromJson(json['terminal_id']),
       title: readStringFromJson(json['title']),
       cwd: readStringFromJson(json['cwd']),
       command: readStringFromJson(json['command']),
-      status: json['status'] as String? ?? 'pending',
-      updatedAt: json['updated_at'] == null
-          ? null
-          : DateTime.tryParse(json['updated_at'] as String),
-      disconnectReason: json['disconnect_reason'] as String?,
+      status: status.isEmpty ? 'pending' : status,
+      updatedAt: json['updated_at'] is String
+          ? DateTime.tryParse(json['updated_at'] as String)
+          : null,
+      disconnectReason: json['disconnect_reason'] is String
+          ? json['disconnect_reason'] as String
+          : null,
       views: rawViews.map(
         (key, value) => MapEntry(key, safeIntFromMapValue(value)),
       ),
