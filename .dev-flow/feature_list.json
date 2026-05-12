@@ -361,7 +361,7 @@
         "自定义时间弹出时间选择器（限制只能选未来时间），确认后调用 Server API（repeat_type=once）",
         "每日重复选项弹出时间设置（选 time-of-day），确认后调用 Server API（repeat_type=daily，execute_at 为最近的未来触发时间）",
         "Server 拒绝过去时间时（400），客户端提示用户重新选择",
-        "Agent 离线时禁用定时发送入口（创建 API 返回 409 时提示用户）",
+        "Agent 离线时创建定时任务 API 返回 409，客户端通过 ScheduledTaskException SnackBar 提示用户",
         "创建成功后立即触发当前终端的定时任务列表刷新（标签即时出现）",
         "flutter analyze 零 error/warning"
       ],
@@ -380,7 +380,7 @@
         "client/lib/screens/desktop/terminal_workspace_screen.dart",
         "client/lib/widgets/mobile_input_delegate.dart"
       ],
-      "commit": "a060afa",
+      "commit": "dd836fb",
       "evidence_file": ".dev-flow/evidence/F003.md",
       "completed_at": "2026-05-12T20:00:00+08:00"
     },
