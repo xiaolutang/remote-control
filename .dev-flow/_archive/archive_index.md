@@ -13,4 +13,6 @@
 | R056 | auth-connection-optimize | 2026-05-07 | 0-1 | 2/2 | _archive/R056_auth-connection-optimize |
 | R057 | tech-debt-cleanup | 2026-05-09 | 0-4 | 23/23 | _archive/R057_tech-debt-cleanup |
 | R058 | code-optimization-perf | 2026-05-09 | 0-5 | 23/23 | _archive/R058_code-optimization-perf |
+| R059 | terminal-tab-bar-ux | 2026-05-11 | 1 | 10/10 | _archive/R059_terminal-tab-bar-ux |
 | R060 | terminal-navigation-redesign | 2026-05-11 | 1 | 5/5 | _archive/R060_terminal-navigation-redesign |
+| R061 | client-code-convergence | 2026-05-12 | 1-5 | 16/16 | _archive/R061_client-code-convergence |

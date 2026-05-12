@@ -2,392 +2,114 @@
   "version": "1.4",
   "project": "remote-control",
   "updated_at": "2026-05-12T00:00:00+08:00",
-  "status": "planning",
-  "workflow": {
-    "name": "client-code-convergence",
-    "mode": "B",
-    "runtime": "skill_orchestrated",
-    "review_provider": "codex_plugin",
-    "audit_provider": "codex_plugin",
-    "risk_provider": "codex_plugin",
-    "stop_hook_enabled": false
-  },
-  "active_requirement_cycle": {
-    "id": "R061",
-    "name": "client-code-convergence",
-    "branch": "chore/R061-client-convergence",
-    "status": "planning"
-  },
+  "status": "idle",
   "archived_requirement_cycles": [
-    { "id": "R047", "name": "agent-conversation-interaction-optimization", "status": "completed", "archive_dir": "_archive/R047_agent-conversation-interaction-optimization", "total_tasks": 31 },
-    { "id": "R048", "name": "architecture-deep-cleanup", "status": "completed", "archive_dir": "_archive/R048_architecture-deep-cleanup", "total_tasks": 20 },
-    { "id": "R049", "name": "brainstorm-bug-fixes", "status": "completed", "archive_dir": "_archive/R049_brainstorm-bug-fixes", "total_tasks": 3 },
-    { "id": "R050", "name": "token-usage-optimization", "status": "completed", "archive_dir": "_archive/R050_token-usage-optimization", "total_tasks": 3 },
-    { "id": "R051", "name": "eval-architecture-overhaul", "status": "completed", "archive_dir": "_archive/R051_eval-architecture-overhaul", "total_tasks": 11 },
-    { "id": "R052", "name": "open-source-release", "status": "completed", "archive_dir": "_archive/R052_open-source-release", "total_tasks": 5 },
-    { "id": "R053", "name": "desktop-agent-bundling", "status": "completed", "archive_dir": "_archive/R053_desktop-agent-bundling", "total_tasks": 3 },
-    { "id": "R054", "name": "code-quality-consolidation", "status": "completed", "archive_dir": "_archive/R054_code-quality-consolidation", "total_tasks": 11, "completed_at": "2026-05-06" },
-    { "id": "R056", "name": "auth-connection-optimize", "status": "completed", "archive_dir": "_archive/R056_auth-connection-optimize", "total_tasks": 2, "completed_at": "2026-05-07" },
-    { "id": "R057", "name": "tech-debt-cleanup", "status": "completed", "archive_dir": "_archive/R057_tech-debt-cleanup", "total_tasks": 23, "completed_at": "2026-05-09" },
-    { "id": "R058", "name": "code-optimization-perf", "status": "completed", "archive_dir": "_archive/R058_code-optimization-perf", "total_tasks": 23, "completed_at": "2026-05-09" },
-    { "id": "R059", "name": "terminal-tab-bar-ux", "status": "completed", "archive_dir": "_archive/R059_terminal-tab-bar-ux", "total_tasks": 10, "completed_at": "2026-05-11" },
-    { "id": "R060", "name": "terminal-navigation-redesign", "status": "completed", "archive_dir": "_archive/R060_terminal-navigation-redesign", "total_tasks": 5, "completed_at": "2026-05-11" }
+    {
+      "id": "R047",
+      "name": "agent-conversation-interaction-optimization",
+      "status": "completed",
+      "archive_dir": "_archive/R047_agent-conversation-interaction-optimization",
+      "total_tasks": 31
+    },
+    {
+      "id": "R048",
+      "name": "architecture-deep-cleanup",
+      "status": "completed",
+      "archive_dir": "_archive/R048_architecture-deep-cleanup",
+      "total_tasks": 20
+    },
+    {
+      "id": "R049",
+      "name": "brainstorm-bug-fixes",
+      "status": "completed",
+      "archive_dir": "_archive/R049_brainstorm-bug-fixes",
+      "total_tasks": 3
+    },
+    {
+      "id": "R050",
+      "name": "token-usage-optimization",
+      "status": "completed",
+      "archive_dir": "_archive/R050_token-usage-optimization",
+      "total_tasks": 3
+    },
+    {
+      "id": "R051",
+      "name": "eval-architecture-overhaul",
+      "status": "completed",
+      "archive_dir": "_archive/R051_eval-architecture-overhaul",
+      "total_tasks": 11
+    },
+    {
+      "id": "R052",
+      "name": "open-source-release",
+      "status": "completed",
+      "archive_dir": "_archive/R052_open-source-release",
+      "total_tasks": 5
+    },
+    {
+      "id": "R053",
+      "name": "desktop-agent-bundling",
+      "status": "completed",
+      "archive_dir": "_archive/R053_desktop-agent-bundling",
+      "total_tasks": 3
+    },
+    {
+      "id": "R054",
+      "name": "code-quality-consolidation",
+      "status": "completed",
+      "archive_dir": "_archive/R054_code-quality-consolidation",
+      "total_tasks": 11,
+      "completed_at": "2026-05-06"
+    },
+    {
+      "id": "R056",
+      "name": "auth-connection-optimize",
+      "status": "completed",
+      "archive_dir": "_archive/R056_auth-connection-optimize",
+      "total_tasks": 2,
+      "completed_at": "2026-05-07"
+    },
+    {
+      "id": "R057",
+      "name": "tech-debt-cleanup",
+      "status": "completed",
+      "archive_dir": "_archive/R057_tech-debt-cleanup",
+      "total_tasks": 23,
+      "completed_at": "2026-05-09"
+    },
+    {
+      "id": "R058",
+      "name": "code-optimization-perf",
+      "status": "completed",
+      "archive_dir": "_archive/R058_code-optimization-perf",
+      "total_tasks": 23,
+      "completed_at": "2026-05-09"
+    },
+    {
+      "id": "R059",
+      "name": "terminal-tab-bar-ux",
+      "status": "completed",
+      "archive_dir": "_archive/R059_terminal-tab-bar-ux",
+      "total_tasks": 10,
+      "completed_at": "2026-05-11"
+    },
+    {
+      "id": "R060",
+      "name": "terminal-navigation-redesign",
+      "status": "completed",
+      "archive_dir": "_archive/R060_terminal-navigation-redesign",
+      "total_tasks": 5,
+      "completed_at": "2026-05-11"
+    },
+    {
+      "id": "R061",
+      "name": "client-code-convergence",
+      "status": "completed",
+      "archive_dir": "_archive/R061_client-code-convergence",
+      "total_tasks": 16,
+      "completed_at": "2026-05-12"
+    }
   ],
   "archived_phases": [],
-  "features": [
-    {
-      "id": "F001",
-      "phase": 1,
-      "module": "navigation",
-      "name": "迁移 account_menu_action_handler 到 navigation 层",
-      "description": "将 services/account_menu_action_handler.dart 从 services/ 迁移到 navigation/ 目录。该文件含 Navigator.push、showDialog 等 UI 逻辑，不应在 services 层。迁移后所有 import 路径需要更新，确认无反向依赖。",
-      "verification": "F1",
-      "depends_on": [],
-      "status": "completed",
-      "priority": 1,
-      "acceptance_criteria": [
-        "文件从 services/ 移到 navigation/（或 screens/ 子目录）",
-        "services/ 不再有任何文件 import screens/",
-        "flutter analyze 零 error/warning",
-        "flutter test 全部通过（不含预存失败）"
-      ],
-      "risk_tags": [],
-      "files": ["lib/services/account_menu_action_handler.dart", "lib/navigation/"]
-    },
-    {
-      "id": "F002",
-      "phase": 1,
-      "module": "widgets",
-      "status": "completed",
-      "name": "迁移 showThemePickerSheet 到 widgets 层",
-      "description": "将 services/ui_helpers.dart 中的 showThemePickerSheet（含 ModalBottomSheet + RadioListTile 等 UI 代码）迁移到 widgets/ 目录。services/ui_helpers.dart 若清空则删除。所有调用方 import 路径更新。",
-      "verification": "F1",
-      "depends_on": [],
-      "status": "pending",
-      "priority": 1,
-      "acceptance_criteria": [
-        "showThemePickerSheet 在 widgets/ 下（如 widgets/theme_picker_sheet.dart）",
-        "services/ 不再含 UI Widget 构建代码",
-        "所有调用方 import 更新正确",
-        "flutter analyze 零 error/warning"
-      ],
-      "risk_tags": [],
-      "files": ["lib/services/ui_helpers.dart"]
-    },
-    {
-      "id": "F003",
-      "phase": 1,
-      "module": "models",
-      "status": "completed",
-      "name": "迁移 models/ 中 IconData 到 widgets 层 extension",
-      "description": "app_environment_presentation.dart 和 feedback_model.dart 直接 import flutter/material.dart 获取 IconData。将 icon getter 迁移到 widgets/ 层的 extension on AppEnvironment / extension on FeedbackCategory（注意：feedback_model.dart 中实际类名是 FeedbackCategory），model 层移除 Flutter UI 依赖。",
-      "verification": "F1",
-      "depends_on": [],
-      "status": "pending",
-      "priority": 1,
-      "acceptance_criteria": [
-        "models/ 下无文件 import flutter/material.dart",
-        "IconData 通过 widgets/ 层 extension on AppEnvironment / extension on FeedbackCategory 提供",
-        "调用方 import 更新正确",
-        "flutter analyze 零 error/warning",
-        "Agent 面板反馈按钮图标正常显示（手动验证或 widget test 覆盖）"
-      ],
-      "risk_tags": [],
-      "files": ["lib/models/app_environment_presentation.dart", "lib/models/feedback_model.dart"]
-    },
-    {
-      "id": "F004",
-      "phase": 1,
-      "module": "services",
-      "status": "completed",
-      "name": "去除 logout_helper / environment_switch_coordinator 的 BuildContext 依赖",
-      "description": "logout_helper.dart 和 environment_switch_coordinator.dart 通过 BuildContext + context.read<T>() 获取依赖。改为通过函数参数注入依赖（如 DesktopAgentManager、AuthService），service 层不再依赖 Widget 树。",
-      "verification": "F1",
-      "depends_on": [],
-      "status": "pending",
-      "priority": 1,
-      "acceptance_criteria": [
-        "两个文件不再 import flutter/widgets.dart",
-        "依赖通过函数参数注入而非 context.read",
-        "调用方传入正确参数",
-        "flutter analyze 零 error/warning",
-        "logout 完整链路回归：terminal cleanup → agent shutdown → terminal disconnect → token clear → navigate to login",
-        "environment switch 完整链路回归：teardown → switch → reconnect"
-      ],
-      "risk_tags": [],
-      "test_tasks": [
-        "logout 链路 E2E：mock DesktopAgentManager + AuthService，验证参数注入后完整登出流程",
-        "env switch 链路：验证 performSessionTeardown 接收正确参数"
-      ],
-      "files": ["lib/services/logout_helper.dart", "lib/services/environment_switch_coordinator.dart"]
-    },
-    {
-      "id": "F005",
-      "phase": 2,
-      "module": "models",
-      "status": "completed",
-      "name": "字符串分派收敛为 enum（responseType / feedbackType / ToolStepStatus）",
-      "description": "将 AgentResultEvent.responseType（'message'|'command'|'ai_prompt'）、反馈类型（'helpful'|'needs_improvement'|'error_report'）、ToolStepEvent.status（'running'|'done'|'error'）从 String 收敛为 enum。更新 fromJson/toJson 和所有 UI 层 if-else/switch 分派。",
-      "verification": "F1",
-      "depends_on": [],
-      "status": "pending",
-      "priority": 1,
-      "acceptance_criteria": [
-        "新增 AgentResponseType、FeedbackType、ToolStepStatus 三个 enum",
-        "fromJson 中字符串→enum 转换，toJson 中 enum→字符串",
-        "UI 层所有字符串比较替换为 enum switch",
-        "agent_session_event.dart 中所有 JSON 字段统一使用 json_helpers.dart（无裸 as 转换）",
-        "flutter analyze 零 error/warning",
-        "flutter test 全部通过"
-      ],
-      "risk_tags": [],
-      "files": ["lib/models/agent_session_event.dart", "lib/widgets/agent_panel_result_views.dart", "lib/widgets/agent_panel_conversation.dart", "lib/widgets/agent_panel_state.dart"]
-    },
-    {
-      "id": "F006",
-      "phase": 2,
-      "module": "models",
-      "status": "completed",
-      "name": "清理 @Deprecated AgentTraceEvent + AgentAssistantMessageEvent",
-      "description": "删除 agent_session_event.dart 中已标记 @Deprecated 的 AgentTraceEvent 和 AgentAssistantMessageEvent。先清理 agent_panel_handlers.dart 中对应的 switch-case 分支（目前只有 break），再删除类定义。",
-      "verification": "F1",
-      "depends_on": ["F005"],
-      "status": "pending",
-      "priority": 2,
-      "acceptance_criteria": [
-        "agent_panel_handlers.dart 中两个 @Deprecated case 分支移除",
-        "AgentTraceEvent 和 AgentAssistantMessageEvent 类定义删除",
-        "agent_session_event.dart 中所有 JSON 字段统一使用 json_helpers.dart",
-        "全项目无编译错误",
-        "flutter test 全部通过"
-      ],
-      "risk_tags": [],
-      "files": ["lib/models/agent_session_event.dart", "lib/widgets/agent_panel_handlers.dart"]
-    },
-    {
-      "id": "F007",
-      "phase": 3,
-      "module": "services",
-      "name": "SharedPreferences 缓存层",
-      "description": "创建 PrefsCache 工具类（或在 EnvironmentService 模式上扩展），在首次 getInstance() 后缓存引用。高频服务（AuthService、ConfigService、CryptoService、DesktopAgentManager、LoggerService、UserInfoService）迁移为构造时获取一次、后续复用。",
-      "verification": "F1",
-      "depends_on": [],
-      "status": "pending",
-      "priority": 2,
-      "acceptance_criteria": [
-        "创建缓存机制（单例或注入）",
-        "6 个高频服务迁移完成（AuthService、ConfigService、CryptoService、DesktopAgentManager、LoggerService、UserInfoService）",
-        "Grep 确认 SharedPreferences.getInstance() 在 services/ 目录下调用数从 32 降至 <16",
-        "flutter analyze 零 error/warning",
-        "flutter test 全部通过"
-      ],
-      "risk_tags": ["config"],
-      "test_tasks": [
-        "空 prefs / 首次启动：缓存机制在 SharedPreferences 无数据时不崩溃",
-        "缓存复用：同一服务多次访问 prefs 时确认使用缓存实例（verify getInstance 调用次数=1）",
-        "异常/损坏缓存：prefs 抛异常时服务降级不崩溃",
-        "初始化顺序：缓存层不引入新的启动时序依赖"
-      ],
-      "files": ["lib/services/auth_service.dart", "lib/services/config_service.dart", "lib/services/crypto_service.dart", "lib/services/logger_service.dart", "lib/services/user_info_service.dart", "lib/services/desktop/desktop_agent_manager.dart"]
-    },
-    {
-      "id": "F008",
-      "phase": 3,
-      "module": "services",
-      "name": "修复 RuntimeSelectionController 双重 notifyListeners",
-      "description": "createTerminal、closeTerminal、updateSelectedDevice、renameTerminal 四个方法的 catch + finally 各自调用 notifyListeners()，失败路径产生两次连续通知。改为 finally 中统一调用一次，catch 只设置错误状态不单独通知。",
-      "verification": "F1",
-      "depends_on": [],
-      "status": "pending",
-      "priority": 2,
-      "acceptance_criteria": [
-        "4 个方法的失败路径只触发 1 次 notifyListeners",
-        "成功路径行为不变",
-        "flutter test 全部通过"
-      ],
-      "risk_tags": [],
-      "files": ["lib/services/runtime_selection_controller.dart"]
-    },
-    {
-      "id": "F009a",
-      "phase": 3,
-      "module": "services",
-      "name": "并行化 selectDevice 中独立网络请求",
-      "description": "selectDevice 中 _loadTerminalsForDevice（HTTP 获取终端列表）+ loadProjectContextSnapshot（HTTP 获取项目上下文）互不依赖，可 Future.wait 并行执行。_persistPreferredDevice 写 SP 仍在前。",
-      "verification": "F1",
-      "depends_on": [],
-      "status": "pending",
-      "priority": 2,
-      "acceptance_criteria": [
-        "selectDevice 中两个独立网络请求改为 Future.wait",
-        "设备切换功能不受影响",
-        "flutter analyze 零 error/warning",
-        "flutter test 全部通过"
-      ],
-      "test_tasks": [
-        "并行成功路径：两个请求均成功，最终状态与串行一致",
-        "单侧失败路径：loadTerminals 成功但 loadProjectContext 失败，验证 terminals 已加载且错误状态正确",
-        "双侧失败路径：两个请求都失败，验证错误状态正确且无异常"
-      ],
-      "risk_tags": [],
-      "files": ["lib/services/runtime_selection_controller.dart"]
-    },
-    {
-      "id": "F009b",
-      "phase": 3,
-      "module": "services",
-      "name": "并行化 DesktopWorkspaceController._refreshDesktopState",
-      "description": "_refreshDesktopState 中 keepAgentRunningInBackground（读 SP）+ loadAgentState（HTTP）互不依赖，可 Future.wait 并行。syncNativeTerminationState 依赖 keepRunning 结果，仍须顺序执行。",
-      "verification": "F1",
-      "depends_on": [],
-      "status": "pending",
-      "priority": 2,
-      "acceptance_criteria": [
-        "keepAgentRunningInBackground + loadAgentState 改为 Future.wait",
-        "syncNativeTerminationState 仍在 keepRunning 完成后执行",
-        "桌面状态刷新功能不受影响",
-        "flutter analyze 零 error/warning"
-      ],
-      "test_tasks": [
-        "顺序约束验证：syncNativeTerminationState 在 keepAgentRunningInBackground 完成后才执行",
-        "并行成功路径：两个请求均成功，最终状态一致",
-        "单侧失败路径：loadAgentState 失败，验证 syncNativeTerminationState 仍基于正确的 keepRunning 结果执行"
-      ],
-      "risk_tags": [],
-      "files": ["lib/services/desktop/desktop_workspace_controller.dart"]
-    },
-    {
-      "id": "F010",
-      "phase": 3,
-      "module": "services",
-      "name": "DesktopWorkspaceController dispose + 状态缓存",
-      "description": "DesktopWorkspaceController extends ChangeNotifier 但未 override dispose()。添加 dispose 清理 ConfigService 等资源。将 _deriveWorkspaceState getter 改为缓存字段，仅在状态变更时重新计算，避免 AnimatedBuilder 每次 rebuild 重复遍历。",
-      "verification": "F1",
-      "depends_on": [],
-      "status": "pending",
-      "priority": 2,
-      "acceptance_criteria": [
-        "实现 dispose() 清理内部资源",
-        "_deriveWorkspaceState 改为缓存模式",
-        "flutter analyze 零 error/warning"
-      ],
-      "risk_tags": [],
-      "files": ["lib/services/desktop/desktop_workspace_controller.dart"]
-    },
-    {
-      "id": "F011",
-      "phase": 3,
-      "module": "services",
-      "name": "LoggerService notifyListeners 节流",
-      "description": "每条日志都触发 notifyListeners()，高频场景（终端输出、协议事件）产生大量 UI 重建。改为 ValueNotifier<int> 仅在 pendingCount 变化时通知，或添加节流机制。",
-      "verification": "F1",
-      "depends_on": [],
-      "status": "pending",
-      "priority": 2,
-      "acceptance_criteria": [
-        "_log 方法不再调用 notifyListeners()",
-        "pendingCount 变化时通过 ValueNotifier<int> 或条件判断触发 UI 更新",
-        "单元测试：连续写入 100 条日志，verify notifyListeners 调用次数 < 100",
-        "flutter analyze 零 error/warning"
-      ],
-      "risk_tags": [],
-      "files": ["lib/services/logger_service.dart"]
-    },
-    {
-      "id": "F012",
-      "phase": 4,
-      "module": "widgets",
-      "name": "提取重命名对话框 + SnackBar helper",
-      "description": "将 runtime_selection_screen 和 terminal_workspace_screen 中完全重复的 _showRenameDeviceDialog/_showRenameTerminalDialog（~180 行）提取到 widgets/rename_dialog_helper.dart。将 clearSnackBars+showSnackBar 模式提取到 widgets/snack_bar_helper.dart。更新调用方。",
-      "verification": "F1",
-      "depends_on": [],
-      "status": "pending",
-      "priority": 2,
-      "acceptance_criteria": [
-        "新建 rename_dialog_helper.dart 含 showRenameDialog 通用函数",
-        "新建 snack_bar_helper.dart 含 showAppSnackBar 通用函数",
-        "runtime_selection_screen 和 terminal_workspace_screen 改为调用 helper",
-        "减少约 120 行重复代码",
-        "flutter analyze 零 error/warning"
-      ],
-      "risk_tags": [],
-      "files": ["lib/screens/runtime_selection_screen.dart", "lib/screens/desktop/terminal_workspace_screen.dart"]
-    },
-    {
-      "id": "F013",
-      "phase": 4,
-      "module": "widgets",
-      "name": "提取设计 token（边框色 + 卡片装饰常量）",
-      "description": "将 outlineVariant.withValues(alpha: 0.14)（9 处）、surfaceContainerLow + circular(12) 卡片装饰（10+ 处）、circular(18)（8 处）提取到 widgets/design_tokens.dart。定义为函数或常量，所有调用方统一引用。",
-      "verification": "F1",
-      "depends_on": [],
-      "status": "pending",
-      "priority": 3,
-      "acceptance_criteria": [
-        "新建 design_tokens.dart 含 subtleBorderColor / buildCardDecoration / AppRadius",
-        "agent_panel 系列文件 + shortcut_menu_widgets 改为引用 token",
-        "flutter analyze 零 error/warning"
-      ],
-      "risk_tags": [],
-      "files": ["lib/widgets/agent_panel_widgets.dart", "lib/widgets/agent_panel_input.dart", "lib/widgets/agent_panel_result_views.dart", "lib/widgets/shortcut_menu_widgets.dart"]
-    },
-    {
-      "id": "F014",
-      "phase": 5,
-      "module": "widgets",
-      "name": "拆分 smart_terminal_side_panel 组合体（3570→1500 行）",
-      "description": "smart_terminal_side_panel 主文件 + 7 个 part 文件共 3570 行。agent_panel_handlers.dart（835 行）和 agent_panel_state.dart（585 行）最大。评估是否可将部分 part 文件提升为独立 widget（如 agent_panel_result_views 已是独立文件），减少 part 数量和主文件行数。",
-      "verification": "F2",
-      "depends_on": ["F005", "F006"],
-      "status": "pending",
-      "priority": 3,
-      "acceptance_criteria": [
-        "至少 2 个 part 文件提升为独立 widget，有明确的职责边界",
-        "主文件 import services/ 数量 < 6（当前 11）",
-        "拆分出的独立 widget 有对应测试",
-        "flutter analyze 零 error/warning",
-        "flutter test 全部通过"
-      ],
-      "risk_tags": [],
-      "files": ["lib/widgets/smart_terminal_side_panel.dart", "lib/widgets/agent_panel_handlers.dart", "lib/widgets/agent_panel_state.dart"]
-    },
-    {
-      "id": "F015",
-      "phase": 5,
-      "module": "screens",
-      "name": "拆分 terminal_workspace_screen（1100→600 行）",
-      "description": "terminal_workspace_screen.dart 1100 行，含路由分发、Agent 生命周期、终端创建/切换/关闭、键盘快捷键、环境切换、UI 布局等职责。将对话框构建（重命名、确认）提取到 helper（F012 已处理），将终端 CRUD 操作提取到 controller mixin 或独立 controller。",
-      "verification": "F2",
-      "depends_on": ["F012"],
-      "status": "pending",
-      "priority": 3,
-      "acceptance_criteria": [
-        "对话框构建逻辑提取到 helper（F012 已覆盖）",
-        "终端 CRUD 操作提取到独立 controller/mixin，有明确职责边界",
-        "提取部分有独立测试",
-        "flutter analyze 零 error/warning",
-        "flutter test 全部通过"
-      ],
-      "risk_tags": [],
-      "files": ["lib/screens/desktop/terminal_workspace_screen.dart"]
-    }
-  ],
-  "summary": {
-    "total": 16,
-    "by_phase": {
-      "1": 4,
-      "2": 2,
-      "3": 6,
-      "4": 2,
-      "5": 2
-    },
-    "by_priority": {
-      "1": 5,
-      "2": 7,
-      "3": 4
-    },
-    "by_status": {
-      "pending": 16
-    }
-  }
+  "features": []
 }
