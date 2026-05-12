@@ -97,8 +97,10 @@ class DesktopWorkspaceController extends ChangeNotifier {
     if (!isSameController) {
       _lastKnownDeviceId = controller.selectedDevice?.deviceId;
     }
-    _syncSelectedTerminalId();
+    final changed = _syncSelectedTerminalId();
     _syncDesktopState(controller);
+    // 终端选中态变化时通知 UI（_syncDesktopState 内部按需通知）
+    if (changed) _notify();
   }
 
   Future<void> refresh() async {
@@ -499,12 +501,16 @@ class DesktopWorkspaceController extends ChangeNotifier {
   /// - attachRuntimeController（controller 实例变化）
   /// - _syncDesktopState（RuntimeSelectionController notifyListeners 回调）
   /// - onTerminalClosed（关闭终端后）
-  void _syncSelectedTerminalId() {
+  ///
+  /// 返回 true 表示 _selectedTerminalId 有变化。
+  bool _syncSelectedTerminalId() {
     final runtime = _runtimeController;
-    if (runtime == null) return;
+    if (runtime == null) return false;
+    final prev = _selectedTerminalId;
     _selectedTerminalId = _resolveSelectedTerminalId(
       runtime.terminals,
       _selectedTerminalId,
     );
+    return prev != _selectedTerminalId;
   }
 }

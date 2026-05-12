@@ -482,6 +482,24 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
     final selectedIndex =
         terminals.indexWhere((t) => t.terminalId == terminal.terminalId);
 
+    // 防御：终端列表为空时回退到空状态
+    if (terminals.isEmpty) {
+      return WorkspaceEmptyState(
+        icon: Icons.add_box_outlined,
+        title: '创建第一个终端',
+        message: '当前还没有 terminal。',
+        actionLabel: '新建终端',
+        actionKey: const Key('workspace-empty-create-action'),
+        onAction: () {
+          unawaited(createEmptyTerminal(
+            context,
+            controller,
+            snackBarOnError: !controller.isDesktopPlatform,
+          ));
+        },
+      );
+    }
+
     // 在选中终端的连接上监听跨平台终端变化通知
     final selectedService = context.read<TerminalSessionManager>().getOrCreate(
           controller.selectedDeviceId,
