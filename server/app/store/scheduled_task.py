@@ -174,6 +174,46 @@ class ScheduledTaskStore:
             )
             await db.commit()
 
+    async def list_pending_due(self, now_iso: str) -> List[Dict[str, Any]]:
+        """查询所有 status='pending' 且 execute_at <= now 的到期任务。
+
+        Args:
+            now_iso: 当前时间的 ISO 格式字符串
+
+        Returns:
+            到期的 pending 任务列表
+        """
+        async with await self._connect() as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                """
+                SELECT * FROM scheduled_tasks
+                WHERE status = 'pending' AND execute_at <= ?
+                ORDER BY execute_at ASC
+                """,
+                (now_iso,),
+            )
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+
+    async def update_execute_at(self, task_id: int, new_execute_at: str) -> None:
+        """更新任务的 execute_at 时间（用于每日任务推到次日）。
+
+        Args:
+            task_id: 任务 ID
+            new_execute_at: 新的执行时间（ISO 格式字符串）
+        """
+        async with await self._connect() as db:
+            await db.execute(
+                """
+                UPDATE scheduled_tasks
+                SET execute_at = ?
+                WHERE id = ?
+                """,
+                (new_execute_at, task_id),
+            )
+            await db.commit()
+
     async def delete(self, task_id: int) -> None:
         """删除定时任务。
 

@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.routes import router
+from app.services.scheduler import scheduled_task_poller
 from app.ws.agent_cleanup import _stale_agent_ttl_checker
 from app.infra.auth import TokenVerificationError
 from app.infra.log_adapter import init_logging, close_logging
@@ -22,14 +23,15 @@ from app.store.database import configure_database, init_db, DEFAULT_DB_PATH
 
 logger = logging.getLogger(__name__)
 
-# TTL checker 后台任务
+# 后台任务
 _ttl_checker_task: asyncio.Task | None = None
+_scheduler_task: asyncio.Task | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
-    global _ttl_checker_task
+    global _ttl_checker_task, _scheduler_task
 
     # 配置并初始化数据库（用户持久化存储）
     db_path = os.environ.get("DATABASE_PATH", DEFAULT_DB_PATH)
@@ -70,6 +72,10 @@ async def lifespan(app: FastAPI):
     _ttl_checker_task = asyncio.create_task(_stale_agent_ttl_checker())
     logger.info("Stale agent TTL checker started")
 
+    # 启动定时任务调度器
+    _scheduler_task = asyncio.create_task(scheduled_task_poller(db_path))
+    logger.info("Scheduled task poller started")
+
     # 启动时 backfill user_session 反向索引
     try:
         from app.store.session import backfill_user_session_index
@@ -87,6 +93,13 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             pass
         logger.info("Stale agent TTL checker stopped")
+    if _scheduler_task:
+        _scheduler_task.cancel()
+        try:
+            await _scheduler_task
+        except asyncio.CancelledError:
+            pass
+        logger.info("Scheduled task poller stopped")
     # 关闭共享 httpx 异步客户端
     from app.infra.http_client import close_shared_http_client
     await close_shared_http_client()
