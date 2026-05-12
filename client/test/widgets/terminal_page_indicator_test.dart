@@ -78,12 +78,10 @@ void main() {
 
     testWidgets('left arrow is disabled at first terminal', (tester) async {
       final terminals = createTestTerminals(3);
-      final switchedIds = <String>[];
 
       await tester.pumpWidget(buildSubject(
         terminals: terminals,
         selectedTerminalId: 't0',
-        onSwitch: (id) => switchedIds.add(id),
       ));
 
       final leftButton = tester.widget<IconButton>(
@@ -94,12 +92,10 @@ void main() {
 
     testWidgets('right arrow is disabled at last terminal', (tester) async {
       final terminals = createTestTerminals(3);
-      final switchedIds = <String>[];
 
       await tester.pumpWidget(buildSubject(
         terminals: terminals,
         selectedTerminalId: 't2',
-        onSwitch: (id) => switchedIds.add(id),
       ));
 
       final rightButton = tester.widget<IconButton>(
@@ -153,6 +149,27 @@ void main() {
       expect(find.text('终端列表'), findsNothing);
     });
 
+    testWidgets('create button is directly visible in the page bar',
+        (tester) async {
+      final terminals = createTestTerminals(2);
+      var createCalled = false;
+
+      await tester.pumpWidget(buildSubject(
+        terminals: terminals,
+        selectedTerminalId: 't0',
+        onCreate: () => createCalled = true,
+      ));
+
+      // Create button should be visible without opening BottomSheet
+      final createButton = find.byKey(const Key('page-indicator-create'));
+      expect(createButton, findsOneWidget);
+
+      await tester.tap(createButton);
+      await tester.pump();
+
+      expect(createCalled, isTrue);
+    });
+
     testWidgets('BottomSheet tapping create triggers onCreate', (tester) async {
       final terminals = createTestTerminals(2);
       var createCalled = false;
@@ -167,8 +184,8 @@ void main() {
       await tester.tap(find.byKey(const Key('page-indicator-center')));
       await tester.pumpAndSettle();
 
-      // Tap create button
-      await tester.tap(find.byKey(const Key('page-indicator-create')));
+      // Tap create button in BottomSheet
+      await tester.tap(find.byKey(const Key('bottom-sheet-create')));
       await tester.pumpAndSettle();
 
       expect(createCalled, isTrue);
@@ -279,7 +296,7 @@ void main() {
       await tester.tap(find.byKey(const Key('page-indicator-center')));
       await tester.pumpAndSettle();
 
-      // Find the create button in BottomSheet
+      // Find the create button in page bar (now directly visible)
       final createButton = find.byKey(const Key('page-indicator-create'));
       expect(createButton, findsOneWidget);
 

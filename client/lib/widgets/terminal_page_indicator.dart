@@ -56,7 +56,6 @@ class TerminalPageIndicator extends StatelessWidget {
       height: 32,
       color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           // Left arrow
           IconButton(
@@ -68,26 +67,27 @@ class TerminalPageIndicator extends StatelessWidget {
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
           ),
-          // Center page indicator
-          GestureDetector(
-            key: const Key('page-indicator-center'),
-            onTap: () => _showTerminalList(context),
-            onLongPressStart: currentIndex >= 0 && onContextMenu != null
-                ? (details) {
-                    onContextMenu!(
-                      terminals[displayIndex].terminalId,
-                      details.globalPosition,
-                    );
-                  }
-                : null,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Text(
-                '${displayIndex + 1}/${terminals.length}',
-                key: const Key('page-indicator-label'),
-                style: theme.textTheme.labelMedium?.copyWith(
-                  color: colorScheme.onSurface,
-                  fontWeight: FontWeight.w500,
+          // Center page indicator — expanded to fill space
+          Expanded(
+            child: GestureDetector(
+              key: const Key('page-indicator-center'),
+              onTap: () => _showTerminalList(context),
+              onLongPressStart: currentIndex >= 0 && onContextMenu != null
+                  ? (details) {
+                      onContextMenu!(
+                        terminals[displayIndex].terminalId,
+                        details.globalPosition,
+                      );
+                    }
+                  : null,
+              child: Center(
+                child: Text(
+                  '${displayIndex + 1}/${terminals.length}',
+                  key: const Key('page-indicator-label'),
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: colorScheme.onSurface,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ),
             ),
@@ -101,6 +101,29 @@ class TerminalPageIndicator extends StatelessWidget {
                 : null,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+          ),
+          // Context menu button (rename / close) — always visible
+          if (onContextMenu != null)
+            IconButton(
+              key: const Key('page-indicator-more'),
+              icon: Icon(Icons.more_horiz, size: 16),
+              onPressed: currentIndex >= 0
+                  ? () => onContextMenu!(
+                        terminals[displayIndex].terminalId,
+                        Offset.zero,
+                      )
+                  : null,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            ),
+          // Create button — always visible
+          Padding(
+            padding: const EdgeInsets.only(right: 4),
+            child: TerminalCreateButton(
+              key: const Key('page-indicator-create'),
+              onCreate: onCreate,
+              createDisabled: createDisabled,
+            ),
           ),
         ],
       ),
@@ -170,7 +193,7 @@ class TerminalPageIndicator extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.all(8),
                 child: TerminalCreateButton(
-                  key: const Key('page-indicator-create'),
+                  key: const Key('bottom-sheet-create'),
                   onCreate: () {
                     Navigator.of(sheetContext).pop();
                     onCreate();
