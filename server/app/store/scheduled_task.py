@@ -23,6 +23,27 @@ class ScheduledTaskStore:
         """内部连接管理器。"""
         return aiosqlite.connect(self.db_path)
 
+    async def _query(
+        self,
+        where_clause: str,
+        params: tuple,
+        status: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """通用查询：按 WHERE 条件 + 可选 status 过滤查询任务列表。"""
+        if status is not None:
+            where = f"{where_clause} AND status = ?"
+            params = params + (status,)
+        else:
+            where = where_clause
+        async with await self._connect() as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                f"SELECT * FROM scheduled_tasks WHERE {where} ORDER BY execute_at ASC",
+                params,
+            )
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+
     async def create(
         self,
         user_id: str,
@@ -63,74 +84,16 @@ class ScheduledTaskStore:
         user_id: str,
         status: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """按 user_id 查询定时任务。
-
-        Args:
-            user_id: 用户 ID
-            status: 可选状态过滤
-
-        Returns:
-            任务列表
-        """
-        async with await self._connect() as db:
-            db.row_factory = aiosqlite.Row
-            if status is not None:
-                cursor = await db.execute(
-                    """
-                    SELECT * FROM scheduled_tasks
-                    WHERE user_id = ? AND status = ?
-                    ORDER BY execute_at ASC
-                    """,
-                    (user_id, status),
-                )
-            else:
-                cursor = await db.execute(
-                    """
-                    SELECT * FROM scheduled_tasks
-                    WHERE user_id = ?
-                    ORDER BY execute_at ASC
-                    """,
-                    (user_id,),
-                )
-            rows = await cursor.fetchall()
-            return [dict(row) for row in rows]
+        """按 user_id 查询定时任务。"""
+        return await self._query("user_id = ?", (user_id,), status)
 
     async def list_by_session(
         self,
         session_id: str,
         status: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """按 session_id 查询定时任务。
-
-        Args:
-            session_id: 会话 ID
-            status: 可选状态过滤
-
-        Returns:
-            任务列表
-        """
-        async with await self._connect() as db:
-            db.row_factory = aiosqlite.Row
-            if status is not None:
-                cursor = await db.execute(
-                    """
-                    SELECT * FROM scheduled_tasks
-                    WHERE session_id = ? AND status = ?
-                    ORDER BY execute_at ASC
-                    """,
-                    (session_id, status),
-                )
-            else:
-                cursor = await db.execute(
-                    """
-                    SELECT * FROM scheduled_tasks
-                    WHERE session_id = ?
-                    ORDER BY execute_at ASC
-                    """,
-                    (session_id,),
-                )
-            rows = await cursor.fetchall()
-            return [dict(row) for row in rows]
+        """按 session_id 查询定时任务。"""
+        return await self._query("session_id = ?", (session_id,), status)
 
     async def list_by_session_and_terminal(
         self,
@@ -138,40 +101,10 @@ class ScheduledTaskStore:
         terminal_id: str,
         status: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """按 session_id + terminal_id 查询定时任务（terminal 级查询）。
-
-        B001 Agent 工具使用：session_id 对应 device_id，terminal_id 对应终端 ID。
-
-        Args:
-            session_id: 会话 ID（语义为 device_id）
-            terminal_id: 终端 ID
-            status: 可选状态过滤
-
-        Returns:
-            任务列表
-        """
-        async with await self._connect() as db:
-            db.row_factory = aiosqlite.Row
-            if status is not None:
-                cursor = await db.execute(
-                    """
-                    SELECT * FROM scheduled_tasks
-                    WHERE session_id = ? AND terminal_id = ? AND status = ?
-                    ORDER BY execute_at ASC
-                    """,
-                    (session_id, terminal_id, status),
-                )
-            else:
-                cursor = await db.execute(
-                    """
-                    SELECT * FROM scheduled_tasks
-                    WHERE session_id = ? AND terminal_id = ?
-                    ORDER BY execute_at ASC
-                    """,
-                    (session_id, terminal_id),
-                )
-            rows = await cursor.fetchall()
-            return [dict(row) for row in rows]
+        """按 session_id + terminal_id 查询定时任务（terminal 级查询）。"""
+        return await self._query(
+            "session_id = ? AND terminal_id = ?", (session_id, terminal_id), status
+        )
 
     async def get_by_id(self, task_id: int) -> Optional[Dict[str, Any]]:
         """按 ID 查询定时任务。

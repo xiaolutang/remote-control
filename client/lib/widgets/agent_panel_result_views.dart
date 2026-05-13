@@ -472,13 +472,12 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
 
   /// 格式化重复类型显示
   String _formatRepeatType(String? repeatType) {
-    return switch (repeatType) {
-      'once' => '单次',
-      'daily' => '每天',
-      null => '单次',
-      // 其他值降级显示原始值
-      final other => other,
-    };
+    if (repeatType == null) return '单次';
+    final enumValue = ScheduledTaskRepeatType.fromString(repeatType);
+    // fromString 对已知值返回对应枚举，未知值降级为 once
+    // 如果原始值不是 once/daily，显示原始值
+    if (repeatType != 'once' && repeatType != 'daily') return repeatType;
+    return enumValue.displayLabel;
   }
 
   Widget _buildErrorView(ColorScheme colorScheme) {
