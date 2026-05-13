@@ -325,6 +325,8 @@ class AgentResultEvent extends AgentSessionEvent {
     this.responseType = AgentResponseType.command,
     this.aiPrompt = '',
     this.eventId,
+    this.scheduleAt,
+    this.repeatType,
   });
 
   final String summary;
@@ -343,6 +345,13 @@ class AgentResultEvent extends AgentSessionEvent {
 
   /// 服务端 conversation event 的真实 event_id（SSE payload 注入）
   final String? eventId;
+
+  /// 调度执行时间，ISO 8601 格式。null 表示非调度任务。
+  /// 非法 ISO 8601 字符串保留原值，由消费端降级处理。
+  final String? scheduleAt;
+
+  /// 重复类型（如 daily、hourly、weekly）。null 表示不重复。
+  final String? repeatType;
 
   factory AgentResultEvent.fromJson(Map<String, dynamic> json) {
     return AgentResultEvent(
@@ -368,6 +377,8 @@ class AgentResultEvent extends AgentSessionEvent {
           json['response_type'] is String ? json['response_type'] as String : null),
       aiPrompt: readStringFromJson(json['ai_prompt']),
       eventId: readOptionalStringFromJson(json['event_id']),
+      scheduleAt: readOptionalStringFromJson(json['schedule_at']),
+      repeatType: readOptionalStringFromJson(json['repeat_type']),
     );
   }
 
@@ -390,6 +401,8 @@ class AgentResultEvent extends AgentSessionEvent {
         'response_type': responseType.toJsonString(),
         'ai_prompt': aiPrompt,
         if (eventId != null) 'event_id': eventId,
+        if (scheduleAt != null) 'schedule_at': scheduleAt,
+        if (repeatType != null) 'repeat_type': repeatType,
       };
 }
 
