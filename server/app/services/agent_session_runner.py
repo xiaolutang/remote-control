@@ -391,9 +391,9 @@ class AgentLoopRunner:
     async def _load_known_aliases(self) -> dict[str, str]:
         """加载已知别名（Agent 启动时注入 ProjectContext）。"""
         known_aliases: dict[str, str] = {}
-        if self.manager._alias_store:
+        if self.manager._db:
             try:
-                known_aliases = await self.manager._alias_store.list_all(
+                known_aliases = await self.manager._db.list_project_aliases(
                     self.session.user_id, self.session.device_id,
                 )
             except Exception as e:
@@ -418,14 +418,14 @@ class AgentLoopRunner:
 
                 闭包捕获 device_id（映射为 store 的 session_id）和 terminal_id。
                 """
-                return await store.list_by_session_and_terminal(
+                return await store.list_scheduled_tasks_by_session_and_terminal(
                     session_id=device_id,  # 命名映射：store 的 session_id = device_id
                     terminal_id=terminal_id,
                 )
 
             async def _cancel_scheduled_task(task_id: int) -> str:
                 """取消定时任务，校验归属（user_id + device_id + terminal_id）。"""
-                task = await store.get_by_id(task_id)
+                task = await store.get_scheduled_task_by_id(task_id)
                 if task is None:
                     return f"任务 {task_id} 不存在"
                 if task.get("user_id") != user_id:
@@ -434,7 +434,7 @@ class AgentLoopRunner:
                     return f"任务 {task_id} 不属于当前设备，无权取消"
                 if task.get("terminal_id") != terminal_id:
                     return f"任务 {task_id} 不属于当前终端，无权取消"
-                await store.delete(task_id)
+                await store.delete_scheduled_task(task_id)
                 return f"任务 {task_id} 已成功取消"
 
             list_fn = _list_scheduled_tasks
@@ -458,9 +458,9 @@ class AgentLoopRunner:
 
     async def _persist_aliases(self, outcome):
         """保存 Agent 发现的别名。"""
-        if self.manager._alias_store and outcome.result.aliases:
+        if self.manager._db and outcome.result.aliases:
             try:
-                await self.manager._alias_store.save_batch(
+                await self.manager._db.save_project_aliases_batch(
                     self.session.user_id, self.session.device_id, outcome.result.aliases,
                 )
             except Exception as e:

@@ -1,9 +1,7 @@
 import 'dart:convert';
 
-import 'package:http/http.dart' as http;
-
-import 'http_client_factory.dart';
-import 'server_url_helper.dart';
+import 'api_service_base.dart';
+import '../utils/json_helpers.dart' show readIntFromJson, readStringFromJson;
 
 class UsageSummaryException implements Exception {
   const UsageSummaryException({
@@ -89,16 +87,11 @@ class UsageSummaryData {
   }
 }
 
-class UsageSummaryService {
+class UsageSummaryService extends ApiServiceBase {
   UsageSummaryService({
-    required this.serverUrl,
-    http.Client? client,
-  }) : _client = client ?? HttpClientFactory.create();
-
-  final String serverUrl;
-  final http.Client _client;
-
-  String get _httpUrl => serverUrlToHttpBase(serverUrl);
+    required super.serverUrl,
+    super.client,
+  });
 
   Future<UsageSummaryData> fetchSummary({
     required String token,
@@ -109,42 +102,20 @@ class UsageSummaryService {
     if (terminalId != null && terminalId.isNotEmpty) {
       queryParams['terminal_id'] = terminalId;
     }
-    final uri = Uri.parse('$_httpUrl/api/agent/usage/summary').replace(
+    final uri = Uri.parse('$httpUrl/api/agent/usage/summary').replace(
       queryParameters: queryParams,
     );
-    final response = await _client.get(
+    final response = await client.get(
       uri,
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      },
+      headers: authHeaders(token),
     );
     if (response.statusCode != 200) {
       throw UsageSummaryException(
-        message: _readErrorMessage(response, '加载 Token 汇总失败'),
+        message: readErrorMessage(response) ?? '加载 Token 汇总失败 (${response.statusCode})',
         statusCode: response.statusCode,
       );
     }
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     return UsageSummaryData.fromJson(data);
-  }
-
-  String _readErrorMessage(http.Response response, String fallback) {
-    try {
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      final detail = data['detail'];
-      if (detail is String && detail.trim().isNotEmpty) {
-        return detail.trim();
-      }
-      if (detail is Map<String, dynamic>) {
-        final message = readStringFromJson(detail['message']);
-        if (message.isNotEmpty) {
-          return message;
-        }
-      }
-    } on FormatException {
-      return '$fallback (${response.statusCode})';
-    }
-    return '$fallback (${response.statusCode})';
   }
 }

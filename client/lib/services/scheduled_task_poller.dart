@@ -47,16 +47,32 @@ class ScheduledTaskPoller extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
     try {
-      _tasks = await _service.list(
+      final newTasks = await _service.list(
         token: _token!,
         sessionId: _sessionId,
       );
+      // 只在列表实际变化时通知，避免无意义的 rebuild
+      if (!_listEqual(_tasks, newTasks)) {
+        _tasks = newTasks;
+        notifyListeners();
+      }
     } catch (_) {
       // 轮询失败静默处理，保持上次结果
     } finally {
-      _isLoading = false;
-      notifyListeners();
+      if (_isLoading) {
+        _isLoading = false;
+        notifyListeners();
+      }
     }
+  }
+
+  /// 浅比较两个任务列表是否有变化
+  static bool _listEqual(List<ScheduledTask> a, List<ScheduledTask> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].id != b[i].id || a[i].status != b[i].status) return false;
+    }
+    return true;
   }
 
   /// 取消/删除任务

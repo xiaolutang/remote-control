@@ -236,11 +236,11 @@ class TestCallbackInjection:
     @pytest.mark.asyncio
     async def test_list_callback_uses_device_id_as_session_id(self):
         """list 回调：device_id（非 AgentDeps.session_id）作为 store 的 session_id 参数。"""
-        from app.store.scheduled_task import ScheduledTaskStore
+        from app.store.database import Database
 
-        # mock store
-        store = AsyncMock(spec=ScheduledTaskStore)
-        store.list_by_session_and_terminal = AsyncMock(return_value=[
+        # mock Database (has ScheduledTaskStoreMixin methods)
+        store = AsyncMock(spec=Database)
+        store.list_scheduled_tasks_by_session_and_terminal = AsyncMock(return_value=[
             {"id": 1, "text_content": "task1", "status": "pending"},
         ])
 
@@ -250,7 +250,7 @@ class TestCallbackInjection:
         terminal_id = "terminal-789"
 
         async def _list_scheduled_tasks():
-            return await store.list_by_session_and_terminal(
+            return await store.list_scheduled_tasks_by_session_and_terminal(
                 session_id=device_id,
                 terminal_id=terminal_id,
             )
@@ -259,7 +259,7 @@ class TestCallbackInjection:
         result = await _list_scheduled_tasks()
 
         # 验证 store 被正确调用：session_id = device_id
-        store.list_by_session_and_terminal.assert_called_once_with(
+        store.list_scheduled_tasks_by_session_and_terminal.assert_called_once_with(
             session_id="device-456",
             terminal_id="terminal-789",
         )
@@ -269,26 +269,26 @@ class TestCallbackInjection:
     @pytest.mark.asyncio
     async def test_cancel_callback_validates_ownership(self):
         """cancel 回调：校验 user_id + session_id + terminal_id 全部匹配。"""
-        from app.store.scheduled_task import ScheduledTaskStore
+        from app.store.database import Database
 
-        store = AsyncMock(spec=ScheduledTaskStore)
+        store = AsyncMock(spec=Database)
 
         user_id = "user-123"
         device_id = "device-456"
         terminal_id = "terminal-789"
 
         # 场景 1: 任务属于当前用户/设备/终端 -> 成功取消
-        store.get_by_id = AsyncMock(return_value={
+        store.get_scheduled_task_by_id = AsyncMock(return_value={
             "id": 1,
             "user_id": "user-123",
             "session_id": "device-456",
             "terminal_id": "terminal-789",
             "status": "pending",
         })
-        store.delete = AsyncMock()
+        store.delete_scheduled_task = AsyncMock()
 
         async def _cancel_scheduled_task(task_id: int) -> str:
-            task = await store.get_by_id(task_id)
+            task = await store.get_scheduled_task_by_id(task_id)
             if task is None:
                 return f"任务 {task_id} 不存在"
             if task.get("user_id") != user_id:
@@ -297,24 +297,24 @@ class TestCallbackInjection:
                 return f"任务 {task_id} 不属于当前设备，无权取消"
             if task.get("terminal_id") != terminal_id:
                 return f"任务 {task_id} 不属于当前终端，无权取消"
-            await store.delete(task_id)
+            await store.delete_scheduled_task(task_id)
             return f"任务 {task_id} 已成功取消"
 
         result = await _cancel_scheduled_task(1)
         assert "已成功取消" in result
-        store.delete.assert_called_once_with(1)
+        store.delete_scheduled_task.assert_called_once_with(1)
 
     @pytest.mark.asyncio
     async def test_cancel_callback_rejects_wrong_user(self):
         """cancel 回调：不同 user_id -> 拒绝。"""
-        from app.store.scheduled_task import ScheduledTaskStore
+        from app.store.database import Database
 
-        store = AsyncMock(spec=ScheduledTaskStore)
+        store = AsyncMock(spec=Database)
         user_id = "user-123"
         device_id = "device-456"
         terminal_id = "terminal-789"
 
-        store.get_by_id = AsyncMock(return_value={
+        store.get_scheduled_task_by_id = AsyncMock(return_value={
             "id": 2,
             "user_id": "user-OTHER",
             "session_id": "device-456",
@@ -322,7 +322,7 @@ class TestCallbackInjection:
         })
 
         async def _cancel_scheduled_task(task_id: int) -> str:
-            task = await store.get_by_id(task_id)
+            task = await store.get_scheduled_task_by_id(task_id)
             if task is None:
                 return f"任务 {task_id} 不存在"
             if task.get("user_id") != user_id:
@@ -331,7 +331,7 @@ class TestCallbackInjection:
                 return f"任务 {task_id} 不属于当前设备，无权取消"
             if task.get("terminal_id") != terminal_id:
                 return f"任务 {task_id} 不属于当前终端，无权取消"
-            await store.delete(task_id)
+            await store.delete_scheduled_task(task_id)
             return f"任务 {task_id} 已成功取消"
 
         result = await _cancel_scheduled_task(2)
@@ -340,14 +340,14 @@ class TestCallbackInjection:
     @pytest.mark.asyncio
     async def test_cancel_callback_rejects_wrong_device(self):
         """cancel 回调：不同 device_id(session_id) -> 拒绝。"""
-        from app.store.scheduled_task import ScheduledTaskStore
+        from app.store.database import Database
 
-        store = AsyncMock(spec=ScheduledTaskStore)
+        store = AsyncMock(spec=Database)
         user_id = "user-123"
         device_id = "device-456"
         terminal_id = "terminal-789"
 
-        store.get_by_id = AsyncMock(return_value={
+        store.get_scheduled_task_by_id = AsyncMock(return_value={
             "id": 3,
             "user_id": "user-123",
             "session_id": "device-OTHER",
@@ -355,7 +355,7 @@ class TestCallbackInjection:
         })
 
         async def _cancel_scheduled_task(task_id: int) -> str:
-            task = await store.get_by_id(task_id)
+            task = await store.get_scheduled_task_by_id(task_id)
             if task is None:
                 return f"任务 {task_id} 不存在"
             if task.get("user_id") != user_id:
@@ -364,7 +364,7 @@ class TestCallbackInjection:
                 return f"任务 {task_id} 不属于当前设备，无权取消"
             if task.get("terminal_id") != terminal_id:
                 return f"任务 {task_id} 不属于当前终端，无权取消"
-            await store.delete(task_id)
+            await store.delete_scheduled_task(task_id)
             return f"任务 {task_id} 已成功取消"
 
         result = await _cancel_scheduled_task(3)
@@ -373,14 +373,14 @@ class TestCallbackInjection:
     @pytest.mark.asyncio
     async def test_cancel_callback_rejects_wrong_terminal(self):
         """cancel 回调：不同 terminal_id -> 拒绝。"""
-        from app.store.scheduled_task import ScheduledTaskStore
+        from app.store.database import Database
 
-        store = AsyncMock(spec=ScheduledTaskStore)
+        store = AsyncMock(spec=Database)
         user_id = "user-123"
         device_id = "device-456"
         terminal_id = "terminal-789"
 
-        store.get_by_id = AsyncMock(return_value={
+        store.get_scheduled_task_by_id = AsyncMock(return_value={
             "id": 4,
             "user_id": "user-123",
             "session_id": "device-456",
@@ -388,7 +388,7 @@ class TestCallbackInjection:
         })
 
         async def _cancel_scheduled_task(task_id: int) -> str:
-            task = await store.get_by_id(task_id)
+            task = await store.get_scheduled_task_by_id(task_id)
             if task is None:
                 return f"任务 {task_id} 不存在"
             if task.get("user_id") != user_id:
@@ -397,7 +397,7 @@ class TestCallbackInjection:
                 return f"任务 {task_id} 不属于当前设备，无权取消"
             if task.get("terminal_id") != terminal_id:
                 return f"任务 {task_id} 不属于当前终端，无权取消"
-            await store.delete(task_id)
+            await store.delete_scheduled_task(task_id)
             return f"任务 {task_id} 已成功取消"
 
         result = await _cancel_scheduled_task(4)
@@ -406,17 +406,17 @@ class TestCallbackInjection:
     @pytest.mark.asyncio
     async def test_cancel_callback_task_not_found(self):
         """cancel 回调：任务不存在 -> 返回不存在信息。"""
-        from app.store.scheduled_task import ScheduledTaskStore
+        from app.store.database import Database
 
-        store = AsyncMock(spec=ScheduledTaskStore)
+        store = AsyncMock(spec=Database)
         user_id = "user-123"
         device_id = "device-456"
         terminal_id = "terminal-789"
 
-        store.get_by_id = AsyncMock(return_value=None)
+        store.get_scheduled_task_by_id = AsyncMock(return_value=None)
 
         async def _cancel_scheduled_task(task_id: int) -> str:
-            task = await store.get_by_id(task_id)
+            task = await store.get_scheduled_task_by_id(task_id)
             if task is None:
                 return f"任务 {task_id} 不存在"
             if task.get("user_id") != user_id:
@@ -425,7 +425,7 @@ class TestCallbackInjection:
                 return f"任务 {task_id} 不属于当前设备，无权取消"
             if task.get("terminal_id") != terminal_id:
                 return f"任务 {task_id} 不属于当前终端，无权取消"
-            await store.delete(task_id)
+            await store.delete_scheduled_task(task_id)
             return f"任务 {task_id} 已成功取消"
 
         result = await _cancel_scheduled_task(999)
@@ -437,93 +437,37 @@ class TestCallbackInjection:
 # ---------------------------------------------------------------------------
 
 class TestStoreListBySessionAndTerminal:
-    """测试 ScheduledTaskStore.list_by_session_and_terminal 方法。"""
+    """测试 Database.list_scheduled_tasks_by_session_and_terminal 方法。"""
 
     @pytest.mark.asyncio
     async def test_returns_matching_tasks(self):
         """返回匹配 session_id + terminal_id 的任务。"""
-        from app.store.scheduled_task import ScheduledTaskStore
-
-        store = ScheduledTaskStore.__new__(ScheduledTaskStore)
-        store.db_path = ":memory:"
-
-        # 初始化表
-        import aiosqlite
-        async with aiosqlite.connect(":memory:") as db:
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS scheduled_tasks (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id TEXT NOT NULL,
-                    session_id TEXT NOT NULL,
-                    terminal_id TEXT NOT NULL,
-                    text_content TEXT NOT NULL,
-                    execute_at TEXT NOT NULL,
-                    repeat_type TEXT NOT NULL DEFAULT 'once',
-                    status TEXT NOT NULL DEFAULT 'pending',
-                    created_at TEXT NOT NULL,
-                    executed_at TEXT
-                )
-            """)
-            await db.execute(
-                "INSERT INTO scheduled_tasks (user_id, session_id, terminal_id, text_content, execute_at, repeat_type, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                ("user1", "device1", "term1", "task A", "2026-05-14T03:00:00+08:00", "once", "pending", "2026-05-13T00:00:00+08:00"),
-            )
-            await db.execute(
-                "INSERT INTO scheduled_tasks (user_id, session_id, terminal_id, text_content, execute_at, repeat_type, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                ("user1", "device1", "term2", "task B", "2026-05-14T04:00:00+08:00", "once", "pending", "2026-05-13T00:00:00+08:00"),
-            )
-            await db.execute(
-                "INSERT INTO scheduled_tasks (user_id, session_id, terminal_id, text_content, execute_at, repeat_type, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                ("user1", "device2", "term1", "task C", "2026-05-14T05:00:00+08:00", "once", "pending", "2026-05-13T00:00:00+08:00"),
-            )
-            await db.commit()
-
-        # 使用实际 DB 测试需要改动 store 的连接方式
-        # 这里通过 mock _connect 方法来测试
-        # 因为 store 内部创建自己的连接，直接集成测试更合适
-        # 改为使用 tmp_path 方式
+        from app.store.database import Database
         import tempfile
         import os
 
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "test.db")
-            store = ScheduledTaskStore(db_path)
-
-            # 初始化 schema
-            async with aiosqlite.connect(db_path) as db:
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS scheduled_tasks (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id TEXT NOT NULL,
-                        session_id TEXT NOT NULL,
-                        terminal_id TEXT NOT NULL,
-                        text_content TEXT NOT NULL,
-                        execute_at TEXT NOT NULL,
-                        repeat_type TEXT NOT NULL DEFAULT 'once',
-                        status TEXT NOT NULL DEFAULT 'pending',
-                        created_at TEXT NOT NULL,
-                        executed_at TEXT
-                    )
-                """)
-                await db.commit()
+            db = Database(db_path)
+            await db.init_db()
 
             # 创建测试数据
-            await store.create("user1", "device1", "term1", "task A", "2026-05-14T03:00:00+08:00", "once")
-            await store.create("user1", "device1", "term2", "task B", "2026-05-14T04:00:00+08:00", "once")
-            await store.create("user1", "device2", "term1", "task C", "2026-05-14T05:00:00+08:00", "once")
+            await db.create_scheduled_task("user1", "device1", "term1", "task A", "2026-05-14T03:00:00+08:00", "once")
+            await db.create_scheduled_task("user1", "device1", "term2", "task B", "2026-05-14T04:00:00+08:00", "once")
+            await db.create_scheduled_task("user1", "device2", "term1", "task C", "2026-05-14T05:00:00+08:00", "once")
 
             # 查询 device1 + term1 -> 只返回 task A
-            result = await store.list_by_session_and_terminal("device1", "term1")
+            result = await db.list_scheduled_tasks_by_session_and_terminal("device1", "term1")
             assert len(result) == 1
             assert result[0]["text_content"] == "task A"
 
             # 查询 device1 + term2 -> 只返回 task B
-            result = await store.list_by_session_and_terminal("device1", "term2")
+            result = await db.list_scheduled_tasks_by_session_and_terminal("device1", "term2")
             assert len(result) == 1
             assert result[0]["text_content"] == "task B"
 
             # 查询不存在的组合 -> 空列表
-            result = await store.list_by_session_and_terminal("device1", "term-nonexist")
+            result = await db.list_scheduled_tasks_by_session_and_terminal("device1", "term-nonexist")
             assert result == []
 
     @pytest.mark.asyncio
@@ -531,38 +475,20 @@ class TestStoreListBySessionAndTerminal:
         """支持 status 过滤。"""
         import tempfile
         import os
-        import aiosqlite
-        from app.store.scheduled_task import ScheduledTaskStore
+        from app.store.database import Database
 
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "test.db")
-            store = ScheduledTaskStore(db_path)
+            db = Database(db_path)
+            await db.init_db()
 
-            # 初始化 schema
-            async with aiosqlite.connect(db_path) as db:
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS scheduled_tasks (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id TEXT NOT NULL,
-                        session_id TEXT NOT NULL,
-                        terminal_id TEXT NOT NULL,
-                        text_content TEXT NOT NULL,
-                        execute_at TEXT NOT NULL,
-                        repeat_type TEXT NOT NULL DEFAULT 'once',
-                        status TEXT NOT NULL DEFAULT 'pending',
-                        created_at TEXT NOT NULL,
-                        executed_at TEXT
-                    )
-                """)
-                await db.commit()
+            task = await db.create_scheduled_task("user1", "device1", "term1", "task A", "2026-05-14T03:00:00+08:00", "once")
+            await db.update_scheduled_task_status(task["id"], "executed")
 
-            task_id = await store.create("user1", "device1", "term1", "task A", "2026-05-14T03:00:00+08:00", "once")
-            await store.update_status(task_id, "executed")
-
-            await store.create("user1", "device1", "term1", "task B", "2026-05-14T04:00:00+08:00", "once")
+            await db.create_scheduled_task("user1", "device1", "term1", "task B", "2026-05-14T04:00:00+08:00", "once")
 
             # 只查 pending -> 只返回 task B
-            result = await store.list_by_session_and_terminal("device1", "term1", status="pending")
+            result = await db.list_scheduled_tasks_by_session_and_terminal("device1", "term1", status="pending")
             assert len(result) == 1
             assert result[0]["text_content"] == "task B"
 

@@ -1,5 +1,5 @@
 import '../utils/json_helpers.dart'
-    show readBoolFromJson, readIntFromJson, readListFromJson,
+    show readBoolFromJson, readIntFromJson, readListFromJson, readMapFromJson,
         readOptionalStringFromJson, readRawStringFromJson, readStringFromJson;
 import 'command_sequence_draft.dart';
 
@@ -34,9 +34,10 @@ class AssistantCommandSequence {
       };
 
   factory AssistantCommandSequence.fromJson(Map<String, dynamic> json) {
-    final rawSteps = json['steps'] is List
-        ? (json['steps'] as List).whereType<Map<String, dynamic>>().toList(growable: false)
-        : const <Map<String, dynamic>>[];
+    final rawSteps = readListFromJson(
+      json['steps'],
+      (m) => m,
+    );
     final provider = readStringFromJson(json['provider']);
     final source = readStringFromJson(json['source']);
     return AssistantCommandSequence(
@@ -202,11 +203,11 @@ class AssistantPlanLimits {
     return AssistantPlanLimits(
       rateLimited: readBoolFromJson(json['rate_limited']),
       budgetBlocked: readBoolFromJson(json['budget_blocked']),
-      providerTimeoutMs: json['provider_timeout_ms'] is num
-          ? (json['provider_timeout_ms'] as num).toInt()
+      providerTimeoutMs: json['provider_timeout_ms'] != null
+          ? readIntFromJson(json['provider_timeout_ms'])
           : 12000,
-      retryAfter: json['retry_after'] is num
-          ? (json['retry_after'] as num).toInt()
+      retryAfter: json['retry_after'] != null
+          ? readIntFromJson(json['retry_after'])
           : null,
     );
   }
@@ -243,21 +244,14 @@ class AssistantPlanResult {
           json['assistant_messages'], AssistantMessage.fromJson),
       trace: readListFromJson(json['trace'], AssistantTraceItem.fromJson),
       commandSequence: AssistantCommandSequence.fromJson(
-        json['command_sequence'] is Map<String, dynamic>
-            ? json['command_sequence'] as Map<String, dynamic>
-            : const <String, dynamic>{},
+        readMapFromJson(json['command_sequence']),
       ),
       fallbackUsed: readBoolFromJson(json['fallback_used']),
       fallbackReason: readOptionalStringFromJson(json['fallback_reason']),
       limits: AssistantPlanLimits.fromJson(
-        json['limits'] is Map<String, dynamic>
-            ? json['limits'] as Map<String, dynamic>
-            : const <String, dynamic>{},
+        readMapFromJson(json['limits']),
       ),
-      evaluationContext:
-          json['evaluation_context'] is Map<String, dynamic>
-              ? json['evaluation_context'] as Map<String, dynamic>
-              : const <String, dynamic>{},
+      evaluationContext: readMapFromJson(json['evaluation_context']),
     );
   }
 }
@@ -318,47 +312,39 @@ class AssistantPlanProgressEvent {
   }
 
   factory AssistantPlanProgressEvent.fromJson(Map<String, dynamic> json) {
+    final assistantMessageMap = readMapFromJson(json['assistant_message']);
+    final assistantDeltaMap = readMapFromJson(json['assistant_delta']);
+    final traceItemMap = readMapFromJson(json['trace_item']);
+    final toolCallMap = readMapFromJson(json['tool_call']);
+    final statusUpdateMap = readMapFromJson(json['status_update']);
+    final statusMap = readMapFromJson(json['status']);
+    final planMap = readMapFromJson(json['plan']);
     return AssistantPlanProgressEvent(
       type: readStringFromJson(json['type']),
-      assistantMessage:
-          json['assistant_message'] is Map<String, dynamic>
-              ? AssistantMessage.fromJson(
-                  json['assistant_message'] as Map<String, dynamic>,
-                )
+      assistantMessage: assistantMessageMap.isNotEmpty
+          ? AssistantMessage.fromJson(assistantMessageMap)
+          : null,
+      assistantDelta: assistantDeltaMap.isNotEmpty
+          ? AssistantMessageDelta.fromJson(assistantDeltaMap)
+          : null,
+      traceItem: traceItemMap.isNotEmpty
+          ? AssistantTraceItem.fromJson(traceItemMap)
+          : null,
+      toolCall: toolCallMap.isNotEmpty
+          ? AssistantToolCall.fromJson(toolCallMap)
+          : null,
+      statusUpdate: statusUpdateMap.isNotEmpty
+          ? AssistantStatusUpdate.fromJson(statusUpdateMap)
+          : statusMap.isNotEmpty
+              ? AssistantStatusUpdate.fromJson(statusMap)
               : null,
-      assistantDelta: json['assistant_delta'] is Map<String, dynamic>
-          ? AssistantMessageDelta.fromJson(
-              json['assistant_delta'] as Map<String, dynamic>,
-            )
-          : null,
-      traceItem: json['trace_item'] is Map<String, dynamic>
-          ? AssistantTraceItem.fromJson(
-              json['trace_item'] as Map<String, dynamic>,
-            )
-          : null,
-      toolCall: json['tool_call'] is Map<String, dynamic>
-          ? AssistantToolCall.fromJson(
-              json['tool_call'] as Map<String, dynamic>,
-            )
-          : null,
-      statusUpdate: json['status_update'] is Map<String, dynamic>
-          ? AssistantStatusUpdate.fromJson(
-              json['status_update'] as Map<String, dynamic>,
-            )
-          : json['status'] is Map<String, dynamic>
-              ? AssistantStatusUpdate.fromJson(
-                  json['status'] as Map<String, dynamic>,
-                )
-              : null,
-      result: json['plan'] is Map<String, dynamic>
-          ? AssistantPlanResult.fromJson(
-              json['plan'] as Map<String, dynamic>,
-            )
+      result: planMap.isNotEmpty
+          ? AssistantPlanResult.fromJson(planMap)
           : null,
       reason: readOptionalStringFromJson(json['reason']),
       message: readOptionalStringFromJson(json['message']),
-      retryAfter: json['retry_after'] is num
-          ? (json['retry_after'] as num).toInt()
+      retryAfter: json['retry_after'] != null
+          ? readIntFromJson(json['retry_after'])
           : null,
     );
   }

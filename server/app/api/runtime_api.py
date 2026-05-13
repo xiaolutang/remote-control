@@ -95,8 +95,5 @@ from app.api._deps import (  # noqa: E402, F401
 # -- assistant plan helpers (mocked in tests) --
 from app.api.assistant_plan_helpers import _check_assistant_plan_rate_limit  # noqa: E402, F401
 
-# -- agent report helpers (mocked in tests) --
-from app.api.agent_report_api import _get_alias_store  # noqa: E402, F401
-
 # -- eval helpers (mocked in tests) --
 from app.api.eval_api import _ensure_eval_db  # noqa: E402, F401

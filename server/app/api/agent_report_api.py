@@ -8,7 +8,6 @@ from fastapi import APIRouter, HTTPException, status, Depends
 
 from app.infra.auth import get_current_user_id
 from app.api import _deps
-from app.store.project_alias_store import ProjectAliasStore
 from app.api.schemas import (
     AgentExecutionReportRequest,
 )
@@ -16,12 +15,6 @@ from app.api.schemas import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-def _get_alias_store() -> ProjectAliasStore:
-    from app.store.database import _get_db
-    db = _get_db()
-    return ProjectAliasStore(db.db_path)
 
 
 @router.post("/runtime/devices/{device_id}/assistant/agent/{session_id}/report")
@@ -80,8 +73,7 @@ async def report_agent_execution(
 
     if request.success and aliases:
         try:
-            alias_store = _get_alias_store()
-            await alias_store.save_batch(user_id, device_id, aliases)
+            await _deps.save_project_aliases_batch(user_id, device_id, aliases)
         except Exception as e:
             logger.warning(
                 "Failed to save aliases for session %s: %s",

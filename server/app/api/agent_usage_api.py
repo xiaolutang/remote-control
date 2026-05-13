@@ -45,12 +45,7 @@ async def create_assistant_execution_report(
             message="execution_status 仅支持 succeeded / failed / cancelled",
         )
 
-    session = await _deps.get_session_by_device_id(device_id, user_id)
-    if not session:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"device {device_id} 不存在",
-        )
+    session = await _deps.get_owned_device_session(device_id, user_id)
 
     command_sequence = _validate_command_sequence(request.command_sequence)
     existing = await _deps.get_assistant_planner_run(

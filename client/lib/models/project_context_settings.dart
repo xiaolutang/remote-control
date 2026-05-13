@@ -1,4 +1,6 @@
-import '../utils/json_helpers.dart';
+import '../utils/json_helpers.dart'
+    show readBoolFromJson, readIntFromJson, readListFromJson, readMapFromJson,
+        readStringFromJson;
 
 class PinnedProject {
   const PinnedProject({
@@ -64,8 +66,8 @@ class ApprovedScanRoot {
   factory ApprovedScanRoot.fromJson(Map<String, dynamic> json) {
     return ApprovedScanRoot(
       rootPath: readStringFromJson(json['root_path']),
-      scanDepth: json['scan_depth'] is num
-          ? (json['scan_depth'] as num).toInt()
+      scanDepth: json['scan_depth'] != null
+          ? readIntFromJson(json['scan_depth'])
           : 2,
       enabled: readBoolFromJson(json['enabled'], defaultValue: true),
     );
@@ -172,9 +174,7 @@ class ProjectContextSettings {
       approvedScanRoots: readListFromJson(
           json['approved_scan_roots'], ApprovedScanRoot.fromJson),
       plannerConfig: PlannerRuntimeConfigModel.fromJson(
-        json['planner_config'] is Map<String, dynamic>
-            ? json['planner_config'] as Map<String, dynamic>
-            : const <String, dynamic>{},
+        readMapFromJson(json['planner_config']),
       ),
     );
   }

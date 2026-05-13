@@ -13,7 +13,7 @@ import base64
 import logging
 from datetime import datetime, timezone, timedelta
 
-from app.store.scheduled_task import ScheduledTaskStore
+from app.store.database import _get_db
 from app.store.session import list_session_terminals
 from app.ws.agent_connection import get_agent_connection
 from app.infra.message_types import MessageType
@@ -42,19 +42,6 @@ async def _send_text_to_terminal(session_id: str, terminal_id: str, text: str) -
         return False
 
 
-async def _is_terminal_live(session_id: str, terminal_id: str) -> bool:
-    """检查 terminal 是否存在且状态为 live。"""
-    try:
-        terminals = await list_session_terminals(session_id)
-        terminal = next(
-            (t for t in terminals if t.get("terminal_id") == terminal_id),
-            None,
-        )
-        return terminal is not None and terminal.get("status") == "live"
-    except Exception:
-        logger.exception("Failed to check terminal liveness for session=%s terminal=%s", session_id, terminal_id)
-        return False
-
 
 def _next_daily_execute_at(execute_at_str: str) -> str:
     """计算每日任务的下次 execute_at（次日同 time-of-day + timezone）。
@@ -67,14 +54,18 @@ def _next_daily_execute_at(execute_at_str: str) -> str:
 
 
 async def scheduled_task_poller(db_path: str):
-    """后台轮询协程，每 30 秒检查并执行到期的定时任务。"""
-    store = ScheduledTaskStore(db_path)
+    """后台轮询协程，每 30 秒检查并执行到期的定时任务。
+
+    Args:
+        db_path: 数据库路径（用于获取 Database 单例）
+    """
+    db = _get_db()
     logger.info("Scheduled task poller started (interval=%ds)", POLL_INTERVAL)
 
     while True:
         try:
             await asyncio.sleep(POLL_INTERVAL)
-            await _poll_once(store)
+            await _poll_once(db)
         except asyncio.CancelledError:
             logger.info("Scheduled task poller cancelled")
             raise
@@ -83,22 +74,44 @@ async def scheduled_task_poller(db_path: str):
             await asyncio.sleep(5)  # 异常后短暂等待再重试
 
 
-async def _poll_once(store: ScheduledTaskStore):
+async def _poll_once(db):
     """执行一次轮询。"""
     now = datetime.now(timezone.utc).isoformat()
 
-    tasks = await store.list_pending_due(now)
+    tasks = await db.list_pending_due_scheduled_tasks(now)
 
     if not tasks:
         return
 
     logger.info("Found %d due scheduled tasks", len(tasks))
 
-    for task in tasks:
-        await _process_task(store, task)
+    # 按 session_id 批量查询 terminal 状态，避免 N+1
+    session_ids = {t["session_id"] for t in tasks}
+    terminal_cache: dict[str, list] = {}
+    for sid in session_ids:
+        try:
+            terminal_cache[sid] = await list_session_terminals(sid)
+        except Exception:
+            logger.exception("Failed to list terminals for session=%s", sid)
+            terminal_cache[sid] = []
+
+    # 并行处理所有到期任务
+    await asyncio.gather(
+        *[_process_task(db, task, terminal_cache) for task in tasks]
+    )
 
 
-async def _process_task(store: ScheduledTaskStore, task: dict):
+def _is_terminal_in_cache(terminal_cache: dict[str, list], session_id: str, terminal_id: str) -> bool:
+    """从缓存中检查 terminal 是否存在且状态为 live。"""
+    terminals = terminal_cache.get(session_id, [])
+    terminal = next(
+        (t for t in terminals if t.get("terminal_id") == terminal_id),
+        None,
+    )
+    return terminal is not None and terminal.get("status") == "live"
+
+
+async def _process_task(db, task: dict, terminal_cache: dict[str, list]):
     """处理单个到期任务。"""
     task_id = task["id"]
     session_id = task["session_id"]
@@ -108,19 +121,19 @@ async def _process_task(store: ScheduledTaskStore, task: dict):
 
     now_iso = datetime.now(timezone.utc).isoformat()
 
-    # 检查 terminal 是否仍然存在且为 live
-    terminal_live = await _is_terminal_live(session_id, terminal_id)
+    # 从缓存中检查 terminal 是否仍然存在且为 live
+    terminal_live = _is_terminal_in_cache(terminal_cache, session_id, terminal_id)
 
     if not terminal_live:
         # terminal 不存在或已关闭
         if repeat_type == "daily":
             # 每日任务：跳过本轮，推到次日
             next_execute_at = _next_daily_execute_at(task["execute_at"])
-            await store.update_execute_at(task_id, next_execute_at)
+            await db.update_scheduled_task_execute_at(task_id, next_execute_at)
             logger.warning("Daily task %d skipped (terminal not live), next at %s", task_id, next_execute_at)
         else:
             # 一次性任务：标记为 expired
-            await store.update_status(task_id, "expired", executed_at=now_iso)
+            await db.update_scheduled_task_status(task_id, "expired", executed_at=now_iso)
             logger.warning("One-time task %d expired (terminal not live)", task_id)
         return
 
@@ -130,17 +143,17 @@ async def _process_task(store: ScheduledTaskStore, task: dict):
         next_execute_at = _next_daily_execute_at(task["execute_at"])
         if success:
             # 每日任务成功：保持 pending，更新 execute_at 为次日
-            await store.update_execute_at(task_id, next_execute_at)
+            await db.update_scheduled_task_execute_at(task_id, next_execute_at)
             logger.info("Daily task %d executed, next at %s", task_id, next_execute_at)
         else:
             # 每日任务失败（Agent 离线）：跳过本轮，推到次日
-            await store.update_execute_at(task_id, next_execute_at)
+            await db.update_scheduled_task_execute_at(task_id, next_execute_at)
             logger.warning("Daily task %d skipped (agent offline), next at %s", task_id, next_execute_at)
     else:
         # 一次性任务
         if success:
-            await store.update_status(task_id, "executed", executed_at=now_iso)
+            await db.update_scheduled_task_status(task_id, "executed", executed_at=now_iso)
             logger.info("One-time task %d executed", task_id)
         else:
-            await store.update_status(task_id, "expired", executed_at=now_iso)
+            await db.update_scheduled_task_status(task_id, "expired", executed_at=now_iso)
             logger.warning("One-time task %d expired (agent offline)", task_id)

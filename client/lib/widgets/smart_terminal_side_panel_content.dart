@@ -175,7 +175,7 @@ class _SmartTerminalSidePanelContentState
     _feedbackSubmitter = widget.feedbackSubmitterOverride ?? _defaultFeedbackSubmitter;
   }
 
-  /// 默认反馈提交实现（真实 HTTP 请求）
+  /// 默认反馈提交实现（委托 FeedbackService）
   Future<bool> _defaultFeedbackSubmitter({
     required String serverUrl,
     required String token,
@@ -184,33 +184,17 @@ class _SmartTerminalSidePanelContentState
     required String feedbackType,
     String? description,
   }) async {
-    final httpUrl = serverUrlToHttpBase(serverUrl);
-    final payload = <String, dynamic>{
-      'session_id': '',
-      'category': 'other',
-      'description': description ?? feedbackType,
-      'terminal_id': terminalId,
-      'feedback_type': feedbackType,
-    };
-    if (resultEventId != null) {
-      payload['result_event_id'] = resultEventId;
-    }
-    try {
-      final client = HttpClientFactory.create();
-      final response = await client.post(
-        Uri.parse('$httpUrl/api/feedback'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode(payload),
-      );
-      return response.statusCode == 200;
-    } catch (e) {
-      // Expected: feedback submission is best-effort, failure returns false to UI.
-      AppLogger('Feedback').debug('submit failed: $e');
-      return false;
-    }
+    final service = FeedbackService(
+      serverUrl: serverUrl,
+      token: token,
+      sessionId: '',
+    );
+    return service.submitQuick(
+      feedbackType: feedbackType,
+      description: description,
+      terminalId: terminalId,
+      resultEventId: resultEventId,
+    );
   }
 
   @override

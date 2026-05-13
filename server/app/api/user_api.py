@@ -2,11 +2,23 @@
 用户认证 REST API
 """
 from fastapi import APIRouter, HTTPException, status, Depends, Request as FastAPIRequest
-from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime, timezone, timedelta
 
-from app.store.session import create_session, get_session, verify_session_ownership, get_session_by_name, cleanup_user_sessions
+from app.api.schemas import (
+    UserRegister,
+    UserLogin,
+    DeviceInfo,
+    LoginResponse,
+    RefreshRequest,
+    RefreshResponse,
+    DeviceListResponse,
+    SessionStateResponse,
+)
+from app.api._deps import verify_session_ownership
+# user_api 专属 session 函数：创建/查询/清理 session，仅此模块使用
+from app.store.session import create_session, get_session, get_session_by_name, cleanup_user_sessions
+# user_api 专属 auth 函数：认证核心操作（token 签发/刷新/密码校验），仅此模块使用
 from app.infra.auth import (
     create_token_response,
     generate_refresh_token,
@@ -23,69 +35,14 @@ from app.infra.auth import (
     get_current_user_id,
 )
 from app.infra import auth as _auth
+# user_api 专属 store 函数：仅此模块需要直接操作用户/设备 CRUD
 from app.store.database import get_user, save_user, get_user_devices, add_user_device, update_password_hash
+# user_api 专属：refresh token 存储，仅此模块使用
 from app.store import refresh_token_store
+# user_api 专属：速率限制，仅此模块使用
 from app.infra.rate_limit import check_rate_limit
 
 router = APIRouter()
-
-
-class UserRegister(BaseModel):
-    username: str
-    password: Optional[str] = None
-    password_encrypted: Optional[str] = None
-    device_name: Optional[str] = None
-    view: Optional[str] = None
-
-
-class UserLogin(BaseModel):
-    username: str
-    password: Optional[str] = None  # 明文密码（兼容旧客户端）
-    password_encrypted: Optional[str] = None  # RSA 加密后的密码（base64）
-    view: Optional[str] = None
-
-
-class DeviceInfo(BaseModel):
-    device_name: str
-    device_type: str = "mobile"  # mobile, tablet, desktop
-
-
-class LoginResponse(BaseModel):
-    success: bool
-    message: str
-    username: Optional[str] = None
-    session_id: Optional[str] = None
-    token: Optional[str] = None
-    expires_at: Optional[str] = None
-    refresh_token: Optional[str] = None
-    refresh_expires_at: Optional[str] = None
-
-
-class RefreshRequest(BaseModel):
-    refresh_token: str
-
-
-class RefreshResponse(BaseModel):
-    success: bool
-    access_token: str
-    refresh_token: str
-    expires_in: int  # 秒
-    refresh_expires_in: int  # 秒
-    token_type: str = "Bearer"
-
-
-class DeviceListResponse(BaseModel):
-    devices: list
-
-
-class SessionStateResponse(BaseModel):
-    """Session 状态响应模型 (CONTRACT-001)"""
-    session_id: str
-    owner: str
-    agent_online: bool
-    views: dict
-    pty: dict
-    updated_at: str
 
 
 async def _rate_limit_dependency(request: FastAPIRequest):

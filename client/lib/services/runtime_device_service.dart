@@ -7,9 +7,8 @@ import '../models/project_context_settings.dart';
 import '../models/project_context_snapshot.dart';
 import '../models/runtime_device.dart';
 import '../models/runtime_terminal.dart';
+import 'api_service_base.dart';
 import 'auth_service.dart';
-import 'http_client_factory.dart';
-import 'server_url_helper.dart';
 import '../utils/json_helpers.dart' show readListFromJson;
 
 class RuntimeApiException implements Exception {
@@ -29,21 +28,11 @@ class RuntimeApiException implements Exception {
   String toString() => 'Exception: $message';
 }
 
-class RuntimeDeviceService {
+class RuntimeDeviceService extends ApiServiceBase {
   RuntimeDeviceService({
-    required this.serverUrl,
-    http.Client? client,
-  }) : _client = client ?? HttpClientFactory.create();
-
-  final String serverUrl;
-  final http.Client _client;
-
-  String get _httpUrl => serverUrlToHttpBase(serverUrl);
-
-  Map<String, String> _headers(String token) => {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      };
+    required super.serverUrl,
+    super.client,
+  });
 
   /// 处理非 200 响应，对 401 按 error_code 分支抛出 AuthException
   Never _throwError(http.Response response, String defaultMessage) {
@@ -84,9 +73,9 @@ class RuntimeDeviceService {
   }
 
   Future<List<RuntimeDevice>> listDevices(String token) async {
-    final response = await _client.get(
-      Uri.parse('$_httpUrl/api/runtime/devices'),
-      headers: _headers(token),
+    final response = await client.get(
+      Uri.parse('$httpUrl/api/runtime/devices'),
+      headers: authHeaders(token),
     );
     if (response.statusCode != 200) {
       _throwError(response, '加载设备失败');
@@ -99,9 +88,9 @@ class RuntimeDeviceService {
 
   Future<List<RuntimeTerminal>> listTerminals(
       String token, String deviceId) async {
-    final response = await _client.get(
-      Uri.parse('$_httpUrl/api/runtime/devices/$deviceId/terminals'),
-      headers: _headers(token),
+    final response = await client.get(
+      Uri.parse('$httpUrl/api/runtime/devices/$deviceId/terminals'),
+      headers: authHeaders(token),
     );
     if (response.statusCode != 200) {
       _throwError(response, '加载终端失败');
@@ -135,9 +124,9 @@ class RuntimeDeviceService {
   }) async {
     final resolvedTerminalId =
         terminalId ?? 'term-${DateTime.now().millisecondsSinceEpoch}';
-    final response = await _client.post(
-      Uri.parse('$_httpUrl/api/runtime/devices/$deviceId/terminals'),
-      headers: _headers(token),
+    final response = await client.post(
+      Uri.parse('$httpUrl/api/runtime/devices/$deviceId/terminals'),
+      headers: authHeaders(token),
       body: jsonEncode({
         'terminal_id': resolvedTerminalId,
         'title': title,
@@ -158,10 +147,10 @@ class RuntimeDeviceService {
     String deviceId,
     String terminalId,
   ) async {
-    final response = await _client.delete(
+    final response = await client.delete(
       Uri.parse(
-          '$_httpUrl/api/runtime/devices/$deviceId/terminals/$terminalId'),
-      headers: _headers(token),
+          '$httpUrl/api/runtime/devices/$deviceId/terminals/$terminalId'),
+      headers: authHeaders(token),
     );
     if (response.statusCode != 200) {
       _throwError(response, '关闭终端失败');
@@ -172,9 +161,9 @@ class RuntimeDeviceService {
 
   Future<RuntimeDevice> updateDevice(String token, String deviceId,
       {String? name}) async {
-    final response = await _client.patch(
-      Uri.parse('$_httpUrl/api/runtime/devices/$deviceId'),
-      headers: _headers(token),
+    final response = await client.patch(
+      Uri.parse('$httpUrl/api/runtime/devices/$deviceId'),
+      headers: authHeaders(token),
       body: jsonEncode({
         if (name != null) 'name': name,
       }),
@@ -192,10 +181,10 @@ class RuntimeDeviceService {
     String terminalId,
     String title,
   ) async {
-    final response = await _client.patch(
+    final response = await client.patch(
       Uri.parse(
-          '$_httpUrl/api/runtime/devices/$deviceId/terminals/$terminalId'),
-      headers: _headers(token),
+          '$httpUrl/api/runtime/devices/$deviceId/terminals/$terminalId'),
+      headers: authHeaders(token),
       body: jsonEncode({'title': title}),
     );
     if (response.statusCode != 200) {
@@ -209,10 +198,10 @@ class RuntimeDeviceService {
     String token,
     String deviceId,
   ) async {
-    final response = await _client.get(
+    final response = await client.get(
       Uri.parse(
-          '$_httpUrl/api/runtime/devices/$deviceId/project-context/settings'),
-      headers: _headers(token),
+          '$httpUrl/api/runtime/devices/$deviceId/project-context/settings'),
+      headers: authHeaders(token),
     );
     if (response.statusCode != 200) {
       _throwError(response, '加载项目来源配置失败');
@@ -226,10 +215,10 @@ class RuntimeDeviceService {
     String deviceId,
     ProjectContextSettings settings,
   ) async {
-    final response = await _client.put(
+    final response = await client.put(
       Uri.parse(
-          '$_httpUrl/api/runtime/devices/$deviceId/project-context/settings'),
-      headers: _headers(token),
+          '$httpUrl/api/runtime/devices/$deviceId/project-context/settings'),
+      headers: authHeaders(token),
       body: jsonEncode({
         'pinned_projects':
             settings.pinnedProjects.map((item) => item.toJson()).toList(),
@@ -249,9 +238,9 @@ class RuntimeDeviceService {
     String token,
     String deviceId,
   ) async {
-    final response = await _client.get(
-      Uri.parse('$_httpUrl/api/runtime/devices/$deviceId/project-context'),
-      headers: _headers(token),
+    final response = await client.get(
+      Uri.parse('$httpUrl/api/runtime/devices/$deviceId/project-context'),
+      headers: authHeaders(token),
     );
     if (response.statusCode != 200) {
       _throwError(response, '加载项目候选失败');
@@ -264,10 +253,10 @@ class RuntimeDeviceService {
     String token,
     String deviceId,
   ) async {
-    final response = await _client.post(
+    final response = await client.post(
       Uri.parse(
-          '$_httpUrl/api/runtime/devices/$deviceId/project-context:refresh'),
-      headers: _headers(token),
+          '$httpUrl/api/runtime/devices/$deviceId/project-context:refresh'),
+      headers: authHeaders(token),
     );
     if (response.statusCode != 200) {
       _throwError(response, '刷新项目候选失败');
@@ -285,9 +274,9 @@ class RuntimeDeviceService {
     bool allowClaudeCli = true,
     bool allowLocalRules = true,
   }) async {
-    final response = await _client.post(
-      Uri.parse('$_httpUrl/api/runtime/devices/$deviceId/assistant/plan'),
-      headers: _headers(token),
+    final response = await client.post(
+      Uri.parse('$httpUrl/api/runtime/devices/$deviceId/assistant/plan'),
+      headers: authHeaders(token),
       body: jsonEncode({
         'intent': intent,
         'conversation_id': conversationId,
@@ -318,9 +307,9 @@ class RuntimeDeviceService {
     final request = http.Request(
       'POST',
       Uri.parse(
-          '$_httpUrl/api/runtime/devices/$deviceId/assistant/plan/stream'),
+          '$httpUrl/api/runtime/devices/$deviceId/assistant/plan/stream'),
     )
-      ..headers.addAll(_headers(token))
+      ..headers.addAll(authHeaders(token))
       ..body = jsonEncode({
         'intent': intent,
         'conversation_id': conversationId,
@@ -331,7 +320,7 @@ class RuntimeDeviceService {
         },
       });
 
-    final response = await _client.send(request);
+    final response = await client.send(request);
     if (response.statusCode != 200) {
       final body = await response.stream.bytesToString();
       _throwError(
@@ -401,11 +390,11 @@ class RuntimeDeviceService {
     String? outputSummary,
     required AssistantCommandSequence commandSequence,
   }) async {
-    final response = await _client.post(
+    final response = await client.post(
       Uri.parse(
-        '$_httpUrl/api/runtime/devices/$deviceId/assistant/executions/report',
+        '$httpUrl/api/runtime/devices/$deviceId/assistant/executions/report',
       ),
-      headers: _headers(token),
+      headers: authHeaders(token),
       body: jsonEncode({
         'conversation_id': conversationId,
         'message_id': messageId,
@@ -419,9 +408,5 @@ class RuntimeDeviceService {
     if (response.statusCode != 200) {
       _throwError(response, '同步执行结果失败');
     }
-  }
-
-  void dispose() {
-    _client.close();
   }
 }

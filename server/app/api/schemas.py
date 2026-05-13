@@ -4,7 +4,7 @@ Runtime API Pydantic schemas.
 所有 Pydantic Model 集中定义，供路由文件和测试共享。
 """
 from enum import StrEnum
-from typing import Any, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -328,3 +328,153 @@ class ScheduledTaskItem(BaseModel):
 class ScheduledTaskListResponse(BaseModel):
     """定时任务列表响应。"""
     tasks: list[ScheduledTaskItem]
+
+
+# ---------------------------------------------------------------------------
+# User / Auth
+# ---------------------------------------------------------------------------
+
+
+class UserRegister(BaseModel):
+    username: str
+    password: Optional[str] = None
+    password_encrypted: Optional[str] = None
+    device_name: Optional[str] = None
+    view: Optional[str] = None
+
+
+class UserLogin(BaseModel):
+    username: str
+    password: Optional[str] = None  # 明文密码（兼容旧客户端）
+    password_encrypted: Optional[str] = None  # RSA 加密后的密码（base64）
+    view: Optional[str] = None
+
+
+class DeviceInfo(BaseModel):
+    device_name: str
+    device_type: str = "mobile"  # mobile, tablet, desktop
+
+
+class LoginResponse(BaseModel):
+    success: bool
+    message: str
+    username: Optional[str] = None
+    session_id: Optional[str] = None
+    token: Optional[str] = None
+    expires_at: Optional[str] = None
+    refresh_token: Optional[str] = None
+    refresh_expires_at: Optional[str] = None
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class RefreshResponse(BaseModel):
+    success: bool
+    access_token: str
+    refresh_token: str
+    expires_in: int  # 秒
+    refresh_expires_in: int  # 秒
+    token_type: str = "Bearer"
+
+
+class DeviceListResponse(BaseModel):
+    devices: list
+
+
+class SessionStateResponse(BaseModel):
+    """Session 状态响应模型 (CONTRACT-001)"""
+    session_id: str
+    owner: str
+    agent_online: bool
+    views: dict
+    pty: dict
+    updated_at: str
+
+
+# ---------------------------------------------------------------------------
+# Log
+# ---------------------------------------------------------------------------
+
+
+class LogEntry(BaseModel):
+    """单条日志"""
+    level: Literal["debug", "info", "warn", "error", "fatal"] = "info"
+    message: str
+    timestamp: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class UploadLogsRequest(BaseModel):
+    """批量上报日志请求"""
+    session_id: str = Field(..., description="会话 ID")
+    uid: str = Field("", description="用户标识（username），未登录时为空")
+    logs: List[LogEntry] = Field(..., description="日志列表")
+
+
+class UploadLogsResponse(BaseModel):
+    """批量上报日志响应"""
+    success: bool = True
+    received: int
+
+
+class LogRecord(BaseModel):
+    """日志记录"""
+    level: str
+    message: str
+    timestamp: str
+    metadata: Dict[str, Any] = {}
+
+
+class GetLogsResponse(BaseModel):
+    """查询日志响应"""
+    session_id: str
+    total: int
+    offset: int
+    limit: int
+    logs: List[LogRecord]
+
+
+# ---------------------------------------------------------------------------
+# Feedback
+# ---------------------------------------------------------------------------
+
+
+class FeedbackCreateRequest(BaseModel):
+    """提交反馈请求"""
+    session_id: Optional[str] = Field(None, description="会话 ID（旧字段，可选）")
+    category: Literal["connection", "terminal", "crash", "suggestion", "other"] = Field(
+        ..., description="反馈分类"
+    )
+    description: str = Field(
+        ..., description="反馈描述", max_length=10000,
+    )
+    platform: Optional[str] = Field(None, description="平台信息")
+    app_version: Optional[str] = Field(None, description="应用版本")
+    # B052 新增字段
+    terminal_id: Optional[str] = Field(None, description="终端 ID")
+    result_event_id: Optional[str] = Field(None, description="关联的 result 事件 ID")
+    feedback_type: Optional[Literal["helpful", "needs_improvement", "error_report"]] = Field(
+        None, description="反馈类型"
+    )
+    device_id: Optional[str] = Field(None, description="设备 ID（用于 SSE 实时推送）")
+
+
+class FeedbackResponse(BaseModel):
+    """反馈响应"""
+    feedback_id: str
+    created_at: str
+
+
+class FeedbackDetailResponse(BaseModel):
+    """反馈详情响应"""
+    feedback_id: str
+    user_id: str
+    session_id: str
+    category: str
+    description: str
+    platform: str = ""
+    app_version: str = ""
+    created_at: str
+    logs: List[Dict[str, Any]] = []

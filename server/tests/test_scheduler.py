@@ -19,7 +19,6 @@ import pytest
 import pytest_asyncio
 
 from app.store.database import Database
-from app.store.scheduled_task import ScheduledTaskStore
 from app.services.scheduler import (
     _poll_once,
     _process_task,
@@ -42,11 +41,11 @@ def _clean_db():
 
 
 @pytest_asyncio.fixture
-async def store():
-    """创建并初始化 ScheduledTaskStore（含表结构）。"""
-    db = Database(TEST_DB)
-    await db.init_db()
-    return ScheduledTaskStore(TEST_DB)
+async def db():
+    """创建并初始化 Database（含表结构）。"""
+    database = Database(TEST_DB)
+    await database.init_db()
+    return database
 
 
 # ---------------------------------------------------------------------------
@@ -110,69 +109,73 @@ async def test_send_text_to_terminal_ws_error():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_process_task_one_time_online(store):
+async def test_process_task_one_time_online(db):
     """到点 + Agent 在线 + 一次性 → 状态变 executed。"""
     execute_at = datetime.now(timezone.utc).isoformat()
-    task_id = await store.create("user1", "session-1", "t1", "echo hello", execute_at, "once")
+    task_dict = await db.create_scheduled_task("user1", "session-1", "t1", "echo hello", execute_at, "once")
+    task_id = task_dict["id"]
 
-    task = await store.get_by_id(task_id)
+    task = await db.get_scheduled_task_by_id(task_id)
 
     with patch("app.services.scheduler._is_terminal_live", return_value=True), \
          patch("app.services.scheduler._send_text_to_terminal", return_value=True):
-        await _process_task(store, task)
+        await _process_task(db, task)
 
-    updated = await store.get_by_id(task_id)
+    updated = await db.get_scheduled_task_by_id(task_id)
     assert updated["status"] == "executed"
     assert updated["executed_at"] is not None
 
 
 @pytest.mark.asyncio
-async def test_process_task_one_time_offline(store):
+async def test_process_task_one_time_offline(db):
     """到点 + Agent 离线 + 一次性 → 状态变 expired。"""
     execute_at = datetime.now(timezone.utc).isoformat()
-    task_id = await store.create("user1", "session-1", "t1", "echo hello", execute_at, "once")
+    task_dict = await db.create_scheduled_task("user1", "session-1", "t1", "echo hello", execute_at, "once")
+    task_id = task_dict["id"]
 
-    task = await store.get_by_id(task_id)
+    task = await db.get_scheduled_task_by_id(task_id)
 
     with patch("app.services.scheduler._is_terminal_live", return_value=True), \
          patch("app.services.scheduler._send_text_to_terminal", return_value=False):
-        await _process_task(store, task)
+        await _process_task(db, task)
 
-    updated = await store.get_by_id(task_id)
+    updated = await db.get_scheduled_task_by_id(task_id)
     assert updated["status"] == "expired"
     assert updated["executed_at"] is not None
 
 
 @pytest.mark.asyncio
-async def test_process_task_daily_online(store):
+async def test_process_task_daily_online(db):
     """到点 + Agent 在线 + 每日 → 保持 pending + execute_at 更新为次日。"""
     execute_at = "2026-05-12T08:00:00+00:00"
-    task_id = await store.create("user1", "session-1", "t1", "git pull", execute_at, "daily")
+    task_dict = await db.create_scheduled_task("user1", "session-1", "t1", "git pull", execute_at, "daily")
+    task_id = task_dict["id"]
 
-    task = await store.get_by_id(task_id)
+    task = await db.get_scheduled_task_by_id(task_id)
 
     with patch("app.services.scheduler._is_terminal_live", return_value=True), \
          patch("app.services.scheduler._send_text_to_terminal", return_value=True):
-        await _process_task(store, task)
+        await _process_task(db, task)
 
-    updated = await store.get_by_id(task_id)
+    updated = await db.get_scheduled_task_by_id(task_id)
     assert updated["status"] == "pending"
     assert updated["execute_at"] == "2026-05-13T08:00:00+00:00"
 
 
 @pytest.mark.asyncio
-async def test_process_task_daily_offline(store):
+async def test_process_task_daily_offline(db):
     """到点 + Agent 离线 + 每日 → 保持 pending + execute_at 推到次日。"""
     execute_at = "2026-05-12T08:00:00+00:00"
-    task_id = await store.create("user1", "session-1", "t1", "git pull", execute_at, "daily")
+    task_dict = await db.create_scheduled_task("user1", "session-1", "t1", "git pull", execute_at, "daily")
+    task_id = task_dict["id"]
 
-    task = await store.get_by_id(task_id)
+    task = await db.get_scheduled_task_by_id(task_id)
 
     with patch("app.services.scheduler._is_terminal_live", return_value=True), \
          patch("app.services.scheduler._send_text_to_terminal", return_value=False):
-        await _process_task(store, task)
+        await _process_task(db, task)
 
-    updated = await store.get_by_id(task_id)
+    updated = await db.get_scheduled_task_by_id(task_id)
     assert updated["status"] == "pending"
     assert updated["execute_at"] == "2026-05-13T08:00:00+00:00"
 
@@ -182,33 +185,35 @@ async def test_process_task_daily_offline(store):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_process_task_one_time_terminal_not_live(store):
+async def test_process_task_one_time_terminal_not_live(db):
     """到点 + terminal 不存在/已关闭 + 一次性 → 状态变 expired。"""
     execute_at = datetime.now(timezone.utc).isoformat()
-    task_id = await store.create("user1", "session-1", "t1", "echo hello", execute_at, "once")
+    task_dict = await db.create_scheduled_task("user1", "session-1", "t1", "echo hello", execute_at, "once")
+    task_id = task_dict["id"]
 
-    task = await store.get_by_id(task_id)
+    task = await db.get_scheduled_task_by_id(task_id)
 
     with patch("app.services.scheduler._is_terminal_live", return_value=False):
-        await _process_task(store, task)
+        await _process_task(db, task)
 
-    updated = await store.get_by_id(task_id)
+    updated = await db.get_scheduled_task_by_id(task_id)
     assert updated["status"] == "expired"
     assert updated["executed_at"] is not None
 
 
 @pytest.mark.asyncio
-async def test_process_task_daily_terminal_not_live(store):
+async def test_process_task_daily_terminal_not_live(db):
     """到点 + terminal 不存在/已关闭 + 每日 → 跳过本轮，execute_at 推到次日。"""
     execute_at = "2026-05-12T08:00:00+00:00"
-    task_id = await store.create("user1", "session-1", "t1", "git pull", execute_at, "daily")
+    task_dict = await db.create_scheduled_task("user1", "session-1", "t1", "git pull", execute_at, "daily")
+    task_id = task_dict["id"]
 
-    task = await store.get_by_id(task_id)
+    task = await db.get_scheduled_task_by_id(task_id)
 
     with patch("app.services.scheduler._is_terminal_live", return_value=False):
-        await _process_task(store, task)
+        await _process_task(db, task)
 
-    updated = await store.get_by_id(task_id)
+    updated = await db.get_scheduled_task_by_id(task_id)
     assert updated["status"] == "pending"
     assert updated["execute_at"] == "2026-05-13T08:00:00+00:00"
 
@@ -218,36 +223,36 @@ async def test_process_task_daily_terminal_not_live(store):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_poll_once_no_pending_tasks(store):
+async def test_poll_once_no_pending_tasks(db):
     """无 pending 任务 → 无操作。"""
     # 创建一个 executed 状态的任务（不是 pending）
     execute_at = datetime.now(timezone.utc).isoformat()
-    task_id = await store.create("user1", "session-1", "t1", "echo hello", execute_at, "once")
-    await store.update_status(task_id, "executed", executed_at=execute_at)
+    task_dict = await db.create_scheduled_task("user1", "session-1", "t1", "echo hello", execute_at, "once")
+    await db.update_scheduled_task_status(task_dict["id"], "executed", executed_at=execute_at)
 
     with patch("app.services.scheduler._process_task") as mock_process:
-        await _poll_once(store)
+        await _poll_once(db)
         mock_process.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_poll_once_multiple_due_tasks(store):
+async def test_poll_once_multiple_due_tasks(db):
     """多任务同时到点 → 全部执行。"""
     past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
-    await store.create("user1", "session-1", "t1", "cmd1", past, "once")
-    await store.create("user1", "session-1", "t2", "cmd2", past, "daily")
-    await store.create("user1", "session-2", "t3", "cmd3", past, "once")
+    await db.create_scheduled_task("user1", "session-1", "t1", "cmd1", past, "once")
+    await db.create_scheduled_task("user1", "session-1", "t2", "cmd2", past, "daily")
+    await db.create_scheduled_task("user1", "session-2", "t3", "cmd3", past, "once")
 
     with patch("app.services.scheduler._is_terminal_live", return_value=True), \
          patch("app.services.scheduler._send_text_to_terminal", return_value=True):
-        await _poll_once(store)
+        await _poll_once(db)
 
     # 验证所有任务都被处理了
     # 一次性任务变为 executed
-    tasks = await store.list_pending_due(datetime.now(timezone.utc).isoformat())
+    tasks = await db.list_pending_due_scheduled_tasks(datetime.now(timezone.utc).isoformat())
     # 应该只剩 daily 任务（已更新 execute_at 到次日）
     # 查所有任务验证状态
-    all_tasks_user1 = await store.list_by_user("user1")
+    all_tasks_user1 = await db.list_scheduled_tasks_by_user("user1")
     executed_count = sum(1 for t in all_tasks_user1 if t["status"] == "executed")
     pending_count = sum(1 for t in all_tasks_user1 if t["status"] == "pending")
     assert executed_count == 2  # 两个一次性任务
@@ -255,40 +260,42 @@ async def test_poll_once_multiple_due_tasks(store):
 
 
 @pytest.mark.asyncio
-async def test_poll_once_future_task_not_picked(store):
+async def test_poll_once_future_task_not_picked(db):
     """未到点的任务不会被拾取。"""
     future = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
-    await store.create("user1", "session-1", "t1", "cmd1", future, "once")
+    await db.create_scheduled_task("user1", "session-1", "t1", "cmd1", future, "once")
 
     with patch("app.services.scheduler._process_task") as mock_process:
-        await _poll_once(store)
+        await _poll_once(db)
         mock_process.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_poll_once_ws_exception_one_time_expired(store):
+async def test_poll_once_ws_exception_one_time_expired(db):
     """WS 发送异常 → 一次性标记 expired。"""
     past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
-    task_id = await store.create("user1", "session-1", "t1", "cmd1", past, "once")
+    task_dict = await db.create_scheduled_task("user1", "session-1", "t1", "cmd1", past, "once")
+    task_id = task_dict["id"]
 
     with patch("app.services.scheduler._is_terminal_live", return_value=True), \
          patch("app.services.scheduler._send_text_to_terminal", return_value=False):
-        await _poll_once(store)
+        await _poll_once(db)
 
-    task = await store.get_by_id(task_id)
+    task = await db.get_scheduled_task_by_id(task_id)
     assert task["status"] == "expired"
 
 
 @pytest.mark.asyncio
-async def test_poll_once_ws_exception_daily_skip(store):
+async def test_poll_once_ws_exception_daily_skip(db):
     """WS 发送异常 → 每日跳过本轮，execute_at 推到次日。"""
     execute_at = "2026-05-12T08:00:00+00:00"
-    task_id = await store.create("user1", "session-1", "t1", "cmd1", execute_at, "daily")
+    task_dict = await db.create_scheduled_task("user1", "session-1", "t1", "cmd1", execute_at, "daily")
+    task_id = task_dict["id"]
 
     with patch("app.services.scheduler._is_terminal_live", return_value=True), \
          patch("app.services.scheduler._send_text_to_terminal", return_value=False):
-        await _poll_once(store)
+        await _poll_once(db)
 
-    task = await store.get_by_id(task_id)
+    task = await db.get_scheduled_task_by_id(task_id)
     assert task["status"] == "pending"
     assert task["execute_at"] == "2026-05-13T08:00:00+00:00"

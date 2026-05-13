@@ -1,6 +1,5 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 
 import '../models/scheduled_task.dart';
 import '../services/scheduled_task_service.dart';
@@ -20,12 +19,9 @@ Future<bool> showScheduleBottomSheet({
   required String terminalId,
   String? textContent,
   required String serverUrl,
-  http.Client? client,
+  ScheduledTaskService? serviceOverride,
 }) async {
-  final service = ScheduledTaskService(
-    serverUrl: serverUrl,
-    client: client,
-  );
+  final service = serviceOverride ?? ScheduledTaskService(serverUrl: serverUrl);
 
   final result = await showModalBottomSheet<_ScheduleResult>(
     context: context,

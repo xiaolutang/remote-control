@@ -40,14 +40,6 @@ def _build_create_response(task: dict) -> ScheduledTaskCreateResponse:
     )
 
 
-def _get_scheduled_task_store():
-    """获取 ScheduledTaskStore 实例（复用 Database 的 db_path）。"""
-    from app.store.database import _get_db
-    from app.store.scheduled_task import ScheduledTaskStore
-    db = _get_db()
-    return ScheduledTaskStore(db.db_path)
-
-
 @router.post("/scheduled-tasks", status_code=status.HTTP_201_CREATED)
 async def create_scheduled_task(
     body: ScheduledTaskCreateRequest,
@@ -118,8 +110,7 @@ async def create_scheduled_task(
         )
 
     # 5. 检查重复任务（防连点）
-    store = _get_scheduled_task_store()
-    existing = await store.find_pending_duplicate(
+    existing = await _deps.find_pending_duplicate(
         user_id=user_id,
         terminal_id=body.terminal_id,
         text_content=body.text_content,
@@ -129,8 +120,8 @@ async def create_scheduled_task(
         logger.info("Duplicate pending task, returning existing id=%s", existing["id"])
         return _build_create_response(existing)
 
-    # 6. 创建任务（store.create 直接返回完整 dict）
-    task = await store.create(
+    # 6. 创建任务
+    task = await _deps.create_scheduled_task(
         user_id=user_id,
         session_id=body.session_id,
         terminal_id=body.terminal_id,
@@ -164,12 +155,10 @@ async def list_scheduled_tasks(
             )
 
     # 2. 查询
-    store = _get_scheduled_task_store()
-
     if session_id:
-        raw_tasks = await store.list_by_session(session_id, status=status_query)
+        raw_tasks = await _deps.list_scheduled_tasks_by_session(session_id, status=status_query)
     else:
-        raw_tasks = await store.list_by_user(user_id, status=status_query)
+        raw_tasks = await _deps.list_scheduled_tasks_by_user(user_id, status=status_query)
 
     tasks = [
         ScheduledTaskItem(
@@ -201,10 +190,8 @@ async def delete_scheduled_task(
     2. 验证任务属于当前用户 -> 不属于 -> 403
     3. 删除
     """
-    store = _get_scheduled_task_store()
-
     # 1. 查询任务
-    task = await store.get_by_id(task_id)
+    task = await _deps.get_scheduled_task_by_id(task_id)
     if not task:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -219,4 +206,4 @@ async def delete_scheduled_task(
         )
 
     # 3. 删除
-    await store.delete(task_id)
+    await _deps.delete_scheduled_task(task_id)

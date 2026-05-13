@@ -1,30 +1,17 @@
 import 'dart:convert';
 
-import 'package:http/http.dart' as http;
-
 import '../models/scheduled_task.dart';
-import 'http_client_factory.dart';
-import 'server_url_helper.dart';
+import 'api_service_base.dart';
 
 /// 定时任务 HTTP 服务
 ///
 /// 对接 POST /api/scheduled-tasks 等接口。
 /// services/ 不依赖 screens/ 或 widgets/（架构约束）。
-class ScheduledTaskService {
+class ScheduledTaskService extends ApiServiceBase {
   ScheduledTaskService({
-    required this.serverUrl,
-    http.Client? client,
-  }) : _client = client ?? HttpClientFactory.create();
-
-  final String serverUrl;
-  final http.Client _client;
-
-  String get _httpUrl => serverUrlToHttpBase(serverUrl);
-
-  Map<String, String> _headers(String token) => {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      };
+    required super.serverUrl,
+    super.client,
+  });
 
   /// 创建定时任务
   ///
@@ -40,9 +27,9 @@ class ScheduledTaskService {
     required String executeAt,
     required ScheduledTaskRepeatType repeatType,
   }) async {
-    final response = await _client.post(
-      Uri.parse('$_httpUrl/api/scheduled-tasks'),
-      headers: _headers(token),
+    final response = await client.post(
+      Uri.parse('$httpUrl/api/scheduled-tasks'),
+      headers: authHeaders(token),
       body: jsonEncode({
         'session_id': sessionId,
         'terminal_id': terminalId,
@@ -76,9 +63,9 @@ class ScheduledTaskService {
     if (sessionId != null) queryParams['session_id'] = sessionId;
     if (status != null) queryParams['status'] = status;
 
-    final uri = Uri.parse('$_httpUrl/api/scheduled-tasks')
+    final uri = Uri.parse('$httpUrl/api/scheduled-tasks')
         .replace(queryParameters: queryParams.isEmpty ? null : queryParams);
-    final response = await _client.get(uri, headers: _headers(token));
+    final response = await client.get(uri, headers: authHeaders(token));
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -99,9 +86,9 @@ class ScheduledTaskService {
     required String token,
     required int taskId,
   }) async {
-    final response = await _client.delete(
-      Uri.parse('$_httpUrl/api/scheduled-tasks/$taskId'),
-      headers: _headers(token),
+    final response = await client.delete(
+      Uri.parse('$httpUrl/api/scheduled-tasks/$taskId'),
+      headers: authHeaders(token),
     );
 
     if (response.statusCode == 204 || response.statusCode == 200) return;

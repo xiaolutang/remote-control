@@ -55,13 +55,13 @@ def generate_terminal_session_id(terminal_id: str) -> str:
 class AgentSessionManager:
     """管理 Agent 会话生命周期。"""
 
-    def __init__(self, alias_store=None):
+    def __init__(self, db=None):
         self._sessions: dict[str, AgentSession] = {}
         self._cleanup_task: Optional[asyncio.Task] = None
         # 用户级频率追踪: user_id -> [timestamp, ...]
         self._user_rate_tracker: dict[str, list[float]] = defaultdict(list)
-        # 别名持久化存储（可选，由外部注入）
-        self._alias_store = alias_store
+        # Database 实例（可选，由外部注入，提供 alias 等 Mixin 方法）
+        self._db = db
 
     async def start_cleanup_loop(self) -> None:
         """启动超时清理后台任务。"""
@@ -602,15 +602,15 @@ class AgentSessionManager:
 _manager: Optional[AgentSessionManager] = None
 
 
-def get_agent_session_manager(alias_store=None) -> AgentSessionManager:
+def get_agent_session_manager(db=None) -> AgentSessionManager:
     """获取全局 AgentSessionManager 实例。
 
     Args:
-        alias_store: 可选的 ProjectAliasStore 实例，仅在首次创建时生效
+        db: 可选的 Database 实例，仅在首次创建时生效
     """
     global _manager
     if _manager is None:
-        _manager = AgentSessionManager(alias_store=alias_store)
+        _manager = AgentSessionManager(db=db)
     return _manager
 
 

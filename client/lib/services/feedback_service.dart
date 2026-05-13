@@ -1,32 +1,23 @@
 import 'dart:convert';
 
-import 'package:http/http.dart' as http;
-
 import '../models/feedback_model.dart';
 import '../utils/platform_utils.dart';
+import 'api_service_base.dart';
 import 'app_logger.dart';
-import 'http_client_factory.dart';
-import 'server_url_helper.dart';
 
 /// 反馈提交服务
-class FeedbackService {
-  final String serverUrl;
+class FeedbackService extends ApiServiceBase {
   final String token;
   final String sessionId;
-
-  final http.Client _client;
 
   static final AppLogger _log = AppLogger('Feedback');
 
   FeedbackService({
-    required this.serverUrl,
+    required super.serverUrl,
     required this.token,
     required this.sessionId,
-    http.Client? client,
-  }) : _client = client ?? HttpClientFactory.create();
-
-  /// 将 WebSocket URL 转换为 HTTP URL
-  String _getHttpUrl() => serverUrlToHttpBase(serverUrl);
+    super.client,
+  });
 
   /// 提交反馈
   ///
@@ -36,8 +27,6 @@ class FeedbackService {
     FeedbackCategory category,
     String description,
   ) async {
-    final httpUrl = _getHttpUrl();
-
     final request = FeedbackSubmitRequest(
       sessionId: sessionId,
       category: category,
@@ -48,12 +37,9 @@ class FeedbackService {
 
     _log.info('Submitting ${category.name}: $description');
 
-    final response = await _client.post(
+    final response = await client.post(
       Uri.parse('$httpUrl/api/feedback'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
+      headers: authHeaders(token),
       body: jsonEncode(request.toJson()),
     );
 
@@ -65,6 +51,38 @@ class FeedbackService {
     } else {
       _log.error('Submit failed: ${response.statusCode}');
       throw Exception(data['detail'] ?? '反馈提交失败');
+    }
+  }
+
+  /// 轻量级反馈提交（best-effort，不抛异常）。
+  ///
+  /// 用于 Agent 面板中的快捷反馈（点赞/点踩/举报），成功返回 true。
+  Future<bool> submitQuick({
+    required String feedbackType,
+    String? description,
+    String? terminalId,
+    String? resultEventId,
+  }) async {
+    final payload = <String, dynamic>{
+      'session_id': sessionId,
+      'category': 'other',
+      'description': description ?? feedbackType,
+      'terminal_id': terminalId ?? '',
+      'feedback_type': feedbackType,
+    };
+    if (resultEventId != null) {
+      payload['result_event_id'] = resultEventId;
+    }
+    try {
+      final response = await client.post(
+        Uri.parse('$httpUrl/api/feedback'),
+        headers: authHeaders(token),
+        body: jsonEncode(payload),
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      _log.debug('submitQuick failed: $e');
+      return false;
     }
   }
 }

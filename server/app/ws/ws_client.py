@@ -19,7 +19,7 @@ from typing import Optional
 from fastapi import WebSocketDisconnect, HTTPException
 
 from app.infra.crypto import get_crypto_manager, decrypt_message, should_encrypt
-from app.infra.message_types import MessageType
+from app.infra.message_types import MessageType, WSCloseCode
 from app.store.session import (
     get_session,
     get_session_by_device_id,
@@ -81,7 +81,7 @@ async def _ws_auth_phase(websocket) -> tuple:
     token_session_id = payload.get("session_id")
     if not token_session_id:
         logger.warning("Token missing session_id")
-        await websocket.close(code=4003, reason="Token missing session_id")
+        await websocket.close(code=WSCloseCode.PROTOCOL_ERROR, reason="Token missing session_id")
         return None, None
 
     return payload, auth_msg
@@ -130,7 +130,7 @@ async def _ws_session_resolve(
         return None
     except Exception as e:
         logger.error("Get session error: %s: %s", type(e).__name__, e)
-        await websocket.close(code=4500, reason=str(e))
+        await websocket.close(code=WSCloseCode.INTERNAL_ERROR, reason=str(e))
         return None
 
     resolved_device_id = device_id or session.get("device", {}).get("device_id", session_id)
@@ -145,10 +145,10 @@ async def _ws_session_resolve(
                 terminal = t
                 break
         if not terminal:
-            await websocket.close(code=4004, reason=f"terminal {terminal_id} 不存在")
+            await websocket.close(code=WSCloseCode.INVALID_MESSAGE, reason=f"terminal {terminal_id} 不存在")
             return None
         if terminal.get("status") == "closed":
-            await websocket.close(code=4009, reason="terminal closed")
+            await websocket.close(code=WSCloseCode.SESSION_CONFLICT, reason="terminal closed")
             return None
 
     return _SessionResolveResult(
@@ -186,7 +186,7 @@ async def _ws_register_client(
         active_clients[channel_key] = []
 
     if len(active_clients[channel_key]) >= MAX_CLIENTS_PER_SESSION:
-        await websocket.close(code=4503, reason="Too many clients for this session")
+        await websocket.close(code=WSCloseCode.TOO_MANY_CLIENTS, reason="Too many clients for this session")
         return None
 
     # 创建连接对象
@@ -210,7 +210,7 @@ async def _ws_register_client(
     # 不变量 #27 服务端守卫：非 TLS 连接（ws://）必须携带 AES 密钥
     if not is_secure_websocket_transport(websocket) and not client_conn.aes_key:
         logger.warning("ws:// connection rejected: no AES key, session_id=%s", session_id)
-        await websocket.close(code=4003, reason="ws:// requires encrypted_aes_key")
+        await websocket.close(code=WSCloseCode.PROTOCOL_ERROR, reason="ws:// requires encrypted_aes_key")
         return None
 
     active_clients[channel_key].append(client_conn)
@@ -238,7 +238,7 @@ async def _ws_register_client(
                 "reason": "replaced_by_new_device",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             })
-            await existing_client.websocket.close(code=4011, reason="replaced by new device")
+            await existing_client.websocket.close(code=WSCloseCode.DEVICE_REPLACED, reason="replaced by new device")
         except Exception:
             logger.debug(
                 "Failed to kick old client: session_id=%s view=%s old_device=%s",
@@ -405,7 +405,7 @@ async def client_websocket_handler(
 
     # 验证 view 参数
     if view not in ["mobile", "desktop"]:
-        await websocket.close(code=4400, reason=f"Invalid view type: {view}")
+        await websocket.close(code=WSCloseCode.INVALID_VIEW, reason=f"Invalid view type: {view}")
         return
 
     # 阶段 1: 鉴权

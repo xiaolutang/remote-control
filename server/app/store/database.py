@@ -27,6 +27,8 @@ from .planner_store import PlannerStoreMixin
 from .execution_store import ExecutionStoreMixin
 from .conversation_store import ConversationStoreMixin
 from .usage_store import UsageStoreMixin
+from .scheduled_task import ScheduledTaskStoreMixin
+from .project_alias_store import ProjectAliasStoreMixin
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +50,8 @@ class Database(
     ExecutionStoreMixin,
     ConversationStoreMixin,
     UsageStoreMixin,
+    ScheduledTaskStoreMixin,
+    ProjectAliasStoreMixin,
 ):
     """SQLite 数据库管理器，封装路径、连接和 CRUD 操作。"""
 
@@ -78,6 +82,7 @@ class Database(
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             await db.execute("PRAGMA foreign_keys = ON")
+            await db.execute("PRAGMA journal_mode = WAL")
             yield db
 
 
@@ -385,3 +390,120 @@ async def get_usage_summary(
     terminal_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     return await _get_db().get_usage_summary(user_id, device_id, terminal_id=terminal_id)
+
+
+# ============ Scheduled Task 便捷函数 ============
+
+async def find_pending_duplicate(
+    user_id: str,
+    terminal_id: str,
+    text_content: str,
+    execute_at: str,
+) -> Optional[Dict[str, Any]]:
+    return await _get_db().find_pending_duplicate(user_id, terminal_id, text_content, execute_at)
+
+
+async def create_scheduled_task(
+    user_id: str,
+    session_id: str,
+    terminal_id: str,
+    text_content: str,
+    execute_at: str,
+    repeat_type: str = "once",
+) -> Dict[str, Any]:
+    return await _get_db().create_scheduled_task(
+        user_id, session_id, terminal_id, text_content, execute_at, repeat_type,
+    )
+
+
+async def list_scheduled_tasks_by_user(
+    user_id: str,
+    status: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    return await _get_db().list_scheduled_tasks_by_user(user_id, status)
+
+
+async def list_scheduled_tasks_by_session(
+    session_id: str,
+    status: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    return await _get_db().list_scheduled_tasks_by_session(session_id, status)
+
+
+async def list_scheduled_tasks_by_session_and_terminal(
+    session_id: str,
+    terminal_id: str,
+    status: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    return await _get_db().list_scheduled_tasks_by_session_and_terminal(
+        session_id, terminal_id, status,
+    )
+
+
+async def get_scheduled_task_by_id(task_id: int) -> Optional[Dict[str, Any]]:
+    return await _get_db().get_scheduled_task_by_id(task_id)
+
+
+async def update_scheduled_task_status(
+    task_id: int,
+    status: str,
+    executed_at: Optional[str] = None,
+) -> None:
+    await _get_db().update_scheduled_task_status(task_id, status, executed_at)
+
+
+async def list_pending_due_scheduled_tasks(now_iso: str) -> List[Dict[str, Any]]:
+    return await _get_db().list_pending_due_scheduled_tasks(now_iso)
+
+
+async def update_scheduled_task_execute_at(task_id: int, new_execute_at: str) -> None:
+    await _get_db().update_scheduled_task_execute_at(task_id, new_execute_at)
+
+
+async def delete_scheduled_task(task_id: int) -> None:
+    await _get_db().delete_scheduled_task(task_id)
+
+
+async def cancel_scheduled_tasks_by_terminal(
+    session_id: str,
+    terminal_id: str,
+) -> int:
+    return await _get_db().cancel_scheduled_tasks_by_terminal(session_id, terminal_id)
+
+
+# ============ Project Alias 便捷函数 ============
+
+async def save_project_alias(
+    user_id: str,
+    device_id: str,
+    alias: str,
+    path: str,
+) -> None:
+    await _get_db().save_project_alias(user_id, device_id, alias, path)
+
+
+async def save_project_aliases_batch(
+    user_id: str,
+    device_id: str,
+    aliases: dict[str, str],
+) -> None:
+    await _get_db().save_project_aliases_batch(user_id, device_id, aliases)
+
+
+async def lookup_project_alias(
+    user_id: str,
+    device_id: str,
+    alias: str,
+) -> Optional[str]:
+    return await _get_db().lookup_project_alias(user_id, device_id, alias)
+
+
+async def list_project_aliases(
+    user_id: str,
+    device_id: str,
+) -> dict[str, str]:
+    return await _get_db().list_project_aliases(user_id, device_id)
+
+
+async def cleanup_stale_project_aliases(days: int = 90) -> int:
+    return await _get_db().cleanup_stale_project_aliases(days)
