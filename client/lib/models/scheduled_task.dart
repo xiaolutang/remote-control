@@ -2,7 +2,7 @@ import '../utils/json_helpers.dart';
 
 enum ScheduledTaskRepeatType { once, daily }
 
-enum ScheduledTaskStatus { pending, executed, expired }
+enum ScheduledTaskStatus { pending, executed, expired, cancelled }
 
 class ScheduledTask {
   const ScheduledTask({

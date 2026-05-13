@@ -110,6 +110,22 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
   DesktopWorkspaceController get workspaceController => _workspaceController;
 
   @override
+  void Function(RuntimeTerminal terminal)? get onScheduleSend => (terminal) async {
+    final device = context.read<RuntimeSelectionController>().selectedDevice;
+    if (device == null) return;
+    final success = await showScheduleBottomSheet(
+      context: context,
+      token: widget.token,
+      sessionId: device.deviceId,
+      terminalId: terminal.terminalId,
+      serverUrl: EnvironmentService.instance.currentServerUrl,
+    );
+    if (success && mounted) {
+      _scheduledTaskPoller.refresh();
+    }
+  };
+
+  @override
   void initState() {
     super.initState();
     _workspaceController = DesktopWorkspaceController(
@@ -383,20 +399,6 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
                           poller: _scheduledTaskPoller,
                           token: widget.token,
                         );
-                      },
-                      onScheduleSend: () async {
-                        final t = selectedTerminal;
-                        if (t == null || device == null) return;
-                        final success = await showScheduleBottomSheet(
-                          context: context,
-                          token: widget.token,
-                          sessionId: device.deviceId,
-                          terminalId: t.terminalId,
-                          serverUrl: EnvironmentService.instance.currentServerUrl,
-                        );
-                        if (success) {
-                          _scheduledTaskPoller.refresh();
-                        }
                       },
                     ),
                     // F003: 桌面端用 Row 包裹 Sidebar + Body

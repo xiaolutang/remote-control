@@ -288,6 +288,7 @@ class ScheduledTaskStatus(StrEnum):
     pending = "pending"
     executed = "executed"
     expired = "expired"
+    cancelled = "cancelled"
 
 
 class ScheduledTaskCreateRequest(BaseModel):

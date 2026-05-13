@@ -4886,7 +4886,7 @@ void main() {
       expect(find.byType(IndexedStack), findsNothing);
     });
 
-    testWidgets('desktop header bar shows schedule send menu item',
+    testWidgets('desktop context menu shows schedule send menu item',
         (tester) async {
       final controller = _FakeWorkspaceController(
         devices: [testDevice()],
@@ -4896,13 +4896,14 @@ void main() {
       await tester.pumpWidget(wrapWithApp(controller));
       await tester.pumpAndSettle();
 
-      // Open settings popup menu
-      await tester.tap(find.byIcon(Icons.settings_outlined));
+      // Right-click tab to open context menu
+      await tester.tap(
+        find.byKey(const Key('sidebar-term-1')),
+        buttons: kSecondaryButton,
+      );
       await tester.pumpAndSettle();
 
       // Should find the schedule send menu item
-      expect(find.byKey(const Key('workspace-settings-schedule-send')),
-          findsOneWidget);
       expect(find.text('定时发送'), findsOneWidget);
     });
   });

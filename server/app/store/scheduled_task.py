@@ -226,3 +226,25 @@ class ScheduledTaskStore:
                 (task_id,),
             )
             await db.commit()
+
+    async def cancel_by_terminal(self, session_id: str, terminal_id: str) -> int:
+        """将指定终端的所有 pending 任务标记为 cancelled。
+
+        Args:
+            session_id: 会话 ID
+            terminal_id: 终端 ID
+
+        Returns:
+            取消的任务数
+        """
+        async with await self._connect() as db:
+            cursor = await db.execute(
+                """
+                UPDATE scheduled_tasks
+                SET status = 'cancelled'
+                WHERE session_id = ? AND terminal_id = ? AND status = 'pending'
+                """,
+                (session_id, terminal_id),
+            )
+            await db.commit()
+            return cursor.rowcount

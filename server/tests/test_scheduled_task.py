@@ -307,3 +307,83 @@ async def test_full_lifecycle(store):
     # 删除后查询为空
     tasks = await store.list_by_user("alice")
     assert tasks == []
+
+
+# ---------------------------------------------------------------------------
+# cancel_by_terminal
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_cancel_by_terminal_cancels_pending(store):
+    """关闭终端时，该终端的 pending 任务变为 cancelled。"""
+    execute_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+
+    await store.create("user1", "s1", "t1", "cmd1", execute_at, "once")
+    await store.create("user1", "s1", "t1", "cmd2", execute_at, "once")
+    await store.create("user1", "s1", "t2", "cmd3", execute_at, "once")
+
+    count = await store.cancel_by_terminal("s1", "t1")
+    assert count == 2
+
+    # t1 的两个任务都是 cancelled
+    t1_tasks = await store.list_by_session("s1", status="cancelled")
+    assert len(t1_tasks) == 2
+    assert all(t["terminal_id"] == "t1" for t in t1_tasks)
+
+    # t2 的任务仍然是 pending
+    t2_tasks = await store.list_by_session("s1", status="pending")
+    assert len(t2_tasks) == 1
+    assert t2_tasks[0]["terminal_id"] == "t2"
+
+
+@pytest.mark.asyncio
+async def test_cancel_by_terminal_skips_non_pending(store):
+    """只有 pending 任务被取消，其他状态不受影响。"""
+    execute_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+
+    id1 = await store.create("user1", "s1", "t1", "cmd1", execute_at, "once")
+    await store.create("user1", "s1", "t1", "cmd2", execute_at, "once")
+    id3 = await store.create("user1", "s1", "t1", "cmd3", execute_at, "once")
+
+    # 先执行一个，过期一个
+    await store.update_status(id1, "executed")
+    await store.update_status(id3, "expired")
+
+    count = await store.cancel_by_terminal("s1", "t1")
+    assert count == 1  # 只有 cmd2 是 pending
+
+    task1 = await store.get_by_id(id1)
+    assert task1["status"] == "executed"
+
+    task3 = await store.get_by_id(id3)
+    assert task3["status"] == "expired"
+
+    # cmd2 被取消
+    cancelled = await store.list_by_session("s1", status="cancelled")
+    assert len(cancelled) == 1
+
+
+@pytest.mark.asyncio
+async def test_cancel_by_terminal_no_pending(store):
+    """没有 pending 任务时返回 0。"""
+    execute_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    id1 = await store.create("user1", "s1", "t1", "cmd", execute_at, "once")
+    await store.update_status(id1, "executed")
+
+    count = await store.cancel_by_terminal("s1", "t1")
+    assert count == 0
+
+
+@pytest.mark.asyncio
+async def test_cancel_by_terminal_wrong_session(store):
+    """不同 session 的任务不受影响。"""
+    execute_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    await store.create("user1", "s1", "t1", "cmd1", execute_at, "once")
+    await store.create("user1", "s2", "t1", "cmd2", execute_at, "once")
+
+    count = await store.cancel_by_terminal("s1", "t1")
+    assert count == 1
+
+    # s2 的任务仍 pending
+    s2_tasks = await store.list_by_session("s2", status="pending")
+    assert len(s2_tasks) == 1

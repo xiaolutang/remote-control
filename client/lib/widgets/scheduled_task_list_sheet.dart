@@ -165,7 +165,11 @@ class _ScheduledTaskListSheetState extends State<ScheduledTaskListSheet> {
           if (!isPending) ...[
             const SizedBox(width: 4),
             Text(
-              task.status == ScheduledTaskStatus.executed ? '已执行' : '已过期',
+              task.status == ScheduledTaskStatus.executed
+                  ? '已执行'
+                  : task.status == ScheduledTaskStatus.cancelled
+                      ? '已取消'
+                      : '已过期',
               style: TextStyle(fontSize: 10, color: theme.disabledColor),
             ),
           ],

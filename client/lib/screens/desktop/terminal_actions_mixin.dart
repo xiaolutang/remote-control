@@ -12,7 +12,7 @@ import '../../widgets/snack_bar_helper.dart';
 import '../../services/desktop/desktop_workspace_controller.dart';
 
 // Tab 上下文菜单动作 -- 类型安全枚举替代字符串分发
-enum TabContextAction { rename, close }
+enum TabContextAction { rename, scheduleSend, close }
 
 /// 终端 CRUD 操作 Mixin
 ///
@@ -22,6 +22,9 @@ enum TabContextAction { rename, close }
 mixin TerminalActionsMixin<T extends StatefulWidget> on State<T> {
   /// 子类必须提供 DesktopWorkspaceController 实例
   DesktopWorkspaceController get workspaceController;
+
+  /// 可选：定时发送回调，由宿主 State 提供
+  void Function(RuntimeTerminal terminal)? get onScheduleSend => null;
 
   // ---------------------------------------------------------------------------
   // 终端切换
@@ -241,6 +244,15 @@ mixin TerminalActionsMixin<T extends StatefulWidget> on State<T> {
                   title: const Text('重命名'),
                   onTap: () => Navigator.of(context).pop(TabContextAction.rename),
                 ),
+                if (onScheduleSend != null)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.schedule),
+                    title: const Text('定时发送'),
+                    onTap: () {
+                      Navigator.of(context).pop(TabContextAction.scheduleSend);
+                    },
+                  ),
                 ListTile(
                   key: const Key('tab-context-close'),
                   contentPadding: EdgeInsets.zero,
@@ -288,6 +300,15 @@ mixin TerminalActionsMixin<T extends StatefulWidget> on State<T> {
           Text('重命名'),
         ]),
       ),
+      if (onScheduleSend != null)
+        const PopupMenuItem<TabContextAction>(
+          value: TabContextAction.scheduleSend,
+          child: Row(children: [
+            Icon(Icons.schedule, size: 20),
+            SizedBox(width: 12),
+            Text('定时发送'),
+          ]),
+        ),
       PopupMenuItem<TabContextAction>(
         key: const Key('tab-context-close'),
         value: TabContextAction.close,
@@ -315,6 +336,8 @@ mixin TerminalActionsMixin<T extends StatefulWidget> on State<T> {
     switch (action) {
       case TabContextAction.rename:
         unawaited(showRenameTerminalDialog(context, controller, terminal));
+      case TabContextAction.scheduleSend:
+        onScheduleSend?.call(terminal);
       case TabContextAction.close:
         unawaited(confirmCloseTerminal(context, controller, terminal));
     }
