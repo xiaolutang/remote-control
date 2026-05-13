@@ -2,6 +2,7 @@
 JWT 认证服务测试
 """
 import importlib
+import os
 import pytest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
@@ -245,35 +246,28 @@ class TestEnvironmentCompatibility:
     """环境变量兼容测试"""
 
     def test_jwt_secret_falls_back_to_legacy_env_name(self):
-        """未设置 JWT_SECRET_KEY 时，兼容读取 JWT_SECRET。"""
-        with patch.dict(
-            "os.environ",
-            {
-                "JWT_SECRET": "legacy-secret",
-                "JWT_SECRET_KEY": "",
-                "JWT_EXPIRY_HOURS": "12",
-                "JWT_EXPIRATION_HOURS": "",
-            },
-            clear=False,
-        ):
-            reloaded = importlib.reload(auth_module)
-            assert reloaded.JWT_SECRET_KEY == "legacy-secret"
-            assert reloaded.JWT_EXPIRATION_HOURS == 12
+        """未设置 JWT_SECRET_KEY 时，兼容读取 JWT_SECRET。
 
-        importlib.reload(auth_module)
-        # auth_module reload 后 TokenVerificationError 变成新类，
-        # 需要在现有 app 上重新注册 exception handler
-        from app import app
-        from app.infra.auth import TokenVerificationError
-        from fastapi import Request
-        from fastapi.responses import JSONResponse
-
-        @app.exception_handler(TokenVerificationError)
-        async def _token_verification_error_handler(request: Request, exc: TokenVerificationError):
-            return JSONResponse(
-                status_code=exc.status_code,
-                content={"detail": exc.detail, "error_code": exc.error_code},
-            )
+        使用子进程避免 importlib.reload 污染全局模块状态
+        （reload 会导致 JWT_SECRET_KEY / TokenVerificationError 变成新对象，
+        后续测试的 isinstance / key 对比失败）。
+        """
+        import subprocess
+        import sys
+        result = subprocess.run(
+            [sys.executable, "-c",
+             "import os; "
+             "os.environ['JWT_SECRET'] = 'legacy-secret'; "
+             "os.environ['JWT_SECRET_KEY'] = ''; "
+             "os.environ['JWT_EXPIRY_HOURS'] = '12'; "
+             "os.environ['JWT_EXPIRATION_HOURS'] = ''; "
+             "from app.infra.auth import JWT_SECRET_KEY, JWT_EXPIRATION_HOURS; "
+             "assert JWT_SECRET_KEY == 'legacy-secret', f'got {JWT_SECRET_KEY}'; "
+             "assert JWT_EXPIRATION_HOURS == 12, f'got {JWT_EXPIRATION_HOURS}'"],
+            capture_output=True, text=True,
+            cwd=os.path.join(os.path.dirname(__file__), '..'),
+        )
+        assert result.returncode == 0, f"Assertion failed: {result.stderr}"
 
     def test_empty_refresh_token(self):
         """空 refresh token → 401"""

@@ -8,9 +8,10 @@ S063: command_validator JSON 加载测试（server 端）。
 4. JSON 文件可通过 Docker COPY 到达
 """
 import json
-import importlib
+import os
+import subprocess
+import sys
 from pathlib import Path
-from unittest import mock
 
 import pytest
 
@@ -27,30 +28,59 @@ from app.infra.command_validator import (
 
 
 class TestServerJsonLoadErrors:
-    """server 端 JSON 加载失败时的错误处理。"""
+    """server 端 JSON 加载失败时的错误处理。
+
+    使用子进程避免 importlib.reload 污染全局模块状态
+    （reload 会破坏 ALLOWED_COMMANDS 等模块级常量，影响后续测试）。
+    """
 
     def test_missing_json_raises_runtime_error(self):
         """JSON 文件不存在时抛出 RuntimeError，包含文件路径信息。"""
-        with mock.patch("builtins.open", side_effect=FileNotFoundError("not found")):
-            import app.infra.command_validator as cv_mod
-            with pytest.raises(RuntimeError, match="command_whitelist.json 未找到"):
-                importlib.reload(cv_mod)
+        result = subprocess.run(
+            [sys.executable, "-c",
+             "from unittest import mock; "
+             "import importlib; "
+             "import app.infra.command_validator as cv_mod; "
+             "mock_open = mock.patch('builtins.open', side_effect=FileNotFoundError('not found')); "
+             "mock_open.start(); "
+             "importlib.reload(cv_mod)"],
+            capture_output=True, text=True,
+            cwd=os.path.join(os.path.dirname(__file__), '..'),
+        )
+        assert result.returncode != 0
+        assert "command_whitelist.json 未找到" in result.stderr
 
     def test_invalid_json_raises_runtime_error(self):
         """JSON 格式错误时抛出 RuntimeError，包含语法错误信息。"""
-        bad_json = "{ invalid json"
-        with mock.patch("builtins.open", mock.mock_open(read_data=bad_json)):
-            import app.infra.command_validator as cv_mod
-            with pytest.raises(RuntimeError, match="command_whitelist.json 格式错误"):
-                importlib.reload(cv_mod)
+        result = subprocess.run(
+            [sys.executable, "-c",
+             "from unittest import mock; "
+             "import importlib; "
+             "import app.infra.command_validator as cv_mod; "
+             "mock_open = mock.patch('builtins.open', mock.mock_open(read_data='{ invalid json')); "
+             "mock_open.start(); "
+             "importlib.reload(cv_mod)"],
+            capture_output=True, text=True,
+            cwd=os.path.join(os.path.dirname(__file__), '..'),
+        )
+        assert result.returncode != 0
+        assert "command_whitelist.json 格式错误" in result.stderr
 
     def test_missing_required_key_raises_key_error(self):
         """JSON 缺少必需字段时加载失败。"""
-        incomplete_json = '{"allowed_commands": ["ls"]}'
-        with mock.patch("builtins.open", mock.mock_open(read_data=incomplete_json)):
-            import app.infra.command_validator as cv_mod
-            with pytest.raises(KeyError):
-                importlib.reload(cv_mod)
+        result = subprocess.run(
+            [sys.executable, "-c",
+             "from unittest import mock; "
+             "import importlib; "
+             "import app.infra.command_validator as cv_mod; "
+             "mock_open = mock.patch('builtins.open', mock.mock_open(read_data='{\"allowed_commands\": [\"ls\"]}')); "
+             "mock_open.start(); "
+             "importlib.reload(cv_mod)"],
+            capture_output=True, text=True,
+            cwd=os.path.join(os.path.dirname(__file__), '..'),
+        )
+        assert result.returncode != 0
+        assert "KeyError" in result.stderr
 
 
 class TestServerSpecificConstants:

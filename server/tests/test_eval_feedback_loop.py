@@ -13,6 +13,7 @@ B103 测试: 用户反馈 → Eval Task 自动转换
 import json
 import os
 import pytest
+from contextlib import ExitStack
 from unittest.mock import patch, AsyncMock, MagicMock
 
 from fastapi.testclient import TestClient
@@ -490,45 +491,36 @@ class TestCandidateAPIHappy:
     def test_list_returns_200(self, client, auth_headers):
         mock_db = MagicMock()
         mock_db.list_task_candidates = AsyncMock(return_value=[])
-        patches = _apply_auth_and_db(mock_db)
-        started = [p.start() for p in patches]
-        try:
+        with ExitStack() as stack:
+            for p in _apply_auth_and_db(mock_db):
+                stack.enter_context(p)
             response = client.get("/api/eval/candidates", headers=auth_headers)
             assert response.status_code == 200
             assert response.json() == []
-        finally:
-            for p in reversed(started):
-                p.stop()
 
     def test_approve_nonexistent_returns_404(self, client, auth_headers):
         mock_db = MagicMock()
         mock_db.get_task_candidate = AsyncMock(return_value=None)
-        patches = _apply_auth_and_db(mock_db)
-        started = [p.start() for p in patches]
-        try:
+        with ExitStack() as stack:
+            for p in _apply_auth_and_db(mock_db):
+                stack.enter_context(p)
             response = client.post(
                 "/api/eval/candidates/nonexistent/approve",
                 headers=auth_headers,
             )
             assert response.status_code == 404
-        finally:
-            for p in reversed(started):
-                p.stop()
 
     def test_reject_nonexistent_returns_404(self, client, auth_headers):
         mock_db = MagicMock()
         mock_db.get_task_candidate = AsyncMock(return_value=None)
-        patches = _apply_auth_and_db(mock_db)
-        started = [p.start() for p in patches]
-        try:
+        with ExitStack() as stack:
+            for p in _apply_auth_and_db(mock_db):
+                stack.enter_context(p)
             response = client.post(
                 "/api/eval/candidates/nonexistent/reject",
                 headers=auth_headers,
             )
             assert response.status_code == 404
-        finally:
-            for p in reversed(started):
-                p.stop()
 
     def test_db_error_returns_500(self, client, auth_headers):
         patches = [
@@ -536,10 +528,8 @@ class TestCandidateAPIHappy:
             patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
             patch("app.api.eval_api._ensure_eval_db", new_callable=AsyncMock, side_effect=Exception("db error")),
         ]
-        started = [p.start() for p in patches]
-        try:
+        with ExitStack() as stack:
+            for p in patches:
+                stack.enter_context(p)
             response = client.get("/api/eval/candidates", headers=auth_headers)
             assert response.status_code == 500
-        finally:
-            for p in reversed(started):
-                p.stop()
