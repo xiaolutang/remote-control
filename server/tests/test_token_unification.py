@@ -99,10 +99,12 @@ class TestWSClientRedisUnavailable:
 
     @pytest.mark.asyncio
     async def test_redis_down_with_token_version(self):
-        """携带 token_version + Redis GET 失败 → 4504"""
+        """携带 token_version + Redis GET 失败 → 4503"""
         from fastapi import HTTPException
 
         mock_ws = AsyncMock()
+        mock_ws.scope = {"scheme": "wss"}
+        mock_ws.headers = {}
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "token-with-version"}))
 
         with patch('app.ws.ws_auth.async_verify_token') as mock_verify:
@@ -116,7 +118,7 @@ class TestWSClientRedisUnavailable:
 
         mock_ws.close.assert_called_once()
         call = mock_ws.close.call_args
-        assert call.kwargs.get("code") == 4504 or call[1].get("code") == 4504
+        assert call.kwargs.get("code") == 4503 or call[1].get("code") == 4503
 
     @pytest.mark.asyncio
     async def test_redis_down_without_token_version(self):
@@ -128,6 +130,8 @@ class TestWSClientRedisUnavailable:
             raise asyncio.CancelledError
 
         mock_ws = AsyncMock()
+        mock_ws.scope = {"scheme": "wss"}
+        mock_ws.headers = {}
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "old-token-no-version"}))
         mock_ws.iter_text = MagicMock(return_value=cancelled_iter_text())
 
@@ -166,6 +170,8 @@ class TestWSClientCurrentTokenAccepted:
             raise asyncio.CancelledError
 
         mock_ws = AsyncMock()
+        mock_ws.scope = {"scheme": "wss"}
+        mock_ws.headers = {}
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
         mock_ws.iter_text = MagicMock(return_value=cancelled_iter_text())
 
@@ -300,6 +306,8 @@ class TestWSAgentOldTokenAccepted:
             raise asyncio.CancelledError
 
         mock_ws = AsyncMock()
+        mock_ws.scope = {"scheme": "wss"}
+        mock_ws.headers = {}
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "old-token"}))
         mock_ws.iter_text = MagicMock(return_value=cancelled_iter_text())
 
@@ -475,6 +483,8 @@ class TestDirectKick:
             raise asyncio.CancelledError
 
         mock_ws_b = AsyncMock()
+        mock_ws_b.scope = {"scheme": "wss"}
+        mock_ws_b.headers = {}
         mock_ws_b.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "new-device-token"}))
         mock_ws_b.iter_text = MagicMock(return_value=cancelled_iter_text())
 
@@ -530,6 +540,8 @@ class TestDirectKick:
             raise asyncio.CancelledError
 
         mock_ws_mobile = AsyncMock()
+        mock_ws_mobile.scope = {"scheme": "wss"}
+        mock_ws_mobile.headers = {}
         mock_ws_mobile.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "mobile-token"}))
         mock_ws_mobile.iter_text = MagicMock(return_value=cancelled_iter_text())
 
@@ -587,6 +599,8 @@ class TestDirectKick:
             raise asyncio.CancelledError
 
         mock_ws_b = AsyncMock()
+        mock_ws_b.scope = {"scheme": "wss"}
+        mock_ws_b.headers = {}
         mock_ws_b.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "new-device-token"}))
         mock_ws_b.iter_text = MagicMock(return_value=cancelled_iter_text())
 

@@ -50,6 +50,7 @@ from app.infra.command_validator import (
 from app.services.terminal_agent import (
     AgentDeps,
     AgentResult,
+    AgentRunOutcome,
     CommandSequenceStep,
     execute_command,
     ask_user,
@@ -88,6 +89,24 @@ def _make_agent_result(
         summary=summary,
         steps=steps or [CommandSequenceStep(id="step_1", label="cd", command="cd /project")],
         aliases=aliases or {},
+    )
+
+
+def _make_agent_outcome(
+    summary: str = "entered project",
+    steps: list | None = None,
+    aliases: dict | None = None,
+    input_tokens: int = 100,
+    output_tokens: int = 50,
+) -> AgentRunOutcome:
+    """创建 AgentRunOutcome，包含 AgentResult + token usage 统计。"""
+    return AgentRunOutcome(
+        result=_make_agent_result(summary=summary, steps=steps, aliases=aliases),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        total_tokens=input_tokens + output_tokens,
+        requests=1,
+        model_name="test-model",
     )
 
 
@@ -144,7 +163,7 @@ class TestFullPipelineIntegration:
         assert session.intent == "进入 my-project"
 
         # 2. Mock run_agent 返回成功结果
-        expected_result = _make_agent_result(
+        expected_result = _make_agent_outcome(
             summary="已进入 my-project",
             steps=[
                 CommandSequenceStep(id="s1", label="进入项目", command="cd ~/my-project"),
@@ -175,7 +194,7 @@ class TestFullPipelineIntegration:
             intent="test", device_id="d", user_id="u", session_id="sse-seq",
         )
 
-        expected_result = _make_agent_result(summary="done")
+        expected_result = _make_agent_outcome(summary="done")
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="output"))
 
         with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, return_value=expected_result):
@@ -201,7 +220,7 @@ class TestFullPipelineIntegration:
         )
 
         # 模拟 Agent 需要 ask_user
-        expected_result = _make_agent_result(summary="已选择项目 A")
+        expected_result = _make_agent_outcome(summary="已选择项目 A")
 
         async def _mock_run_agent(**kwargs):
             ask_fn = kwargs.get("ask_user_fn")
@@ -230,7 +249,7 @@ class TestFullPipelineIntegration:
             intent="test", device_id="dev-1", user_id="user-1", session_id="alias-001",
         )
 
-        expected_result = _make_agent_result(
+        expected_result = _make_agent_outcome(
             aliases={"project-a": "/home/user/project-a", "project-b": "/home/user/project-b"},
         )
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="output"))
@@ -261,7 +280,7 @@ class TestFullPipelineIntegration:
 
         async def _capture_run(**kwargs):
             captured_aliases.update(kwargs.get("project_aliases", {}))
-            return _make_agent_result()
+            return _make_agent_outcome()
 
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="output"))
 
@@ -283,7 +302,7 @@ class TestFullPipelineIntegration:
             intent="test", device_id="d", user_id="u", session_id="alias-fail",
         )
 
-        expected_result = _make_agent_result(aliases={"proj": "/path"})
+        expected_result = _make_agent_outcome(aliases={"proj": "/path"})
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="output"))
 
         with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, return_value=expected_result):
@@ -655,7 +674,7 @@ class TestAliasIsolationIntegration:
             intent="进入项目", device_id="dev-1", user_id="alice", session_id="alice-1",
         )
 
-        result_alice = _make_agent_result(aliases={"proj": "/alice/new-proj"})
+        result_alice = _make_agent_outcome(aliases={"proj": "/alice/new-proj"})
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="output"))
 
         with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, return_value=result_alice):
@@ -676,7 +695,7 @@ class TestAliasIsolationIntegration:
         session_a = await manager.create_session(
             intent="test", device_id="device-a", user_id="alice", session_id="dev-a",
         )
-        result_a = _make_agent_result(aliases={"app": "/path/a"})
+        result_a = _make_agent_outcome(aliases={"app": "/path/a"})
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="output"))
 
         with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, return_value=result_a):
@@ -702,7 +721,7 @@ class TestAliasIsolationIntegration:
             "remote-control": "/home/user/remote-control",
             "ai-learn": "/home/user/ai-learn",
         }
-        result = _make_agent_result(aliases=discovered_aliases)
+        result = _make_agent_outcome(aliases=discovered_aliases)
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="output"))
 
         captured_aliases = {}
@@ -737,7 +756,7 @@ class TestAliasIsolationIntegration:
 
         async def _capture_run(**kwargs):
             captured_aliases.update(kwargs.get("project_aliases", {}))
-            return _make_agent_result()
+            return _make_agent_outcome()
 
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="output"))
 
@@ -825,7 +844,7 @@ class TestOutputBoundaryIntegration:
         )
 
         # 创建包含很多 step 的 result
-        large_result = _make_agent_result(
+        large_result = _make_agent_outcome(
             summary="many steps",
             steps=[CommandSequenceStep(id=f"s{i}", label=f"step-{i}", command=f"echo {i}") for i in range(50)],
             aliases={f"alias-{i}": f"/path/{i}" for i in range(20)},

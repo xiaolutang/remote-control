@@ -24,7 +24,7 @@ from app.services.scheduler import (
     _process_task,
     _send_text_to_terminal,
     _next_daily_execute_at,
-    _is_terminal_live,
+    _is_terminal_in_cache,
 )
 
 TEST_DB = "/tmp/test_rc_scheduler.db"
@@ -105,8 +105,45 @@ async def test_send_text_to_terminal_ws_error():
 
 
 # ---------------------------------------------------------------------------
-# _process_task
+# _is_terminal_in_cache
 # ---------------------------------------------------------------------------
+
+def test_terminal_in_cache_live():
+    """缓存中 terminal 存在且 live。"""
+    cache = {"session-1": [{"terminal_id": "t1", "status": "live"}]}
+    assert _is_terminal_in_cache(cache, "session-1", "t1") is True
+
+
+def test_terminal_in_cache_not_live():
+    """缓存中 terminal 存在但非 live。"""
+    cache = {"session-1": [{"terminal_id": "t1", "status": "closed"}]}
+    assert _is_terminal_in_cache(cache, "session-1", "t1") is False
+
+
+def test_terminal_in_cache_not_found():
+    """缓存中 terminal 不存在。"""
+    cache = {"session-1": [{"terminal_id": "t2", "status": "live"}]}
+    assert _is_terminal_in_cache(cache, "session-1", "t1") is False
+
+
+def test_terminal_in_cache_session_missing():
+    """缓存中 session 不存在。"""
+    assert _is_terminal_in_cache({}, "session-1", "t1") is False
+
+
+# ---------------------------------------------------------------------------
+# _process_task（使用 terminal_cache 参数）
+# ---------------------------------------------------------------------------
+
+def _live_cache(session_id: str, terminal_id: str) -> dict:
+    """构造包含 live terminal 的缓存。"""
+    return {session_id: [{"terminal_id": terminal_id, "status": "live"}]}
+
+
+def _dead_cache(session_id: str) -> dict:
+    """构造不包含目标 terminal 的缓存。"""
+    return {session_id: []}
+
 
 @pytest.mark.asyncio
 async def test_process_task_one_time_online(db):
@@ -116,10 +153,10 @@ async def test_process_task_one_time_online(db):
     task_id = task_dict["id"]
 
     task = await db.get_scheduled_task_by_id(task_id)
+    cache = _live_cache("session-1", "t1")
 
-    with patch("app.services.scheduler._is_terminal_live", return_value=True), \
-         patch("app.services.scheduler._send_text_to_terminal", return_value=True):
-        await _process_task(db, task)
+    with patch("app.services.scheduler._send_text_to_terminal", return_value=True):
+        await _process_task(db, task, cache)
 
     updated = await db.get_scheduled_task_by_id(task_id)
     assert updated["status"] == "executed"
@@ -134,10 +171,10 @@ async def test_process_task_one_time_offline(db):
     task_id = task_dict["id"]
 
     task = await db.get_scheduled_task_by_id(task_id)
+    cache = _live_cache("session-1", "t1")
 
-    with patch("app.services.scheduler._is_terminal_live", return_value=True), \
-         patch("app.services.scheduler._send_text_to_terminal", return_value=False):
-        await _process_task(db, task)
+    with patch("app.services.scheduler._send_text_to_terminal", return_value=False):
+        await _process_task(db, task, cache)
 
     updated = await db.get_scheduled_task_by_id(task_id)
     assert updated["status"] == "expired"
@@ -152,10 +189,10 @@ async def test_process_task_daily_online(db):
     task_id = task_dict["id"]
 
     task = await db.get_scheduled_task_by_id(task_id)
+    cache = _live_cache("session-1", "t1")
 
-    with patch("app.services.scheduler._is_terminal_live", return_value=True), \
-         patch("app.services.scheduler._send_text_to_terminal", return_value=True):
-        await _process_task(db, task)
+    with patch("app.services.scheduler._send_text_to_terminal", return_value=True):
+        await _process_task(db, task, cache)
 
     updated = await db.get_scheduled_task_by_id(task_id)
     assert updated["status"] == "pending"
@@ -170,10 +207,10 @@ async def test_process_task_daily_offline(db):
     task_id = task_dict["id"]
 
     task = await db.get_scheduled_task_by_id(task_id)
+    cache = _live_cache("session-1", "t1")
 
-    with patch("app.services.scheduler._is_terminal_live", return_value=True), \
-         patch("app.services.scheduler._send_text_to_terminal", return_value=False):
-        await _process_task(db, task)
+    with patch("app.services.scheduler._send_text_to_terminal", return_value=False):
+        await _process_task(db, task, cache)
 
     updated = await db.get_scheduled_task_by_id(task_id)
     assert updated["status"] == "pending"
@@ -192,9 +229,9 @@ async def test_process_task_one_time_terminal_not_live(db):
     task_id = task_dict["id"]
 
     task = await db.get_scheduled_task_by_id(task_id)
+    cache = _dead_cache("session-1")
 
-    with patch("app.services.scheduler._is_terminal_live", return_value=False):
-        await _process_task(db, task)
+    await _process_task(db, task, cache)
 
     updated = await db.get_scheduled_task_by_id(task_id)
     assert updated["status"] == "expired"
@@ -209,9 +246,9 @@ async def test_process_task_daily_terminal_not_live(db):
     task_id = task_dict["id"]
 
     task = await db.get_scheduled_task_by_id(task_id)
+    cache = _dead_cache("session-1")
 
-    with patch("app.services.scheduler._is_terminal_live", return_value=False):
-        await _process_task(db, task)
+    await _process_task(db, task, cache)
 
     updated = await db.get_scheduled_task_by_id(task_id)
     assert updated["status"] == "pending"
@@ -243,15 +280,21 @@ async def test_poll_once_multiple_due_tasks(db):
     await db.create_scheduled_task("user1", "session-1", "t2", "cmd2", past, "daily")
     await db.create_scheduled_task("user1", "session-2", "t3", "cmd3", past, "once")
 
-    with patch("app.services.scheduler._is_terminal_live", return_value=True), \
+    terminals_data = {
+        "session-1": [
+            {"terminal_id": "t1", "status": "live"},
+            {"terminal_id": "t2", "status": "live"},
+        ],
+        "session-2": [
+            {"terminal_id": "t3", "status": "live"},
+        ],
+    }
+    with patch("app.services.scheduler.list_session_terminals") as mock_list, \
          patch("app.services.scheduler._send_text_to_terminal", return_value=True):
+        mock_list.side_effect = _fake_terminals_factory(terminals_data)
         await _poll_once(db)
 
     # 验证所有任务都被处理了
-    # 一次性任务变为 executed
-    tasks = await db.list_pending_due_scheduled_tasks(datetime.now(timezone.utc).isoformat())
-    # 应该只剩 daily 任务（已更新 execute_at 到次日）
-    # 查所有任务验证状态
     all_tasks_user1 = await db.list_scheduled_tasks_by_user("user1")
     executed_count = sum(1 for t in all_tasks_user1 if t["status"] == "executed")
     pending_count = sum(1 for t in all_tasks_user1 if t["status"] == "pending")
@@ -277,8 +320,12 @@ async def test_poll_once_ws_exception_one_time_expired(db):
     task_dict = await db.create_scheduled_task("user1", "session-1", "t1", "cmd1", past, "once")
     task_id = task_dict["id"]
 
-    with patch("app.services.scheduler._is_terminal_live", return_value=True), \
+    terminals_data = {
+        "session-1": [{"terminal_id": "t1", "status": "live"}],
+    }
+    with patch("app.services.scheduler.list_session_terminals") as mock_list, \
          patch("app.services.scheduler._send_text_to_terminal", return_value=False):
+        mock_list.side_effect = _fake_terminals_factory(terminals_data)
         await _poll_once(db)
 
     task = await db.get_scheduled_task_by_id(task_id)
@@ -292,10 +339,25 @@ async def test_poll_once_ws_exception_daily_skip(db):
     task_dict = await db.create_scheduled_task("user1", "session-1", "t1", "cmd1", execute_at, "daily")
     task_id = task_dict["id"]
 
-    with patch("app.services.scheduler._is_terminal_live", return_value=True), \
+    terminals_data = {
+        "session-1": [{"terminal_id": "t1", "status": "live"}],
+    }
+    with patch("app.services.scheduler.list_session_terminals") as mock_list, \
          patch("app.services.scheduler._send_text_to_terminal", return_value=False):
+        mock_list.side_effect = _fake_terminals_factory(terminals_data)
         await _poll_once(db)
 
     task = await db.get_scheduled_task_by_id(task_id)
     assert task["status"] == "pending"
     assert task["execute_at"] == "2026-05-13T08:00:00+00:00"
+
+
+# ---------------------------------------------------------------------------
+# Helper
+# ---------------------------------------------------------------------------
+
+def _fake_terminals_factory(data: dict):
+    """创建模拟 list_session_terminals 的 AsyncMock side_effect。"""
+    async def _fake_terminals(session_id: str) -> list:
+        return data.get(session_id, [])
+    return _fake_terminals

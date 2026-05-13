@@ -290,12 +290,14 @@ class TestTerminalBoundAgentApi:
         from app.services.agent_session_manager import AgentSessionManager
 
         manager = AgentSessionManager()
+        # session_id 必须匹配 generate_terminal_session_id("term-1") = "ts-term-1"
+        expected_session_id = "ts-term-1"
         append_event = AsyncMock(
             return_value={
                 "event_index": 0,
                 "event_type": "user_intent",
                 "client_event_id": "client-run-1",
-                "session_id": "agent-session-1",
+                "session_id": expected_session_id,
             }
         )
 
@@ -317,17 +319,17 @@ class TestTerminalBoundAgentApi:
                                                 "intent": "进入 remote-control",
                                                 "conversation_id": "client-local-conv",
                                                 "client_event_id": "client-run-1",
-                                                "session_id": "agent-session-1",
+                                                "session_id": expected_session_id,
                                             },
                                         )
 
-        assert response.status_code == 200
+        assert response.status_code == 200, f"Unexpected {response.status_code}: {response.text[:200]}"
         assert "event: session_created" in response.text
         assert '"conversation_id": "conv-1"' in response.text
         append_event.assert_awaited_once()
         assert append_event.await_args.kwargs["event_type"] == "user_intent"
         assert append_event.await_args.kwargs["client_event_id"] == "client-run-1"
-        assert append_event.await_args.kwargs["session_id"] == "agent-session-1"
+        assert append_event.await_args.kwargs["session_id"] == expected_session_id
 
     def test_terminal_agent_run_filters_builtin_from_dynamic_tools(self):
         """回归测试：runtime_api 只传递 kind=dynamic 工具给 start_agent。
@@ -344,7 +346,7 @@ class TestTerminalBoundAgentApi:
                 "event_index": 0,
                 "event_type": "user_intent",
                 "client_event_id": "client-filter-1",
-                "session_id": "agent-filter-1",
+                "session_id": "ts-term-1",
             }
         )
 
@@ -381,7 +383,7 @@ class TestTerminalBoundAgentApi:
                                                     "intent": "test dynamic tools filter",
                                                     "conversation_id": "conv-filter",
                                                     "client_event_id": "client-filter-1",
-                                                    "session_id": "agent-filter-1",
+                                                    "session_id": "ts-term-1",
                                                 },
                                             )
 
@@ -406,7 +408,7 @@ class TestTerminalBoundAgentApi:
                 "event_index": 0,
                 "event_type": "user_intent",
                 "client_event_id": "client-lk-1",
-                "session_id": "agent-lk-1",
+                "session_id": "ts-term-1",
             }
         )
 
@@ -437,7 +439,7 @@ class TestTerminalBoundAgentApi:
                                                     "intent": "test no lookup_knowledge",
                                                     "conversation_id": "conv-lk",
                                                     "client_event_id": "client-lk-1",
-                                                    "session_id": "agent-lk-1",
+                                                    "session_id": "ts-term-1",
                                                 },
                                             )
 
@@ -456,7 +458,7 @@ class TestTerminalBoundAgentApi:
                 "event_index": 0,
                 "event_type": "user_intent",
                 "client_event_id": "client-lk-2",
-                "session_id": "agent-lk-2",
+                "session_id": "ts-term-1",
             }
         )
 
@@ -489,7 +491,7 @@ class TestTerminalBoundAgentApi:
                                                     "intent": "test with lookup_knowledge",
                                                     "conversation_id": "conv-lk2",
                                                     "client_event_id": "client-lk-2",
-                                                    "session_id": "agent-lk-2",
+                                                    "session_id": "ts-term-1",
                                                 },
                                             )
 
@@ -506,7 +508,7 @@ class TestTerminalBoundAgentApi:
                 "进入 remote-control",
                 "mbp-01",
                 "user1",
-                session_id="agent-session-1",
+                session_id="ts-term-1",
                 terminal_id="term-1",
                 conversation_id="conv-1",
             )
@@ -515,7 +517,7 @@ class TestTerminalBoundAgentApi:
             "event_index": 0,
             "event_type": "user_intent",
             "client_event_id": "client-run-1",
-            "session_id": "agent-session-1",
+            "session_id": "ts-term-1",
         }
 
         async def _start_agent(agent_session, execute_cmd_fn):
@@ -541,7 +543,7 @@ class TestTerminalBoundAgentApi:
                                     )
 
         assert response.status_code == 200
-        assert '"session_id": "agent-session-1"' in response.text
+        assert '"session_id": "ts-term-1"' in response.text
 
     def test_terminal_agent_run_returns_409_when_device_offline(self):
         offline_session = {
@@ -554,7 +556,7 @@ class TestTerminalBoundAgentApi:
                 "event_index": 0,
                 "event_type": "user_intent",
                 "client_event_id": "client-run-offline",
-                "session_id": "agent-session-offline",
+                "session_id": "ts-term-1",
             }
         )
 
@@ -569,7 +571,7 @@ class TestTerminalBoundAgentApi:
                                 json={
                                     "intent": "进入 remote-control",
                                     "client_event_id": "client-run-offline",
-                                    "session_id": "agent-session-offline",
+                                    "session_id": "ts-term-1",
                                 },
                             )
 
@@ -585,7 +587,7 @@ class TestTerminalBoundAgentApi:
                 "进入 remote-control",
                 "mbp-01",
                 "user1",
-                session_id="agent-session-1",
+                session_id="ts-term-1",
                 terminal_id="term-1",
                 conversation_id="conv-1",
             )
@@ -601,7 +603,7 @@ class TestTerminalBoundAgentApi:
                 "event_type": "answer",
                 "question_id": "q-1",
                 "client_event_id": "answer-1",
-                "session_id": "agent-session-1",
+                "session_id": "ts-term-1",
             }
         )
 
@@ -611,7 +613,7 @@ class TestTerminalBoundAgentApi:
                     with patch("app.api._deps.append_agent_conversation_event", new=append_event):
                         with patch("app.api._deps.get_agent_session_manager", return_value=manager):
                             response = self.client.post(
-                                "/api/runtime/devices/mbp-01/terminals/term-1/assistant/agent/agent-session-1/respond",
+                                "/api/runtime/devices/mbp-01/terminals/term-1/assistant/agent/ts-term-1/respond",
                                 headers=self.headers,
                                 json={
                                     "answer": "remote-control",
@@ -637,7 +639,7 @@ class TestTerminalBoundAgentApi:
                 "进入 remote-control",
                 "mbp-01",
                 "user1",
-                session_id="agent-session-1",
+                session_id="ts-term-1",
                 terminal_id="term-1",
                 conversation_id="conv-1",
             )
@@ -648,7 +650,7 @@ class TestTerminalBoundAgentApi:
             "event_type": "answer",
             "question_id": "q-1",
             "client_event_id": "answer-1",
-            "session_id": "agent-session-1",
+            "session_id": "ts-term-1",
         }
 
         with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
@@ -657,7 +659,7 @@ class TestTerminalBoundAgentApi:
                     with patch("app.api._deps.list_agent_conversation_events", new=AsyncMock(return_value=[existing_event])):
                         with patch("app.api._deps.get_agent_session_manager", return_value=manager):
                             response = self.client.post(
-                                "/api/runtime/devices/mbp-01/terminals/term-1/assistant/agent/agent-session-1/respond",
+                                "/api/runtime/devices/mbp-01/terminals/term-1/assistant/agent/ts-term-1/respond",
                                 headers=self.headers,
                                 json={
                                     "answer": "remote-control",
@@ -679,7 +681,7 @@ class TestTerminalBoundAgentApi:
                 "进入 remote-control",
                 "mbp-01",
                 "user1",
-                session_id="agent-session-1",
+                session_id="ts-term-1",
                 terminal_id="term-1",
                 conversation_id="conv-1",
             )
@@ -698,7 +700,7 @@ class TestTerminalBoundAgentApi:
                     ):
                         with patch("app.api._deps.get_agent_session_manager", return_value=manager):
                             response = self.client.post(
-                                "/api/runtime/devices/mbp-01/terminals/term-1/assistant/agent/agent-session-1/respond",
+                                "/api/runtime/devices/mbp-01/terminals/term-1/assistant/agent/ts-term-1/respond",
                                 headers=self.headers,
                                 json={
                                     "answer": "ai_rules",
@@ -719,7 +721,7 @@ class TestTerminalBoundAgentApi:
                 "进入 remote-control",
                 "mbp-01",
                 "user1",
-                session_id="agent-session-1",
+                session_id="ts-term-1",
                 terminal_id="term-1",
                 conversation_id="conv-1",
             )
@@ -736,7 +738,7 @@ class TestTerminalBoundAgentApi:
                 with patch("app.api._deps.get_or_create_agent_conversation", new=AsyncMock(return_value=wrong_conversation)):
                     with patch("app.api._deps.get_agent_session_manager", return_value=manager):
                         response = self.client.get(
-                            "/api/runtime/devices/mbp-01/terminals/term-2/assistant/agent/agent-session-1/resume",
+                            "/api/runtime/devices/mbp-01/terminals/term-2/assistant/agent/ts-term-1/resume",
                             headers=self.headers,
                         )
 
@@ -761,7 +763,7 @@ class TestTerminalBoundAgentApi:
                 "进入 remote-control",
                 "mbp-01",
                 "user1",
-                session_id="agent-session-1",
+                session_id="ts-term-1",
                 terminal_id="term-1",
                 conversation_id="conv-1",
             )
@@ -772,7 +774,7 @@ class TestTerminalBoundAgentApi:
                 "event_id": "evt-0",
                 "event_type": "user_intent",
                 "role": "user",
-                "session_id": "agent-session-1",
+                "session_id": "ts-term-1",
                 "question_id": None,
                 "client_event_id": "client-run-1",
                 "payload": {"text": "进入 remote-control"},
@@ -783,7 +785,7 @@ class TestTerminalBoundAgentApi:
                 "event_id": "evt-1",
                 "event_type": "question",
                 "role": "assistant",
-                "session_id": "agent-session-1",
+                "session_id": "ts-term-1",
                 "question_id": "q-1",
                 "client_event_id": None,
                 "payload": {"question": "选择项目"},
@@ -847,7 +849,7 @@ class TestTerminalBoundAgentApi:
                 "event_id": "evt-2",
                 "event_type": "answer",
                 "role": "user",
-                "session_id": "agent-session-1",
+                "session_id": "ts-term-1",
                 "question_id": "q-1",
                 "client_event_id": "answer-1",
                 "payload": {"text": "remote-control"},
@@ -884,7 +886,7 @@ class TestTerminalBoundAgentApi:
                 "event_id": "evt-0",
                 "event_type": "question",
                 "role": "assistant",
-                "session_id": "agent-session-old",
+                "session_id": "ts-term-1",
                 "question_id": "q-1",
                 "client_event_id": None,
                 "payload": {"question": "选择项目", "options": ["remote-control"]},
@@ -895,7 +897,7 @@ class TestTerminalBoundAgentApi:
                 "event_id": "evt-1",
                 "event_type": "answer",
                 "role": "user",
-                "session_id": "agent-session-old",
+                "session_id": "ts-term-1",
                 "question_id": "q-1",
                 "client_event_id": "answer-1",
                 "payload": {"text": "remote-control"},
@@ -907,7 +909,7 @@ class TestTerminalBoundAgentApi:
                 "event_index": 2,
                 "event_type": "user_intent",
                 "client_event_id": "client-run-2",
-                "session_id": "agent-session-2",
+                "session_id": "ts-term-1",
             }
         )
         outcome = AgentRunOutcome(
@@ -934,7 +936,7 @@ class TestTerminalBoundAgentApi:
                                                     json={
                                                         "intent": "进入这个项目",
                                                         "client_event_id": "client-run-2",
-                                                        "session_id": "agent-session-2",
+                                                        "session_id": "ts-term-1",
                                                     },
                                                 )
 
@@ -954,7 +956,7 @@ class TestTerminalBoundAgentApi:
                 "event_id": "evt-20",
                 "event_type": "question",
                 "role": "assistant",
-                "session_id": "agent-session-old-2",
+                "session_id": "ts-term-1",
                 "question_id": "q-2",
                 "client_event_id": None,
                 "payload": {"question": "选择项目", "options": ["personal-growth-assistant"]},
@@ -965,7 +967,7 @@ class TestTerminalBoundAgentApi:
                 "event_id": "evt-21",
                 "event_type": "answer",
                 "role": "user",
-                "session_id": "agent-session-old-2",
+                "session_id": "ts-term-1",
                 "question_id": "q-2",
                 "client_event_id": "answer-2",
                 "payload": {"text": "personal-growth-assistant"},
@@ -977,7 +979,7 @@ class TestTerminalBoundAgentApi:
                 "event_index": 2,
                 "event_type": "user_intent",
                 "client_event_id": "client-run-term-2",
-                "session_id": "agent-session-2",
+                "session_id": "ts-term-2",
             }
         )
         outcome = AgentRunOutcome(
@@ -1010,7 +1012,7 @@ class TestTerminalBoundAgentApi:
                                                     json={
                                                         "intent": "进入这个项目",
                                                         "client_event_id": "client-run-term-2",
-                                                        "session_id": "agent-session-2",
+                                                        "session_id": "ts-term-2",
                                                     },
                                                 )
 
@@ -1039,7 +1041,7 @@ class TestTerminalBoundAgentApi:
                 "进入 remote-control",
                 "mbp-01",
                 "user1",
-                session_id="agent-session-1",
+                session_id="ts-term-1",
                 terminal_id="term-1",
                 conversation_id="conv-1",
             )
@@ -1064,14 +1066,15 @@ class TestTerminalBoundAgentApi:
                         with patch("app.api._deps.close_agent_conversation", new=AsyncMock(return_value=closed_event)) as close_conversation:
                             with patch("app.api._deps.get_agent_session_manager", return_value=manager):
                                 with patch("app.api._deps.append_agent_conversation_event", new=AsyncMock()):
-                                    with patch(
-                                        "app.api._deps.update_session_terminal_status",
-                                        new=AsyncMock(return_value={**terminal, "status": "closed", "disconnect_reason": "user_request"}),
-                                    ):
-                                        response = self.client.delete(
-                                            "/api/runtime/devices/mbp-01/terminals/term-1",
-                                            headers=self.headers,
-                                        )
+                                    with patch("app.api._deps.cancel_scheduled_tasks_by_terminal", new=AsyncMock(return_value=0)):
+                                        with patch(
+                                            "app.api._deps.update_session_terminal_status",
+                                            new=AsyncMock(return_value={**terminal, "status": "closed", "disconnect_reason": "user_request"}),
+                                        ):
+                                            response = self.client.delete(
+                                                "/api/runtime/devices/mbp-01/terminals/term-1",
+                                                headers=self.headers,
+                                            )
 
         assert response.status_code == 200
         close_conversation.assert_awaited_once()
@@ -2523,15 +2526,15 @@ class TestRuntimeDeviceApi:
         with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
             with patch("app.api._deps.get_session_terminal", new=AsyncMock(return_value=terminal)):
                 with patch("app.api._deps.request_agent_close_terminal_with_ack", new=AsyncMock()):
-                    with patch(
-                        "app.api._deps.update_session_terminal_status",
-                        new=AsyncMock(return_value={**terminal, "status": "closed", "disconnect_reason": "server_forced_close"}),
-                    ):
-                        response = self.client.delete(
-                            "/api/runtime/devices/mbp-01/terminals/term-1",
-                            headers=self.headers,
-                        )
-
+                    with patch("app.api._deps.cancel_scheduled_tasks_by_terminal", new=AsyncMock(return_value=0)):
+                        with patch(
+                            "app.api._deps.update_session_terminal_status",
+                            new=AsyncMock(return_value={**terminal, "status": "closed", "disconnect_reason": "server_forced_close"}),
+                        ):
+                            response = self.client.delete(
+                                "/api/runtime/devices/mbp-01/terminals/term-1",
+                                headers=self.headers,
+                            )
         assert response.status_code == 200
         data = response.json()
         assert data["terminal_id"] == "term-1"
@@ -2586,14 +2589,15 @@ class TestRuntimeDeviceApi:
         with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=session)):
             with patch("app.api._deps.get_session_terminal", new=AsyncMock(return_value=terminal)):
                 with patch("app.api._deps.request_agent_close_terminal_with_ack", new=AsyncMock()) as request_close:
-                    with patch(
-                        "app.api._deps.update_session_terminal_status",
-                        new=AsyncMock(return_value={**terminal, "status": "closed", "disconnect_reason": "server_forced_close"}),
-                    ):
-                        response = self.client.delete(
-                            "/api/runtime/devices/mbp-01/terminals/term-1",
-                            headers=self.headers,
-                        )
+                    with patch("app.api._deps.cancel_scheduled_tasks_by_terminal", new=AsyncMock(return_value=0)):
+                        with patch(
+                            "app.api._deps.update_session_terminal_status",
+                            new=AsyncMock(return_value={**terminal, "status": "closed", "disconnect_reason": "server_forced_close"}),
+                        ):
+                            response = self.client.delete(
+                                "/api/runtime/devices/mbp-01/terminals/term-1",
+                                headers=self.headers,
+                            )
 
         assert response.status_code == 200
         request_close.assert_awaited_once()
@@ -2621,14 +2625,15 @@ class TestRuntimeDeviceApi:
             with patch("app.api._deps.get_session_terminal", new=AsyncMock(return_value=terminal)):
                 with patch("app.api._deps.get_view_counts", return_value={"mobile": 0, "desktop": 0}):
                     with patch("app.api._deps.request_agent_close_terminal_with_ack", new=AsyncMock()):
-                        with patch(
-                            "app.api._deps.update_session_terminal_status",
-                            new=AsyncMock(return_value={**terminal, "status": "closed", "disconnect_reason": "server_forced_close"}),
-                        ):
-                            response = self.client.delete(
-                                "/api/runtime/devices/mbp-01/terminals/term-1",
-                                headers=self.headers,
-                            )
+                        with patch("app.api._deps.cancel_scheduled_tasks_by_terminal", new=AsyncMock(return_value=0)):
+                            with patch(
+                                "app.api._deps.update_session_terminal_status",
+                                new=AsyncMock(return_value={**terminal, "status": "closed", "disconnect_reason": "server_forced_close"}),
+                            ):
+                                response = self.client.delete(
+                                    "/api/runtime/devices/mbp-01/terminals/term-1",
+                                    headers=self.headers,
+                                )
 
         assert response.status_code == 200
         assert response.json()["status"] == "closed"

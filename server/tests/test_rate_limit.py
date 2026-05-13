@@ -44,6 +44,7 @@ class TestRateLimitLogin:
              patch("app.api.user_api.increment_token_version", new=AsyncMock(return_value=1)), \
              patch("app.api.user_api.generate_refresh_token", return_value="rt"), \
              patch("app.store.refresh_token_store.store_refresh_token", new=AsyncMock()), \
+             patch("app.api.user_api.cleanup_user_sessions", new=AsyncMock(return_value=0)), \
              patch("app.infra.rate_limit._get_rate_limit_redis") as mock_redis:
             # 模拟 Redis 返回递增计数
             redis = AsyncMock()
@@ -72,6 +73,7 @@ class TestRateLimitLogin:
              patch("app.api.user_api.increment_token_version", new=AsyncMock(return_value=1)), \
              patch("app.api.user_api.generate_refresh_token", return_value="rt"), \
              patch("app.store.refresh_token_store.store_refresh_token", new=AsyncMock()), \
+             patch("app.api.user_api.cleanup_user_sessions", new=AsyncMock(return_value=0)), \
              patch("app.infra.rate_limit._get_rate_limit_redis") as mock_redis:
             redis = AsyncMock()
             redis.incr = AsyncMock(side_effect=[1, 2, 3, 4])
@@ -105,6 +107,7 @@ class TestRateLimitLogin:
              patch("app.api.user_api.increment_token_version", new=AsyncMock(return_value=1)), \
              patch("app.api.user_api.generate_refresh_token", return_value="rt"), \
              patch("app.store.refresh_token_store.store_refresh_token", new=AsyncMock()), \
+             patch("app.api.user_api.cleanup_user_sessions", new=AsyncMock(return_value=0)), \
              patch("app.infra.rate_limit._get_rate_limit_redis", side_effect=Exception("Redis down")):
             # Redis 挂了，不应返回 429
             resp = client.post("/api/login", json={"username": "testuser", "password": "pass"})

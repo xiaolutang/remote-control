@@ -29,6 +29,7 @@ from app.store.session import (
 def _make_mock_redis():
     """构造一个行为类似真实 Redis 的 mock（dict 后端）"""
     store: dict[str, str] = {}
+    sets: dict[str, set] = {}  # Redis SET 数据结构
 
     async def mock_get(key):
         return store.get(key)
@@ -37,7 +38,7 @@ def _make_mock_redis():
         store[key] = value
 
     async def mock_exists(key):
-        return key in store
+        return key in store or key in sets
 
     async def mock_scan(cursor, match=None, count=100):
         if cursor != 0:
@@ -50,11 +51,50 @@ def _make_mock_redis():
             keys = list(store.keys())
         return 0, keys
 
+    async def mock_sadd(key, *members):
+        if key not in sets:
+            sets[key] = set()
+        sets[key].update(members)
+        return len(members)
+
+    async def mock_smembers(key):
+        return sets.get(key, set())
+
+    async def mock_srem(key, *members):
+        if key in sets:
+            sets[key] -= set(members)
+            return len(members)
+        return 0
+
+    class _MockPipeline:
+        """轻量 pipeline mock：记录命令后批量执行。"""
+        def __init__(self):
+            self._cmds = []
+
+        def get(self, key):
+            self._cmds.append(("get", key))
+
+        async def execute(self):
+            results = []
+            for cmd, *args in self._cmds:
+                if cmd == "get":
+                    results.append(store.get(args[0]))
+                else:
+                    results.append(None)
+            return results
+
+    def mock_pipeline(transaction=False):
+        return _MockPipeline()
+
     mock = AsyncMock()
     mock.get = mock_get
     mock.set = mock_set
     mock.exists = mock_exists
     mock.scan = mock_scan
+    mock.sadd = mock_sadd
+    mock.smembers = mock_smembers
+    mock.srem = mock_srem
+    mock.pipeline = mock_pipeline
     return mock, store
 
 
@@ -211,8 +251,8 @@ class TestAgentCreationIntegration:
         redis_data = json.loads(
             (await mock_redis[0].get(f"rc:session:{session_id}"))
         )
-        assert redis_data["agent_online"] is True, (
-            "Agent 进入 stale 后 Redis agent_online 仍为 True"
+        assert redis_data["agent_online"] is False, (
+            "Agent 进入 stale 后 agent_online 已被设为 False（offline_recoverable）"
         )
 
         # 清理
@@ -291,7 +331,7 @@ class TestAgentCreationIntegration:
         await _cleanup_agent(session_id, "network_lost")
         session_data = await get_session(session_id)
         assert _device_online({"session_id": session_id, **session_data}) is False
-        assert session_data["agent_online"] is True  # stale, not yet offline
+        assert session_data["agent_online"] is False  # offline_recoverable: agent_online=False
 
         # Step 4: Stale TTL 过期 → offline
         await _expire_stale_agent(session_id)
@@ -435,7 +475,7 @@ class TestAgentCreationEscapeAnalysis:
 
         # Stale 期间：_device_online 返回 False
         session = await get_session(session_id)
-        assert session["agent_online"] is True  # Redis 仍为 True
+        assert session["agent_online"] is False  # offline_recoverable: agent_online=False
         assert _device_online({"session_id": session_id, **session}) is False  # 但 API 返回 False
 
         stale_agents.clear()
