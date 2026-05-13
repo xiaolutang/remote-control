@@ -1,0 +1,428 @@
+{
+  "version": "1.4",
+  "project": "remote-control",
+  "updated_at": "2026-05-12T00:00:00+08:00",
+  "status": "active",
+  "workflow": {
+    "name": "scheduled-terminal-tasks",
+    "mode": "B",
+    "runtime": "skill_orchestrated",
+    "review_provider": "codex_plugin",
+    "audit_provider": "codex_plugin",
+    "risk_provider": "codex_plugin",
+    "stop_hook_enabled": false
+  },
+  "active_requirement_cycle": {
+    "id": "R062",
+    "name": "scheduled-terminal-tasks",
+    "branch": "feat/R062-scheduled-terminal-tasks",
+    "status": "active"
+  },
+  "archived_requirement_cycles": [
+    {
+      "id": "R047",
+      "name": "agent-conversation-interaction-optimization",
+      "status": "completed",
+      "archive_dir": "_archive/R047_agent-conversation-interaction-optimization",
+      "total_tasks": 31
+    },
+    {
+      "id": "R048",
+      "name": "architecture-deep-cleanup",
+      "status": "completed",
+      "archive_dir": "_archive/R048_architecture-deep-cleanup",
+      "total_tasks": 20
+    },
+    {
+      "id": "R049",
+      "name": "brainstorm-bug-fixes",
+      "status": "completed",
+      "archive_dir": "_archive/R049_brainstorm-bug-fixes",
+      "total_tasks": 3
+    },
+    {
+      "id": "R050",
+      "name": "token-usage-optimization",
+      "status": "completed",
+      "archive_dir": "_archive/R050_token-usage-optimization",
+      "total_tasks": 3
+    },
+    {
+      "id": "R051",
+      "name": "eval-architecture-overhaul",
+      "status": "completed",
+      "archive_dir": "_archive/R051_eval-architecture-overhaul",
+      "total_tasks": 11
+    },
+    {
+      "id": "R052",
+      "name": "open-source-release",
+      "status": "completed",
+      "archive_dir": "_archive/R052_open-source-release",
+      "total_tasks": 5
+    },
+    {
+      "id": "R053",
+      "name": "desktop-agent-bundling",
+      "status": "completed",
+      "archive_dir": "_archive/R053_desktop-agent-bundling",
+      "total_tasks": 3
+    },
+    {
+      "id": "R054",
+      "name": "code-quality-consolidation",
+      "status": "completed",
+      "archive_dir": "_archive/R054_code-quality-consolidation",
+      "total_tasks": 11,
+      "completed_at": "2026-05-06"
+    },
+    {
+      "id": "R056",
+      "name": "auth-connection-optimize",
+      "status": "completed",
+      "archive_dir": "_archive/R056_auth-connection-optimize",
+      "total_tasks": 2,
+      "completed_at": "2026-05-07"
+    },
+    {
+      "id": "R057",
+      "name": "tech-debt-cleanup",
+      "status": "completed",
+      "archive_dir": "_archive/R057_tech-debt-cleanup",
+      "total_tasks": 23,
+      "completed_at": "2026-05-09"
+    },
+    {
+      "id": "R058",
+      "name": "code-optimization-perf",
+      "status": "completed",
+      "archive_dir": "_archive/R058_code-optimization-perf",
+      "total_tasks": 23,
+      "completed_at": "2026-05-09"
+    },
+    {
+      "id": "R059",
+      "name": "terminal-tab-bar-ux",
+      "status": "completed",
+      "archive_dir": "_archive/R059_terminal-tab-bar-ux",
+      "total_tasks": 10,
+      "completed_at": "2026-05-11"
+    },
+    {
+      "id": "R060",
+      "name": "terminal-navigation-redesign",
+      "status": "completed",
+      "archive_dir": "_archive/R060_terminal-navigation-redesign",
+      "total_tasks": 5,
+      "completed_at": "2026-05-11"
+    },
+    {
+      "id": "R061",
+      "name": "client-code-convergence",
+      "status": "completed",
+      "archive_dir": "_archive/R061_client-code-convergence",
+      "total_tasks": 16,
+      "completed_at": "2026-05-12"
+    }
+  ],
+  "archived_phases": [],
+  "features": [
+    {
+      "id": "S001",
+      "phase": 1,
+      "module": "shared",
+      "name": "定时任务数据模型与 API 契约",
+      "description": "定义 ScheduledTask 数据模型和 REST API 契约。包括：任务 ID、目标 session_id/terminal_id、文本内容、执行时间（ISO 带时区）、重复类型（once/daily）、状态（pending/executed/expired）、创建时间。Pydantic schema 定义创建/列表/删除请求和响应。不包含 cron_expr 和 cancelled 状态。",
+      "verification": "L1",
+      "depends_on": [],
+      "status": "completed",
+      "priority": 1,
+      "acceptance_criteria": [
+        "Pydantic schemas 定义完整（CreateRequest/Response/ListResponse/DeleteResponse）",
+        "API 契约写入 api_contracts.md",
+        "schema 可被 server 和 test import 无报错"
+      ],
+      "risk_tags": [],
+      "files": [
+        "server/app/api/schemas.py"
+      ],
+      "commit": "5593ba2",
+      "evidence_file": ".dev-flow/evidence/S001.md",
+      "completed_at": "2026-05-12T20:00:00+08:00"
+    },
+    {
+      "id": "B001",
+      "phase": 1,
+      "module": "server",
+      "name": "SQLite 定时任务表 + CRUD store",
+      "description": "在 _schema.py 新增 scheduled_tasks 表（id, user_id, session_id, terminal_id, text_content, execute_at, repeat_type, status, created_at, executed_at）。实现 store/scheduled_task.py 的 CRUD 函数（create/list/get/update_status/delete）。不包含 cron_expr（不做 cron）和 cancelled 状态（用户直接删除）。",
+      "verification": "L1",
+      "depends_on": ["S001"],
+      "status": "completed",
+      "priority": 1,
+      "acceptance_criteria": [
+        "scheduled_tasks 表在 Database.init_db() 时自动创建",
+        "create/list_by_user/list_by_session/get_by_id/update_status/delete 6 个函数实现",
+        "unit test 覆盖 CRUD 操作（正常 + 边界：空列表、不存在的 ID）"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        "创建任务 → 查询验证字段完整",
+        "按 user_id 查询 → 返回该用户所有任务",
+        "按 session_id 查询 → 返回该 session 所有任务",
+        "更新状态 pending→executed → 验证状态和时间戳",
+        "删除任务 → 再查询返回 None"
+      ],
+      "files": [
+        "server/app/store/_schema.py",
+        "server/app/store/scheduled_task.py"
+      ],
+      "commit": "c9b94b1",
+      "evidence_file": ".dev-flow/evidence/B001.md",
+      "completed_at": "2026-05-12T20:00:00+08:00"
+    },
+    {
+      "id": "B002",
+      "phase": 1,
+      "module": "server",
+      "name": "定时任务 REST API",
+      "description": "新增 /api/scheduled-tasks 路由组。POST 创建、GET 列表（支持 ?session_id= 过滤）、DELETE /{task_id} 删除。创建时验证目标 session 归属当前用户（复用 verify_session_ownership）、terminal 存在且 Agent 在线。所有路由通过 async_verify_token 鉴权。",
+      "verification": "L2",
+      "depends_on": ["B001"],
+      "status": "completed",
+      "priority": 1,
+      "acceptance_criteria": [
+        "POST /api/scheduled-tasks 创建任务，返回 201 + task_id",
+        "POST 验证 session 归属当前用户（verify_session_ownership），非本人 session 返回 403",
+        "GET /api/scheduled-tasks 返回当前用户的任务列表，支持 session_id 和 status 过滤",
+        "DELETE /api/scheduled-tasks/{id} 删除任务",
+        "创建时验证 session 和 terminal 存在，不存在返回 404",
+        "创建时验证 terminal 在线（与 Agent 在线统一检查），不在线返回 409",
+        "创建时 Agent 不在线返回 409",
+        "未鉴权返回 401",
+        "过去时间的 execute_at 被拒绝（400）",
+        "pytest 覆盖所有 API 端点"
+      ],
+      "risk_tags": ["network", "auth"],
+      "test_tasks": [
+        "创建任务成功路径：mock Agent 在线 → 201",
+        "创建任务 Agent 离线：mock Agent 离线 → 409",
+        "创建任务 session 不存在 → 404",
+        "创建任务 terminal 不存在 → 404",
+        "创建任务非本人 session_id → 403",
+        "创建任务 execute_at 在过去 → 400",
+        "列表过滤：按 session_id 过滤，验证只返回匹配任务",
+        "列表过滤：按 status=pending 过滤",
+        "列表过滤：session_id + status 组合过滤",
+        "删除任务成功 → 204",
+        "删除他人任务 → 403",
+        "未鉴权 → 401",
+        "一次性任务 execute_at 为必填",
+        "每日重复任务 repeat_type=daily"
+      ],
+      "files": [
+        "server/app/api/scheduled_task_api.py",
+        "server/app/api/routes.py"
+      ],
+      "commit": "c1cf64a",
+      "evidence_file": ".dev-flow/evidence/B002.md",
+      "completed_at": "2026-05-12T20:00:00+08:00"
+    },
+    {
+      "id": "B003",
+      "phase": 2,
+      "module": "server",
+      "name": "定时调度器 — 到点发送终端输入",
+      "description": "在 FastAPI lifespan 中通过 asyncio.create_task 启动后台轮询协程。每 30 秒轮询 scheduled_tasks 表中 status=pending 且 execute_at <= now 的任务（一次性 + 每日统一处理）。找到后：查找目标 session 的 Agent WS 连接，通过现有 DATA 消息通道发送 text_content 到目标 terminal。发送成功标记 status=executed。Agent 不在线时：一次性任务标记 expired，每日任务跳过本轮（保持 pending，execute_at 推到次日）。每日重复任务执行后计算下次 execute_at（次日同 time-of-day + timezone）并更新。不引入 APScheduler 依赖，复用现有 asyncio.create_task 模式。",
+      "verification": "L2",
+      "depends_on": ["B002"],
+      "status": "completed",
+      "priority": 2,
+      "acceptance_criteria": [
+        "后台轮询协程在 lifespan 启动时通过 asyncio.create_task 初始化",
+        "到点任务通过 Agent WS DATA 消息发送到目标 terminal",
+        "一次性任务执行后状态变 executed",
+        "每日重复任务执行后保持 pending 状态，仅更新 execute_at（次日同 time-of-day + timezone）",
+        "Agent 不在线时：一次性标记 expired，每日跳过本轮（保持 pending + 推 execute_at 到次日）",
+        "目标 terminal 不存在或已关闭时：一次性标记 expired，每日跳过本轮",
+        "不引入新依赖（无 APScheduler），复用现有 asyncio 模式",
+        "unit test 覆盖调度逻辑"
+      ],
+      "risk_tags": ["network", "startup"],
+      "test_tasks": [
+        "到点 + Agent 在线 + 一次性 → 发送 DATA 消息 + 状态变 executed",
+        "到点 + Agent 在线 + 每日 → 发送 DATA 消息 + 保持 pending + execute_at 更新为次日",
+        "到点 + Agent 离线 + 一次性 → 状态变 expired",
+        "到点 + Agent 离线 + 每日 → 保持 pending + execute_at 推到次日",
+        "到点 + terminal 已关闭/不存在 + 一次性 → 状态变 expired",
+        "到点 + terminal 已关闭/不存在 + 每日 → 保持 pending + execute_at 推到次日",
+        "每日重复 → 执行后 execute_at 更新为次日同 time-of-day",
+        "多任务同时到点 → 全部执行",
+        "启动时无 pending 任务 → 无操作",
+        "轮询协程在 lifespan 中正确启动和关闭",
+        "WS 发送异常 → 一次性标记 expired，每日跳过本轮"
+      ],
+      "smoke_required": true,
+      "files": [
+        "server/app/services/scheduler.py",
+        "server/app/__init__.py"
+      ],
+      "commit": "1dca52d",
+      "evidence_file": ".dev-flow/evidence/B003.md",
+      "completed_at": "2026-05-12T20:00:00+08:00"
+    },
+    {
+      "id": "F001",
+      "phase": 3,
+      "module": "client",
+      "name": "ScheduledTask model + API service",
+      "description": "客户端 Dart 侧定义 ScheduledTask 数据模型（fromJson/toJson）。新建 ScheduledTaskService 提供 create/list/delete 方法调用 Server REST API。接入现有 HttpClientFactory 和 json_helpers。",
+      "verification": "F1",
+      "depends_on": ["B002"],
+      "status": "completed",
+      "priority": 2,
+      "acceptance_criteria": [
+        "ScheduledTask model 定义完整，fromJson/toJson 正确",
+        "ScheduledTaskService 通过 HttpClientFactory 发起 HTTP 请求",
+        "create/list/delete 三个方法实现",
+        "unit test 覆盖 model 序列化和 service 方法"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        "ScheduledTask.fromJson 正常 JSON → 字段正确",
+        "ScheduledTask.fromJson 缺失字段 → 默认值",
+        "ScheduledTask.toJson → round-trip 一致",
+        "ScheduledTaskService.create → 调用正确 URL + body",
+        "ScheduledTaskService.list → 调用正确 URL + 过滤参数",
+        "ScheduledTaskService.delete → 调用正确 URL + method"
+      ],
+      "files": [
+        "client/lib/models/scheduled_task.dart",
+        "client/lib/services/scheduled_task_service.dart"
+      ],
+      "commit": "fdce030",
+      "evidence_file": ".dev-flow/evidence/F001.md",
+      "completed_at": "2026-05-12T20:00:00+08:00"
+    },
+    {
+      "id": "F002",
+      "phase": 3,
+      "module": "client",
+      "name": "定时任务状态轮询 + 定时标签展示",
+      "description": "客户端通过 ScheduledTaskService.list() 轮询当前终端的 pending 定时任务（统一路径：一次性 + 每日都走 Server）。在终端上方展示定时标签（时间 + 命令摘要 + 取消按钮）。取消操作调用 DELETE API。轮询间隔 30 秒，与 Server 调度周期对齐。不使用本地 Timer、不使用 SharedPreferences 存储任务。",
+      "verification": "F1",
+      "depends_on": ["F001"],
+      "status": "completed",
+      "priority": 2,
+      "acceptance_criteria": [
+        "定时任务列表通过 Server API 获取，统一管理一次性 + 每日任务",
+        "终端上方展示 pending 状态定时标签（时间 + 命令摘要 + 取消按钮）",
+        "每日任务执行后保持 pending 状态，标签持续可见直到用户取消",
+        "一次性任务 executed 后标签消失",
+        "取消操作调用 DELETE API 删除任务",
+        "轮询间隔 30 秒，与 Server 调度周期对齐",
+        "创建成功后立即触发一次列表刷新（不等轮询），标签即时出现",
+        "executed/expired 任务不展示标签",
+        "跨设备状态天然同步（Server 单一数据源）",
+        "unit test 覆盖轮询和标签逻辑"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        "pending 任务展示标签 → 取消 → 标签消失 + DELETE 调用",
+        "executed 任务 → 不展示标签",
+        "每日任务触发后保持 pending → 标签持续可见",
+        "轮询刷新 → 新任务出现/旧任务消失",
+        "创建成功 → 立即触发刷新 → 标签即时出现（不依赖轮询）",
+        "空列表 → 不展示标签",
+        "跨设备 → 设备 A 创建 → 设备 B 下次轮询可见"
+      ],
+      "files": [
+        "client/lib/services/scheduled_task_poller.dart",
+        "client/lib/widgets/scheduled_task_badge.dart"
+      ],
+      "commit": "f46c713",
+      "evidence_file": ".dev-flow/evidence/F002.md",
+      "completed_at": "2026-05-12T20:00:00+08:00"
+    },
+    {
+      "id": "F003",
+      "phase": 4,
+      "module": "client",
+      "name": "定时发送 UI — Header 菜单 + Schedule Bottom Sheet",
+      "description": "在桌面端 Header Bar 设置菜单中添加「定时发送」入口，弹出带文本输入框的定时选项 BottomSheet。BottomSheet 提供快捷时间（5分钟/30分钟/1小时）、自定义时间和每日重复选项。选择后通过 ScheduledTaskService.create() 调用 Server API。自定义时间限制只能选未来时间。每日重复首次执行时间：若所选 time-of-day 已过今日，首次执行为明日；否则为今日。移动端 MobileInputDelegate 组件已实现但暂未集成到移动端主流程。",
+      "verification": "F2",
+      "depends_on": ["F002"],
+      "status": "completed",
+      "priority": 3,
+      "acceptance_criteria": [
+        "桌面端 Header Bar 菜单「定时发送」入口触发 Schedule BottomSheet",
+        "Schedule BottomSheet 包含文本输入框（用户输入要定时发送的命令）",
+        "快速时间选项（5分钟/30分钟/1小时）直接调用 Server API 创建任务（repeat_type=once）",
+        "自定义时间弹出时间选择器（限制只能选未来时间），确认后调用 Server API（repeat_type=once）",
+        "每日重复选项弹出时间设置（选 time-of-day），确认后调用 Server API（repeat_type=daily，execute_at 为最近的未来触发时间）",
+        "Server 拒绝过去时间时（400），客户端提示用户重新选择",
+        "Agent 离线时创建定时任务 API 返回 409，客户端通过 ScheduledTaskException SnackBar 提示用户",
+        "创建成功后立即触发当前终端的定时任务列表刷新（标签即时出现）",
+        "flutter analyze 零 error/warning"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        "快速时间选项 → 创建 API 调用参数正确",
+        "自定义时间选过去时间 → 自动推到次日",
+        "每日重复选 time-of-day → execute_at 计算正确（今日或明日）",
+        "Agent 离线 → 409 → 提示终端不在线",
+        "桌面端 Header Bar 菜单「定时发送」→ Schedule BottomSheet 弹出",
+        "文本输入为空时时间选项禁用"
+      ],
+      "files": [
+        "client/lib/widgets/schedule_bottom_sheet.dart",
+        "client/lib/screens/desktop/terminal_workspace_header_bar.dart",
+        "client/lib/screens/desktop/terminal_workspace_screen.dart",
+        "client/lib/widgets/mobile_input_delegate.dart"
+      ],
+      "commit": "dd836fb",
+      "evidence_file": ".dev-flow/evidence/F003.md",
+      "completed_at": "2026-05-12T20:00:00+08:00"
+    },
+    {
+      "id": "F004",
+      "phase": 4,
+      "module": "client",
+      "name": "定时任务列表与管理 UI",
+      "description": "在终端侧边栏/上下文菜单中添加「定时任务」入口，显示当前终端的定时任务列表。支持取消 pending 任务（调用 DELETE API）和删除已结束任务（同样调用 DELETE API）。列表展示任务文本、执行时间、状态（pending/executed/expired）。客户端展示时过滤掉 executed/expired 超过 24 小时的任务（不依赖 Server 清理）。",
+      "verification": "F2",
+      "depends_on": ["F003"],
+      "status": "completed",
+      "priority": 3,
+      "acceptance_criteria": [
+        "侧边栏/菜单中有「定时任务」入口",
+        "展示当前终端的定时任务列表",
+        "pending 状态任务可取消（调用 DELETE API）",
+        "executed/expired 任务可删除（调用 DELETE API）",
+        "executed/expired 任务灰色显示",
+        "executed/expired 超过 24 小时的任务不在列表中展示（客户端过滤）",
+        "flutter analyze 零 error/warning"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        "pending 任务 → 取消 → DELETE 调用 → 列表更新",
+        "executed 任务 → 删除 → DELETE 调用 → 列表更新",
+        "executed 恰好 24 小时 → 仍展示",
+        "executed 超过 24 小时 → 不展示",
+        "空列表 → 显示空状态提示"
+      ],
+      "files": [
+        "client/lib/widgets/scheduled_task_list_sheet.dart"
+      ],
+      "commit": "bb87db5",
+      "evidence_file": ".dev-flow/evidence/F004.md",
+      "completed_at": "2026-05-12T20:00:00+08:00"
+    }
+  ],
+  "summary": {
+    "total": 8,
+    "completed": 8,
+    "pending": 0,
+    "blocked": 0
+  }
+}
