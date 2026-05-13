@@ -93,7 +93,7 @@ def _patch_auth():
 _SENTINEL = object()
 
 
-def _patch_store(create_return=1, get_return=_SENTINEL, list_return=None, delete_return=None):
+def _patch_store(create_return=1, get_return=_SENTINEL, list_return=None, delete_return=None, duplicate_return=None):
     """Mock ScheduledTaskStore 实例化及其方法。"""
     store_instance = MagicMock()
     store_instance.create = AsyncMock(return_value=create_return)
@@ -105,6 +105,7 @@ def _patch_store(create_return=1, get_return=_SENTINEL, list_return=None, delete
     store_instance.list_by_user = AsyncMock(return_value=list_return or [])
     store_instance.list_by_session = AsyncMock(return_value=list_return or [])
     store_instance.delete = AsyncMock(return_value=delete_return)
+    store_instance.find_pending_duplicate = AsyncMock(return_value=duplicate_return)
 
     return patch(
         "app.api.scheduled_task_api._get_scheduled_task_store",
@@ -311,6 +312,38 @@ class TestCreateScheduledTask:
 
         assert resp.status_code == 400
         assert "未来" in resp.json()["detail"] or "past" in resp.json()["detail"].lower() or "过去" in resp.json()["detail"]
+
+    def test_create_duplicate_returns_existing(self, client, auth_headers):
+        """创建重复任务返回已有任务（幂等）→ 201"""
+        import contextlib
+        auth_patches = _patch_auth()
+        dep_patches = _patch_deps()
+        store_patch, store = _patch_store(duplicate_return=MOCK_TASK)
+
+        with contextlib.ExitStack() as stack:
+            for p in auth_patches:
+                stack.enter_context(p)
+            for p in dep_patches:
+                stack.enter_context(p)
+            stack.enter_context(store_patch)
+
+            resp = client.post(
+                "/api/scheduled-tasks",
+                json={
+                    "session_id": "sess-1",
+                    "terminal_id": "term-1",
+                    "text_content": "echo hello",
+                    "execute_at": FUTURE_TIME,
+                    "repeat_type": "once",
+                },
+                headers=auth_headers,
+            )
+
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["id"] == 1
+        # 不应调用 create
+        store.create.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

@@ -2005,11 +2005,7 @@ void main() {
       await tester.pumpWidget(wrapWithApp(controller));
       await tester.pumpAndSettle();
 
-      // 点击中间区域打开 BottomSheet
-      await tester.tap(find.byKey(const Key('page-indicator-center')));
-      await tester.pumpAndSettle();
-
-      // 点击 BottomSheet 中的创建按钮
+      // 直接点击创建按钮（不需要先打开 BottomSheet）
       await tester.tap(find.byKey(const Key('page-indicator-create')));
       await tester.pumpAndSettle();
 
@@ -2474,7 +2470,7 @@ void main() {
 
     testWidgets(
         'mobile menu create failure shows SnackBar error', (tester) async {
-      // 验证：移动端菜单创建失败时用 SnackBar 局部提示
+      // 验证：移动端创建失败时用 SnackBar 局部提示
       final controller = _FailingCreateController(
         devices: const [
           RuntimeDevice(
@@ -2502,9 +2498,7 @@ void main() {
       await tester.pumpWidget(wrapWithApp(controller));
       await tester.pumpAndSettle();
 
-      // F004: 创建通过 BottomSheet（center → create）
-      await tester.tap(find.byKey(const Key('page-indicator-center')));
-      await tester.pumpAndSettle();
+      // 直接点击创建按钮
       await tester.tap(find.byKey(const Key('page-indicator-create')));
       await tester.pumpAndSettle();
 
@@ -2541,10 +2535,7 @@ void main() {
       await tester.pumpWidget(wrapWithApp(controller));
       await tester.pumpAndSettle();
 
-      // 点击中间区域打开 BottomSheet
-      await tester.tap(find.byKey(const Key('page-indicator-center')));
-      await tester.pumpAndSettle();
-      // 点击创建按钮
+      // 直接点击创建按钮
       await tester.tap(find.byKey(const Key('page-indicator-create')));
       await tester.pumpAndSettle();
 

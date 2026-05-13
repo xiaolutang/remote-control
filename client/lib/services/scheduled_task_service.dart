@@ -57,7 +57,9 @@ class ScheduledTaskService {
       return data['id'] as int;
     }
 
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final data = response.body.isNotEmpty
+        ? jsonDecode(response.body) as Map<String, dynamic>
+        : <String, dynamic>{};
     throw ScheduledTaskException(
       statusCode: response.statusCode,
       message: data['detail']?.toString() ?? '创建定时任务失败',
@@ -65,7 +67,7 @@ class ScheduledTaskService {
   }
 
   /// 获取定时任务列表
-  Future<List<ScheduledTaskItem>> list({
+  Future<List<ScheduledTask>> list({
     required String token,
     String? sessionId,
     String? status,
@@ -82,7 +84,7 @@ class ScheduledTaskService {
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       final tasks = data['tasks'] as List<dynamic>;
       return tasks
-          .map((t) => ScheduledTaskItem.fromJson(t as Map<String, dynamic>))
+          .map((t) => ScheduledTask.fromJson(t as Map<String, dynamic>))
           .toList();
     }
 
@@ -107,45 +109,6 @@ class ScheduledTaskService {
     throw ScheduledTaskException(
       statusCode: response.statusCode,
       message: '删除定时任务失败',
-    );
-  }
-}
-
-/// 定时任务列表项
-class ScheduledTaskItem {
-  const ScheduledTaskItem({
-    required this.id,
-    required this.sessionId,
-    required this.terminalId,
-    required this.textContent,
-    required this.executeAt,
-    required this.repeatType,
-    required this.status,
-    required this.createdAt,
-    this.executedAt,
-  });
-
-  final int id;
-  final String sessionId;
-  final String terminalId;
-  final String textContent;
-  final String executeAt;
-  final String repeatType;
-  final String status;
-  final String createdAt;
-  final String? executedAt;
-
-  factory ScheduledTaskItem.fromJson(Map<String, dynamic> json) {
-    return ScheduledTaskItem(
-      id: json['id'] as int,
-      sessionId: json['session_id'] as String,
-      terminalId: json['terminal_id'] as String,
-      textContent: json['text_content'] as String,
-      executeAt: json['execute_at'] as String,
-      repeatType: json['repeat_type'] as String,
-      status: json['status'] as String,
-      createdAt: json['created_at'] as String,
-      executedAt: json['executed_at'] as String?,
     );
   }
 }

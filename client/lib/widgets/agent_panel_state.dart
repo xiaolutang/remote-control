@@ -91,7 +91,6 @@ mixin _PanelStateFields on State<_SmartTerminalSidePanelContent> {
   set _scheduledTaskCreating(bool v);
   String? get _scheduledTaskError;
   set _scheduledTaskError(String? v);
-
   // --- cross-mixin method stubs for feedback ---
   Future<bool> Function({
     required String serverUrl,

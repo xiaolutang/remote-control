@@ -44,6 +44,21 @@ class ScheduledTaskStore:
             rows = await cursor.fetchall()
             return [dict(row) for row in rows]
 
+    async def find_pending_duplicate(
+        self,
+        user_id: str,
+        terminal_id: str,
+        text_content: str,
+        execute_at: str,
+    ) -> Optional[Dict[str, Any]]:
+        """查找是否存在相同的 pending 任务（防重复创建）。"""
+        results = await self._query(
+            "user_id = ? AND terminal_id = ? AND text_content = ? AND execute_at = ?",
+            (user_id, terminal_id, text_content, execute_at),
+            status="pending",
+        )
+        return results[0] if results else None
+
     async def create(
         self,
         user_id: str,

@@ -1,51 +1,36 @@
-# Alignment Checklist — R062
+# Alignment Checklist — R063 Agent 定时任务
 
 ## 架构一致性
 
-- [x] 所有定时任务（一次性 + 每日）统一走 Server REST API，不使用客户端本地 Timer
-- [x] Server 调度使用 asyncio.create_task，不引入 APScheduler 依赖
-- [x] 定时任务发送复用现有 WS DATA 消息通道，不新增消息类型
-- [x] Server 仍然是消息中继中心，Agent 仍是无状态终端代理
+- [ ] AgentResult 调度字段（schedule_at/repeat_type）仅限 command 类型，message/ai_prompt 不允许携带
+- [ ] schedule_at 必须是带时区的绝对 ISO 8601，不允许相对时间
+- [ ] repeat_type 仅允许 once/daily
+- [ ] schedule_at 和 repeat_type 必须同时存在或同时为空
+- [ ] 复用 R062 ScheduledTaskStore 和 ScheduledTaskService，不新建存储层
 
-## API 契约对齐
+## Agent 工具对齐
 
-- [x] POST /api/scheduled-tasks 鉴权（async_verify_token）
-- [x] GET /api/scheduled-tasks 支持按 session_id/status 过滤
-- [x] DELETE /api/scheduled-tasks/{id} 仅允许删除本人任务
-- [x] 创建时验证 Agent 在线（409 返回）
-- [x] 每日任务 execute_at 语义：time-of-day + timezone 锚点
+- [ ] list_scheduled_tasks 查询范围 = user_id + device_id + terminal_id（terminal 级隔离）
+- [ ] cancel_scheduled_task 三重校验 = user_id + device_id + terminal_id
+- [ ] session_id 命名映射：闭包使用 device_id 作为 store 的 session_id，非 AgentDeps.session_id
+- [ ] System Prompt 注入当前时间（server UTC+8）+ 定时任务能力说明
 
-## 调度语义
+## SSE 事件对齐
 
-- [x] 一次性任务：执行后 status=executed
-- [x] 每日任务：执行后计算下次 execute_at（次日同 time-of-day + timezone）
-- [x] 一次性 + Agent 离线：status=expired
-- [x] 每日 + Agent 离线：跳过本轮，保持 pending，execute_at 推到次日
-- [x] WS 发送异常与 Agent 离线同逻辑
-- [x] 过去时间 execute_at：创建时拒绝(400)
-- [x] 每日首次触发：所选 time-of-day 已过今日→首次执行为明日；未过→今日
-- [x] 不包含 cron_expr 字段，不包含 cancelled 状态
+- [ ] agent_session_runner.py result_event_data 包含 schedule_at/repeat_type
+- [ ] 缺失调度字段时 SSE 事件与 R062 完全一致（向后兼容）
 
-## API 行为对齐
+## 客户端对齐
 
-- [x] GET 支持 session_id 过滤
-- [x] GET 支持 status 过滤（pending/executed/expired）
-- [x] GET 支持 session_id + status 组合过滤
-- [x] POST 验证 session 存在（不存在→404）
-- [x] POST 验证 terminal 存在（不存在→404）
-- [x] POST 验证 execute_at 为未来时间（过去→400）
-- [x] Redis 不可用时 fail-closed(503)
-
-## 客户端集成
-
-- [x] F001: ScheduledTask model + ScheduledTaskService 通过 HttpClientFactory
-- [x] F002: 轮询 30 秒间隔 + 创建后即时刷新
-- [x] F003: Header bar「定时发送」菜单→带输入框的 schedule bottom sheet→Server API 创建
-- [x] F004: 列表展示 + 客户端过滤 24 小时
-- [x] 跨设备：Server 单一数据源，天然同步
+- [ ] F001: AgentResultEvent 保留非法值为原始字符串，由 F002 降级处理
+- [ ] F002: text_content 由 steps 的 command 字段用 \r 拼接（非 _compileSteps 的 shell 模式）
+- [ ] F002: repeatType 字符串转 ScheduledTaskRepeatType 枚举，非法值降级为 once
+- [ ] F002: 创建成功后通过 onScheduledTaskCreated 回调通知父组件刷新 poller
+- [ ] F002: SmartTerminalSidePanel 新增 onScheduledTaskCreated 回调，父组件持有 ScheduledTaskPoller
+- [ ] F002: 移动端无 poller 时回调为 no-op，不报错
 
 ## 回归安全
 
-- [x] Server pytest: R062 专项 45/45 passed, 总体 1674 passed (69 pre-existing failures in token_unification)
-- [x] Client flutter test: 345 passed (3 pre-existing R059 failures + 1 R062 mobile SnackBar failure, 1 skipped)
-- [x] Client flutter analyze 零 error/warning
+- [ ] Server pytest: R063 专项覆盖 S001 校验 + B001 工具/越权
+- [ ] Client flutter test: F001 解析 + F002 卡片/回调/降级
+- [ ] 现有 Agent 对话功能不受影响（schedule_at=null 时行为不变）

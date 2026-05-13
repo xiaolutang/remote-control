@@ -26,6 +26,20 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _build_create_response(task: dict) -> ScheduledTaskCreateResponse:
+    """从 store dict 构建 ScheduledTaskCreateResponse。"""
+    return ScheduledTaskCreateResponse(
+        id=task["id"],
+        session_id=task["session_id"],
+        terminal_id=task["terminal_id"],
+        text_content=task["text_content"],
+        execute_at=task["execute_at"],
+        repeat_type=task["repeat_type"],
+        status=task["status"],
+        created_at=task["created_at"],
+    )
+
+
 def _get_scheduled_task_store():
     """获取 ScheduledTaskStore 实例（复用 Database 的 db_path）。"""
     from app.store.database import _get_db
@@ -103,8 +117,19 @@ async def create_scheduled_task(
             detail="Agent 不在线",
         )
 
-    # 5. 创建任务
+    # 5. 检查重复任务（防连点）
     store = _get_scheduled_task_store()
+    existing = await store.find_pending_duplicate(
+        user_id=user_id,
+        terminal_id=body.terminal_id,
+        text_content=body.text_content,
+        execute_at=execute_at_utc,
+    )
+    if existing:
+        logger.info("Duplicate pending task, returning existing id=%s", existing["id"])
+        return _build_create_response(existing)
+
+    # 6. 创建任务
     task_id = await store.create(
         user_id=user_id,
         session_id=body.session_id,
@@ -117,16 +142,7 @@ async def create_scheduled_task(
     # 查询刚创建的任务以获取完整数据
     task = await store.get_by_id(task_id)
 
-    return ScheduledTaskCreateResponse(
-        id=task["id"],
-        session_id=task["session_id"],
-        terminal_id=task["terminal_id"],
-        text_content=task["text_content"],
-        execute_at=task["execute_at"],
-        repeat_type=task["repeat_type"],
-        status=task["status"],
-        created_at=task["created_at"],
-    )
+    return _build_create_response(task)
 
 
 @router.get("/scheduled-tasks")

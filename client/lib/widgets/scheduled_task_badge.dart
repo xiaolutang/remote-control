@@ -17,19 +17,48 @@ import '../models/scheduled_task.dart';
 class ScheduledTaskBadge extends StatelessWidget {
   final List<ScheduledTask> tasks;
   final void Function(int taskId) onCancel;
+  final VoidCallback? onViewAll;
 
   const ScheduledTaskBadge({
     super.key,
     required this.tasks,
     required this.onCancel,
+    this.onViewAll,
   });
 
   @override
   Widget build(BuildContext context) {
     if (tasks.isEmpty) return const SizedBox.shrink();
 
+    // 只显示最近要执行的那条任务
+    final sorted = List<ScheduledTask>.from(tasks)
+      ..sort((a, b) => a.executeAt.compareTo(b.executeAt));
+    final next = sorted.first;
+    final remaining = sorted.length - 1;
+
     return Column(
-      children: tasks.map((task) => _buildTaskBar(context, task)).toList(),
+      children: [
+        _buildTaskBar(context, next),
+        if (remaining > 0)
+          GestureDetector(
+            onTap: onViewAll,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                border: Border(bottom: BorderSide(color: Colors.orange.shade200)),
+              ),
+              child: Row(
+                children: [
+                  Text(
+                    '还有 $remaining 个定时任务',
+                    style: TextStyle(fontSize: 11, color: Colors.orange.shade400),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
     );
   }
 

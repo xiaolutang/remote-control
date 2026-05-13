@@ -107,17 +107,21 @@ void main() {
       expect(cancelledTaskId, 42);
     });
 
-    testWidgets('多个任务 → 显示多行', (tester) async {
+    testWidgets('多个任务 → 只显示最近一条 + 余数提示', (tester) async {
       final tasks = [
         _makeTask(id: 1, textContent: 'cmd1', executeAt: _localTimeStr(8, 0)),
         _makeTask(id: 2, textContent: 'cmd2', executeAt: _localTimeStr(9, 0)),
       ];
       await tester.pumpWidget(buildSubject(tasks: tasks));
 
+      // 只显示最近一条（08:00 更早，排在前面）
       expect(find.text('08:00'), findsOneWidget);
-      expect(find.text('09:00'), findsOneWidget);
       expect(find.text('cmd1'), findsOneWidget);
-      expect(find.text('cmd2'), findsOneWidget);
+      // 不显示第二条任务的时间
+      expect(find.text('09:00'), findsNothing);
+      expect(find.text('cmd2'), findsNothing);
+      // 显示余数提示
+      expect(find.text('还有 1 个定时任务'), findsOneWidget);
     });
 
     testWidgets('无效时间字符串 → 原样显示', (tester) async {

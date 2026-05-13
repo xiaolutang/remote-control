@@ -56,9 +56,10 @@ void main() {
   // terminal_actions_mixin.dart - TabContextAction enum
   // ---------------------------------------------------------------------------
   group('TabContextAction', () {
-    test('enum has rename and close values', () {
-      expect(TabContextAction.values, hasLength(2));
+    test('enum has rename, scheduleSend and close values', () {
+      expect(TabContextAction.values, hasLength(3));
       expect(TabContextAction.values, contains(TabContextAction.rename));
+      expect(TabContextAction.values, contains(TabContextAction.scheduleSend));
       expect(TabContextAction.values, contains(TabContextAction.close));
     });
 

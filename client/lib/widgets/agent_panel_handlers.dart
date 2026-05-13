@@ -646,6 +646,7 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
   /// 创建定时任务：将 steps 的 command 用 \r 拼接为 text_content，
   /// 将 repeatType 字符串转为枚举，调用 ScheduledTaskService.create()。
   Future<void> _createScheduledTask() async {
+    if (_scheduledTaskCreating) return; // 防重入
     final result = _agentResult;
     if (result == null || result.scheduleAt == null) return;
 
@@ -673,14 +674,16 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
       return;
     }
 
-    // steps 每步的 command 用 \r 拼接
-    final textContent = result.steps.map((s) => s.command).join('\r');
-    if (textContent.isEmpty) {
+    // steps 为空则无法创建
+    if (result.steps.isEmpty) {
       setState(() {
         _scheduledTaskError = '命令内容为空，无法创建定时任务';
       });
       return;
     }
+    // steps 每步的 command 用 \r 拼接，确保末尾有 \r 以自动执行
+    final joined = result.steps.map((s) => s.command).join('\r');
+    final textContent = joined.endsWith('\r') ? joined : '$joined\r';
 
     // repeatType 字符串转枚举（非法值降级为 once）
     final repeatTypeEnum = ScheduledTaskRepeatType.fromString(result.repeatType);
@@ -702,13 +705,14 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
       );
 
       if (!mounted) return;
+
+      // 通知父组件刷新定时任务列表（父组件的 poller 会拉取最新数据）
+      widget.onScheduledTaskCreated?.call();
+
       setState(() {
         _scheduledTaskCreating = false;
         _scheduledTaskError = null;
       });
-
-      // 通知父组件刷新定时任务列表
-      widget.onScheduledTaskCreated?.call();
 
       // 显示 SnackBar 提示
       if (context.mounted) {
