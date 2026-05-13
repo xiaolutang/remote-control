@@ -113,6 +113,8 @@ async def _tool_deliver_result(
     source: str = "recommended",
     need_confirm: bool = True,
     aliases: dict[str, str] | None = None,
+    schedule_at: str | None = None,
+    repeat_type: str | None = None,
 ) -> str:
     """交付 Agent 处理结果。仅在需要提交命令或 AI Prompt 时调用此工具。
     纯文本回复（问候、知识问答等）请直接输出文字，不要调用此工具。
@@ -120,6 +122,11 @@ async def _tool_deliver_result(
     通过 response_type 区分两种语义：
     - 'command': 命令序列（steps 含可执行 shell 命令，需用户确认）
     - 'ai_prompt': AI prompt 注入（steps=[], ai_prompt 含完整 prompt, 需用户确认）
+
+    调度字段（仅 command 类型支持）：
+    - schedule_at: 带时区的 ISO 8601 时间，如 "2026-06-01T08:00:00+08:00"
+    - repeat_type: "once"（一次性）或 "daily"（每日重复）
+    两者必须同时存在或同时为空。
 
     Args:
         response_type: 结果类型，可选 'command'、'ai_prompt'
@@ -130,6 +137,8 @@ async def _tool_deliver_result(
         source: 来源标识，默认 'recommended'
         need_confirm: 是否需要用户确认，message 类型必须为 False
         aliases: 项目别名映射
+        schedule_at: 调度执行时间（带时区 ISO 8601），仅 command 类型使用
+        repeat_type: 调度重复类型 "once" 或 "daily"，仅 command 类型使用
     """
     try:
         parsed_steps = [
@@ -144,6 +153,8 @@ async def _tool_deliver_result(
             source=source,
             need_confirm=need_confirm,
             aliases=aliases or {},
+            schedule_at=schedule_at,
+            repeat_type=repeat_type,
         )
     except Exception as e:
         logger.warning("deliver_result 参数校验失败: %s", e)

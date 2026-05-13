@@ -8,6 +8,7 @@ B079/B089/B105: Pydantic AI ReAct 智能体 — 类型定义与异常。
 - 依赖容器：AgentDeps
 """
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Literal, Optional
 
@@ -89,6 +90,10 @@ class AgentResult(BaseModel):
       - 'command': 命令序列（steps 含可执行 shell 命令，需用户确认）
       - 'message': 纯信息型回复（steps=[], 无需确认）
       - 'ai_prompt': AI prompt 注入（steps=[], ai_prompt 含完整 prompt, 需用户确认）
+
+    S001: 调度字段（仅 command 类型允许）：
+      - schedule_at: 带时区的 ISO 8601 字符串，如 "2026-06-01T08:00:00+08:00"
+      - repeat_type: "once" 或 "daily"，必须与 schedule_at 同时存在或同时为空
     """
     summary: str
     steps: list[CommandSequenceStep]
@@ -98,14 +103,21 @@ class AgentResult(BaseModel):
     source: str = "recommended"
     need_confirm: bool = True
     aliases: dict[str, str] = {}  # 本次发现的项目别名
+    schedule_at: Optional[str] = None  # S001: 带时区的 ISO 8601
+    repeat_type: Optional[Literal["once", "daily"]] = None  # S001: once 或 daily
 
     @model_validator(mode='after')
     def _validate_response_type_constraints(self) -> 'AgentResult':
         """校验 response_type 与字段组合的约束关系。
 
-        - message: steps 必须为空, need_confirm=False, ai_prompt=''
-        - command: steps 不能全空（至少有一个命令）, ai_prompt=''
-        - ai_prompt: steps 必须为空, ai_prompt 不能为空字符串, need_confirm=True
+        - message: steps 必须为空, need_confirm=False, ai_prompt='', 不允许调度字段
+        - command: steps 不能全空（至少有一个命令）, ai_prompt='', 允许调度字段
+        - ai_prompt: steps 必须为空, ai_prompt 不能为空字符串, need_confirm=True, 不允许调度字段
+
+        S001 调度字段约束：
+        - schedule_at 和 repeat_type 必须同时存在或同时为空
+        - 仅 response_type=command 允许携带调度字段
+        - schedule_at 必须包含时区偏移（+xx:xx / -xx:xx / Z）
         """
         if self.response_type == 'message':
             if self.steps:
@@ -114,6 +126,8 @@ class AgentResult(BaseModel):
                 raise ValueError("response_type='message' 时 need_confirm 必须为 False")
             if self.ai_prompt:
                 raise ValueError("response_type='message' 时 ai_prompt 必须为空字符串")
+            if self.schedule_at is not None or self.repeat_type is not None:
+                raise ValueError("response_type='message' 不允许携带 schedule_at/repeat_type，仅 command 类型支持调度")
         elif self.response_type == 'command':
             if not self.steps:
                 raise ValueError("response_type='command' 时 steps 不能为空（至少需要一个命令）")
@@ -128,6 +142,23 @@ class AgentResult(BaseModel):
                 raise ValueError("response_type='ai_prompt' 时 ai_prompt 不能为空字符串")
             if not self.need_confirm:
                 raise ValueError("response_type='ai_prompt' 时 need_confirm 必须为 True")
+            if self.schedule_at is not None or self.repeat_type is not None:
+                raise ValueError("response_type='ai_prompt' 不允许携带 schedule_at/repeat_type，仅 command 类型支持调度")
+
+        # S001: 调度字段组合校验（所有 response_type 共用）
+        has_schedule = self.schedule_at is not None
+        has_repeat = self.repeat_type is not None
+        if has_schedule and not has_repeat:
+            raise ValueError("schedule_at 和 repeat_type 必须同时存在，缺少 repeat_type")
+        if has_repeat and not has_schedule:
+            raise ValueError("schedule_at 和 repeat_type 必须同时存在，缺少 schedule_at")
+
+        # S001: schedule_at 时区校验
+        if has_schedule and has_repeat:
+            tz_pattern = r'.*[+-]\d{2}:\d{2}$|.*Z$'
+            if not re.match(tz_pattern, self.schedule_at):
+                raise ValueError("schedule_at 必须包含时区偏移（如 +08:00 或 Z）")
+
         return self
 
 

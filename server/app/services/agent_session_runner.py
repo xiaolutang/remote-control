@@ -495,6 +495,11 @@ class AgentLoopRunner:
                 "aliases": outcome.result.aliases,
                 "usage": usage_payload,
             }
+            # S001: 透传调度字段（仅 command 类型携带时才有值）
+            if outcome.result.schedule_at is not None:
+                result_event_data["schedule_at"] = outcome.result.schedule_at
+            if outcome.result.repeat_type is not None:
+                result_event_data["repeat_type"] = outcome.result.repeat_type
             event_record = await self.manager._emit_session_event(
                 session,
                 "result",
