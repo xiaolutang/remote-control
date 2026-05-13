@@ -571,7 +571,11 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
         );
     return ChangeNotifierProvider<WebSocketService>.value(
       value: service,
-      child: const TerminalScreen(embedded: true),
+      child: TerminalScreen(
+        embedded: true,
+        // 桌面端：定时任务创建成功后刷新 poller（poller 由后续 task 实现，暂时为 null）
+        onScheduledTaskCreated: null,
+      ),
     );
   }
 

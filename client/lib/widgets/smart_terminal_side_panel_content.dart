@@ -7,12 +7,14 @@ class _SmartTerminalSidePanelContent extends StatefulWidget {
     this.agentSessionServiceBuilder,
     this.usageSummaryServiceBuilder,
     this.feedbackSubmitterOverride,
+    this.onScheduledTaskCreated,
   });
 
   final VoidCallback onClose;
   final AgentSessionServiceFactory? agentSessionServiceBuilder;
   final UsageSummaryServiceFactory? usageSummaryServiceBuilder;
   final FeedbackSubmitter? feedbackSubmitterOverride;
+  final VoidCallback? onScheduledTaskCreated;
 
   @override
   State<_SmartTerminalSidePanelContent> createState() =>
@@ -154,6 +156,12 @@ class _SmartTerminalSidePanelContentState
     required String feedbackType,
     String? description,
   }) _feedbackSubmitter;
+
+  // --- 定时任务创建状态 ---
+  @override
+  bool _scheduledTaskCreating = false;
+  @override
+  String? _scheduledTaskError;
 
   @override
   void initState() {

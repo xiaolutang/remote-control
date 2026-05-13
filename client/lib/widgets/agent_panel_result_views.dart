@@ -255,6 +255,11 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
 
   Widget _buildCommandResultView(
       AgentResultEvent result, ColorScheme colorScheme, bool connected) {
+    // 定时确认卡片：scheduleAt 存在时显示
+    if (result.scheduleAt != null) {
+      return _buildScheduleConfirmCard(result, colorScheme);
+    }
+
     return Container(
         width: double.infinity,
         padding: const EdgeInsets.all(12),
@@ -326,6 +331,154 @@ mixin _PanelResultViewsMixin on _PanelStateFields {
                         : const Text('执行')))
           ],
         ]));
+  }
+
+  /// 定时确认卡片：显示命令摘要、定时时间、重复类型、创建按钮
+  Widget _buildScheduleConfirmCard(
+      AgentResultEvent result, ColorScheme colorScheme) {
+    final scheduleTime = _formatScheduleTime(result.scheduleAt!);
+    final repeatLabel = _formatRepeatType(result.repeatType);
+
+    return Container(
+        key: const Key('schedule-confirm-card'),
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+            color: colorScheme.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+                color: subtleBorderColor(colorScheme))),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          // 标题行
+          Row(children: [
+            Icon(Icons.schedule, size: 16, color: colorScheme.primary),
+            const SizedBox(width: 6),
+            Expanded(
+                child: Text(result.summary,
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(fontWeight: FontWeight.w600)))
+          ]),
+          const SizedBox(height: 8),
+
+          // 步骤列表
+          for (final step in result.steps)
+            Container(
+                margin: const EdgeInsets.only(bottom: 4),
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                    color: colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(8)),
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(step.label,
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodySmall
+                              ?.copyWith(fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 2),
+                      Text(step.command,
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodySmall
+                              ?.copyWith(
+                                  fontFamily: 'monospace',
+                                  color: colorScheme.onSurfaceVariant)),
+                    ])),
+
+          // 定时信息
+          const SizedBox(height: 8),
+          Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                  color: colorScheme.primaryContainer
+                      .withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(8)),
+              child: Row(children: [
+                Icon(Icons.access_time,
+                    size: 14, color: colorScheme.primary),
+                const SizedBox(width: 6),
+                Expanded(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                      Text(scheduleTime,
+                          key: const Key('schedule-confirm-time'),
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodySmall
+                              ?.copyWith(
+                                  color: colorScheme.primary,
+                                  fontWeight: FontWeight.w600)),
+                      Text(repeatLabel,
+                          key: const Key('schedule-confirm-repeat'),
+                          style: Theme.of(context)
+                              .textTheme
+                              .labelSmall
+                              ?.copyWith(
+                                  color: colorScheme.onSurfaceVariant)),
+                    ])),
+              ])),
+
+          // 错误信息
+          if (_scheduledTaskError != null) ...[
+            const SizedBox(height: 6),
+            Text(_scheduledTaskError!,
+                key: const Key('schedule-confirm-error'),
+                style: TextStyle(color: colorScheme.error, fontSize: 12)),
+          ],
+
+          // 创建按钮
+          const SizedBox(height: 10),
+          SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                  key: const Key('side-panel-create-scheduled-task'),
+                  style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(40),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                      backgroundColor: colorScheme.primary),
+                  onPressed: !_scheduledTaskCreating
+                      ? _createScheduledTask
+                      : null,
+                  child: _scheduledTaskCreating
+                      ? SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: colorScheme.onPrimary))
+                      : const Text('创建定时任务'))),
+        ]));
+  }
+
+  /// 格式化定时时间为本地可读格式
+  String _formatScheduleTime(String isoString) {
+    try {
+      final dt = DateTime.parse(isoString);
+      final local = dt.toLocal();
+      return '${local.year}-${_twoDigits(local.month)}-${_twoDigits(local.day)} '
+          '${_twoDigits(local.hour)}:${_twoDigits(local.minute)}';
+    } catch (_) {
+      // 非法 ISO 字符串保留原值显示
+      return isoString;
+    }
+  }
+
+  String _twoDigits(int n) => n.toString().padLeft(2, '0');
+
+  /// 格式化重复类型显示
+  String _formatRepeatType(String? repeatType) {
+    return switch (repeatType) {
+      'once' => '单次',
+      'daily' => '每天',
+      null => '单次',
+      // 其他值降级显示原始值
+      final other => other,
+    };
   }
 
   Widget _buildErrorView(ColorScheme colorScheme) {

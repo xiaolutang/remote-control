@@ -86,6 +86,12 @@ mixin _PanelStateFields on State<_SmartTerminalSidePanelContent> {
   String? get _feedbackErrorKey;
   set _feedbackErrorKey(String? v);
 
+  // --- 定时任务创建状态 ---
+  bool get _scheduledTaskCreating;
+  set _scheduledTaskCreating(bool v);
+  String? get _scheduledTaskError;
+  set _scheduledTaskError(String? v);
+
   // --- cross-mixin method stubs for feedback ---
   Future<bool> Function({
     required String serverUrl,
@@ -151,6 +157,7 @@ mixin _PanelStateFields on State<_SmartTerminalSidePanelContent> {
   void _startInlineEdit(int? historyIndex, {int? answerIndex});
   void _cancelInlineEdit();
   Future<void> _submitInlineEdit({int? historyIndex});
+  Future<void> _createScheduledTask();
 
   // _PanelWidgetsMixin
   Widget _buildAssistantBubble(Widget child);
@@ -194,6 +201,7 @@ mixin _PanelStateLogicMixin on _PanelStateFields {
     _agentResultEventId = null; _agentErrorEventId = null;
     _agentIntent = null; _agentAnswers.clear();
     _feedbackStatus = {};
+    _scheduledTaskCreating = false; _scheduledTaskError = null;
     if (resetDraft) _draft = _defaultDraft();
   }
 
