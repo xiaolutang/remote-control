@@ -683,10 +683,14 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
     }
     // steps 每步的 command 用 \r 拼接，确保末尾有 \r 以自动执行
     final joined = result.steps.map((s) => s.command).join('\r');
-    final textContent = joined.endsWith('\r') ? joined : '$joined\r';
+    final textContent = ensureTrailingEnter(joined);
 
     // repeatType 字符串转枚举（非法值降级为 once）
-    final repeatTypeEnum = ScheduledTaskRepeatType.fromString(result.repeatType);
+    final repeatTypeEnum = enumFromJson(
+      ScheduledTaskRepeatType.values,
+      result.repeatType,
+      ScheduledTaskRepeatType.once,
+    );
 
     setState(() {
       _scheduledTaskCreating = true;

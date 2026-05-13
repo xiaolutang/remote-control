@@ -67,7 +67,7 @@ class ScheduledTaskStore:
         text_content: str,
         execute_at: str,
         repeat_type: str = "once",
-    ) -> int:
+    ) -> Dict[str, Any]:
         """创建定时任务。
 
         Args:
@@ -76,10 +76,10 @@ class ScheduledTaskStore:
             terminal_id: 终端 ID
             text_content: 要执行的文本内容
             execute_at: 执行时间（ISO 格式字符串）
-            repeat_type: 重复类型，默认 'none'
+            repeat_type: 重复类型，默认 'once'
 
         Returns:
-            新建任务的 ID
+            新建任务的完整字典
         """
         now = datetime.now(timezone.utc).isoformat()
         async with await self._connect() as db:
@@ -92,7 +92,17 @@ class ScheduledTaskStore:
                 (user_id, session_id, terminal_id, text_content, execute_at, repeat_type, now),
             )
             await db.commit()
-            return cursor.lastrowid
+            return {
+                "id": cursor.lastrowid,
+                "user_id": user_id,
+                "session_id": session_id,
+                "terminal_id": terminal_id,
+                "text_content": text_content,
+                "execute_at": execute_at,
+                "repeat_type": repeat_type,
+                "status": "pending",
+                "created_at": now,
+            }
 
     async def list_by_user(
         self,

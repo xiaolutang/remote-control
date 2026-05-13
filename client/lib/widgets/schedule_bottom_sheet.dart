@@ -43,9 +43,7 @@ Future<bool> showScheduleBottomSheet({
 
   try {
     // 追加 \r 以模拟按下 Enter 键
-    final textWithEnter = result.textContent.endsWith('\r')
-        ? result.textContent
-        : '${result.textContent}\r';
+    final textWithEnter = ensureTrailingEnter(result.textContent);
     await service.create(
       token: token,
       sessionId: sessionId,

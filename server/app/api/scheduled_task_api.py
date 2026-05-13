@@ -129,8 +129,8 @@ async def create_scheduled_task(
         logger.info("Duplicate pending task, returning existing id=%s", existing["id"])
         return _build_create_response(existing)
 
-    # 6. 创建任务
-    task_id = await store.create(
+    # 6. 创建任务（store.create 直接返回完整 dict）
+    task = await store.create(
         user_id=user_id,
         session_id=body.session_id,
         terminal_id=body.terminal_id,
@@ -138,9 +138,6 @@ async def create_scheduled_task(
         execute_at=execute_at_utc,
         repeat_type=body.repeat_type.value,
     )
-
-    # 查询刚创建的任务以获取完整数据
-    task = await store.get_by_id(task_id)
 
     return _build_create_response(task)
 

@@ -93,7 +93,7 @@ def _patch_auth():
 _SENTINEL = object()
 
 
-def _patch_store(create_return=1, get_return=_SENTINEL, list_return=None, delete_return=None, duplicate_return=None):
+def _patch_store(create_return=MOCK_TASK, get_return=_SENTINEL, list_return=None, delete_return=None, duplicate_return=None):
     """Mock ScheduledTaskStore 实例化及其方法。"""
     store_instance = MagicMock()
     store_instance.create = AsyncMock(return_value=create_return)

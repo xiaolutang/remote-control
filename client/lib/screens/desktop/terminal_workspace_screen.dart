@@ -582,6 +582,15 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
             return ScheduledTaskBadge(
               tasks: pendingTasks,
               onCancel: (taskId) => _scheduledTaskPoller.deleteTask(taskId),
+              onViewAll: () {
+                final t = terminal;
+                ScheduledTaskListSheet.show(
+                  context: context,
+                  terminalId: t.terminalId,
+                  poller: _scheduledTaskPoller,
+                  token: widget.token,
+                );
+              },
             );
           },
         ),

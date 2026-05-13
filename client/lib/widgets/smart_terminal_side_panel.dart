@@ -24,6 +24,7 @@ import 'design_tokens.dart';
 import 'agent_panel_types.dart';
 import 'agent_panel_shared_widgets.dart';
 import '../models/scheduled_task.dart';
+import '../utils/json_helpers.dart';
 
 part 'agent_panel_state.dart';
 part 'agent_panel_handlers.dart';

@@ -5,15 +5,6 @@ enum ScheduledTaskRepeatType {
   once,
   daily;
 
-  /// 将服务端字符串转换为枚举，非法值降级为 once
-  static ScheduledTaskRepeatType fromString(String? value) {
-    return switch (value) {
-      'daily' => ScheduledTaskRepeatType.daily,
-      'once' => ScheduledTaskRepeatType.once,
-      _ => ScheduledTaskRepeatType.once,
-    };
-  }
-
   /// 转为服务端 API 需要的字符串
   String toApiString() => name;
 
@@ -26,6 +17,14 @@ enum ScheduledTaskRepeatType {
 
 /// 定时任务状态
 enum ScheduledTaskStatus { pending, executed, expired, cancelled }
+
+/// 确保终端命令文本末尾有 `\r`（模拟 Enter 键自动执行）
+String ensureTrailingEnter(String text) =>
+    text.endsWith('\r') ? text : '$text\r';
+
+/// 移除终端命令文本末尾的 `\r`（用于显示）
+String stripTrailingEnter(String text) =>
+    text.endsWith('\r') ? text.substring(0, text.length - 1) : text;
 
 /// 定时任务模型
 class ScheduledTask {

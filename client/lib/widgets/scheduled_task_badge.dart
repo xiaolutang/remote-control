@@ -30,11 +30,9 @@ class ScheduledTaskBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     if (tasks.isEmpty) return const SizedBox.shrink();
 
-    // 只显示最近要执行的那条任务
-    final sorted = List<ScheduledTask>.from(tasks)
-      ..sort((a, b) => a.executeAt.compareTo(b.executeAt));
-    final next = sorted.first;
-    final remaining = sorted.length - 1;
+    // 服务端已按 execute_at ASC 排序，直接取第一条
+    final next = tasks.first;
+    final remaining = tasks.length - 1;
 
     return Column(
       children: [
