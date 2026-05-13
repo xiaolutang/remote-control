@@ -1,8 +1,9 @@
 {
   "version": "1.4",
   "project": "remote-control",
-  "updated_at": "2026-05-12T00:00:00+08:00",
-  "status": "idle",
+  "updated_at": "2026-05-13T00:00:00+08:00",
+  "status": "active",
+  "workflow": {},
   "archived_requirement_cycles": [
     {
       "id": "R047",
@@ -108,8 +109,22 @@
       "archive_dir": "_archive/R061_client-code-convergence",
       "total_tasks": 16,
       "completed_at": "2026-05-12"
+    },
+    {
+      "id": "R062",
+      "name": "scheduled-terminal-tasks",
+      "status": "completed",
+      "archive_dir": "_archive/R062_scheduled-terminal-tasks",
+      "total_tasks": 8,
+      "completed_at": "2026-05-13"
     }
   ],
   "archived_phases": [],
-  "features": []
+  "features": [],
+  "summary": {
+    "total": 0,
+    "completed": 0,
+    "pending": 0,
+    "blocked": 0
+  }
 }

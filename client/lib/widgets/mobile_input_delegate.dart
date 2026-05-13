@@ -17,11 +17,16 @@ class MobileInputDelegate extends StatefulWidget {
   final void Function() onSubmit;
   final FocusNode? focusNode;
 
+  /// 长按发送按钮的回调。传入当前输入框文本，返回是否处理。
+  /// 为 null 时长按不触发定时发送菜单。
+  final Future<bool> Function(String text)? onScheduleSend;
+
   const MobileInputDelegate({
     super.key,
     required this.onInput,
     required this.onSubmit,
     this.focusNode,
+    this.onScheduleSend,
   });
 
   @override
@@ -155,11 +160,16 @@ class MobileInputDelegateState extends State<MobileInputDelegate> {
               ),
             ),
             const SizedBox(width: 8),
-            IconButton(
-              icon: const Icon(Icons.send, color: Colors.green),
-              onPressed: () {
-                _onSubmitted(_controller.text);
-              },
+            GestureDetector(
+              onLongPress: widget.onScheduleSend != null
+                  ? () => widget.onScheduleSend!(_controller.text)
+                  : null,
+              child: IconButton(
+                icon: const Icon(Icons.send, color: Colors.green),
+                onPressed: () {
+                  _onSubmitted(_controller.text);
+                },
+              ),
             ),
           ],
         ),

@@ -4842,5 +4842,69 @@ void main() {
         reason: '关闭 term-a 后应选中 term-b',
       );
     });
+
+    // ──── Lifecycle: stale callback suppression ────
+
+    testWidgets(
+        'terminals_changed before deviceOffline does not trigger stale refresh',
+        (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: [testDevice()],
+        terminals: [makeTerminal('term-1')],
+      );
+
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // Should have an active terminal with a connected service
+      expect(find.byType(IndexedStack), findsOneWidget);
+      final service = controller.lastBuiltService;
+      expect(service, isNotNull);
+
+      // Emit a terminals_changed event (triggers debounce timer)
+      service!.emitTerminalsChanged({
+        'action': 'rename',
+        'terminal_id': 'term-1',
+      });
+      await tester.pump();
+
+      // Before the 300ms debounce fires, remove the device (→ deviceOffline)
+      controller._devices.clear();
+      controller._terminals.clear();
+      controller.notifyListeners();
+      await tester.pumpAndSettle();
+
+      // Should show offline/empty state, not crash from stale callback
+      expect(find.byType(IndexedStack), findsNothing,
+          reason: 'deviceOffline should show empty state, not IndexedStack');
+
+      // Advance past the 300ms debounce window to confirm no stale fires
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+
+      // Still in empty state — no crash, no stale refresh
+      expect(find.byType(IndexedStack), findsNothing);
+    });
+
+    testWidgets('desktop context menu shows schedule send menu item',
+        (tester) async {
+      final controller = _FakeWorkspaceController(
+        devices: [testDevice()],
+        terminals: [makeTerminal('term-1')],
+        isDesktop: true,
+      );
+      await tester.pumpWidget(wrapWithApp(controller));
+      await tester.pumpAndSettle();
+
+      // Right-click tab to open context menu
+      await tester.tap(
+        find.byKey(const Key('sidebar-term-1')),
+        buttons: kSecondaryButton,
+      );
+      await tester.pumpAndSettle();
+
+      // Should find the schedule send menu item
+      expect(find.text('定时发送'), findsOneWidget);
+    });
   });
 }

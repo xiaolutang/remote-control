@@ -19,9 +19,13 @@ import '../../services/environment_service.dart';
 import '../../services/logout_helper.dart';
 import '../../services/runtime_device_service.dart';
 import '../../services/runtime_selection_controller.dart';
+import '../../services/scheduled_task_poller.dart';
+import '../../widgets/scheduled_task_badge.dart';
 import '../../services/terminal_session_manager.dart';
 import '../../widgets/theme_picker_sheet.dart';
 import '../../widgets/snack_bar_helper.dart';
+import '../../widgets/scheduled_task_list_sheet.dart';
+import '../../widgets/schedule_bottom_sheet.dart';
 import '../../services/websocket_service.dart';
 import '../login_screen.dart';
 import '../skill_config_screen.dart';
@@ -93,15 +97,33 @@ class _TerminalWorkspaceView extends StatefulWidget {
 class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
     with TerminalActionsMixin<_TerminalWorkspaceView> {
   late final DesktopWorkspaceController _workspaceController;
+  late final ScheduledTaskPoller _scheduledTaskPoller;
   StreamSubscription<Map<String, dynamic>>? _terminalsChangedSubscription;
   WebSocketService? _lastListenedService;
   Timer? _refreshDebounceTimer;
   String? _pendingToastAction;
   String? _pendingToastTerminalId;
   bool _authDialogShowing = false;
+  String? _pollerSessionId;
 
   @override
   DesktopWorkspaceController get workspaceController => _workspaceController;
+
+  @override
+  void Function(RuntimeTerminal terminal)? get onScheduleSend => (terminal) async {
+    final device = context.read<RuntimeSelectionController>().selectedDevice;
+    if (device == null) return;
+    final success = await showScheduleBottomSheet(
+      context: context,
+      token: widget.token,
+      sessionId: device.deviceId,
+      terminalId: terminal.terminalId,
+      serverUrl: EnvironmentService.instance.currentServerUrl,
+    );
+    if (success && mounted) {
+      _scheduledTaskPoller.refresh();
+    }
+  };
 
   @override
   void initState() {
@@ -112,6 +134,9 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
       agentBootstrapService: widget.agentBootstrapService,
       configService: ConfigService(),
     );
+    _scheduledTaskPoller = ScheduledTaskPoller(
+      serverUrl: EnvironmentService.instance.currentServerUrl,
+    );
   }
 
   @override
@@ -119,6 +144,7 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
     _terminalsChangedSubscription?.cancel();
     _cleanupServiceListener();
     _refreshDebounceTimer?.cancel();
+    _scheduledTaskPoller.dispose();
     unawaited(_workspaceController.handleViewDispose());
     _workspaceController.dispose();
     super.dispose();
@@ -129,6 +155,20 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
     _terminalsChangedSubscription?.cancel();
     _terminalsChangedSubscription = null;
     _lastListenedService = null;
+    _refreshDebounceTimer?.cancel();
+    _refreshDebounceTimer = null;
+    _pendingToastAction = null;
+    _pendingToastTerminalId = null;
+  }
+
+  /// 停止定时任务轮询并重置 session 标记。
+  /// 同时清理 service 状态监听器，避免旧 session 的 terminals_changed 回调。
+  void _stopScheduledTaskPoller() {
+    _cleanupServiceListener();
+    if (_pollerSessionId != null) {
+      _scheduledTaskPoller.stopPolling();
+      _pollerSessionId = null;
+    }
   }
 
   /// 在终端 WebSocket 连接上监听 terminals_changed 消息
@@ -350,6 +390,16 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
                       },
                       desktopActionInFlight:
                           _workspaceController.desktopActionInFlight,
+                      onScheduledTasks: () {
+                        final t = workspaceState.selectedTerminal;
+                        if (t == null) return;
+                        ScheduledTaskListSheet.show(
+                          context: context,
+                          terminalId: t.terminalId,
+                          poller: _scheduledTaskPoller,
+                          token: widget.token,
+                        );
+                      },
                     ),
                     // F003: 桌面端用 Row 包裹 Sidebar + Body
                     Expanded(
@@ -417,14 +467,17 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
     // 仅在无终端且正在加载时显示 loading
     if ((controller.loadingDevices || controller.loadingTerminals) &&
         terminal == null) {
+      _stopScheduledTaskPoller();
       return const Center(child: CircularProgressIndicator());
     }
 
     if (device == null) {
+      _stopScheduledTaskPoller();
       return const Center(child: Text('当前没有可用设备'));
     }
 
     if (state.kind == WorkspaceStateKind.deviceOffline) {
+      _stopScheduledTaskPoller();
       return WorkspaceEmptyState(
         icon: Icons.computer_outlined,
         title: '电脑离线',
@@ -438,6 +491,7 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
     }
 
     if (terminal == null) {
+      _stopScheduledTaskPoller();
       if (state.kind == WorkspaceStateKind.bootstrappingAgent) {
         return const WorkspaceEmptyState(
           icon: Icons.sync,
@@ -508,8 +562,29 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
         );
     _listenToTerminalsChangedIfNeeded(selectedService);
 
+    // 启动定时任务轮询（仅在 session 变化时重启，避免 build 中重复调用）
+    final deviceId = controller.selectedDeviceId;
+    if (deviceId != null && terminal.terminalId.isNotEmpty) {
+      if (_pollerSessionId != deviceId) {
+        _pollerSessionId = deviceId;
+        _scheduledTaskPoller.startPolling(widget.token, deviceId);
+      }
+    }
+
     final terminalBody = Column(
       children: [
+        // 定时任务 badge：显示当前终端的 pending 任务
+        AnimatedBuilder(
+          animation: _scheduledTaskPoller,
+          builder: (context, _) {
+            final pendingTasks = _scheduledTaskPoller
+                .pendingTasksForTerminal(terminal.terminalId);
+            return ScheduledTaskBadge(
+              tasks: pendingTasks,
+              onCancel: (taskId) => _scheduledTaskPoller.deleteTask(taskId),
+            );
+          },
+        ),
         Expanded(
           child: IndexedStack(
             index: selectedIndex.clamp(0, terminals.length - 1),

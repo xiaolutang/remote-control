@@ -52,6 +52,9 @@ from app.ws.agent_request import (  # noqa: F401
 )
 from app.ws.client_presence import get_view_counts  # noqa: F401
 
+# ---- app.store.session_crud ----
+from app.store.session_crud import verify_session_ownership  # noqa: F401
+
 # ---- app.services ----
 from app.services.agent_session_manager import get_agent_session_manager  # noqa: F401
 from app.services.assistant_planner import plan_with_service_llm  # noqa: F401

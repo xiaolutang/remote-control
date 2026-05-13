@@ -3,6 +3,7 @@ Runtime API Pydantic schemas.
 
 所有 Pydantic Model 集中定义，供路由文件和测试共享。
 """
+from enum import StrEnum
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field
@@ -269,3 +270,61 @@ class AgentConversationProjection(BaseModel):
     truncation_epoch: int = 0
     active_session_id: Optional[str] = None
     events: list[AgentConversationEventItem]
+
+
+# ---------------------------------------------------------------------------
+# Scheduled Task
+# ---------------------------------------------------------------------------
+
+
+class ScheduledTaskRepeatType(StrEnum):
+    """定时任务重复类型。"""
+    once = "once"
+    daily = "daily"
+
+
+class ScheduledTaskStatus(StrEnum):
+    """定时任务状态。"""
+    pending = "pending"
+    executed = "executed"
+    expired = "expired"
+    cancelled = "cancelled"
+
+
+class ScheduledTaskCreateRequest(BaseModel):
+    """创建定时任务请求。"""
+    session_id: str
+    terminal_id: str
+    text_content: str
+    execute_at: str  # ISO 8601 datetime with timezone
+    repeat_type: ScheduledTaskRepeatType = ScheduledTaskRepeatType.once
+
+
+class ScheduledTaskCreateResponse(BaseModel):
+    """创建定时任务响应。"""
+    id: int
+    session_id: str
+    terminal_id: str
+    text_content: str
+    execute_at: str
+    repeat_type: ScheduledTaskRepeatType
+    status: ScheduledTaskStatus
+    created_at: str  # ISO 8601
+
+
+class ScheduledTaskItem(BaseModel):
+    """定时任务列表条目。"""
+    id: int
+    session_id: str
+    terminal_id: str
+    text_content: str
+    execute_at: str
+    repeat_type: ScheduledTaskRepeatType
+    status: ScheduledTaskStatus
+    created_at: str  # ISO 8601
+    executed_at: Optional[str] = None  # ISO 8601 or null
+
+
+class ScheduledTaskListResponse(BaseModel):
+    """定时任务列表响应。"""
+    tasks: list[ScheduledTaskItem]

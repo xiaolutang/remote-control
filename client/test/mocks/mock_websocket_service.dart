@@ -221,6 +221,11 @@ class MockWebSocketService extends ChangeNotifier implements WebSocketService {
     notifyListeners();
   }
 
+  /// 模拟 terminals_changed 事件
+  void emitTerminalsChanged(Map<String, dynamic> payload) {
+    _terminalsChangedController.add(payload);
+  }
+
   /// 模拟终端被服务端关闭
   void simulateTerminalClosed() {
     _terminalStatus = 'closed';

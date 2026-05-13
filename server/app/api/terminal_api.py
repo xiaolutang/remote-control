@@ -182,6 +182,13 @@ async def close_runtime_terminal(
         disconnect_reason="user_request",
     )
 
+    # 取消该终端所有 pending 的定时任务
+    from app.api.scheduled_task_api import _get_scheduled_task_store
+    store = _get_scheduled_task_store()
+    cancelled = await store.cancel_by_terminal(session["session_id"], terminal_id)
+    if cancelled > 0:
+        logger.info("Terminal %s closed, cancelled %d scheduled tasks", terminal_id, cancelled)
+
     return _runtime_terminal_item(terminal, session_id=session["session_id"])
 
 

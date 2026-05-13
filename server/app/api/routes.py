@@ -10,6 +10,7 @@ from app.api.user_api import router as user_router
 from app.api.log_api import router as log_router
 from app.api.runtime_api import router as runtime_router
 from app.api.feedback_api import router as feedback_router
+from app.api.scheduled_task_api import router as scheduled_task_router
 
 router = APIRouter()
 
@@ -45,3 +46,4 @@ router.include_router(user_router, prefix="/api")
 router.include_router(log_router, prefix="/api")
 router.include_router(runtime_router, prefix="/api")
 router.include_router(feedback_router, prefix="/api")
+router.include_router(scheduled_task_router, prefix="/api")
