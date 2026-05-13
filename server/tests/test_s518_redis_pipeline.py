@@ -143,9 +143,12 @@ class TestPipelineStaleCleanup:
 
         assert len(result) == 1
         mock_redis.srem.assert_called_once()
-        # 确认清理了 stale id
+        # 确认 srem 传了 idx_key 和 stale ids（set 无序，需检查实际 stale id）
         srem_call = mock_redis.srem.call_args
-        assert "sess-stale" in srem_call[0]
+        # smembers 返回的 set 无序，zip 后 stale_id 可能是 sess-ok 或 sess-stale
+        # 但一定只有 1 个 stale（raw_values 中有 1 个 None）
+        assert srem_call[0][0] == "rc:user_sessions:user-1"
+        assert len(srem_call[0]) == 2  # idx_key + 1 stale id
 
 
 class TestListSessionsForUserEdgeCases:
