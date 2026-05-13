@@ -192,6 +192,7 @@ class AgentSessionManager:
         tool_call_fn=None,
         dynamic_tools=None,
         include_lookup_knowledge=True,
+        scheduled_task_store=None,
     ) -> None:
         """启动 Agent 运行循环。"""
         task = asyncio.create_task(
@@ -199,6 +200,7 @@ class AgentSessionManager:
                 session, execute_command_fn, ask_user_fn_override,
                 lookup_knowledge_fn, tool_call_fn, dynamic_tools,
                 include_lookup_knowledge,
+                scheduled_task_store,
             )
         )
         session._agent_task = task
@@ -293,6 +295,7 @@ class AgentSessionManager:
         tool_call_fn=None,
         dynamic_tools=None,
         include_lookup_knowledge=True,
+        scheduled_task_store=None,
     ) -> None:
         """运行 Agent 主循环——委托给 agent_session_runner.run_agent_loop。"""
         from app.services.agent_session_runner import run_agent_loop as _run_agent_loop
@@ -306,6 +309,7 @@ class AgentSessionManager:
             tool_call_fn,
             dynamic_tools,
             include_lookup_knowledge,
+            scheduled_task_store,
         )
 
     async def respond(

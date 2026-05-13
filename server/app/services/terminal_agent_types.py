@@ -207,3 +207,5 @@ class AgentDeps:
     project_aliases: dict[str, str] = field(default_factory=dict)  # 已知项目别名
     usage: Optional[RunUsage] = None  # B105: usage 累积对象，由 run_agent() 传入
     on_model_text: Optional[Callable[[str], Awaitable[None]]] = None  # B106: 模型中间文本输出回调
+    list_scheduled_tasks_fn: Optional[Callable[[], Awaitable[list[dict]]]] = None  # B001: 查询当前终端定时任务回调
+    cancel_scheduled_task_fn: Optional[Callable[[int], Awaitable[str]]] = None  # B001: 取消指定定时任务回调（返回成功/失败信息）

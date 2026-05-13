@@ -166,6 +166,64 @@ async def _tool_deliver_result(
     raise ResultDelivered(result=agent_result, usage=usage)
 
 
+async def _tool_list_scheduled_tasks(
+    ctx: RunContext[AgentDeps],
+) -> str:
+    """查询当前终端的定时任务列表。返回所有 pending 状态的任务。
+
+    当用户询问"有什么定时任务""定时任务列表""我的任务"时调用此工具。
+
+    Returns:
+        JSON 格式的任务列表字符串，包含每个任务的 id、text_content、execute_at、repeat_type、status 等字段。
+    """
+    if ctx.deps.list_scheduled_tasks_fn is None:
+        return "当前终端不支持定时任务查询"
+
+    try:
+        tasks = await ctx.deps.list_scheduled_tasks_fn()
+        if not tasks:
+            return "当前终端没有定时任务"
+
+        # 格式化输出：每个任务一行摘要
+        lines = []
+        for task in tasks:
+            task_id = task.get("id", "?")
+            text = task.get("text_content", "")[:50]
+            execute_at = task.get("execute_at", "?")
+            repeat = task.get("repeat_type", "once")
+            status = task.get("status", "?")
+            lines.append(
+                f"[#{task_id}] {text} | 执行时间: {execute_at} | 类型: {repeat} | 状态: {status}"
+            )
+        return "当前终端定时任务：\n" + "\n".join(lines)
+    except Exception as e:
+        logger.warning("list_scheduled_tasks error: %s", e)
+        return f"查询定时任务失败: {type(e).__name__}: {e}"
+
+
+async def _tool_cancel_scheduled_task(
+    ctx: RunContext[AgentDeps],
+    task_id: int,
+) -> str:
+    """取消指定 ID 的定时任务。
+
+    当用户要求取消/删除某个定时任务时调用此工具。
+    只能取消当前用户在当前终端上的任务。
+
+    Args:
+        task_id: 要取消的任务 ID
+    """
+    if ctx.deps.cancel_scheduled_task_fn is None:
+        return "当前终端不支持定时任务取消"
+
+    try:
+        result = await ctx.deps.cancel_scheduled_task_fn(task_id)
+        return result
+    except Exception as e:
+        logger.warning("cancel_scheduled_task error: %s", e)
+        return f"取消定时任务失败: {type(e).__name__}: {e}"
+
+
 # ---------------------------------------------------------------------------
 # Agent Factory 工具注册（Session-scoped）
 # ---------------------------------------------------------------------------
@@ -175,6 +233,8 @@ def _register_builtin_tools(agent: Agent[AgentDeps, str]) -> None:
     agent.tool(_tool_execute_command, name="execute_command")
     agent.tool(_tool_ask_user, name="ask_user")
     agent.tool(_tool_deliver_result, name="deliver_result")
+    agent.tool(_tool_list_scheduled_tasks, name="list_scheduled_tasks")
+    agent.tool(_tool_cancel_scheduled_task, name="cancel_scheduled_task")
 
 
 def _register_lookup_knowledge(agent: Agent[AgentDeps, str]) -> None:

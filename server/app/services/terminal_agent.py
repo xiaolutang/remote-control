@@ -66,8 +66,10 @@ from app.services.terminal_agent_tools import (  # noqa: F401
     _register_dynamic_tool,
     _register_lookup_knowledge,
     _tool_ask_user,
+    _tool_cancel_scheduled_task,
     _tool_deliver_result,
     _tool_execute_command,
+    _tool_list_scheduled_tasks,
     _tool_lookup_knowledge,
     call_dynamic_tool,
     validate_tool_catalog,
@@ -188,7 +190,47 @@ SYSTEM_PROMPT = """你是终端侧 Claude Code 预处理助手。你的核心职
 - 在 summary 中如实说明遇到了什么问题、已获取到哪些信息
 - 基于已获取的部分信息给出回复，而不是只给一个标题
 - 绝对不要在没有实际内容的情况下只返回一个空标题
-""".format(sensitive_paths=SENSITIVE_PATH_DISPLAY)  # noqa: E501
+
+# 定时任务能力
+你可以帮助用户创建、查询和取消定时任务。定时任务是在指定时间自动执行终端命令的功能。
+
+## 创建定时任务
+当用户表达"定时执行""延迟执行""每天执行"等意图时：
+- 调用 deliver_result(response_type='command')，传入 schedule_at 和 repeat_type 参数
+- schedule_at 必须是**带时区的绝对 ISO 8601 时间**，例如 `2026-05-14T03:00:00+08:00`
+- **禁止使用相对时间**（如"30分钟后"），必须根据当前时间计算绝对时间
+- repeat_type 为 "once"（一次性）或 "daily"（每日重复）
+- schedule_at 和 repeat_type 必须同时存在
+
+## 查询定时任务
+- 使用 list_scheduled_tasks 工具查询当前终端的定时任务列表
+- 当用户问"有什么定时任务""定时任务列表"时调用
+
+## 取消定时任务
+- 使用 cancel_scheduled_task 工具取消指定任务（传入 task_id）
+- 当用户要求"取消定时任务""删除任务"时调用
+- 只能取消当前用户在当前终端上的任务
+
+## 当前时间
+服务器当前时间：{current_time}
+请基于此时间计算 schedule_at 的绝对时间值。
+"""  # noqa: E501 — 由 _build_system_prompt() 动态 format 注入
+
+
+def _build_system_prompt() -> str:
+    """构建完整 system prompt，注入当前时间（UTC+8）和敏感路径。
+
+    每次调用 run_agent 时执行，确保 current_time 为实时值。
+    """
+    from datetime import datetime, timezone, timedelta
+
+    utc8 = timezone(timedelta(hours=8))
+    current_time = datetime.now(utc8).strftime("%Y-%m-%d %H:%M:%S +08:00")
+
+    return SYSTEM_PROMPT.format(
+        sensitive_paths=SENSITIVE_PATH_DISPLAY,
+        current_time=current_time,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -217,7 +259,7 @@ def build_session_agent(
         model=_build_model(),
         deps_type=AgentDeps,
         output_type=str,
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=_build_system_prompt(),
         retries=3,
         model_settings={"max_tokens": 4096},
     )
@@ -244,7 +286,7 @@ terminal_agent = Agent(
     model=_build_model(),
     deps_type=AgentDeps,
     output_type=str,
-    system_prompt=SYSTEM_PROMPT,
+    system_prompt=_build_system_prompt(),
     retries=3,
     model_settings={"max_tokens": 4096},
 )
@@ -254,6 +296,8 @@ terminal_agent.tool(_tool_execute_command, name="execute_command")
 terminal_agent.tool(_tool_ask_user, name="ask_user")
 terminal_agent.tool(_tool_lookup_knowledge, name="lookup_knowledge")
 terminal_agent.tool(_tool_deliver_result, name="deliver_result")
+terminal_agent.tool(_tool_list_scheduled_tasks, name="list_scheduled_tasks")
+terminal_agent.tool(_tool_cancel_scheduled_task, name="cancel_scheduled_task")
 
 
 # 保留旧名称兼容（测试直接 import 这些函数名）
@@ -261,6 +305,8 @@ execute_command = _tool_execute_command
 ask_user = _tool_ask_user
 lookup_knowledge = _tool_lookup_knowledge
 deliver_result = _tool_deliver_result
+list_scheduled_tasks = _tool_list_scheduled_tasks
+cancel_scheduled_task = _tool_cancel_scheduled_task
 
 
 # ---------------------------------------------------------------------------
@@ -279,6 +325,8 @@ async def run_agent(
     dynamic_tools: list[dict] | None = None,
     include_lookup_knowledge: bool = True,
     on_model_text: Callable[[str], Awaitable[None]] | None = None,
+    list_scheduled_tasks_fn: Callable[[], Awaitable[list[dict]]] | None = None,
+    cancel_scheduled_task_fn: Callable[[int], Awaitable[str]] | None = None,
 ) -> AgentRunOutcome:
     """运行 Agent 处理用户意图。
 
@@ -298,6 +346,8 @@ async def run_agent(
         dynamic_tools: 已验证的动态工具目录，可选
         include_lookup_knowledge: 是否注册 lookup_knowledge（基于 Agent 版本）
         on_model_text: 模型中间文本输出回调 (text) -> None，可选
+        list_scheduled_tasks_fn: 查询当前终端定时任务回调 () -> list[dict]，可选
+        cancel_scheduled_task_fn: 取消定时任务回调 (task_id) -> str，可选
 
     Returns:
         AgentRunOutcome 包含 AgentResult + token usage 统计
@@ -316,6 +366,8 @@ async def run_agent(
         project_aliases=project_aliases or {},
         usage=usage_tracker,
         on_model_text=on_model_text,
+        list_scheduled_tasks_fn=list_scheduled_tasks_fn,
+        cancel_scheduled_task_fn=cancel_scheduled_task_fn,
     )
 
     # Session-scoped Agent factory：为每个会话创建独立 Agent

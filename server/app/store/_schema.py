@@ -175,6 +175,20 @@ SCHEMA_STATEMENTS = [
     """CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_conversation_events_answer_question
        ON agent_conversation_events(conversation_id, question_id)
        WHERE event_type = 'answer' AND question_id IS NOT NULL""",
+    """CREATE TABLE IF NOT EXISTS scheduled_tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        terminal_id TEXT NOT NULL,
+        text_content TEXT NOT NULL,
+        execute_at TEXT NOT NULL,
+        repeat_type TEXT NOT NULL DEFAULT 'none',
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at TEXT NOT NULL,
+        executed_at TEXT
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_user_id ON scheduled_tasks(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_session_id ON scheduled_tasks(session_id)",
 ]
 
 # 增量迁移语句

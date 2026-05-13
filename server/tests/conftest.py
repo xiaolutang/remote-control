@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 # JWT_SECRET 必填，测试环境使用固定值
 os.environ.setdefault("JWT_SECRET", "test-secret-key-for-pytest")
 os.environ.setdefault("TRUSTED_PROXY_TLS_TOKEN", "trusted-proxy-token-for-pytest")
+os.environ.setdefault("OPENAI_API_KEY", "test-openai-key-for-pytest")
 
 
 @pytest.fixture(autouse=True)
