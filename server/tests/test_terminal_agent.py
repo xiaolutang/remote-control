@@ -566,6 +566,8 @@ class TestRunAgent:
             steps=[CommandSequenceStep(id="s1", label="go", command="cd /project")],
         )
         test_usage = MagicMock()
+        test_usage.request_tokens = 100
+        test_usage.response_tokens = 50
         test_usage.input_tokens = 100
         test_usage.output_tokens = 50
         test_usage.total_tokens = 150
@@ -1624,6 +1626,8 @@ class TestRunAgentCatchesResultDelivered:
             steps=[CommandSequenceStep(id="s1", label="go", command="cd /project")],
         )
         test_usage = MagicMock()
+        test_usage.request_tokens = 200
+        test_usage.response_tokens = 100
         test_usage.input_tokens = 200
         test_usage.output_tokens = 100
         test_usage.total_tokens = 300
