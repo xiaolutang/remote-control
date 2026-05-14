@@ -1,0 +1,363 @@
+"""
+B003: 定时任务调度器测试
+
+测试场景：
+1. 到点 + Agent 在线 + 一次性 → 发送 DATA 消息 + 状态变 executed
+2. 到点 + Agent 在线 + 每日 → 发送 DATA 消息 + 保持 pending + execute_at 更新为次日
+3. 到点 + Agent 离线 + 一次性 → 状态变 expired
+4. 到点 + Agent 离线 + 每日 → 保持 pending + execute_at 推到次日
+5. 多任务同时到点 → 全部执行
+6. 无 pending 任务 → 无操作
+7. WS 发送异常 → 一次性标记 expired，每日跳过本轮
+"""
+import base64
+import os
+from datetime import datetime, timezone, timedelta
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+import pytest_asyncio
+
+from app.store.database import Database
+from app.services.scheduler import (
+    _poll_once,
+    _process_task,
+    _send_text_to_terminal,
+    _next_daily_execute_at,
+    _is_terminal_in_cache,
+)
+
+TEST_DB = "/tmp/test_rc_scheduler.db"
+
+
+@pytest.fixture(autouse=True)
+def _clean_db():
+    """每个测试配置独立数据库并清理。"""
+    if os.path.exists(TEST_DB):
+        os.remove(TEST_DB)
+    yield
+    if os.path.exists(TEST_DB):
+        os.remove(TEST_DB)
+
+
+@pytest_asyncio.fixture
+async def db():
+    """创建并初始化 Database（含表结构）。"""
+    database = Database(TEST_DB)
+    await database.init_db()
+    return database
+
+
+# ---------------------------------------------------------------------------
+# _next_daily_execute_at
+# ---------------------------------------------------------------------------
+
+def test_next_daily_execute_at_with_timezone():
+    """每日任务的下次执行时间应为次日同一时间。"""
+    execute_at = "2026-05-12T08:00:00+08:00"
+    result = _next_daily_execute_at(execute_at)
+    expected = "2026-05-13T08:00:00+08:00"
+    assert result == expected
+
+
+def test_next_daily_execute_at_utc():
+    """UTC 时区的每日任务推到次日。"""
+    execute_at = "2026-05-12T00:00:00+00:00"
+    result = _next_daily_execute_at(execute_at)
+    expected = "2026-05-13T00:00:00+00:00"
+    assert result == expected
+
+
+# ---------------------------------------------------------------------------
+# _send_text_to_terminal
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_send_text_to_terminal_agent_offline():
+    """Agent 离线时返回 False。"""
+    with patch("app.services.scheduler.get_agent_connection", return_value=None):
+        result = await _send_text_to_terminal("session-1", "terminal-1", "ls")
+        assert result is False
+
+
+@pytest.mark.asyncio
+async def test_send_text_to_terminal_agent_online():
+    """Agent 在线时发送 DATA 消息并返回 True。"""
+    mock_conn = AsyncMock()
+    with patch("app.services.scheduler.get_agent_connection", return_value=mock_conn):
+        result = await _send_text_to_terminal("session-1", "terminal-1", "ls -la")
+        assert result is True
+        # 验证发送的消息
+        call_args = mock_conn.send.call_args[0][0]
+        assert call_args["type"] == "data"
+        assert call_args["terminal_id"] == "terminal-1"
+        assert base64.b64decode(call_args["payload"]).decode() == "ls -la"
+
+
+@pytest.mark.asyncio
+async def test_send_text_to_terminal_ws_error():
+    """WS 发送异常时返回 False。"""
+    mock_conn = AsyncMock()
+    mock_conn.send.side_effect = Exception("WS error")
+    with patch("app.services.scheduler.get_agent_connection", return_value=mock_conn):
+        result = await _send_text_to_terminal("session-1", "terminal-1", "ls")
+        assert result is False
+
+
+# ---------------------------------------------------------------------------
+# _is_terminal_in_cache
+# ---------------------------------------------------------------------------
+
+def test_terminal_in_cache_live():
+    """缓存中 terminal 存在且 live。"""
+    cache = {"session-1": [{"terminal_id": "t1", "status": "live"}]}
+    assert _is_terminal_in_cache(cache, "session-1", "t1") is True
+
+
+def test_terminal_in_cache_not_live():
+    """缓存中 terminal 存在但非 live。"""
+    cache = {"session-1": [{"terminal_id": "t1", "status": "closed"}]}
+    assert _is_terminal_in_cache(cache, "session-1", "t1") is False
+
+
+def test_terminal_in_cache_not_found():
+    """缓存中 terminal 不存在。"""
+    cache = {"session-1": [{"terminal_id": "t2", "status": "live"}]}
+    assert _is_terminal_in_cache(cache, "session-1", "t1") is False
+
+
+def test_terminal_in_cache_session_missing():
+    """缓存中 session 不存在。"""
+    assert _is_terminal_in_cache({}, "session-1", "t1") is False
+
+
+# ---------------------------------------------------------------------------
+# _process_task（使用 terminal_cache 参数）
+# ---------------------------------------------------------------------------
+
+def _live_cache(session_id: str, terminal_id: str) -> dict:
+    """构造包含 live terminal 的缓存。"""
+    return {session_id: [{"terminal_id": terminal_id, "status": "live"}]}
+
+
+def _dead_cache(session_id: str) -> dict:
+    """构造不包含目标 terminal 的缓存。"""
+    return {session_id: []}
+
+
+@pytest.mark.asyncio
+async def test_process_task_one_time_online(db):
+    """到点 + Agent 在线 + 一次性 → 状态变 executed。"""
+    execute_at = datetime.now(timezone.utc).isoformat()
+    task_dict = await db.create_scheduled_task("user1", "session-1", "t1", "echo hello", execute_at, "once")
+    task_id = task_dict["id"]
+
+    task = await db.get_scheduled_task_by_id(task_id)
+    cache = _live_cache("session-1", "t1")
+
+    with patch("app.services.scheduler._send_text_to_terminal", return_value=True):
+        await _process_task(db, task, cache)
+
+    updated = await db.get_scheduled_task_by_id(task_id)
+    assert updated["status"] == "executed"
+    assert updated["executed_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_process_task_one_time_offline(db):
+    """到点 + Agent 离线 + 一次性 → 状态变 expired。"""
+    execute_at = datetime.now(timezone.utc).isoformat()
+    task_dict = await db.create_scheduled_task("user1", "session-1", "t1", "echo hello", execute_at, "once")
+    task_id = task_dict["id"]
+
+    task = await db.get_scheduled_task_by_id(task_id)
+    cache = _live_cache("session-1", "t1")
+
+    with patch("app.services.scheduler._send_text_to_terminal", return_value=False):
+        await _process_task(db, task, cache)
+
+    updated = await db.get_scheduled_task_by_id(task_id)
+    assert updated["status"] == "expired"
+    assert updated["executed_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_process_task_daily_online(db):
+    """到点 + Agent 在线 + 每日 → 保持 pending + execute_at 更新为次日。"""
+    execute_at = "2026-05-12T08:00:00+00:00"
+    task_dict = await db.create_scheduled_task("user1", "session-1", "t1", "git pull", execute_at, "daily")
+    task_id = task_dict["id"]
+
+    task = await db.get_scheduled_task_by_id(task_id)
+    cache = _live_cache("session-1", "t1")
+
+    with patch("app.services.scheduler._send_text_to_terminal", return_value=True):
+        await _process_task(db, task, cache)
+
+    updated = await db.get_scheduled_task_by_id(task_id)
+    assert updated["status"] == "pending"
+    assert updated["execute_at"] == "2026-05-13T08:00:00+00:00"
+
+
+@pytest.mark.asyncio
+async def test_process_task_daily_offline(db):
+    """到点 + Agent 离线 + 每日 → 保持 pending + execute_at 推到次日。"""
+    execute_at = "2026-05-12T08:00:00+00:00"
+    task_dict = await db.create_scheduled_task("user1", "session-1", "t1", "git pull", execute_at, "daily")
+    task_id = task_dict["id"]
+
+    task = await db.get_scheduled_task_by_id(task_id)
+    cache = _live_cache("session-1", "t1")
+
+    with patch("app.services.scheduler._send_text_to_terminal", return_value=False):
+        await _process_task(db, task, cache)
+
+    updated = await db.get_scheduled_task_by_id(task_id)
+    assert updated["status"] == "pending"
+    assert updated["execute_at"] == "2026-05-13T08:00:00+00:00"
+
+
+# ---------------------------------------------------------------------------
+# _process_task — terminal not live
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_process_task_one_time_terminal_not_live(db):
+    """到点 + terminal 不存在/已关闭 + 一次性 → 状态变 expired。"""
+    execute_at = datetime.now(timezone.utc).isoformat()
+    task_dict = await db.create_scheduled_task("user1", "session-1", "t1", "echo hello", execute_at, "once")
+    task_id = task_dict["id"]
+
+    task = await db.get_scheduled_task_by_id(task_id)
+    cache = _dead_cache("session-1")
+
+    await _process_task(db, task, cache)
+
+    updated = await db.get_scheduled_task_by_id(task_id)
+    assert updated["status"] == "expired"
+    assert updated["executed_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_process_task_daily_terminal_not_live(db):
+    """到点 + terminal 不存在/已关闭 + 每日 → 跳过本轮，execute_at 推到次日。"""
+    execute_at = "2026-05-12T08:00:00+00:00"
+    task_dict = await db.create_scheduled_task("user1", "session-1", "t1", "git pull", execute_at, "daily")
+    task_id = task_dict["id"]
+
+    task = await db.get_scheduled_task_by_id(task_id)
+    cache = _dead_cache("session-1")
+
+    await _process_task(db, task, cache)
+
+    updated = await db.get_scheduled_task_by_id(task_id)
+    assert updated["status"] == "pending"
+    assert updated["execute_at"] == "2026-05-13T08:00:00+00:00"
+
+
+# ---------------------------------------------------------------------------
+# _poll_once
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_poll_once_no_pending_tasks(db):
+    """无 pending 任务 → 无操作。"""
+    # 创建一个 executed 状态的任务（不是 pending）
+    execute_at = datetime.now(timezone.utc).isoformat()
+    task_dict = await db.create_scheduled_task("user1", "session-1", "t1", "echo hello", execute_at, "once")
+    await db.update_scheduled_task_status(task_dict["id"], "executed", executed_at=execute_at)
+
+    with patch("app.services.scheduler._process_task") as mock_process:
+        await _poll_once(db)
+        mock_process.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_poll_once_multiple_due_tasks(db):
+    """多任务同时到点 → 全部执行。"""
+    past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    await db.create_scheduled_task("user1", "session-1", "t1", "cmd1", past, "once")
+    await db.create_scheduled_task("user1", "session-1", "t2", "cmd2", past, "daily")
+    await db.create_scheduled_task("user1", "session-2", "t3", "cmd3", past, "once")
+
+    terminals_data = {
+        "session-1": [
+            {"terminal_id": "t1", "status": "live"},
+            {"terminal_id": "t2", "status": "live"},
+        ],
+        "session-2": [
+            {"terminal_id": "t3", "status": "live"},
+        ],
+    }
+    with patch("app.services.scheduler.list_session_terminals") as mock_list, \
+         patch("app.services.scheduler._send_text_to_terminal", return_value=True):
+        mock_list.side_effect = _fake_terminals_factory(terminals_data)
+        await _poll_once(db)
+
+    # 验证所有任务都被处理了
+    all_tasks_user1 = await db.list_scheduled_tasks_by_user("user1")
+    executed_count = sum(1 for t in all_tasks_user1 if t["status"] == "executed")
+    pending_count = sum(1 for t in all_tasks_user1 if t["status"] == "pending")
+    assert executed_count == 2  # 两个一次性任务
+    assert pending_count == 1  # 一个每日任务
+
+
+@pytest.mark.asyncio
+async def test_poll_once_future_task_not_picked(db):
+    """未到点的任务不会被拾取。"""
+    future = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    await db.create_scheduled_task("user1", "session-1", "t1", "cmd1", future, "once")
+
+    with patch("app.services.scheduler._process_task") as mock_process:
+        await _poll_once(db)
+        mock_process.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_poll_once_ws_exception_one_time_expired(db):
+    """WS 发送异常 → 一次性标记 expired。"""
+    past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    task_dict = await db.create_scheduled_task("user1", "session-1", "t1", "cmd1", past, "once")
+    task_id = task_dict["id"]
+
+    terminals_data = {
+        "session-1": [{"terminal_id": "t1", "status": "live"}],
+    }
+    with patch("app.services.scheduler.list_session_terminals") as mock_list, \
+         patch("app.services.scheduler._send_text_to_terminal", return_value=False):
+        mock_list.side_effect = _fake_terminals_factory(terminals_data)
+        await _poll_once(db)
+
+    task = await db.get_scheduled_task_by_id(task_id)
+    assert task["status"] == "expired"
+
+
+@pytest.mark.asyncio
+async def test_poll_once_ws_exception_daily_skip(db):
+    """WS 发送异常 → 每日跳过本轮，execute_at 推到次日。"""
+    execute_at = "2026-05-12T08:00:00+00:00"
+    task_dict = await db.create_scheduled_task("user1", "session-1", "t1", "cmd1", execute_at, "daily")
+    task_id = task_dict["id"]
+
+    terminals_data = {
+        "session-1": [{"terminal_id": "t1", "status": "live"}],
+    }
+    with patch("app.services.scheduler.list_session_terminals") as mock_list, \
+         patch("app.services.scheduler._send_text_to_terminal", return_value=False):
+        mock_list.side_effect = _fake_terminals_factory(terminals_data)
+        await _poll_once(db)
+
+    task = await db.get_scheduled_task_by_id(task_id)
+    assert task["status"] == "pending"
+    assert task["execute_at"] == "2026-05-13T08:00:00+00:00"
+
+
+# ---------------------------------------------------------------------------
+# Helper
+# ---------------------------------------------------------------------------
+
+def _fake_terminals_factory(data: dict):
+    """创建模拟 list_session_terminals 的 AsyncMock side_effect。"""
+    async def _fake_terminals(session_id: str) -> list:
+        return data.get(session_id, [])
+    return _fake_terminals

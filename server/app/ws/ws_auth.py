@@ -16,6 +16,7 @@ from typing import Tuple
 from fastapi import WebSocketDisconnect, HTTPException
 
 from app.infra.auth import async_verify_token, TokenVerificationError
+from app.infra.message_types import WSCloseCode
 import logging
 
 logger = logging.getLogger(__name__)
@@ -99,22 +100,22 @@ async def wait_for_ws_auth(websocket) -> Tuple[dict, dict]:
     try:
         raw = await asyncio.wait_for(websocket.receive_text(), timeout=WS_AUTH_TIMEOUT)
     except asyncio.TimeoutError:
-        await websocket.close(code=4002, reason="Auth timeout")
-        raise WebSocketDisconnect(code=4002)
+        await websocket.close(code=WSCloseCode.AUTH_TIMEOUT, reason="Auth timeout")
+        raise WebSocketDisconnect(code=WSCloseCode.AUTH_TIMEOUT)
 
     if len(raw) > MAX_WS_MESSAGE_SIZE:
-        await websocket.close(code=4003, reason="Message too large")
-        raise WebSocketDisconnect(code=4003)
+        await websocket.close(code=WSCloseCode.PROTOCOL_ERROR, reason="Message too large")
+        raise WebSocketDisconnect(code=WSCloseCode.PROTOCOL_ERROR)
 
     try:
         msg = json.loads(raw)
     except json.JSONDecodeError:
-        await websocket.close(code=4004, reason="Invalid JSON in auth message")
-        raise WebSocketDisconnect(code=4004)
+        await websocket.close(code=WSCloseCode.INVALID_MESSAGE, reason="Invalid JSON in auth message")
+        raise WebSocketDisconnect(code=WSCloseCode.INVALID_MESSAGE)
 
     if msg.get("type") != "auth" or not msg.get("token"):
-        await websocket.close(code=4004, reason="Expected auth message")
-        raise WebSocketDisconnect(code=4004)
+        await websocket.close(code=WSCloseCode.INVALID_MESSAGE, reason="Expected auth message")
+        raise WebSocketDisconnect(code=WSCloseCode.INVALID_MESSAGE)
 
     token = msg["token"]
 
@@ -131,7 +132,7 @@ async def wait_for_ws_auth(websocket) -> Tuple[dict, dict]:
         raise WebSocketDisconnect(code=http_to_ws_code(e.status_code))
     except Exception as e:
         logger.warning("Token verification error: %s: %s", type(e).__name__, e)
-        await websocket.close(code=4500, reason=str(e))
-        raise WebSocketDisconnect(code=4500)
+        await websocket.close(code=WSCloseCode.INTERNAL_ERROR, reason=str(e))
+        raise WebSocketDisconnect(code=WSCloseCode.INTERNAL_ERROR)
 
     return payload, msg

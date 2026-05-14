@@ -68,3 +68,32 @@ PLAINTEXT_MSG_TYPES: frozenset[str] = frozenset({
     MessageType.PING,
     MessageType.PONG,
 })
+
+
+# ---- WebSocket 关闭码常量 ----
+# 集中定义，避免散落在各 ws 模块中。
+# 4xxx 为应用自定义码。
+
+class WSCloseCode:
+    """WebSocket 关闭码常量。"""
+    # 协议标准码
+    NORMAL = 1000        # 正常关闭
+    ABNORMAL = 1006      # 无 close frame（网络中断）
+    POLICY_VIOLATION = 1008  # 心跳超时
+
+    # 应用自定义码 — 认证/协议
+    AUTH_TIMEOUT = 4002      # 认证超时
+    PROTOCOL_ERROR = 4003    # 协议错误（缺少加密/Token 缺字段）
+    INVALID_MESSAGE = 4004   # 无效消息（JSON 错误/非 auth 消息）
+
+    # 应用自定义码 — 业务
+    SESSION_CONFLICT = 4009  # Session/terminal 冲突
+    DEVICE_REPLACED = 4011   # 设备被新连接替换
+
+    # 应用自定义码 — 客户端错误
+    INVALID_VIEW = 4400      # 无效 view_type
+
+    # 应用自定义码 — 服务端错误
+    INTERNAL_ERROR = 4500    # 服务端内部错误
+    NETWORK_LOST = 4501      # Agent 网络丢失
+    TOO_MANY_CLIENTS = 4503  # 客户端连接数超限

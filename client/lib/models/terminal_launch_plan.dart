@@ -1,3 +1,6 @@
+import '../utils/json_helpers.dart'
+    show readBoolFromJson, readOptionalStringFromJson;
+
 enum TerminalLaunchTool {
   claudeCode,
   codex,
@@ -92,7 +95,7 @@ class TerminalLaunchPlan {
 
   factory TerminalLaunchPlan.fromJson(Map<String, dynamic> json) {
     final tool = TerminalLaunchToolCodec.fromJson(
-        json['tool'] is String ? json['tool'] as String : null) ??
+        readOptionalStringFromJson(json['tool'])) ??
         TerminalLaunchTool.shell;
     final cwd = normalizedString(json['cwd']) ?? '~';
     final defaults = TerminalLaunchPlanDefaults.forTool(tool);
@@ -103,23 +106,21 @@ class TerminalLaunchPlan {
       cwd: cwd,
       command: normalizedString(json['command']) ?? defaults.command,
       entryStrategy: TerminalEntryStrategyCodec.fromJson(
-              json['entry_strategy'] is String ? json['entry_strategy'] as String : null) ??
+              readOptionalStringFromJson(json['entry_strategy'])) ??
           defaults.entryStrategy,
       postCreateInput:
-          json['post_create_input'] is String ? json['post_create_input'] as String : defaults.postCreateInput,
+          readOptionalStringFromJson(json['post_create_input']) ?? defaults.postCreateInput,
       source: TerminalLaunchPlanSourceCodec.fromJson(
-            json['source'] is String ? json['source'] as String : null,
+            readOptionalStringFromJson(json['source']),
           ) ??
           TerminalLaunchPlanSource.recommended,
       intent: normalizedString(json['intent']),
       confidence: TerminalLaunchConfidenceCodec.fromJson(
-            json['confidence'] is String ? json['confidence'] as String : null,
+            readOptionalStringFromJson(json['confidence']),
           ) ??
           TerminalLaunchConfidence.high,
       requiresManualConfirmation:
-          json['requires_manual_confirmation'] is bool
-              ? json['requires_manual_confirmation'] as bool
-              : false,
+          readBoolFromJson(json['requires_manual_confirmation']),
     );
   }
 

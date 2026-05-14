@@ -409,9 +409,11 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
   }
 
   Future<void> _handleAgentRespond(String answer) async {
-    if (_terminalConversationClosed ||
-        _pendingReset ||
-        _activeSessionId == null) return;
+    if (_terminalConversationClosed || _pendingReset) return;
+    if (_activeSessionId == null) {
+      _presentAgentError(code: 'SESSION_LOST', message: '会话已结束，请重新发送您的问题');
+      return;
+    }
     final controller = _tryGetController<RuntimeSelectionController>();
     if (controller == null) return;
     final deviceId = controller.selectedDeviceId;
@@ -453,11 +455,7 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
       final text = _intentController.text.trim();
       if (text.isEmpty) return;
       if (_activeSessionId == null) {
-        setState(() {
-          _currentPhase = AgentPhase.error;
-          _agentError =
-              AgentErrorEvent(code: 'SESSION_LOST', message: '会话已断开，请重新发送您的问题');
-        });
+        _presentAgentError(code: 'SESSION_LOST', message: '会话已结束，请重新发送您的问题');
         return;
       }
       _intentController.clear();
@@ -640,6 +638,107 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
   }
 
   Future<void> _cancelAgentSessionSilent() => _doCancelAgentNetwork();
+
+  // --- 定时任务创建 ---
+
+  /// 创建定时任务：将 steps 的 command 用 \r 拼接为 text_content，
+  /// 将 repeatType 字符串转为枚举，调用 ScheduledTaskService.create()。
+  Future<void> _createScheduledTask() async {
+    if (_scheduledTaskCreating) return; // 防重入
+    final result = _agentResult;
+    if (result == null || result.scheduleAt == null) return;
+
+    final controller = _tryGetController<RuntimeSelectionController>();
+    if (controller == null) {
+      setState(() {
+        _scheduledTaskError = '当前页面状态异常，无法创建定时任务';
+      });
+      return;
+    }
+
+    final terminalId = _currentTerminalId();
+    if (terminalId == null || terminalId.isEmpty) {
+      setState(() {
+        _scheduledTaskError = '终端 ID 不可用，无法创建定时任务';
+      });
+      return;
+    }
+
+    final deviceId = controller.selectedDeviceId;
+    if (deviceId == null || deviceId.isEmpty) {
+      setState(() {
+        _scheduledTaskError = '设备 ID 不可用，无法创建定时任务';
+      });
+      return;
+    }
+
+    // steps 为空则无法创建
+    if (result.steps.isEmpty) {
+      setState(() {
+        _scheduledTaskError = '命令内容为空，无法创建定时任务';
+      });
+      return;
+    }
+    // steps 每步的 command 用 \r 拼接，确保末尾有 \r 以自动执行
+    final joined = result.steps.map((s) => s.command).join('\r');
+    final textContent = ensureTrailingEnter(joined);
+
+    // repeatType 字符串转枚举（非法值降级为 once）
+    final repeatTypeEnum = enumFromJson(
+      ScheduledTaskRepeatType.values,
+      result.repeatType,
+      ScheduledTaskRepeatType.once,
+    );
+
+    setState(() {
+      _scheduledTaskCreating = true;
+      _scheduledTaskError = null;
+    });
+
+    try {
+      final service = ScheduledTaskService(serverUrl: controller.serverUrl);
+      await service.create(
+        token: controller.token,
+        sessionId: deviceId,
+        terminalId: terminalId,
+        textContent: textContent,
+        executeAt: result.scheduleAt!,
+        repeatType: repeatTypeEnum,
+      );
+
+      if (!mounted) return;
+
+      // 通知父组件刷新定时任务列表（父组件的 poller 会拉取最新数据）
+      widget.onScheduledTaskCreated?.call();
+
+      setState(() {
+        _scheduledTaskCreating = false;
+        _scheduledTaskError = null;
+      });
+
+      // 显示 SnackBar 提示
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+          ..clearSnackBars()
+          ..showSnackBar(const SnackBar(
+            content: Text('定时任务已创建'),
+            duration: Duration(seconds: 2),
+          ));
+      }
+    } on ScheduledTaskException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _scheduledTaskCreating = false;
+        _scheduledTaskError = e.message;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _scheduledTaskCreating = false;
+        _scheduledTaskError = '创建失败：$e';
+      });
+    }
+  }
 
   // --- 内联编辑处理 ---
   void _startInlineEdit(int? historyIndex, {int? answerIndex}) {

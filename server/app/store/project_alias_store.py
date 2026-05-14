@@ -3,27 +3,21 @@ B081: 项目别名持久化存储。
 
 支持 Agent 探索结果自动学习，将用户设备上的项目别名持久化到 SQLite。
 通过 user_id + device_id 隔离，同 alias 幂等覆盖更新。
+
+作为 ProjectAliasStoreMixin 被多继承到 Database 类中，
+通过 self._connect()（Database 的 @asynccontextmanager）获取连接。
 """
 import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-import aiosqlite
-
 logger = logging.getLogger(__name__)
 
 
-class ProjectAliasStore:
-    """项目别名持久化存储，委托到 Database 的 SQLite 连接。"""
+class ProjectAliasStoreMixin:
+    """项目别名持久化存储 Mixin，通过 Database._connect() 获取连接。"""
 
-    def __init__(self, db_path: str):
-        self.db_path = db_path
-
-    async def _connect(self):
-        """内部连接管理器。"""
-        return aiosqlite.connect(self.db_path)
-
-    async def save(self, user_id: str, device_id: str, alias: str, path: str) -> None:
+    async def save_project_alias(self, user_id: str, device_id: str, alias: str, path: str) -> None:
         """保存/更新别名。INSERT OR REPLACE 幂等。
 
         Args:
@@ -35,7 +29,7 @@ class ProjectAliasStore:
         if not alias or not path:
             return
         now = datetime.now(timezone.utc).isoformat()
-        async with await self._connect() as db:
+        async with self._connect() as db:
             await db.execute(
                 """
                 INSERT INTO project_aliases (user_id, device_id, alias, path, created_at, updated_at)
@@ -48,7 +42,7 @@ class ProjectAliasStore:
             )
             await db.commit()
 
-    async def save_batch(
+    async def save_project_aliases_batch(
         self,
         user_id: str,
         device_id: str,
@@ -64,7 +58,7 @@ class ProjectAliasStore:
         if not aliases:
             return
         now = datetime.now(timezone.utc).isoformat()
-        async with await self._connect() as db:
+        async with self._connect() as db:
             for alias, path in aliases.items():
                 if not alias or not path:
                     continue
@@ -80,7 +74,7 @@ class ProjectAliasStore:
                 )
             await db.commit()
 
-    async def lookup(
+    async def lookup_project_alias(
         self,
         user_id: str,
         device_id: str,
@@ -96,8 +90,7 @@ class ProjectAliasStore:
         Returns:
             项目路径，不存在返回 None
         """
-        async with await self._connect() as db:
-            db.row_factory = aiosqlite.Row
+        async with self._connect() as db:
             cursor = await db.execute(
                 """
                 SELECT path FROM project_aliases
@@ -108,7 +101,7 @@ class ProjectAliasStore:
             row = await cursor.fetchone()
             return row["path"] if row else None
 
-    async def list_all(
+    async def list_project_aliases(
         self,
         user_id: str,
         device_id: str,
@@ -122,8 +115,7 @@ class ProjectAliasStore:
         Returns:
             别名映射 {alias: path}
         """
-        async with await self._connect() as db:
-            db.row_factory = aiosqlite.Row
+        async with self._connect() as db:
             cursor = await db.execute(
                 """
                 SELECT alias, path FROM project_aliases
@@ -135,7 +127,7 @@ class ProjectAliasStore:
             rows = await cursor.fetchall()
             return {row["alias"]: row["path"] for row in rows}
 
-    async def cleanup_stale(self, days: int = 90) -> int:
+    async def cleanup_stale_project_aliases(self, days: int = 90) -> int:
         """清理超过 N 天未使用的别名。
 
         Args:
@@ -144,7 +136,7 @@ class ProjectAliasStore:
         Returns:
             清理的记录数
         """
-        async with await self._connect() as db:
+        async with self._connect() as db:
             cursor = await db.execute(
                 """
                 DELETE FROM project_aliases

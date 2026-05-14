@@ -641,19 +641,19 @@ class TestRouteLevelVerificationEnforcement:
         assert "Depends" in source
 
     def test_ws_client_uses_async_verify(self):
-        """ws_client 必须使用 async_verify_token（通过 _wait_for_ws_auth）"""
+        """ws_client 必须使用 async_verify_token（通过 wait_for_ws_auth）"""
         import app.ws.ws_client as mod
         import inspect
         handler_source = inspect.getsource(mod.client_websocket_handler)
-        auth_source = inspect.getsource(mod._wait_for_ws_auth)
+        auth_source = inspect.getsource(mod.wait_for_ws_auth)
         assert "async_verify_token" in auth_source
 
     def test_ws_agent_uses_async_verify(self):
-        """ws_agent 必须使用 async_verify_token（通过 _wait_for_ws_auth）"""
+        """ws_agent 必须使用 async_verify_token（通过 wait_for_ws_auth）"""
         import app.ws.ws_agent as mod
         import inspect
         handler_source = inspect.getsource(mod.agent_websocket_handler)
-        auth_source = inspect.getsource(mod._wait_for_ws_auth)
+        auth_source = inspect.getsource(mod.wait_for_ws_auth)
         assert "async_verify_token" in auth_source
 
     def test_history_api_uses_async_verify(self):

@@ -218,6 +218,117 @@ void main() {
     });
   });
 
+  group('AgentResultEvent schedule fields', () {
+    test('fromJson parses schedule_at and repeat_type correctly', () {
+      final json = {
+        'summary': 'scheduled task',
+        'steps': <Map<String, dynamic>>[],
+        'provider': 'agent',
+        'source': 'recommended',
+        'need_confirm': false,
+        'aliases': <String, String>{},
+        'schedule_at': '2026-06-01T10:00:00Z',
+        'repeat_type': 'daily',
+      };
+      final event = AgentResultEvent.fromJson(json);
+      expect(event.scheduleAt, '2026-06-01T10:00:00Z');
+      expect(event.repeatType, 'daily');
+    });
+
+    test('fromJson returns null when schedule fields are missing', () {
+      final json = {
+        'summary': 'no schedule',
+        'steps': <Map<String, dynamic>>[],
+        'provider': 'agent',
+        'source': 'recommended',
+        'need_confirm': false,
+        'aliases': <String, String>{},
+      };
+      final event = AgentResultEvent.fromJson(json);
+      expect(event.scheduleAt, isNull);
+      expect(event.repeatType, isNull);
+    });
+
+    test('fromJson preserves non-ISO schedule_at string without throwing', () {
+      final json = {
+        'summary': 'bad schedule',
+        'steps': <Map<String, dynamic>>[],
+        'provider': 'agent',
+        'source': 'recommended',
+        'need_confirm': false,
+        'aliases': <String, String>{},
+        'schedule_at': 'not-a-valid-date',
+        'repeat_type': 'weekly',
+      };
+      final event = AgentResultEvent.fromJson(json);
+      expect(event.scheduleAt, 'not-a-valid-date');
+      expect(event.repeatType, 'weekly');
+    });
+
+    test('fromJson returns null when schedule fields are non-string types', () {
+      final json = {
+        'summary': 'wrong types',
+        'steps': <Map<String, dynamic>>[],
+        'provider': 'agent',
+        'source': 'recommended',
+        'need_confirm': false,
+        'aliases': <String, String>{},
+        'schedule_at': 12345,
+        'repeat_type': true,
+      };
+      final event = AgentResultEvent.fromJson(json);
+      expect(event.scheduleAt, isNull);
+      expect(event.repeatType, isNull);
+    });
+
+    test('toJson round-trip includes schedule fields when present', () {
+      final event = AgentResultEvent(
+        summary: 'test',
+        steps: const [],
+        provider: 'agent',
+        source: 'recommended',
+        needConfirm: false,
+        aliases: const {},
+        scheduleAt: '2026-06-01T10:00:00Z',
+        repeatType: 'daily',
+      );
+      final json = event.toJson();
+      expect(json['schedule_at'], '2026-06-01T10:00:00Z');
+      expect(json['repeat_type'], 'daily');
+    });
+
+    test('toJson omits schedule fields when null', () {
+      final event = AgentResultEvent(
+        summary: 'test',
+        steps: const [],
+        provider: 'agent',
+        source: 'recommended',
+        needConfirm: false,
+        aliases: const {},
+      );
+      final json = event.toJson();
+      expect(json.containsKey('schedule_at'), isFalse);
+      expect(json.containsKey('repeat_type'), isFalse);
+    });
+
+    test('fromJson → toJson round-trip preserves schedule fields', () {
+      final original = {
+        'summary': 'round trip',
+        'steps': <Map<String, dynamic>>[],
+        'provider': 'agent',
+        'source': 'recommended',
+        'need_confirm': false,
+        'aliases': <String, String>{},
+        'schedule_at': '2026-06-01T10:00:00Z',
+        'repeat_type': 'hourly',
+      };
+      final event = AgentResultEvent.fromJson(original);
+      final json = event.toJson();
+      expect(json['schedule_at'], '2026-06-01T10:00:00Z');
+      expect(json['repeat_type'], 'hourly');
+    });
+  });
+
   group('AgentResponseType', () {
     test('fromJsonString parses all values', () {
       expect(AgentResponseType.fromJsonString('message'), AgentResponseType.message);

@@ -4,10 +4,13 @@
 提供反馈提交和查询功能。
 """
 import logging
-from typing import Optional, List, Dict, Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
 
+from app.api.schemas import (
+    FeedbackCreateRequest,
+    FeedbackResponse,
+    FeedbackDetailResponse,
+)
 from app.infra.auth import get_current_user_id
 from app.services.feedback_service import (
     create_feedback,
@@ -18,47 +21,6 @@ logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/feedback", tags=["feedback"])
-
-
-# ============ 请求/响应模型 ============
-
-class FeedbackCreateRequest(BaseModel):
-    """提交反馈请求"""
-    session_id: Optional[str] = Field(None, description="会话 ID（旧字段，可选）")
-    category: Literal["connection", "terminal", "crash", "suggestion", "other"] = Field(
-        ..., description="反馈分类"
-    )
-    description: str = Field(
-        ..., description="反馈描述", max_length=10000,
-    )
-    platform: Optional[str] = Field(None, description="平台信息")
-    app_version: Optional[str] = Field(None, description="应用版本")
-    # B052 新增字段
-    terminal_id: Optional[str] = Field(None, description="终端 ID")
-    result_event_id: Optional[str] = Field(None, description="关联的 result 事件 ID")
-    feedback_type: Optional[Literal["helpful", "needs_improvement", "error_report"]] = Field(
-        None, description="反馈类型"
-    )
-    device_id: Optional[str] = Field(None, description="设备 ID（用于 SSE 实时推送）")
-
-
-class FeedbackResponse(BaseModel):
-    """反馈响应"""
-    feedback_id: str
-    created_at: str
-
-
-class FeedbackDetailResponse(BaseModel):
-    """反馈详情响应"""
-    feedback_id: str
-    user_id: str
-    session_id: str
-    category: str
-    description: str
-    platform: str = ""
-    app_version: str = ""
-    created_at: str
-    logs: List[Dict[str, Any]] = []
 
 
 # ============ API 端点 ============
@@ -118,4 +80,3 @@ async def get_feedback_detail(
         )
 
     return FeedbackDetailResponse(**feedback)
-

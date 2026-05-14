@@ -81,12 +81,7 @@ async def _create_assistant_plan_impl(
             message=f"intent 长度不能超过 {max_length} 个字符",
         )
 
-    session = await _deps.get_session_by_device_id(device_id, user_id)
-    if not session:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"device {device_id} 不存在",
-        )
+    session = await _deps.get_owned_device_session(device_id, user_id)
     if not _device_online(session):
         raise _assistant_error(
             status.HTTP_409_CONFLICT,

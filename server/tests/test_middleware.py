@@ -67,8 +67,8 @@ class TestRequestLoggingMiddleware:
                 "username": "nonexistent_user_test_12345",
                 "password": "wrong_password",
             })
-            # login 失败返回 401（无论用户不存在还是密码错误）
-            assert resp.status_code in (401, 500)
+            # login 失败返回 401（无论用户不存在还是密码错误），或 429（被限速）
+            assert resp.status_code in (401, 429, 500)
 
         # 应该有 request logger 的日志
         request_logs = [r for r in caplog.records if r.name == "request"]

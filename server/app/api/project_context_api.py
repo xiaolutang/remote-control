@@ -217,12 +217,7 @@ async def _get_or_refresh_project_context(
     user_id: str,
 ) -> DeviceProjectContextSnapshot:
     """获取/刷新项目候选摘要快照的共享实现。"""
-    session = await _deps.get_session_by_device_id(device_id, user_id)
-    if not session:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"device {device_id} 不存在",
-        )
+    session = await _deps.get_owned_device_session(device_id, user_id)
     return await _build_project_context_snapshot(session=session, user_id=user_id)
 
 
@@ -259,12 +254,7 @@ async def get_runtime_project_context_settings(
     user_id: str = Depends(get_current_user_id),
 ):
     """读取当前设备的项目来源与 planner 配置。"""
-    session = await _deps.get_session_by_device_id(device_id, user_id)
-    if not session:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"device {device_id} 不存在",
-        )
+    session = await _deps.get_owned_device_session(device_id, user_id)
     return await _build_project_context_settings(session=session, user_id=user_id)
 
 
@@ -278,12 +268,7 @@ async def update_runtime_project_context_settings(
     user_id: str = Depends(get_current_user_id),
 ):
     """保存当前设备的项目来源与 planner 配置。"""
-    session = await _deps.get_session_by_device_id(device_id, user_id)
-    if not session:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"device {device_id} 不存在",
-        )
+    session = await _deps.get_owned_device_session(device_id, user_id)
 
     await _deps.replace_pinned_projects(
         user_id,

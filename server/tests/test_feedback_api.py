@@ -583,7 +583,8 @@ class TestLoginResponseUsername:
     def test_login_response_contains_username(self, client):
         """[contract] login 响应包含 username"""
         real_hash = hashlib.sha256("test123456".encode()).hexdigest()
-        with patch("app.api.user_api.get_user", new_callable=AsyncMock, return_value={
+        with patch("app.api.user_api.check_rate_limit", new_callable=AsyncMock, return_value=None), \
+             patch("app.api.user_api.get_user", new_callable=AsyncMock, return_value={
             "username": "testuser", "password_hash": real_hash, "created_at": "2026-04-01T00:00:00Z"
         }), \
              patch("app.api.user_api.create_session", new_callable=AsyncMock, return_value={
@@ -602,7 +603,8 @@ class TestLoginResponseUsername:
 
     def test_register_response_contains_username(self, client):
         """[contract] register 响应包含 username"""
-        with patch("app.api.user_api.get_user", new_callable=AsyncMock, return_value=None), \
+        with patch("app.api.user_api.check_rate_limit", new_callable=AsyncMock, return_value=None), \
+             patch("app.api.user_api.get_user", new_callable=AsyncMock, return_value=None), \
              patch("app.api.user_api.save_user", new_callable=AsyncMock), \
              patch("app.api.user_api.create_session", new_callable=AsyncMock, return_value={
                  "session_id": "sess-2", "status": "pending", "created_at": "2026-04-12T00:00:00Z",

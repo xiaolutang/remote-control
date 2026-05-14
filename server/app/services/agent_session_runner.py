@@ -103,6 +103,7 @@ class AgentLoopRunner:
         tool_call_fn=None,
         dynamic_tools=None,
         include_lookup_knowledge=True,
+        scheduled_task_store=None,
     ):
         self.manager = manager
         self.session = session
@@ -112,6 +113,7 @@ class AgentLoopRunner:
         self.tool_call_fn = tool_call_fn
         self.dynamic_tools = dynamic_tools
         self.include_lookup_knowledge = include_lookup_knowledge
+        self.scheduled_task_store = scheduled_task_store
 
         # B104: Phase 推断状态追踪
         self._current_phase: str = ""
@@ -389,9 +391,9 @@ class AgentLoopRunner:
     async def _load_known_aliases(self) -> dict[str, str]:
         """加载已知别名（Agent 启动时注入 ProjectContext）。"""
         known_aliases: dict[str, str] = {}
-        if self.manager._alias_store:
+        if self.manager._db:
             try:
-                known_aliases = await self.manager._alias_store.list_all(
+                known_aliases = await self.manager._db.list_project_aliases(
                     self.session.user_id, self.session.device_id,
                 )
             except Exception as e:
@@ -401,6 +403,42 @@ class AgentLoopRunner:
     async def _invoke_agent(self, known_aliases, ask_fn):
         """调用 run_agent 核心。"""
         from app.services.terminal_agent import run_agent
+
+        # B001: 创建定时任务回调闭包（捕获 user_id / device_id / terminal_id）
+        list_fn = None
+        cancel_fn = None
+        if self.scheduled_task_store is not None and self.session.terminal_id:
+            store = self.scheduled_task_store
+            user_id = self.session.user_id
+            device_id = self.session.device_id
+            terminal_id = self.session.terminal_id
+
+            async def _list_scheduled_tasks() -> list[dict]:
+                """查询当前终端的定时任务。
+
+                闭包捕获 device_id（映射为 store 的 session_id）和 terminal_id。
+                """
+                return await store.list_scheduled_tasks_by_session_and_terminal(
+                    session_id=device_id,  # 命名映射：store 的 session_id = device_id
+                    terminal_id=terminal_id,
+                )
+
+            async def _cancel_scheduled_task(task_id: int) -> str:
+                """取消定时任务，校验归属（user_id + device_id + terminal_id）。"""
+                task = await store.get_scheduled_task_by_id(task_id)
+                if task is None:
+                    return f"任务 {task_id} 不存在"
+                if task.get("user_id") != user_id:
+                    return f"任务 {task_id} 不属于当前用户，无权取消"
+                if task.get("session_id") != device_id:
+                    return f"任务 {task_id} 不属于当前设备，无权取消"
+                if task.get("terminal_id") != terminal_id:
+                    return f"任务 {task_id} 不属于当前终端，无权取消"
+                await store.delete_scheduled_task(task_id)
+                return f"任务 {task_id} 已成功取消"
+
+            list_fn = _list_scheduled_tasks
+            cancel_fn = _cancel_scheduled_task
 
         return await run_agent(
             intent=self.session.intent,
@@ -414,13 +452,15 @@ class AgentLoopRunner:
             dynamic_tools=self.dynamic_tools,
             include_lookup_knowledge=self.include_lookup_knowledge,
             on_model_text=self.on_model_text,
+            list_scheduled_tasks_fn=list_fn,
+            cancel_scheduled_task_fn=cancel_fn,
         )
 
     async def _persist_aliases(self, outcome):
         """保存 Agent 发现的别名。"""
-        if self.manager._alias_store and outcome.result.aliases:
+        if self.manager._db and outcome.result.aliases:
             try:
-                await self.manager._alias_store.save_batch(
+                await self.manager._db.save_project_aliases_batch(
                     self.session.user_id, self.session.device_id, outcome.result.aliases,
                 )
             except Exception as e:
@@ -495,6 +535,11 @@ class AgentLoopRunner:
                 "aliases": outcome.result.aliases,
                 "usage": usage_payload,
             }
+            # S001: 透传调度字段（仅 command 类型携带时才有值）
+            if outcome.result.schedule_at is not None:
+                result_event_data["schedule_at"] = outcome.result.schedule_at
+            if outcome.result.repeat_type is not None:
+                result_event_data["repeat_type"] = outcome.result.repeat_type
             event_record = await self.manager._emit_session_event(
                 session,
                 "result",
@@ -549,6 +594,7 @@ async def run_agent_loop(
     tool_call_fn=None,
     dynamic_tools=None,
     include_lookup_knowledge=True,
+    scheduled_task_store=None,
 ) -> None:
     """运行 Agent 主循环，将事件推入 event_queue。
 
@@ -564,6 +610,7 @@ async def run_agent_loop(
         tool_call_fn: 可选动态工具调用回调 (tool_name, arguments) -> dict
         dynamic_tools: 可用动态工具目录
         include_lookup_knowledge: 是否注册 lookup_knowledge
+        scheduled_task_store: 可选 ScheduledTaskStore 实例（B001 定时任务工具回调）
     """
     runner = AgentLoopRunner(
         manager, session,
@@ -573,6 +620,7 @@ async def run_agent_loop(
         tool_call_fn=tool_call_fn,
         dynamic_tools=dynamic_tools,
         include_lookup_knowledge=include_lookup_knowledge,
+        scheduled_task_store=scheduled_task_store,
     )
 
     try:

@@ -29,10 +29,14 @@ class TerminalScreen extends StatefulWidget {
     super.key,
     this.platformOverride,
     this.embedded = false,
+    this.onScheduledTaskCreated,
   });
 
   final TargetPlatform? platformOverride;
   final bool embedded;
+
+  /// 定时任务创建成功后的回调（桌面端传入 poller.refresh()）
+  final VoidCallback? onScheduledTaskCreated;
 
   @override
   State<TerminalScreen> createState() => _TerminalScreenState();
@@ -613,6 +617,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
       if (controller.selectedDeviceId != null) {
         return SmartTerminalSidePanel(
           onPanelClosed: _requestFocus,
+          onScheduledTaskCreated: widget.onScheduledTaskCreated,
           child: content,
         );
       }

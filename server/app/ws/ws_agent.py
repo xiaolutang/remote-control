@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from fastapi import WebSocketDisconnect, HTTPException
 
 from app.infra.crypto import get_crypto_manager, decrypt_message
-from app.infra.message_types import MessageType
+from app.infra.message_types import MessageType, WSCloseCode
 from app.store.session import (
     get_session,
     set_session_online,
@@ -73,7 +73,7 @@ async def _heartbeat_checker(websocket, session_id: str):
 
         if not agent_conn.is_alive():
             logger.warning("Agent heartbeat timeout: session_id=%s", session_id)
-            await websocket.close(code=1008, reason="Heartbeat timeout")
+            await websocket.close(code=WSCloseCode.POLICY_VIOLATION, reason="Heartbeat timeout")
             return CLEANUP_REASON_NETWORK_LOST
 
     return None
@@ -120,7 +120,7 @@ async def agent_websocket_handler(
 
     # 检查是否已有 Agent 连接
     if session_id in active_agents:
-        await websocket.close(code=4009, reason="Session already has an active agent")
+        await websocket.close(code=WSCloseCode.SESSION_CONFLICT, reason="Session already has an active agent")
         return
 
     # 如果 Agent 处于 stale 状态，恢复它（清除 stale 标记，继续正常连接）
@@ -153,7 +153,7 @@ async def agent_websocket_handler(
     # 不变量 #27 服务端守卫：非 TLS 连接（ws://）必须携带 AES 密钥
     if not is_secure_websocket_transport(websocket) and not agent_conn.aes_key:
         logger.warning("ws:// connection rejected: no AES key, session_id=%s", session_id)
-        await websocket.close(code=4003, reason="ws:// requires encrypted_aes_key")
+        await websocket.close(code=WSCloseCode.PROTOCOL_ERROR, reason="ws:// requires encrypted_aes_key")
         return
 
     active_agents[session_id] = agent_conn

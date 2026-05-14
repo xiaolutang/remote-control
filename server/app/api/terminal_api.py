@@ -40,12 +40,7 @@ async def list_runtime_terminals(
     user_id: str = Depends(get_current_user_id),
 ):
     """列出 device 下的 terminal。"""
-    session = await _deps.get_session_by_device_id(device_id, user_id)
-    if not session:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"device {device_id} 不存在",
-        )
+    session = await _deps.get_owned_device_session(device_id, user_id)
 
     terminals = await _deps.list_session_terminals(session["session_id"])
     return RuntimeTerminalListResponse(
@@ -62,12 +57,7 @@ async def create_runtime_terminal(
     user_id: str = Depends(get_current_user_id),
 ):
     """为在线 device 创建 terminal。"""
-    session = await _deps.get_session_by_device_id(device_id, user_id)
-    if not session:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"device {device_id} 不存在",
-        )
+    session = await _deps.get_owned_device_session(device_id, user_id)
 
     if not _device_online(session):
         raise HTTPException(
@@ -129,12 +119,7 @@ async def close_runtime_terminal(
     """关闭 terminal，等待 agent 确认后再广播。"""
     from app.api.agent_conversation_helpers import _close_terminal_agent_conversation
 
-    session = await _deps.get_session_by_device_id(device_id, user_id)
-    if not session:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"device {device_id} 不存在",
-        )
+    session = await _deps.get_owned_device_session(device_id, user_id)
 
     terminal = await _deps.get_session_terminal(session["session_id"], terminal_id)
     if not terminal:
@@ -182,6 +167,11 @@ async def close_runtime_terminal(
         disconnect_reason="user_request",
     )
 
+    # 取消该终端所有 pending 的定时任务
+    cancelled = await _deps.cancel_scheduled_tasks_by_terminal(session["session_id"], terminal_id)
+    if cancelled > 0:
+        logger.info("Terminal %s closed, cancelled %d scheduled tasks", terminal_id, cancelled)
+
     return _runtime_terminal_item(terminal, session_id=session["session_id"])
 
 
@@ -193,12 +183,7 @@ async def update_runtime_terminal(
     user_id: str = Depends(get_current_user_id),
 ):
     """更新 terminal 元数据。当前仅支持标题。"""
-    session = await _deps.get_session_by_device_id(device_id, user_id)
-    if not session:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"device {device_id} 不存在",
-        )
+    session = await _deps.get_owned_device_session(device_id, user_id)
 
     terminal = await _deps.update_session_terminal_metadata(
         session["session_id"],

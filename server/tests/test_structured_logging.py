@@ -32,6 +32,8 @@ class TestAgentStructuredLogging:
                 yield ""
 
         mock_ws = AsyncMock()
+        mock_ws.scope = {"scheme": "wss"}
+        mock_ws.headers = {}
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
         mock_ws.iter_text = MagicMock(return_value=mock_iter())
 
@@ -62,6 +64,8 @@ class TestAgentStructuredLogging:
             raise RuntimeError("unexpected connection failure")
 
         mock_ws = AsyncMock()
+        mock_ws.scope = {"scheme": "wss"}
+        mock_ws.headers = {}
         mock_ws.receive_text = AsyncMock(return_value=json.dumps({"type": "auth", "token": "valid-token"}))
         mock_ws.iter_text = MagicMock(return_value=error_iter())
 

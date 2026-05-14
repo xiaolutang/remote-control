@@ -5,8 +5,7 @@ import 'package:http/http.dart' as http;
 
 import '../models/agent_conversation_projection.dart';
 import '../models/agent_session_event.dart';
-import 'http_client_factory.dart';
-import 'server_url_helper.dart';
+import 'api_service_base.dart';
 
 /// Agent SSE 会话服务异常
 class AgentSessionException implements Exception {
@@ -33,30 +32,14 @@ class AgentSessionException implements Exception {
 /// - 断连恢复（GET resume → SSE 流）
 /// - keepalive 注释帧过滤
 /// - 会话超时处理（10 分钟）
-class AgentSessionService {
+class AgentSessionService extends ApiServiceBase {
   AgentSessionService({
-    required this.serverUrl,
-    http.Client? client,
-  }) : _client = client ?? HttpClientFactory.create();
-
-  final String serverUrl;
-  final http.Client _client;
+    required super.serverUrl,
+    super.client,
+  });
 
   /// 会话超时时间（10 分钟）
   static const Duration sessionTimeout = Duration(minutes: 10);
-
-  String get _httpUrl => serverUrlToHttpBase(serverUrl);
-
-  Map<String, String> _headers(String token) => {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-        'Accept': 'text/event-stream',
-      };
-
-  Map<String, String> _jsonHeaders(String token) => {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      };
 
   /// 当前活跃会话 ID
   String? _activeSessionId;
@@ -70,10 +53,10 @@ class AgentSessionService {
     required String token,
   }) async {
     final resolvedTerminalId = _resolveTerminalId(terminalId);
-    final response = await _client.get(
-      Uri.parse('$_httpUrl/api/runtime/devices/$deviceId'
+    final response = await client.get(
+      Uri.parse('$httpUrl/api/runtime/devices/$deviceId'
           '/terminals/$resolvedTerminalId/assistant/conversation'),
-      headers: _jsonHeaders(token),
+      headers: authHeaders(token),
     );
     if (response.statusCode == 200) {
       final json = jsonDecode(response.body) as Map<String, dynamic>;
@@ -99,12 +82,12 @@ class AgentSessionService {
         final resolvedTerminalId = _resolveTerminalId(terminalId);
         final request = http.Request(
           'GET',
-          Uri.parse('$_httpUrl/api/runtime/devices/$deviceId'
+          Uri.parse('$httpUrl/api/runtime/devices/$deviceId'
               '/terminals/$resolvedTerminalId/assistant/conversation/stream'
               '?after_index=$afterIndex'),
-        )..headers.addAll(_headers(token));
+        )..headers.addAll(sseHeaders(token));
 
-        final response = await _client.send(request);
+        final response = await client.send(request);
 
         if (response.statusCode != 200) {
           final responseBody = await response.stream.bytesToString();
@@ -246,13 +229,13 @@ class AgentSessionService {
 
         final request = http.Request(
           'POST',
-          Uri.parse('$_httpUrl/api/runtime/devices/$deviceId'
+          Uri.parse('$httpUrl/api/runtime/devices/$deviceId'
               '/terminals/$resolvedTerminalId/assistant/agent/run'),
         )
-          ..headers.addAll(_headers(token))
+          ..headers.addAll(sseHeaders(token))
           ..body = jsonEncode(body);
 
-        final response = await _client.send(request);
+        final response = await client.send(request);
 
         if (response.statusCode != 200) {
           final responseBody = await response.stream.bytesToString();
@@ -292,10 +275,10 @@ class AgentSessionService {
     String? clientEventId,
   }) async {
     final resolvedTerminalId = _resolveTerminalId(terminalId);
-    final response = await _client.post(
-      Uri.parse('$_httpUrl/api/runtime/devices/$deviceId'
+    final response = await client.post(
+      Uri.parse('$httpUrl/api/runtime/devices/$deviceId'
           '/terminals/$resolvedTerminalId/assistant/agent/$sessionId/respond'),
-      headers: _jsonHeaders(token),
+      headers: authHeaders(token),
       body: jsonEncode({
         'answer': answer,
         'question_id': questionId,
@@ -322,10 +305,10 @@ class AgentSessionService {
     required String token,
   }) async {
     final resolvedTerminalId = _resolveTerminalId(terminalId);
-    final response = await _client.post(
-      Uri.parse('$_httpUrl/api/runtime/devices/$deviceId'
+    final response = await client.post(
+      Uri.parse('$httpUrl/api/runtime/devices/$deviceId'
           '/terminals/$resolvedTerminalId/assistant/agent/$sessionId/cancel'),
-      headers: _jsonHeaders(token),
+      headers: authHeaders(token),
     );
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -360,11 +343,11 @@ class AgentSessionService {
 
         final request = http.Request(
           'GET',
-          Uri.parse('$_httpUrl/api/runtime/devices/$deviceId'
+          Uri.parse('$httpUrl/api/runtime/devices/$deviceId'
               '/terminals/$resolvedTerminalId/assistant/agent/$sessionId/resume'),
-        )..headers.addAll(_headers(token));
+        )..headers.addAll(sseHeaders(token));
 
-        final response = await _client.send(request);
+        final response = await client.send(request);
 
         if (response.statusCode != 200) {
           final responseBody = await response.stream.bytesToString();
@@ -677,9 +660,9 @@ class AgentSessionService {
       headers['Authorization'] = 'Bearer $token';
     }
 
-    final response = await _client.post(
+    final response = await client.post(
       Uri.parse(
-          '$_httpUrl/api/runtime/devices/$deviceId/assistant/agent/$sessionId/report'),
+          '$httpUrl/api/runtime/devices/$deviceId/assistant/agent/$sessionId/report'),
       headers: headers,
       body: jsonEncode({
         'success': success,
@@ -694,11 +677,6 @@ class AgentSessionService {
         statusCode: response.statusCode,
       );
     }
-  }
-
-  /// 释放资源
-  void dispose() {
-    _client.close();
   }
 
   String _newClientEventId(String prefix) {

@@ -2040,3 +2040,184 @@ class TestB105SystemPrompt:
     def test_system_prompt_ai_prompt_narrow_scope(self):
         """S112: SYSTEM_PROMPT 收窄 ai_prompt 使用场景。"""
         assert "注入 prompt" in SYSTEM_PROMPT or "发送" in SYSTEM_PROMPT
+
+
+# ---------------------------------------------------------------------------
+# S001: AgentResult schedule_at / repeat_type 调度字段
+# ---------------------------------------------------------------------------
+
+class TestAgentResultScheduleFields:
+    """S001: 测试 AgentResult 的 schedule_at / repeat_type 调度字段。"""
+
+    # --- 正向测试 ---
+
+    def test_no_schedule_fields_backward_compatible(self):
+        """无调度字段时行为与现有完全一致。"""
+        result = AgentResult(
+            summary="test",
+            steps=[CommandSequenceStep(id="s1", label="go", command="ls")],
+        )
+        assert result.schedule_at is None
+        assert result.repeat_type is None
+        assert result.response_type == "command"
+
+    def test_schedule_fields_with_command_type(self):
+        """response_type=command 携带 schedule_at + repeat_type → 字段正确保存。"""
+        result = AgentResult(
+            summary="定时重启服务",
+            steps=[CommandSequenceStep(id="s1", label="restart", command="systemctl restart nginx")],
+            schedule_at="2026-06-01T08:00:00+08:00",
+            repeat_type="daily",
+        )
+        assert result.schedule_at == "2026-06-01T08:00:00+08:00"
+        assert result.repeat_type == "daily"
+        assert result.response_type == "command"
+
+    def test_schedule_at_with_z_timezone(self):
+        """schedule_at 使用 Z 时区后缀应合法。"""
+        result = AgentResult(
+            summary="一次性任务",
+            steps=[CommandSequenceStep(id="s1", label="run", command="echo hello")],
+            schedule_at="2026-06-01T00:00:00Z",
+            repeat_type="once",
+        )
+        assert result.schedule_at == "2026-06-01T00:00:00Z"
+        assert result.repeat_type == "once"
+
+    def test_schedule_at_with_negative_timezone(self):
+        """schedule_at 使用负时区偏移应合法。"""
+        result = AgentResult(
+            summary="跨时区任务",
+            steps=[CommandSequenceStep(id="s1", label="run", command="date")],
+            schedule_at="2026-06-01T08:00:00-05:00",
+            repeat_type="once",
+        )
+        assert result.schedule_at == "2026-06-01T08:00:00-05:00"
+
+    # --- 负向测试：字段组合校验 ---
+
+    def test_only_schedule_at_without_repeat_type_rejected(self):
+        """只有 schedule_at 没有 repeat_type → 校验失败。"""
+        import pydantic
+        with pytest.raises(pydantic.ValidationError, match="repeat_type"):
+            AgentResult(
+                summary="test",
+                steps=[CommandSequenceStep(id="s1", label="go", command="ls")],
+                schedule_at="2026-06-01T08:00:00+08:00",
+            )
+
+    def test_only_repeat_type_without_schedule_at_rejected(self):
+        """只有 repeat_type 没有 schedule_at → 校验失败。"""
+        import pydantic
+        with pytest.raises(pydantic.ValidationError, match="schedule_at"):
+            AgentResult(
+                summary="test",
+                steps=[CommandSequenceStep(id="s1", label="go", command="ls")],
+                repeat_type="daily",
+            )
+
+    def test_schedule_at_without_timezone_rejected(self):
+        """schedule_at 无时区 → 校验失败。"""
+        import pydantic
+        with pytest.raises(pydantic.ValidationError, match="timezone|时区"):
+            AgentResult(
+                summary="test",
+                steps=[CommandSequenceStep(id="s1", label="go", command="ls")],
+                schedule_at="2026-06-01T08:00:00",
+                repeat_type="once",
+            )
+
+    def test_repeat_type_invalid_value_rejected(self):
+        """repeat_type 非法值 → 校验失败。"""
+        import pydantic
+        with pytest.raises(pydantic.ValidationError):
+            AgentResult(
+                summary="test",
+                steps=[CommandSequenceStep(id="s1", label="go", command="ls")],
+                schedule_at="2026-06-01T08:00:00+08:00",
+                repeat_type="weekly",
+            )
+
+    def test_message_type_with_schedule_at_rejected(self):
+        """response_type=message 携带 schedule_at → 校验失败。"""
+        import pydantic
+        with pytest.raises(pydantic.ValidationError, match="schedule_at|command"):
+            AgentResult(
+                summary="test",
+                steps=[],
+                response_type="message",
+                need_confirm=False,
+                schedule_at="2026-06-01T08:00:00+08:00",
+                repeat_type="once",
+            )
+
+    def test_ai_prompt_type_with_schedule_at_rejected(self):
+        """response_type=ai_prompt 携带 schedule_at → 校验失败。"""
+        import pydantic
+        with pytest.raises(pydantic.ValidationError, match="schedule_at|command"):
+            AgentResult(
+                summary="test",
+                steps=[],
+                response_type="ai_prompt",
+                ai_prompt="some prompt",
+                need_confirm=True,
+                schedule_at="2026-06-01T08:00:00+08:00",
+                repeat_type="once",
+            )
+
+
+class TestDeliverResultScheduleFields:
+    """S001: 测试 deliver_result 工具的 schedule_at / repeat_type 参数。"""
+
+    @pytest.mark.asyncio
+    async def test_deliver_result_with_schedule_fields(self):
+        """deliver_result 调用带调度参数 → ResultDelivered 携带调度字段。"""
+        deps = _make_deps()
+        ctx = _make_run_context(deps)
+
+        with pytest.raises(ResultDelivered) as exc_info:
+            await deliver_result(
+                ctx,
+                response_type="command",
+                summary="定时重启",
+                steps=[{"id": "s1", "label": "restart", "command": "systemctl restart nginx"}],
+                schedule_at="2026-06-01T08:00:00+08:00",
+                repeat_type="daily",
+            )
+
+        assert exc_info.value.result.schedule_at == "2026-06-01T08:00:00+08:00"
+        assert exc_info.value.result.repeat_type == "daily"
+
+    @pytest.mark.asyncio
+    async def test_deliver_result_without_schedule_fields(self):
+        """deliver_result 调用不带调度参数 → ResultDelivered 无调度字段。"""
+        deps = _make_deps()
+        ctx = _make_run_context(deps)
+
+        with pytest.raises(ResultDelivered) as exc_info:
+            await deliver_result(
+                ctx,
+                response_type="command",
+                summary="立即执行",
+                steps=[{"id": "s1", "label": "run", "command": "echo hello"}],
+            )
+
+        assert exc_info.value.result.schedule_at is None
+        assert exc_info.value.result.repeat_type is None
+
+    @pytest.mark.asyncio
+    async def test_deliver_result_invalid_schedule_returns_error(self):
+        """deliver_result 参数校验失败（如 schedule_at 无时区）→ 返回错误字符串。"""
+        deps = _make_deps()
+        ctx = _make_run_context(deps)
+
+        result = await deliver_result(
+            ctx,
+            response_type="command",
+            summary="无效调度",
+            steps=[{"id": "s1", "label": "run", "command": "echo hello"}],
+            schedule_at="2026-06-01T08:00:00",  # 无时区
+            repeat_type="once",
+        )
+
+        assert "交付失败" in result

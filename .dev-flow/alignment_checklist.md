@@ -1,45 +1,36 @@
-# Alignment Checklist — R061
+# Alignment Checklist — R063 Agent 定时任务
 
 ## 架构一致性
 
-- [x] architecture.md 新增客户端模块边界规则，与所有任务方向一致
-- [ ] F001-F004 完成后 services/ 无 screens/ import，models/ 无 flutter/material.dart import
-- [ ] 不涉及后端改动
-- [ ] 不涉及 API 契约变更（api_contracts.md 标记 N/A）
+- [ ] AgentResult 调度字段（schedule_at/repeat_type）仅限 command 类型，message/ai_prompt 不允许携带
+- [ ] schedule_at 必须是带时区的绝对 ISO 8601，不允许相对时间
+- [ ] repeat_type 仅允许 once/daily
+- [ ] schedule_at 和 repeat_type 必须同时存在或同时为空
+- [ ] 复用 R062 ScheduledTaskStore 和 ScheduledTaskService，不新建存储层
 
-## 模块边界收敛
+## Agent 工具对齐
 
-- [ ] F001: account_menu_action_handler 不在 services/ 目录
-- [ ] F002: services/ui_helpers.dart 不含 UI Widget 代码
-- [ ] F003: models/ 下无 flutter/material.dart import
-- [ ] F004: services/ 无 BuildContext / context.read 依赖
+- [ ] list_scheduled_tasks 查询范围 = user_id + device_id + terminal_id（terminal 级隔离）
+- [ ] cancel_scheduled_task 三重校验 = user_id + device_id + terminal_id
+- [ ] session_id 命名映射：闭包使用 device_id 作为 store 的 session_id，非 AgentDeps.session_id
+- [ ] System Prompt 注入当前时间（server UTC+8）+ 定时任务能力说明
 
-## 模式收敛
+## SSE 事件对齐
 
-- [ ] F005: AgentResponseType / FeedbackType / ToolStepStatus 三个 enum 创建
-- [ ] F005: agent_session_event.dart 所有 JSON 字段使用 json_helpers.dart
-- [ ] F006: @Deprecated 类及 switch-case 分支移除
+- [ ] agent_session_runner.py result_event_data 包含 schedule_at/repeat_type
+- [ ] 缺失调度字段时 SSE 事件与 R062 完全一致（向后兼容）
 
-## 效率优化安全
+## 客户端对齐
 
-- [ ] F007: SharedPreferences 缓存不引入新的初始化时序依赖
-- [ ] F008: notifyListeners 修复不影响成功路径
-- [ ] F009a: selectDevice 并行化不改变最终状态
-- [ ] F009b: _refreshDesktopState 中 syncNativeTerminationState 仍在 keepRunning 之后
-- [ ] F010: DesktopWorkspaceController dispose 不遗漏资源
-- [ ] F011: LoggerService 节流不影响 pendingCount 最终一致性
-
-## 复用提取
-
-- [ ] F012: 重命名对话框提取后两处调用行为一致
-- [ ] F013: 设计 token 不改变 UI 视觉效果
-
-## 大文件拆分
-
-- [ ] F014: side panel 拆分不引入新的 part 文件
-- [ ] F015: workspace 拆分提取部分有独立测试
+- [ ] F001: AgentResultEvent 保留非法值为原始字符串，由 F002 降级处理
+- [ ] F002: text_content 由 steps 的 command 字段用 \r 拼接（非 _compileSteps 的 shell 模式）
+- [ ] F002: repeatType 字符串转 ScheduledTaskRepeatType 枚举，非法值降级为 once
+- [ ] F002: 创建成功后通过 onScheduledTaskCreated 回调通知父组件刷新 poller
+- [ ] F002: SmartTerminalSidePanel 新增 onScheduledTaskCreated 回调，父组件持有 ScheduledTaskPoller
+- [ ] F002: 移动端无 poller 时回调为 no-op，不报错
 
 ## 回归安全
 
-- [ ] 所有任务完成后 flutter test 全通过（不含预存 desktop_agent_manager_test 失败）
-- [ ] 所有任务完成后 flutter analyze 零 error/warning
+- [ ] Server pytest: R063 专项覆盖 S001 校验 + B001 工具/越权
+- [ ] Client flutter test: F001 解析 + F002 卡片/回调/降级
+- [ ] 现有 Agent 对话功能不受影响（schedule_at=null 时行为不变）

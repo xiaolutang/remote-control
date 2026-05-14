@@ -16,3 +16,5 @@
 | R059 | terminal-tab-bar-ux | 2026-05-11 | 1 | 10/10 | _archive/R059_terminal-tab-bar-ux |
 | R060 | terminal-navigation-redesign | 2026-05-11 | 1 | 5/5 | _archive/R060_terminal-navigation-redesign |
 | R061 | client-code-convergence | 2026-05-12 | 1-5 | 16/16 | _archive/R061_client-code-convergence |
+| R062 | scheduled-terminal-tasks | 2026-05-13 | 1-4 | 8/8 | _archive/R062_scheduled-terminal-tasks |
+| R063 | agent-scheduled-tasks | 2026-05-14 | 1-2 | 4/4 | _archive/R063_agent-scheduled-tasks |

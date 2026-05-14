@@ -55,13 +55,13 @@ def generate_terminal_session_id(terminal_id: str) -> str:
 class AgentSessionManager:
     """管理 Agent 会话生命周期。"""
 
-    def __init__(self, alias_store=None):
+    def __init__(self, db=None):
         self._sessions: dict[str, AgentSession] = {}
         self._cleanup_task: Optional[asyncio.Task] = None
         # 用户级频率追踪: user_id -> [timestamp, ...]
         self._user_rate_tracker: dict[str, list[float]] = defaultdict(list)
-        # 别名持久化存储（可选，由外部注入）
-        self._alias_store = alias_store
+        # Database 实例（可选，由外部注入，提供 alias 等 Mixin 方法）
+        self._db = db
 
     async def start_cleanup_loop(self) -> None:
         """启动超时清理后台任务。"""
@@ -192,6 +192,7 @@ class AgentSessionManager:
         tool_call_fn=None,
         dynamic_tools=None,
         include_lookup_knowledge=True,
+        scheduled_task_store=None,
     ) -> None:
         """启动 Agent 运行循环。"""
         task = asyncio.create_task(
@@ -199,6 +200,7 @@ class AgentSessionManager:
                 session, execute_command_fn, ask_user_fn_override,
                 lookup_knowledge_fn, tool_call_fn, dynamic_tools,
                 include_lookup_knowledge,
+                scheduled_task_store,
             )
         )
         session._agent_task = task
@@ -293,6 +295,7 @@ class AgentSessionManager:
         tool_call_fn=None,
         dynamic_tools=None,
         include_lookup_knowledge=True,
+        scheduled_task_store=None,
     ) -> None:
         """运行 Agent 主循环——委托给 agent_session_runner.run_agent_loop。"""
         from app.services.agent_session_runner import run_agent_loop as _run_agent_loop
@@ -306,6 +309,7 @@ class AgentSessionManager:
             tool_call_fn,
             dynamic_tools,
             include_lookup_knowledge,
+            scheduled_task_store,
         )
 
     async def respond(
@@ -598,15 +602,15 @@ class AgentSessionManager:
 _manager: Optional[AgentSessionManager] = None
 
 
-def get_agent_session_manager(alias_store=None) -> AgentSessionManager:
+def get_agent_session_manager(db=None) -> AgentSessionManager:
     """获取全局 AgentSessionManager 实例。
 
     Args:
-        alias_store: 可选的 ProjectAliasStore 实例，仅在首次创建时生效
+        db: 可选的 Database 实例，仅在首次创建时生效
     """
     global _manager
     if _manager is None:
-        _manager = AgentSessionManager(alias_store=alias_store)
+        _manager = AgentSessionManager(db=db)
     return _manager
 
 

@@ -72,6 +72,15 @@ T enumFromJson<T extends Enum>(
   return fallback;
 }
 
+/// 安全地将动态 JSON 值转为 Map<String, dynamic>，null/非 Map 返回空 Map。
+///
+/// 用于嵌套对象的解析（如 `json['planner_config']`），
+/// 避免在每个 fromJson 中重复 `is Map<String, dynamic> ? ... as ... : const {}` 模式。
+Map<String, dynamic> readMapFromJson(Object? value) {
+  if (value is Map<String, dynamic>) return value;
+  return const <String, dynamic>{};
+}
+
 /// 安全地将 Map<String, dynamic> 的 value 转为 int。
 ///
 /// 与 [readIntFromJson] 行为一致：兼容 int、num、String，失败返回 0。

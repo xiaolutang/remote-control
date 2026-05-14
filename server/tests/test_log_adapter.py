@@ -88,6 +88,8 @@ def test_env_vars_passed_to_sdk():
     with patch.dict(os.environ, {"LOG_SERVICE_URL": "http://test:1234", "LOG_LEVEL": "DEBUG"}):
         with patch.dict(sys.modules, {"log_service_sdk": MagicMock(setup_remote_logging=mock_setup)}):
             import app.infra.log_adapter as mod
+            import app.infra.constants as const_mod
+            importlib.reload(const_mod)
             importlib.reload(mod)
             mod.init_logging(component="server")
 

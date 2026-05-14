@@ -50,6 +50,7 @@ from app.infra.command_validator import (
 from app.services.terminal_agent import (
     AgentDeps,
     AgentResult,
+    AgentRunOutcome,
     CommandSequenceStep,
     execute_command,
     ask_user,
@@ -88,6 +89,24 @@ def _make_agent_result(
         summary=summary,
         steps=steps or [CommandSequenceStep(id="step_1", label="cd", command="cd /project")],
         aliases=aliases or {},
+    )
+
+
+def _make_agent_outcome(
+    summary: str = "entered project",
+    steps: list | None = None,
+    aliases: dict | None = None,
+    input_tokens: int = 100,
+    output_tokens: int = 50,
+) -> AgentRunOutcome:
+    """创建 AgentRunOutcome，包含 AgentResult + token usage 统计。"""
+    return AgentRunOutcome(
+        result=_make_agent_result(summary=summary, steps=steps, aliases=aliases),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        total_tokens=input_tokens + output_tokens,
+        requests=1,
+        model_name="test-model",
     )
 
 
@@ -130,7 +149,7 @@ class TestFullPipelineIntegration:
     @pytest.mark.asyncio
     async def test_happy_path_creates_session_and_produces_result(self):
         """Happy path: 完整 Agent 流程应正确创建会话并产生 AgentResult。"""
-        manager = AgentSessionManager(alias_store=None)
+        manager = AgentSessionManager(db=None)
 
         # 1. 创建会话
         session = await manager.create_session(
@@ -144,7 +163,7 @@ class TestFullPipelineIntegration:
         assert session.intent == "进入 my-project"
 
         # 2. Mock run_agent 返回成功结果
-        expected_result = _make_agent_result(
+        expected_result = _make_agent_outcome(
             summary="已进入 my-project",
             steps=[
                 CommandSequenceStep(id="s1", label="进入项目", command="cd ~/my-project"),
@@ -175,7 +194,7 @@ class TestFullPipelineIntegration:
             intent="test", device_id="d", user_id="u", session_id="sse-seq",
         )
 
-        expected_result = _make_agent_result(summary="done")
+        expected_result = _make_agent_outcome(summary="done")
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="output"))
 
         with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, return_value=expected_result):
@@ -201,7 +220,7 @@ class TestFullPipelineIntegration:
         )
 
         # 模拟 Agent 需要 ask_user
-        expected_result = _make_agent_result(summary="已选择项目 A")
+        expected_result = _make_agent_outcome(summary="已选择项目 A")
 
         async def _mock_run_agent(**kwargs):
             ask_fn = kwargs.get("ask_user_fn")
@@ -224,13 +243,13 @@ class TestFullPipelineIntegration:
     async def test_result_triggers_alias_persistence(self):
         """Agent 返回 aliases 时，应触发 alias_store.save_batch。"""
         mock_store = AsyncMock()
-        manager = AgentSessionManager(alias_store=mock_store)
+        manager = AgentSessionManager(db=mock_store)
 
         session = await manager.create_session(
             intent="test", device_id="dev-1", user_id="user-1", session_id="alias-001",
         )
 
-        expected_result = _make_agent_result(
+        expected_result = _make_agent_outcome(
             aliases={"project-a": "/home/user/project-a", "project-b": "/home/user/project-b"},
         )
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="output"))
@@ -240,7 +259,7 @@ class TestFullPipelineIntegration:
             await asyncio.sleep(0.2)
 
         # 验证 alias_store.save_batch 被调用
-        mock_store.save_batch.assert_called_once_with(
+        mock_store.save_project_aliases_batch.assert_called_once_with(
             "user-1",
             "dev-1",
             {"project-a": "/home/user/project-a", "project-b": "/home/user/project-b"},
@@ -250,8 +269,8 @@ class TestFullPipelineIntegration:
     async def test_alias_load_on_agent_start(self):
         """Agent 启动时应从 alias_store 加载已知别名。"""
         mock_store = AsyncMock()
-        mock_store.list_all = AsyncMock(return_value={"known-proj": "/path/known"})
-        manager = AgentSessionManager(alias_store=mock_store)
+        mock_store.list_project_aliases = AsyncMock(return_value={"known-proj": "/path/known"})
+        manager = AgentSessionManager(db=mock_store)
 
         session = await manager.create_session(
             intent="test", device_id="dev-1", user_id="user-1", session_id="load-001",
@@ -261,7 +280,7 @@ class TestFullPipelineIntegration:
 
         async def _capture_run(**kwargs):
             captured_aliases.update(kwargs.get("project_aliases", {}))
-            return _make_agent_result()
+            return _make_agent_outcome()
 
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="output"))
 
@@ -275,15 +294,15 @@ class TestFullPipelineIntegration:
     async def test_alias_save_failure_does_not_block_completion(self):
         """alias_store 保存失败不应阻止 Agent 完成。"""
         mock_store = AsyncMock()
-        mock_store.list_all = AsyncMock(return_value={})
-        mock_store.save_batch = AsyncMock(side_effect=RuntimeError("DB error"))
-        manager = AgentSessionManager(alias_store=mock_store)
+        mock_store.list_project_aliases = AsyncMock(return_value={})
+        mock_store.save_project_aliases_batch = AsyncMock(side_effect=RuntimeError("DB error"))
+        manager = AgentSessionManager(db=mock_store)
 
         session = await manager.create_session(
             intent="test", device_id="d", user_id="u", session_id="alias-fail",
         )
 
-        expected_result = _make_agent_result(aliases={"proj": "/path"})
+        expected_result = _make_agent_outcome(aliases={"proj": "/path"})
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="output"))
 
         with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, return_value=expected_result):
@@ -646,16 +665,16 @@ class TestAliasIsolationIntegration:
     async def test_user_isolation_in_session_manager(self):
         """不同 user_id 的别名不应互相影响。"""
         store_a = AsyncMock()
-        store_a.list_all = AsyncMock(return_value={"proj": "/alice/proj"})
+        store_a.list_project_aliases = AsyncMock(return_value={"proj": "/alice/proj"})
 
-        manager = AgentSessionManager(alias_store=store_a)
+        manager = AgentSessionManager(db=store_a)
 
         # user-1 的会话
         session_alice = await manager.create_session(
             intent="进入项目", device_id="dev-1", user_id="alice", session_id="alice-1",
         )
 
-        result_alice = _make_agent_result(aliases={"proj": "/alice/new-proj"})
+        result_alice = _make_agent_outcome(aliases={"proj": "/alice/new-proj"})
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="output"))
 
         with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, return_value=result_alice):
@@ -663,35 +682,35 @@ class TestAliasIsolationIntegration:
             await asyncio.sleep(0.2)
 
         # 验证 alias_store 用 alice 的 user_id 调用
-        store_a.save_batch.assert_called_with("alice", "dev-1", {"proj": "/alice/new-proj"})
+        store_a.save_project_aliases_batch.assert_called_with("alice", "dev-1", {"proj": "/alice/new-proj"})
 
     @pytest.mark.asyncio
     async def test_device_isolation_in_session_manager(self):
         """不同 device_id 的别名不应互相影响。"""
         mock_store = AsyncMock()
-        mock_store.list_all = AsyncMock(return_value={})
-        manager = AgentSessionManager(alias_store=mock_store)
+        mock_store.list_project_aliases = AsyncMock(return_value={})
+        manager = AgentSessionManager(db=mock_store)
 
         # device-a 的会话
         session_a = await manager.create_session(
             intent="test", device_id="device-a", user_id="alice", session_id="dev-a",
         )
-        result_a = _make_agent_result(aliases={"app": "/path/a"})
+        result_a = _make_agent_outcome(aliases={"app": "/path/a"})
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="output"))
 
         with patch("app.services.terminal_agent.run_agent", new_callable=AsyncMock, return_value=result_a):
             await manager.start_agent(session_a, execute_fn)
             await asyncio.sleep(0.2)
 
-        mock_store.save_batch.assert_called_with("alice", "device-a", {"app": "/path/a"})
+        mock_store.save_project_aliases_batch.assert_called_with("alice", "device-a", {"app": "/path/a"})
 
     @pytest.mark.asyncio
     async def test_first_use_no_aliases_then_explored(self):
         """首用时无别名，Agent 探索后应持久化新发现的别名。"""
         mock_store = AsyncMock()
         # 首次调用 list_all 返回空（无已知别名）
-        mock_store.list_all = AsyncMock(return_value={})
-        manager = AgentSessionManager(alias_store=mock_store)
+        mock_store.list_project_aliases = AsyncMock(return_value={})
+        manager = AgentSessionManager(db=mock_store)
 
         session = await manager.create_session(
             intent="test", device_id="dev-new", user_id="new-user", session_id="first-use",
@@ -702,7 +721,7 @@ class TestAliasIsolationIntegration:
             "remote-control": "/home/user/remote-control",
             "ai-learn": "/home/user/ai-learn",
         }
-        result = _make_agent_result(aliases=discovered_aliases)
+        result = _make_agent_outcome(aliases=discovered_aliases)
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="output"))
 
         captured_aliases = {}
@@ -719,15 +738,15 @@ class TestAliasIsolationIntegration:
         # 注入时无别名
         assert captured_aliases == {}
         # 探索后持久化
-        mock_store.save_batch.assert_called_once_with("new-user", "dev-new", discovered_aliases)
+        mock_store.save_project_aliases_batch.assert_called_once_with("new-user", "dev-new", discovered_aliases)
 
     @pytest.mark.asyncio
     async def test_second_use_loads_known_aliases(self):
         """第二次使用时应加载之前探索到的别名。"""
         known_aliases = {"remote-control": "/home/user/remote-control"}
         mock_store = AsyncMock()
-        mock_store.list_all = AsyncMock(return_value=known_aliases)
-        manager = AgentSessionManager(alias_store=mock_store)
+        mock_store.list_project_aliases = AsyncMock(return_value=known_aliases)
+        manager = AgentSessionManager(db=mock_store)
 
         session = await manager.create_session(
             intent="test", device_id="dev-1", user_id="user-1", session_id="second-use",
@@ -737,7 +756,7 @@ class TestAliasIsolationIntegration:
 
         async def _capture_run(**kwargs):
             captured_aliases.update(kwargs.get("project_aliases", {}))
-            return _make_agent_result()
+            return _make_agent_outcome()
 
         execute_fn = AsyncMock(return_value=_make_execute_result(stdout="output"))
 
@@ -825,7 +844,7 @@ class TestOutputBoundaryIntegration:
         )
 
         # 创建包含很多 step 的 result
-        large_result = _make_agent_result(
+        large_result = _make_agent_outcome(
             summary="many steps",
             steps=[CommandSequenceStep(id=f"s{i}", label=f"step-{i}", command=f"echo {i}") for i in range(50)],
             aliases={f"alias-{i}": f"/path/{i}" for i in range(20)},

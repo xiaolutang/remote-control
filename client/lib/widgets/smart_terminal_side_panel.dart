@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -10,9 +9,9 @@ import '../models/command_sequence_draft.dart';
 import '../models/terminal_launch_plan.dart';
 import '../services/agent_session_service.dart';
 import '../services/app_logger.dart';
-import '../services/http_client_factory.dart';
+import '../services/feedback_service.dart';
 import '../services/runtime_selection_controller.dart';
-import '../services/server_url_helper.dart';
+import '../services/scheduled_task_service.dart';
 import '../services/session_usage_accumulator.dart';
 import '../services/usage_summary_service.dart';
 import '../services/websocket_service.dart';
@@ -22,6 +21,8 @@ import 'package:provider/provider.dart';
 import 'design_tokens.dart';
 import 'agent_panel_types.dart';
 import 'agent_panel_shared_widgets.dart';
+import '../models/scheduled_task.dart';
+import '../utils/json_helpers.dart';
 
 part 'agent_panel_state.dart';
 part 'agent_panel_handlers.dart';
@@ -58,6 +59,7 @@ class SmartTerminalSidePanel extends StatefulWidget {
     this.agentSessionServiceBuilder,
     this.usageSummaryServiceBuilder,
     this.feedbackSubmitterOverride,
+    this.onScheduledTaskCreated,
   });
 
   /// 底层终端内容
@@ -68,6 +70,10 @@ class SmartTerminalSidePanel extends StatefulWidget {
 
   /// 覆盖反馈提交逻辑（测试用）
   final FeedbackSubmitter? feedbackSubmitterOverride;
+
+  /// 定时任务创建成功后的回调，用于刷新 ScheduledTaskPoller 等外部状态。
+  /// 桌面端传入 poller.refresh() 闭包，移动端可传 null 或 no-op。
+  final VoidCallback? onScheduledTaskCreated;
 
   @override
   State<SmartTerminalSidePanel> createState() => _SmartTerminalSidePanelState();
@@ -287,6 +293,8 @@ class _SmartTerminalSidePanelState extends State<SmartTerminalSidePanel> {
                         widget.usageSummaryServiceBuilder,
                     feedbackSubmitterOverride:
                         widget.feedbackSubmitterOverride,
+                    onScheduledTaskCreated:
+                        widget.onScheduledTaskCreated,
                   ),
                 ),
               ),

@@ -129,9 +129,7 @@ async def _get_owned_active_terminal(
     terminal_id: str,
     user_id: str,
 ) -> tuple[dict, dict]:
-    session = await _deps.get_session_by_device_id(device_id, user_id)
-    if not session:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"device {device_id} 不存在")
+    session = await _deps.get_owned_device_session(device_id, user_id)
     terminal = await _deps.get_session_terminal(session["session_id"], terminal_id)
     if not terminal:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"terminal {terminal_id} 不存在")

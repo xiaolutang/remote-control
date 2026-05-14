@@ -73,7 +73,7 @@ def _auth_patches():
     """Mock auth 链路：get_token_version + get_session。"""
     return [
         patch("app.infra.auth.get_token_version", new_callable=AsyncMock, return_value=1),
-        patch("app.ws.agent_message_handler.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
+        patch("app.store.session.get_session", new_callable=AsyncMock, return_value=MOCK_SESSION),
     ]
 
 
@@ -105,7 +105,8 @@ def _make_completed_session(
             ],
             provider="agent",
             source="recommended",
-            need_confirm=False,
+            response_type="command",
+            need_confirm=True,
             aliases=_aliases,
         ),
     )
@@ -129,12 +130,10 @@ class TestReportAgentExecution:
             m.start()
 
         try:
-            with patch("app.api.agent_report_api.save_agent_execution_report", new_callable=AsyncMock) as mock_save, \
-                 patch("app.api.agent_report_api.get_agent_execution_report", new_callable=AsyncMock, return_value=None), \
-                 patch("app.api.agent_report_api._get_alias_store") as mock_alias_store_fn:
+            with patch("app.api._deps.save_agent_execution_report", new_callable=AsyncMock) as mock_save, \
+                 patch("app.api._deps.get_agent_execution_report", new_callable=AsyncMock, return_value=None), \
+                 patch("app.api._deps.save_project_aliases_batch", new_callable=AsyncMock) as mock_save_aliases:
                 mock_save.return_value = True
-                mock_store = AsyncMock()
-                mock_alias_store_fn.return_value = mock_store
 
                 response = client.post(
                     f"/api/runtime/devices/{SAMPLE_DEVICE_ID}/assistant/agent/{SAMPLE_SESSION_ID}/report",
@@ -155,7 +154,7 @@ class TestReportAgentExecution:
                 call_kwargs = mock_save.call_args
                 assert call_kwargs.kwargs["success"] is True
                 assert call_kwargs.kwargs["aliases"] == {"project-a": "/Users/test/project-a"}
-                mock_store.save_batch.assert_called_once_with(
+                mock_save_aliases.assert_called_once_with(
                     SAMPLE_USER_ID,
                     SAMPLE_DEVICE_ID,
                     {"project-a": "/Users/test/project-a"},
@@ -174,12 +173,10 @@ class TestReportAgentExecution:
             m.start()
 
         try:
-            with patch("app.api.agent_report_api.save_agent_execution_report", new_callable=AsyncMock) as mock_save, \
-                 patch("app.api.agent_report_api.get_agent_execution_report", new_callable=AsyncMock, return_value=None), \
-                 patch("app.api.agent_report_api._get_alias_store") as mock_alias_store_fn:
+            with patch("app.api._deps.save_agent_execution_report", new_callable=AsyncMock) as mock_save, \
+                 patch("app.api._deps.get_agent_execution_report", new_callable=AsyncMock, return_value=None), \
+                 patch("app.api._deps.save_project_aliases_batch", new_callable=AsyncMock) as mock_save_aliases:
                 mock_save.return_value = True
-                mock_store = AsyncMock()
-                mock_alias_store_fn.return_value = mock_store
 
                 response = client.post(
                     f"/api/runtime/devices/{SAMPLE_DEVICE_ID}/assistant/agent/{SAMPLE_SESSION_ID}/report",
@@ -196,7 +193,7 @@ class TestReportAgentExecution:
                 assert data["status"] == "ok"
 
                 # 失败时不应调用别名保存
-                mock_store.save_batch.assert_not_called()
+                mock_save_aliases.assert_not_called()
                 # 但仍然保存了 report 记录
                 mock_save.assert_called_once()
         finally:
@@ -213,11 +210,11 @@ class TestReportAgentExecution:
             m.start()
 
         try:
-            with patch("app.api.agent_report_api.get_agent_execution_report", new_callable=AsyncMock) as mock_get:
+            with patch("app.api._deps.get_agent_execution_report", new_callable=AsyncMock) as mock_get:
                 # 模拟已有 report 记录
                 mock_get.return_value = {"session_id": SAMPLE_SESSION_ID, "success": 1}
 
-                with patch("app.api.agent_report_api.save_agent_execution_report") as mock_save:
+                with patch("app.api._deps.save_agent_execution_report") as mock_save:
                     response = client.post(
                         f"/api/runtime/devices/{SAMPLE_DEVICE_ID}/assistant/agent/{SAMPLE_SESSION_ID}/report",
                         headers=auth_headers,
@@ -282,13 +279,10 @@ class TestReportAgentExecution:
             m.start()
 
         try:
-            with patch("app.api.agent_report_api.save_agent_execution_report", new_callable=AsyncMock) as mock_save, \
-                 patch("app.api.agent_report_api.get_agent_execution_report", new_callable=AsyncMock, return_value=None), \
-                 patch("app.api.agent_report_api._get_alias_store") as mock_alias_store_fn:
+            with patch("app.api._deps.save_agent_execution_report", new_callable=AsyncMock) as mock_save, \
+                 patch("app.api._deps.get_agent_execution_report", new_callable=AsyncMock, return_value=None), \
+                 patch("app.api._deps.save_project_aliases_batch", new_callable=AsyncMock, side_effect=RuntimeError("DB error")):
                 mock_save.return_value = True
-                mock_store = AsyncMock()
-                mock_store.save_batch.side_effect = RuntimeError("DB error")
-                mock_alias_store_fn.return_value = mock_store
 
                 response = client.post(
                     f"/api/runtime/devices/{SAMPLE_DEVICE_ID}/assistant/agent/{SAMPLE_SESSION_ID}/report",
@@ -313,12 +307,10 @@ class TestReportAgentExecution:
             m.start()
 
         try:
-            with patch("app.api.agent_report_api.save_agent_execution_report", new_callable=AsyncMock) as mock_save, \
-                 patch("app.api.agent_report_api.get_agent_execution_report", new_callable=AsyncMock, return_value=None), \
-                 patch("app.api.agent_report_api._get_alias_store") as mock_alias_store_fn:
+            with patch("app.api._deps.save_agent_execution_report", new_callable=AsyncMock) as mock_save, \
+                 patch("app.api._deps.get_agent_execution_report", new_callable=AsyncMock, return_value=None), \
+                 patch("app.api._deps.save_project_aliases_batch", new_callable=AsyncMock) as mock_save_aliases:
                 mock_save.return_value = True
-                mock_store = AsyncMock()
-                mock_alias_store_fn.return_value = mock_store
 
                 response = client.post(
                     f"/api/runtime/devices/{SAMPLE_DEVICE_ID}/assistant/agent/{SAMPLE_SESSION_ID}/report",
@@ -327,8 +319,8 @@ class TestReportAgentExecution:
                 )
 
                 assert response.status_code == 200
-                # 没有 aliases，不应调用 save_batch
-                mock_store.save_batch.assert_not_called()
+                # 没有 aliases，不应调用 save_project_aliases_batch
+                mock_save_aliases.assert_not_called()
         finally:
             for m in auth_mocks:
                 m.stop()

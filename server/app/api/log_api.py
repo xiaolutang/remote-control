@@ -7,11 +7,17 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Optional, List, Dict, Any, Literal
+from typing import Optional
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
 
+from app.api.schemas import (
+    LogEntry,
+    UploadLogsRequest,
+    UploadLogsResponse,
+    LogRecord,
+    GetLogsResponse,
+)
 from app.infra.auth import get_current_payload, get_current_user_id
 from app.infra.constants import LOG_SERVICE_URL
 from app.infra.http_client import get_shared_http_client
@@ -27,46 +33,6 @@ from app.infra.log_service import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/logs", tags=["logs"])
-
-
-# ============ 请求/响应模型 ============
-
-class LogEntry(BaseModel):
-    """单条日志"""
-    level: Literal["debug", "info", "warn", "error", "fatal"] = "info"
-    message: str
-    timestamp: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
-
-
-class UploadLogsRequest(BaseModel):
-    """批量上报日志请求"""
-    session_id: str = Field(..., description="会话 ID")
-    uid: str = Field("", description="用户标识（username），未登录时为空")
-    logs: List[LogEntry] = Field(..., description="日志列表")
-
-
-class UploadLogsResponse(BaseModel):
-    """批量上报日志响应"""
-    success: bool = True
-    received: int
-
-
-class LogRecord(BaseModel):
-    """日志记录"""
-    level: str
-    message: str
-    timestamp: str
-    metadata: Dict[str, Any] = {}
-
-
-class GetLogsResponse(BaseModel):
-    """查询日志响应"""
-    session_id: str
-    total: int
-    offset: int
-    limit: int
-    logs: List[LogRecord]
 
 
 # ============ API 端点 ============

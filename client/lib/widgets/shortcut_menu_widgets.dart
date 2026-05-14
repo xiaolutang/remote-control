@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../models/scheduled_task.dart';
 import '../models/shortcut_item.dart';
 import '../models/terminal_shortcut.dart';
 import 'design_tokens.dart';
@@ -200,7 +201,7 @@ class ShortcutMenuWidgets {
   /// 项目命令值的显示格式（去掉末尾 \r）
   static String projectCommandValue(ShortcutItem item) {
     final value = item.action.value;
-    return value.endsWith('\r') ? value.substring(0, value.length - 1) : value;
+    return stripTrailingEnter(value);
   }
 
   static String description(ShortcutItem item) {
@@ -228,7 +229,7 @@ class ShortcutMenuWidgets {
       action: TerminalShortcutAction(
         type: TerminalShortcutActionType.sendText,
         value:
-            normalizedCommand.endsWith('\r') ? normalizedCommand : '$normalizedCommand\r',
+            ensureTrailingEnter(normalizedCommand),
       ),
       order: initialItem?.order ?? 0,
       scope: ShortcutItemScope.project,

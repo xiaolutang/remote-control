@@ -189,6 +189,8 @@ async def test_plan_with_service_llm_requires_config_when_no_provider_available(
             "LLM_API_KEY": "",
             "LLM_BASE_URL": "",
             "LLM_PLANNER_URL": "",
+            "ASSISTANT_LLM_API_KEY": "",
+            "OPENAI_API_KEY": "",
         },
         clear=False,
     ):
