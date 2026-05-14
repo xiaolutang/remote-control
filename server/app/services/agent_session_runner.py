@@ -480,11 +480,11 @@ class AgentLoopRunner:
             session.id,
             session.user_id,
             session.device_id,
-            input_tokens=outcome.input_tokens,
-            output_tokens=outcome.output_tokens,
-            total_tokens=outcome.total_tokens,
-            requests=outcome.requests,
-            model_name=outcome.model_name,
+            input_tokens=usage_payload["input_tokens"],
+            output_tokens=usage_payload["output_tokens"],
+            total_tokens=usage_payload["total_tokens"],
+            requests=usage_payload["requests"],
+            model_name=usage_payload["model_name"],
             terminal_id=session.terminal_id,
         )
         if not saved_usage:

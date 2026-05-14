@@ -33,10 +33,6 @@ from typing import Awaitable, Callable
 
 import pydantic_ai.exceptions as pai_exc
 from pydantic_ai import Agent
-try:
-    from pydantic_ai import RunUsage
-except ImportError:
-    from pydantic_ai.usage import Usage as RunUsage
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
@@ -57,6 +53,7 @@ from app.services.terminal_agent_types import (  # noqa: F401
     AgentUserFacingError,
     CommandSequenceStep,
     ResultDelivered,
+    RunUsage,
     _user_facing_model_error_message,
 )
 from app.services.terminal_agent_tools import (  # noqa: F401
@@ -461,7 +458,7 @@ async def run_agent(
                     continue
 
                 usage = run_result.usage()
-                return AgentRunOutcome(
+                return AgentRunOutcome.from_usage(
                     result=AgentResult(
                         summary=text_output.strip(),
                         steps=[],
@@ -469,10 +466,7 @@ async def run_agent(
                         need_confirm=False,
                         aliases={},
                     ),
-                    input_tokens=getattr(usage, 'request_tokens', getattr(usage, 'input_tokens', 0)),
-                    output_tokens=getattr(usage, 'response_tokens', getattr(usage, 'output_tokens', 0)),
-                    total_tokens=usage.total_tokens,
-                    requests=usage.requests,
+                    usage=usage,
                     model_name=planner_model(),
                 )
 
@@ -495,12 +489,9 @@ async def run_agent(
                 response_type="error",
                 need_confirm=False,
             )
-            return AgentRunOutcome(
+            return AgentRunOutcome.from_usage(
                 result=fallback_result,
-                input_tokens=getattr(usage, 'request_tokens', getattr(usage, 'input_tokens', 0)),
-                output_tokens=getattr(usage, 'response_tokens', getattr(usage, 'output_tokens', 0)),
-                total_tokens=usage.total_tokens,
-                requests=usage.requests,
+                usage=usage,
                 model_name=planner_model(),
             )
         except ResultDelivered as rd:
@@ -524,12 +515,9 @@ async def run_agent(
                 continue
 
             usage = rd.usage if rd.usage is not None else usage_tracker
-            return AgentRunOutcome(
+            return AgentRunOutcome.from_usage(
                 result=rd.result,
-                input_tokens=getattr(usage, 'request_tokens', getattr(usage, 'input_tokens', 0)),
-                output_tokens=getattr(usage, 'response_tokens', getattr(usage, 'output_tokens', 0)),
-                total_tokens=usage.total_tokens,
-                requests=usage.requests,
+                usage=usage,
                 model_name=planner_model(),
             )
         except pai_exc.UnexpectedModelBehavior as e:

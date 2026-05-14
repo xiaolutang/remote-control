@@ -13,9 +13,30 @@ from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Literal, Optional
 
 from pydantic import BaseModel, model_validator
-from pydantic_ai import RunUsage
+try:
+    from pydantic_ai import RunUsage
+except ImportError:
+    from pydantic_ai.usage import Usage as RunUsage
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# pydantic_ai 版本兼容 helper
+# ---------------------------------------------------------------------------
+
+def _extract_input_tokens(usage) -> int:
+    """从 RunUsage 提取 input token 数（兼容新旧字段名）。"""
+    if hasattr(usage, 'input_tokens'):
+        return usage.input_tokens
+    return getattr(usage, 'request_tokens', 0)
+
+
+def _extract_output_tokens(usage) -> int:
+    """从 RunUsage 提取 output token 数（兼容新旧字段名）。"""
+    if hasattr(usage, 'output_tokens'):
+        return usage.output_tokens
+    return getattr(usage, 'response_tokens', 0)
 
 
 # ---------------------------------------------------------------------------
@@ -185,6 +206,18 @@ class AgentRunOutcome:
     total_tokens: int = 0
     requests: int = 0
     model_name: str = ""
+
+    @classmethod
+    def from_usage(cls, result: AgentResult, usage, model_name: str = "") -> 'AgentRunOutcome':
+        """从 RunUsage 对象构造 AgentRunOutcome（集中版本兼容逻辑）。"""
+        return cls(
+            result=result,
+            input_tokens=_extract_input_tokens(usage),
+            output_tokens=_extract_output_tokens(usage),
+            total_tokens=usage.total_tokens,
+            requests=usage.requests,
+            model_name=model_name,
+        )
 
 
 # ---------------------------------------------------------------------------

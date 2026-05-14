@@ -12,7 +12,7 @@ import logging
 from typing import Literal
 
 from pydantic import ConfigDict, create_model
-from pydantic_ai import Agent, RunContext, RunUsage
+from pydantic_ai import Agent, RunContext
 
 from app.infra.command_validator import validate_command
 from app.services.terminal_agent_types import (
@@ -20,6 +20,7 @@ from app.services.terminal_agent_types import (
     AgentResult,
     CommandSequenceStep,
     ResultDelivered,
+    RunUsage,
 )
 
 logger = logging.getLogger(__name__)
