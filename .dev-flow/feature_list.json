@@ -1,9 +1,8 @@
 {
   "version": "1.4",
   "project": "remote-control",
-  "updated_at": "2026-05-14T00:00:00+08:00",
+  "updated_at": "2026-05-15T00:00:00+08:00",
   "status": "active",
-  "workflow": {},
   "archived_requirement_cycles": [
     {"id":"R047","name":"agent-conversation-interaction-optimization","status":"completed","archive_dir":"_archive/R047_agent-conversation-interaction-optimization","total_tasks":31},
     {"id":"R048","name":"architecture-deep-cleanup","status":"completed","archive_dir":"_archive/R048_architecture-deep-cleanup","total_tasks":20},
@@ -20,7 +19,8 @@
     {"id":"R060","name":"terminal-navigation-redesign","status":"completed","archive_dir":"_archive/R060_terminal-navigation-redesign","total_tasks":5},
     {"id":"R061","name":"client-code-convergence","status":"completed","archive_dir":"_archive/R061_client-code-convergence","total_tasks":16},
     {"id":"R062","name":"scheduled-terminal-tasks","status":"completed","archive_dir":"_archive/R062_scheduled-terminal-tasks","total_tasks":8,"completed_at":"2026-05-13"},
-    {"id":"R063","name":"agent-scheduled-tasks","status":"completed","archive_dir":"_archive/R063_agent-scheduled-tasks","total_tasks":4,"completed_at":"2026-05-14"}
+    {"id":"R063","name":"agent-scheduled-tasks","status":"completed","archive_dir":"_archive/R063_agent-scheduled-tasks","total_tasks":4,"completed_at":"2026-05-14"},
+    {"id":"R064","name":"desktop-cleanup-agent-aware","status":"completed","archive_dir":"_archive/R064_desktop-cleanup-agent-aware","total_tasks":2,"completed_at":"2026-05-15"}
   ],
   "archived_phases": [],
   "features": [],

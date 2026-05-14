@@ -122,6 +122,91 @@ void main() {
     );
   });
 
+  test('agentOnline=true skips cleanup when not forceCleanup', () async {
+    final runtimeService = _FakeRuntimeDeviceService()
+      ..terminals = const <RuntimeTerminal>[
+        RuntimeTerminal(
+          terminalId: 'term-1',
+          title: 'Claude',
+          cwd: '~',
+          command: '/bin/bash',
+          status: 'detached',
+          views: {'desktop': 0},
+        ),
+      ];
+    final service = DesktopStartupTerminalCleanupService(
+      runtimeService: runtimeService,
+      exitPolicyService: _FakeDesktopExitPolicyService(false),
+      isDesktopPlatform: true,
+    );
+
+    await service.cleanup(
+      token: 'token',
+      deviceId: 'device',
+      agentOnline: true,
+    );
+
+    expect(runtimeService.listTerminalsCallCount, 0);
+    expect(runtimeService.closedTerminalIds, isEmpty);
+  });
+
+  test('agentOnline=false performs normal cleanup', () async {
+    final runtimeService = _FakeRuntimeDeviceService()
+      ..terminals = const <RuntimeTerminal>[
+        RuntimeTerminal(
+          terminalId: 'term-1',
+          title: 'Claude',
+          cwd: '~',
+          command: '/bin/bash',
+          status: 'detached',
+          views: {'desktop': 0},
+        ),
+      ];
+    final service = DesktopStartupTerminalCleanupService(
+      runtimeService: runtimeService,
+      exitPolicyService: _FakeDesktopExitPolicyService(false),
+      isDesktopPlatform: true,
+    );
+
+    await service.cleanup(
+      token: 'token',
+      deviceId: 'device',
+      agentOnline: false,
+    );
+
+    expect(runtimeService.listTerminalsCallCount, 1);
+    expect(runtimeService.closedTerminalIds, <String>['term-1']);
+  });
+
+  test('agentOnline=true still cleans up when forceCleanup=true', () async {
+    final runtimeService = _FakeRuntimeDeviceService()
+      ..terminals = const <RuntimeTerminal>[
+        RuntimeTerminal(
+          terminalId: 'term-1',
+          title: 'Claude',
+          cwd: '~',
+          command: '/bin/bash',
+          status: 'detached',
+          views: {'desktop': 0},
+        ),
+      ];
+    final service = DesktopStartupTerminalCleanupService(
+      runtimeService: runtimeService,
+      exitPolicyService: _FakeDesktopExitPolicyService(false),
+      isDesktopPlatform: true,
+    );
+
+    await service.cleanup(
+      token: 'token',
+      deviceId: 'device',
+      agentOnline: true,
+      forceCleanup: true,
+    );
+
+    expect(runtimeService.listTerminalsCallCount, 1);
+    expect(runtimeService.closedTerminalIds, <String>['term-1']);
+  });
+
   test('cleanup swallows individual close failures', () async {
     final runtimeService = _FakeRuntimeDeviceService()
       ..terminals = const <RuntimeTerminal>[

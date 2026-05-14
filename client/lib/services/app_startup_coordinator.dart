@@ -139,9 +139,25 @@ class AppStartupCoordinator {
     required String deviceId,
   }) async {
     if (_isDesktopPlatform) {
+      List<RuntimeDevice> devices;
+      try {
+        devices = await _runtimeService.listDevices(token);
+      } on AuthException {
+        rethrow;
+      } catch (e) {
+        AppLogger('AppStartupCoordinator')
+            .error('listDevices failed: $e');
+        devices = const <RuntimeDevice>[];
+      }
+      final agentOnline = devices
+              .where((d) => d.deviceId == deviceId)
+              .firstOrNull
+              ?.agentOnline ??
+          false;
       await _desktopTerminalCleanupService.cleanup(
         token: token,
         deviceId: deviceId,
+        agentOnline: agentOnline,
       );
       await agentManager.onAppStart(
         serverUrl: serverUrl,
@@ -149,7 +165,6 @@ class AppStartupCoordinator {
         username: username,
         deviceId: deviceId,
       );
-      final devices = await _runtimeService.listDevices(token);
       return AppStartupResult.workspace(
         token: token,
         initialDevices: devices,
