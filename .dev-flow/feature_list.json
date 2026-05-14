@@ -75,7 +75,7 @@
       "description": "为 F001 的改动补充测试覆盖：cleanup 的 agentOnline 参数行为、coordinator 启动流程的 agentOnline 传递、降级容错。",
       "verification": "F1",
       "depends_on": ["F001"],
-      "status": "pending",
+      "status": "completed",
       "priority": 2,
       "acceptance_criteria": [
         "desktop_startup_terminal_cleanup_service_test.dart 新增：agentOnline=true 时跳过清理、agentOnline=false 时维持原行为、forceCleanup=true 覆盖 agentOnline",
@@ -91,5 +91,5 @@
       ]
     }
   ],
-  "summary": { "total": 2, "completed": 1, "pending": 1, "blocked": 0 }
+  "summary": { "total": 2, "completed": 2, "pending": 0, "blocked": 0 }
 }
