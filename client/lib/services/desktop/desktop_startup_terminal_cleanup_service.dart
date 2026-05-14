@@ -27,6 +27,7 @@ class DesktopStartupTerminalCleanupService {
     required String token,
     required String deviceId,
     bool forceCleanup = false,
+    bool agentOnline = false,
   }) async {
     if (!_isDesktopPlatform) {
       return;
@@ -34,6 +35,10 @@ class DesktopStartupTerminalCleanupService {
 
     if (!forceCleanup &&
         await _exitPolicyService.keepAgentRunningInBackground()) {
+      return;
+    }
+
+    if (!forceCleanup && agentOnline) {
       return;
     }
 

@@ -1,9 +1,24 @@
 {
   "version": "1.4",
   "project": "remote-control",
-  "updated_at": "2026-05-14T00:00:00+08:00",
+  "updated_at": "2026-05-15T00:00:00+08:00",
   "status": "active",
-  "workflow": {},
+  "workflow": {
+    "name": "R064",
+    "mode": "B",
+    "runtime": "skill_orchestrated",
+    "review_provider": "codex_plugin",
+    "audit_provider": "codex_plugin",
+    "risk_provider": "codex_plugin",
+    "stop_hook_enabled": false
+  },
+  "active_requirement_cycle": {
+    "id": "R064",
+    "name": "desktop-cleanup-agent-aware",
+    "branch": "fix/R064-desktop-cleanup-agent-aware",
+    "status": "ready",
+    "total_tasks": 2
+  },
   "archived_requirement_cycles": [
     {"id":"R047","name":"agent-conversation-interaction-optimization","status":"completed","archive_dir":"_archive/R047_agent-conversation-interaction-optimization","total_tasks":31},
     {"id":"R048","name":"architecture-deep-cleanup","status":"completed","archive_dir":"_archive/R048_architecture-deep-cleanup","total_tasks":20},
@@ -23,6 +38,58 @@
     {"id":"R063","name":"agent-scheduled-tasks","status":"completed","archive_dir":"_archive/R063_agent-scheduled-tasks","total_tasks":4,"completed_at":"2026-05-14"}
   ],
   "archived_phases": [],
-  "features": [],
-  "summary": { "total": 0, "completed": 0, "pending": 0, "blocked": 0 }
+  "features": [
+    {
+      "id": "F001",
+      "phase": 1,
+      "module": "client",
+      "name": "cleanup 服务增加 Agent 在线感知",
+      "description": "DesktopStartupTerminalCleanupService.cleanup() 新增 agentOnline 参数。AppStartupCoordinator 调整桌面端启动流程：先 listDevices 获取设备 agentOnline 状态，再传给 cleanup。Agent 在线时跳过清理（终端可恢复），离线时才执行清理。",
+      "verification": "L1",
+      "depends_on": [],
+      "status": "completed",
+      "acceptance_criteria": [
+        "cleanup() 接受 agentOnline 参数，默认 false",
+        "agentOnline=true 且非 forceCleanup 时，cleanup 直接 return 不关闭任何终端",
+        "agentOnline=false 时，维持原有行为（关闭所有非 closed 终端）",
+        "forceCleanup=true 时即使 agentOnline=true 也执行清理",
+        "AppStartupCoordinator 桌面端启动流程：先 listDevices → 取 agentOnline → 传给 cleanup → agentManager.onAppStart → coordinator 将已获取的 devices 传给 AppStartupResult.initialDevices",
+        "listDevices 返回的设备列表中找不到当前 deviceId 时，agentOnline 降级为 false",
+        "listDevices 调用失败（网络异常）时，agentOnline 降级为 false，cleanup 维持原有行为（需 try-catch 包裹 listDevices 调用）",
+        "总网络请求数不变（listDevices 只是时序前移，不再重复调用）"
+      ],
+      "risk_tags": ["startup"],
+      "files": [
+        "client/lib/services/desktop/desktop_startup_terminal_cleanup_service.dart",
+        "client/lib/services/app_startup_coordinator.dart"
+      ],
+      "fix_level": "L2",
+      "root_cause_analysis": "DesktopStartupTerminalCleanupService 不区分'Agent 在线但 Client 断开'和'Agent 离线导致终端孤儿'，一刀切关闭所有非 closed 终端。VPN 切换场景中 Agent 仍在运行，终端变成 detached_recoverable 本可恢复，却被 startup cleanup 误杀。",
+      "similar_locations": []
+    },
+    {
+      "id": "F002",
+      "phase": 2,
+      "module": "client",
+      "name": "补充 Agent 在线/离线场景的单元测试",
+      "description": "为 F001 的改动补充测试覆盖：cleanup 的 agentOnline 参数行为、coordinator 启动流程的 agentOnline 传递、降级容错。",
+      "verification": "F1",
+      "depends_on": ["F001"],
+      "status": "pending",
+      "priority": 2,
+      "acceptance_criteria": [
+        "desktop_startup_terminal_cleanup_service_test.dart 新增：agentOnline=true 时跳过清理、agentOnline=false 时维持原行为、forceCleanup=true 覆盖 agentOnline",
+        "app_startup_coordinator_test.dart 新增：Agent 在线设备不关闭 detached_recoverable 终端",
+        "app_startup_coordinator_test.dart 新增：listDevices 抛异常时终端仍被正常关闭（降级为原行为）",
+        "app_startup_coordinator_test.dart 更新：现有 'closes lingering terminals' 测试的 fake 设备 deviceId 匹配 session_id 且 agentOnline=false",
+        "flutter test 两个测试文件全部通过"
+      ],
+      "risk_tags": ["startup"],
+      "files": [
+        "client/test/services/desktop_startup_terminal_cleanup_service_test.dart",
+        "client/test/services/app_startup_coordinator_test.dart"
+      ]
+    }
+  ],
+  "summary": { "total": 2, "completed": 1, "pending": 1, "blocked": 0 }
 }

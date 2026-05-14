@@ -174,7 +174,17 @@ void main() {
         'session_id': 'saved-session',
       }
       ..savedCredentialsError = Exception('keychain unavailable');
-    final runtimeService = _FakeRuntimeDeviceService();
+    final runtimeService = _FakeRuntimeDeviceService()
+      ..devices = const <RuntimeDevice>[
+        RuntimeDevice(
+          deviceId: 'saved-session',
+          name: 'mac',
+          owner: 'test',
+          agentOnline: true,
+          maxTerminals: 3,
+          activeTerminals: 0,
+        ),
+      ];
     final agentManager = _FakeDesktopAgentManager();
     final coordinator = AppStartupCoordinator(
       serverUrl: 'ws://localhost:8888',
@@ -215,6 +225,16 @@ void main() {
     final runtimeService = _FakeRuntimeDeviceService()
       ..listTerminalsError = AuthException(AuthErrorCode.tokenInvalid, '认证信息无效')
       ..listTerminalsErrorCount = 1
+      ..devices = const <RuntimeDevice>[
+        RuntimeDevice(
+          deviceId: 'fresh-session',
+          name: 'mac',
+          owner: 'test',
+          agentOnline: false,
+          maxTerminals: 3,
+          activeTerminals: 0,
+        ),
+      ]
       ..terminals = const <RuntimeTerminal>[
         RuntimeTerminal(
           terminalId: 'term-recoverable',
@@ -243,7 +263,7 @@ void main() {
     expect(authService.loginCallCount, 1);
     expect(runtimeService.listTerminalsCallCount, 2);
     expect(runtimeService.closedTerminalIds, <String>['term-recoverable']);
-    expect(runtimeService.listDevicesCallCount, 1);
+    expect(runtimeService.listDevicesCallCount, 2);
     expect(agentManager.onAppStartCallCount, 1);
     expect(agentManager.lastDeviceId, 'fresh-session');
   });
@@ -260,7 +280,17 @@ void main() {
         'session_id': 'saved-session',
       }
       ..savedCredentialsError = StateError('keychain denied');
-    final runtimeService = _FakeRuntimeDeviceService();
+    final runtimeService = _FakeRuntimeDeviceService()
+      ..devices = const <RuntimeDevice>[
+        RuntimeDevice(
+          deviceId: 'saved-session',
+          name: 'mac',
+          owner: 'test',
+          agentOnline: true,
+          maxTerminals: 3,
+          activeTerminals: 0,
+        ),
+      ];
     final agentManager = _FakeDesktopAgentManager();
     final coordinator = AppStartupCoordinator(
       serverUrl: 'ws://localhost:8888',
@@ -278,7 +308,7 @@ void main() {
     expect(agentManager.onAppStartCallCount, 1);
   });
 
-  test('desktop startup closes lingering terminals when background keep is off',
+  test('desktop startup closes lingering terminals when agent is offline',
       () async {
     SharedPreferences.setMockInitialValues({
       'rc_username': 'testuser',
@@ -289,6 +319,16 @@ void main() {
         'session_id': 'saved-session',
       };
     final runtimeService = _FakeRuntimeDeviceService()
+      ..devices = const <RuntimeDevice>[
+        RuntimeDevice(
+          deviceId: 'saved-session',
+          name: 'mac',
+          owner: 'test',
+          agentOnline: false,
+          maxTerminals: 3,
+          activeTerminals: 0,
+        ),
+      ]
       ..terminals = const <RuntimeTerminal>[
         RuntimeTerminal(
           terminalId: 'term-detached',
@@ -322,6 +362,177 @@ void main() {
     expect(runtimeService.listTerminalsCallCount, 1);
     expect(runtimeService.closedTerminalIds,
         <String>['term-detached', 'term-live-elsewhere']);
+    expect(runtimeService.listDevicesCallCount, 1);
+  });
+
+  test('desktop startup skips cleanup when agent is online', () async {
+    SharedPreferences.setMockInitialValues({
+      'rc_username': 'testuser',
+    });
+    final authService = _FakeAuthService()
+      ..savedSession = <String, String>{
+        'token': 'saved-token',
+        'session_id': 'saved-session',
+      };
+    final runtimeService = _FakeRuntimeDeviceService()
+      ..devices = const <RuntimeDevice>[
+        RuntimeDevice(
+          deviceId: 'saved-session',
+          name: 'mac',
+          owner: 'test',
+          agentOnline: true,
+          maxTerminals: 3,
+          activeTerminals: 0,
+        ),
+      ]
+      ..terminals = const <RuntimeTerminal>[
+        RuntimeTerminal(
+          terminalId: 'term-detached',
+          title: 'Claude',
+          cwd: '~',
+          command: '/bin/bash',
+          status: 'detached_recoverable',
+          views: {'mobile': 0, 'desktop': 0},
+        ),
+      ];
+    final agentManager = _FakeDesktopAgentManager();
+    final coordinator = AppStartupCoordinator(
+      serverUrl: 'ws://localhost:8888',
+      authService: authService,
+      runtimeService: runtimeService,
+      configService: _FakeConfigService(const AppConfig()),
+      isDesktopPlatform: true,
+    );
+
+    final result = await coordinator.restore(agentManager: agentManager);
+
+    expect(result.destination, AppStartupDestination.workspace);
+    expect(runtimeService.listTerminalsCallCount, 0);
+    expect(runtimeService.closedTerminalIds, isEmpty);
+    expect(runtimeService.listDevicesCallCount, 1);
+    expect(agentManager.onAppStartCallCount, 1);
+  });
+
+  test(
+      'desktop startup closes terminals when listDevices fails (graceful degradation)',
+      () async {
+    SharedPreferences.setMockInitialValues({
+      'rc_username': 'testuser',
+    });
+    final authService = _FakeAuthService()
+      ..savedSession = <String, String>{
+        'token': 'saved-token',
+        'session_id': 'saved-session',
+      };
+    final runtimeService = _FakeRuntimeDeviceService()
+      ..listDevicesError = Exception('network error')
+      ..listDevicesErrorCount = 1
+      ..terminals = const <RuntimeTerminal>[
+        RuntimeTerminal(
+          terminalId: 'term-detached',
+          title: 'Claude',
+          cwd: '~',
+          command: '/bin/bash',
+          status: 'detached',
+          views: {'mobile': 0, 'desktop': 0},
+        ),
+      ];
+    final agentManager = _FakeDesktopAgentManager();
+    final coordinator = AppStartupCoordinator(
+      serverUrl: 'ws://localhost:8888',
+      authService: authService,
+      runtimeService: runtimeService,
+      configService: _FakeConfigService(const AppConfig()),
+      isDesktopPlatform: true,
+    );
+
+    final result = await coordinator.restore(agentManager: agentManager);
+
+    expect(result.destination, AppStartupDestination.workspace);
+    expect(runtimeService.listDevicesCallCount, 1);
+    expect(runtimeService.listTerminalsCallCount, 1);
+    expect(runtimeService.closedTerminalIds, <String>['term-detached']);
+    expect(agentManager.onAppStartCallCount, 1);
+  });
+
+  test(
+      'desktop startup falls back to password login when listDevices throws AuthException',
+      () async {
+    SharedPreferences.setMockInitialValues({
+      'rc_username': 'testuser',
+    });
+    final authService = _FakeAuthService()
+      ..savedSession = <String, String>{
+        'token': 'expired-token',
+        'session_id': 'saved-session',
+      }
+      ..savedCredentials = <String, String>{
+        'username': 'testuser',
+        'password': 'testpass',
+      }
+      ..loginResult = <String, dynamic>{
+        'token': 'fresh-token',
+        'session_id': 'fresh-session',
+      };
+    final runtimeService = _FakeRuntimeDeviceService()
+      ..listDevicesError =
+          AuthException(AuthErrorCode.tokenInvalid, '认证信息无效')
+      ..listDevicesErrorCount = 1;
+    final agentManager = _FakeDesktopAgentManager();
+    final coordinator = AppStartupCoordinator(
+      serverUrl: 'ws://localhost:8888',
+      authService: authService,
+      runtimeService: runtimeService,
+      configService: _FakeConfigService(const AppConfig()),
+      isDesktopPlatform: true,
+    );
+
+    final result = await coordinator.restore(agentManager: agentManager);
+
+    // AuthException from listDevices should trigger fallback to password login
+    expect(result.destination, AppStartupDestination.workspace);
+    expect(result.token, 'fresh-token');
+    expect(authService.loginCallCount, 1);
+  });
+
+  test(
+      'desktop startup closes terminals when deviceId not found in device list',
+      () async {
+    SharedPreferences.setMockInitialValues({
+      'rc_username': 'testuser',
+    });
+    final authService = _FakeAuthService()
+      ..savedSession = <String, String>{
+        'token': 'saved-token',
+        'session_id': 'unknown-device',
+      };
+    // Default fake has deviceId='device-1', won't match 'unknown-device'
+    final runtimeService = _FakeRuntimeDeviceService()
+      ..terminals = const <RuntimeTerminal>[
+        RuntimeTerminal(
+          terminalId: 'term-1',
+          title: 'Claude',
+          cwd: '~',
+          command: '/bin/bash',
+          status: 'detached',
+          views: {'desktop': 0},
+        ),
+      ];
+    final agentManager = _FakeDesktopAgentManager();
+    final coordinator = AppStartupCoordinator(
+      serverUrl: 'ws://localhost:8888',
+      authService: authService,
+      runtimeService: runtimeService,
+      configService: _FakeConfigService(const AppConfig()),
+      isDesktopPlatform: true,
+    );
+
+    final result = await coordinator.restore(agentManager: agentManager);
+
+    expect(result.destination, AppStartupDestination.workspace);
+    // deviceId not found → agentOnline defaults to false → cleanup runs
+    expect(runtimeService.listTerminalsCallCount, 1);
+    expect(runtimeService.closedTerminalIds, <String>['term-1']);
     expect(runtimeService.listDevicesCallCount, 1);
   });
 }
