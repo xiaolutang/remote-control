@@ -409,9 +409,11 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
   }
 
   Future<void> _handleAgentRespond(String answer) async {
-    if (_terminalConversationClosed ||
-        _pendingReset ||
-        _activeSessionId == null) return;
+    if (_terminalConversationClosed || _pendingReset) return;
+    if (_activeSessionId == null) {
+      _presentAgentError(code: 'SESSION_LOST', message: '会话已结束，请重新发送您的问题');
+      return;
+    }
     final controller = _tryGetController<RuntimeSelectionController>();
     if (controller == null) return;
     final deviceId = controller.selectedDeviceId;
@@ -453,11 +455,7 @@ mixin _PanelHandlersMixin on _PanelStateFields, ScrollToLatestMixin {
       final text = _intentController.text.trim();
       if (text.isEmpty) return;
       if (_activeSessionId == null) {
-        setState(() {
-          _currentPhase = AgentPhase.error;
-          _agentError =
-              AgentErrorEvent(code: 'SESSION_LOST', message: '会话已断开，请重新发送您的问题');
-        });
+        _presentAgentError(code: 'SESSION_LOST', message: '会话已结束，请重新发送您的问题');
         return;
       }
       _intentController.clear();
