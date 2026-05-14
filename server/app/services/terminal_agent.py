@@ -32,7 +32,11 @@ import logging
 from typing import Awaitable, Callable
 
 import pydantic_ai.exceptions as pai_exc
-from pydantic_ai import Agent, RunUsage
+from pydantic_ai import Agent
+try:
+    from pydantic_ai import RunUsage
+except ImportError:
+    from pydantic_ai.usage import Usage as RunUsage
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
@@ -391,7 +395,7 @@ async def run_agent(
     async def _event_stream_handler(ctx, events):
         """处理模型流式事件，逐 token 捕获文本输出并回调 on_model_text。
 
-        B105 改动：从 PartEndEvent 累积完整推送改为 PartDeltaEvent 逐 token 推送。
+        B105 改动：从累积完整推送改为 PartDeltaEvent 逐 token 推送。
 
         关键设计：
         - PartStartEvent(TextPart): 标记 index 为文本追踪中，如有初始 content 立即推送
@@ -403,7 +407,7 @@ async def run_agent(
         if on_model_text is None:
             return
         async for event in events:
-            from pydantic_ai.messages import PartStartEvent, PartDeltaEvent, PartEndEvent, TextPart, TextPartDelta
+            from pydantic_ai.messages import PartStartEvent, PartDeltaEvent, TextPart, TextPartDelta
             if isinstance(event, PartStartEvent):
                 if isinstance(event.part, TextPart):
                     _tracking_text_parts.add(event.index)
@@ -424,8 +428,8 @@ async def run_agent(
                         await on_model_text(event.delta.content_delta)
                     except Exception:
                         logger.debug("on_model_text callback error", exc_info=True)
-            elif isinstance(event, PartEndEvent):
-                _tracking_text_parts.discard(event.index)
+            # PartEndEvent 在 pydantic_ai 0.7.x 已移除
+            # 非 TextPart 的 PartStartEvent 已负责清除追踪（上方 else 分支）
 
     _stream_handler = _event_stream_handler if on_model_text else None
 
@@ -465,8 +469,8 @@ async def run_agent(
                         need_confirm=False,
                         aliases={},
                     ),
-                    input_tokens=usage.input_tokens,
-                    output_tokens=usage.output_tokens,
+                    input_tokens=getattr(usage, 'request_tokens', getattr(usage, 'input_tokens', 0)),
+                    output_tokens=getattr(usage, 'response_tokens', getattr(usage, 'output_tokens', 0)),
                     total_tokens=usage.total_tokens,
                     requests=usage.requests,
                     model_name=planner_model(),
@@ -493,8 +497,8 @@ async def run_agent(
             )
             return AgentRunOutcome(
                 result=fallback_result,
-                input_tokens=usage.input_tokens,
-                output_tokens=usage.output_tokens,
+                input_tokens=getattr(usage, 'request_tokens', getattr(usage, 'input_tokens', 0)),
+                output_tokens=getattr(usage, 'response_tokens', getattr(usage, 'output_tokens', 0)),
                 total_tokens=usage.total_tokens,
                 requests=usage.requests,
                 model_name=planner_model(),
@@ -522,8 +526,8 @@ async def run_agent(
             usage = rd.usage if rd.usage is not None else usage_tracker
             return AgentRunOutcome(
                 result=rd.result,
-                input_tokens=usage.input_tokens,
-                output_tokens=usage.output_tokens,
+                input_tokens=getattr(usage, 'request_tokens', getattr(usage, 'input_tokens', 0)),
+                output_tokens=getattr(usage, 'response_tokens', getattr(usage, 'output_tokens', 0)),
                 total_tokens=usage.total_tokens,
                 requests=usage.requests,
                 model_name=planner_model(),
