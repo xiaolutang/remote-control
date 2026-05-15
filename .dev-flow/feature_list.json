@@ -46,11 +46,11 @@
       "phase": 1,
       "module": "client",
       "name": "重连时保持 TerminalView mounted",
+      "commit": "a4945bf",
       "description": "修复 WebSocket 重连/连接中状态导致 TerminalView State 被销毁、scroll 位置丢失的问题。Consumer<WebSocketService> builder 改为始终构建 TerminalView（terminal 非空时），connecting/reconnecting 状态用 Stack + 半透明遮罩覆盖显示重连提示。同步修复 shouldAutoResize 在重连期间不切换的防护，以及清理 render.dart 和 desktop_workspace_controller.dart 中的 debug print。",
       "verification": "F1",
       "depends_on": [],
-      "status": "pending",
-      "priority": 1,
+      "status": "completed",
       "acceptance_criteria": [
         "terminal_screen.dart: Consumer<WebSocketService> builder 在 terminal 非空时始终构建 TerminalView，不因 connecting/reconnecting 替换为 _buildCenteredMessage",
         "connecting/reconnecting 状态下 TerminalView 上层覆盖半透明遮罩 + 重连提示文字",
