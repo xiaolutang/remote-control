@@ -344,11 +344,6 @@ class TerminalScreenController extends ChangeNotifier {
   // ─── Geometry owner 策略 ──────────────────────────────────────
 
   bool _shouldFollowSharedPty(WebSocketService service) {
-    if ((service.terminalId ?? '').isNotEmpty &&
-        service.status != ConnectionStatus.connected) {
-      return true;
-    }
-
     final terminalId = service.terminalId;
     if ((terminalId ?? '').isEmpty) {
       return false;

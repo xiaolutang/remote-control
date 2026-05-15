@@ -1,42 +1,38 @@
 # Remote Control 项目规格
 
-## 当前范围：R063 对话 Agent 定时任务能力
+## 当前范围：R066 终端 scroll 保持
 
-让 AI 对话 Agent 支持定时任务场景：用户通过自然语言描述定时意图 → Agent 识别并返回带调度信息的命令结果 → 用户确认 → 创建定时任务。Agent 还能查询和取消已有定时任务。
+WebSocket 重连时终端内容滚动到顶部。
 
 ### 背景
 
-R062 已完成终端定时任务基础设施（REST API + 调度器 + 客户端 UI）。本轮复用这些基础设施，将其接入对话 Agent 的工具链。
+`terminal_screen.dart:467` 的 `Consumer<WebSocketService>` 在 `reconnecting`/`connecting` 状态时返回 `_buildCenteredMessage` 替代 `TerminalView`，Flutter 销毁 `TerminalViewState`（含 `ViewportOffset`/scroll position）。重连成功后新建 TerminalView，scroll offset 从 0 开始。
 
-### 范围（2 个 Phase，4 个任务）
+根因已由 Claude Code + Codex xlfoundry-code-review 双重确认。
 
-- **Phase 1** — 服务端（S001-B001）：AgentResult 扩展调度字段 + 新增 list/cancel 工具 + System Prompt 更新
-- **Phase 2** — 客户端（F001-F002）：事件模型扩展 + 定时确认 UI
+### 修复方案
+
+三层修复：
+1. **核心**：Consumer builder 始终构建 TerminalView（terminal 非空时），重连消息用 Stack overlay 覆盖
+2. **防护**：`shouldAutoResize` 在重连期间不切换，避免 `markNeedsLayout` 链路
+3. **清理**：移除 debug print（render.dart、desktop_workspace_controller.dart）
+
+### 范围（1 Phase，2 任务）
+
+- **Phase 1** — 客户端修复（F001 + F002）
 
 ### 产品定义
 
 | 维度 | 决策 |
 |------|------|
-| 入口 | 用户对 Agent 说"每天凌晨3点拉代码" → Agent 自动识别 |
-| 确认 | Agent 返回带 schedule_at 的 command → 用户点确认 |
-| 查询 | Agent 可查询当前终端的定时任务列表 |
-| 取消 | Agent 可取消指定 task_id 的定时任务 |
-| 复用 | 复用 R062 的 ScheduledTaskStore 和 ScheduledTaskService |
+| 连接中 | TerminalView 保持 mounted + 半透明遮罩 + "正在连接..." |
+| 重连中 | TerminalView 保持 mounted + 半透明遮罩 + "正在重连..." |
+| 首次连接 | terminal=null 时仍显示 connecting message |
+| 正常连接 | 无遮罩，行为不变 |
+| scroll | 重连前后 scroll 位置保持一致 |
 
-### 用户路径
+### 目标平台
 
-1. 用户在 Agent 面板说"明天早上8点运行部署脚本"
-2. Agent 识别定时意图，使用 deliver_result 返回 command + schedule_at
-3. 客户端展示"定时任务确认"卡片（时间 + 命令 + 确认按钮）
-4. 用户点击确认 → 调 ScheduledTaskService.create() → SnackBar 提示成功
-5. 用户后续可问 Agent "我有哪些定时任务" → Agent 调 list_scheduled_tasks 查询
-
-### 依赖
-
-- R062 定时任务基础设施（已完成归档）
-
-## 目标平台
-
-- Server: Docker (Linux x86_64)
-- Client: macOS arm64 + Android
+- Server: 不改动
+- Client: macOS arm64（桌面端）+ iOS/Android（移动端）
 - Agent: 不改动
