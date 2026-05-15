@@ -87,8 +87,9 @@
       "description": "为 F001 补充 widget test：mock WebSocketService 状态变化（connected → reconnecting → connected），验证 TerminalView State 不被销毁、scroll 位置保持。",
       "verification": "F1",
       "depends_on": ["F001"],
-      "status": "pending",
+      "status": "completed",
       "priority": 2,
+      "commit": "4bb303b",
       "acceptance_criteria": [
         "widget test: connected → scrollUp → reconnecting → connected，验证 TerminalView 的 State.preserve（可通过 Key 或 find.byType 断言 widget 未被替换）",
         "widget test: 首次连接（terminal=null）显示 connecting message，terminal 创建后切换为 TerminalView",
@@ -101,5 +102,5 @@
       ]
     }
   ],
-  "summary": { "total": 2, "completed": 0, "pending": 2, "blocked": 0 }
+  "summary": { "total": 2, "completed": 2, "pending": 0, "blocked": 0 }
 }
