@@ -221,6 +221,15 @@ class MockWebSocketService extends ChangeNotifier implements WebSocketService {
     notifyListeners();
   }
 
+  /// 模拟设备被踢出（closeCode=4011）
+  void simulateDeviceKicked() {
+    _lastCloseCode = 4011;
+    _status = ConnectionStatus.disconnected;
+    _agentOnline = false;
+    _deviceKickedController.add(null);
+    notifyListeners();
+  }
+
   /// 模拟 terminals_changed 事件
   void emitTerminalsChanged(Map<String, dynamic> payload) {
     _terminalsChangedController.add(payload);

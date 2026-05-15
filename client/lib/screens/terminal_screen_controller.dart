@@ -400,8 +400,8 @@ class TerminalScreenController extends ChangeNotifier {
     BuildContext context,
     TerminalSessionManager sessionManager,
   ) async {
-    clearAuthDialog();
     await sessionManager.disconnectAll();
+    clearAuthDialog();
     if (!context.mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(
@@ -417,11 +417,11 @@ class TerminalScreenController extends ChangeNotifier {
     required DesktopAgentManager agentManager,
     required TerminalSessionManager sessionManager,
   }) async {
-    clearAuthDialog();
     await performSessionTeardown(
       agentManager: agentManager,
       sessionManager: sessionManager,
     );
+    clearAuthDialog();
     if (!context.mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const LoginScreen()),
