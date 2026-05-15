@@ -469,13 +469,15 @@ class _TerminalScreenState extends State<TerminalScreen> {
                 final terminal = _ctrl.terminal;
                 final isConnecting = svc.status == ConnectionStatus.connecting ||
                     svc.status == ConnectionStatus.reconnecting;
+                final connectingMessage = svc.status ==
+                        ConnectionStatus.reconnecting
+                    ? '正在重连... (${svc.errorMessage ?? ""})'
+                    : '正在连接...';
 
                 // 首次连接（terminal 尚未创建）→ 显示 connecting message
                 if (terminal == null) {
                   return _buildCenteredMessage(
-                    svc.status == ConnectionStatus.reconnecting
-                        ? '正在重连... (${svc.errorMessage ?? ""})'
-                        : '正在连接...',
+                    connectingMessage,
                     colorScheme,
                   );
                 }
@@ -537,9 +539,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
                         child: Container(
                           color: Colors.black54,
                           child: _buildCenteredMessage(
-                            svc.status == ConnectionStatus.reconnecting
-                                ? '正在重连... (${svc.errorMessage ?? ""})'
-                                : '正在连接...',
+                            connectingMessage,
                             colorScheme,
                           ),
                         ),
