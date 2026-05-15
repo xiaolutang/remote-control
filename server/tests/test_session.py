@@ -46,6 +46,7 @@ from app.store.session_terminal import (
     _set_terminals_cache,
     _cache_key,
 )
+from app.store.session_types import DEFAULT_MAX_TERMINALS
 from fastapi import HTTPException
 
 
@@ -2167,3 +2168,110 @@ class TestHistoryProgressiveRead:
             result = await get_history("session-1", offset=2, limit=5)
 
         assert [r["data"] for r in result] == [f"output {i}" for i in range(2, 7)]
+
+
+# ─── B068: max_terminals 用户专属配置 ───
+
+
+class TestCreateSessionMaxTerminals:
+    """create_session 注入用户 max_terminals 测试"""
+
+    @pytest.mark.asyncio
+    async def test_create_session_uses_user_max_terminals(self):
+        """用户有专属 max_terminals=7 时，create_session 注入到 device"""
+        mock_redis = AsyncMock()
+        mock_redis.exists = AsyncMock(return_value=False)
+        mock_redis.set = AsyncMock(return_value=True)
+        mock_redis.sadd = AsyncMock(return_value=1)
+
+        with patch.object(redis_conn, '_redis', mock_redis), \
+             patch("app.store.session_crud._db.get_user_max_terminals", new_callable=AsyncMock, return_value=7):
+            await create_session("mt-session-1", owner="alice")
+
+        saved = json.loads(mock_redis.set.call_args_list[0].args[1])
+        assert saved["device"]["max_terminals"] == 7
+        assert saved["device"]["max_terminals_configured"] is True
+
+    @pytest.mark.asyncio
+    async def test_create_session_fallback_when_user_missing(self):
+        """用户不存在时 get_user_max_terminals 返回 DEFAULT，device 使用 fallback"""
+        mock_redis = AsyncMock()
+        mock_redis.exists = AsyncMock(return_value=False)
+        mock_redis.set = AsyncMock(return_value=True)
+        mock_redis.sadd = AsyncMock(return_value=1)
+
+        with patch.object(redis_conn, '_redis', mock_redis), \
+             patch("app.store.session_crud._db.get_user_max_terminals", new_callable=AsyncMock, return_value=DEFAULT_MAX_TERMINALS):
+            await create_session("mt-session-2", owner="bob")
+
+        saved = json.loads(mock_redis.set.call_args_list[0].args[1])
+        assert saved["device"]["max_terminals"] == DEFAULT_MAX_TERMINALS
+        assert saved["device"]["max_terminals_configured"] is True
+
+    @pytest.mark.asyncio
+    async def test_create_session_fallback_on_db_exception(self):
+        """数据库异常时 fallback 到默认值，max_terminals_configured=False"""
+        mock_redis = AsyncMock()
+        mock_redis.exists = AsyncMock(return_value=False)
+        mock_redis.set = AsyncMock(return_value=True)
+        mock_redis.sadd = AsyncMock(return_value=1)
+
+        with patch.object(redis_conn, '_redis', mock_redis), \
+             patch("app.store.session_crud._db.get_user_max_terminals", new_callable=AsyncMock, side_effect=Exception("DB down")):
+            await create_session("mt-session-3", owner="charlie")
+
+        # set 的第一次调用存储 session 数据
+        saved = json.loads(mock_redis.set.call_args_list[0].args[1])
+        # 异常时未注入 max_terminals，保持 _default_device_state 的默认值
+        assert saved["device"]["max_terminals"] == DEFAULT_MAX_TERMINALS
+        assert saved["device"]["max_terminals_configured"] is False
+
+
+class TestNormalizeMaxTerminals:
+    """_normalize_session_data 中 max_terminals 升级逻辑测试"""
+
+    def test_normalize_respects_configured_max_terminals(self):
+        """已配置的 max_terminals 不应被 normalize 覆盖"""
+        session_data = {
+            "status": "online",
+            "created_at": "2026-03-26T10:00:00Z",
+            "agent_online": False,
+            "views": {"mobile": 0, "desktop": 0},
+            "pty": {"rows": 24, "cols": 80},
+            "terminals": [],
+            "device": {
+                "device_id": "s1",
+                "name": "",
+                "platform": "",
+                "hostname": "",
+                "max_terminals": 7,
+                "max_terminals_configured": True,
+                "last_heartbeat_at": None,
+            },
+        }
+        normalized, changed = _normalize_session_data("s1", session_data)
+        assert normalized["device"]["max_terminals"] == 7
+        assert normalized["device"]["max_terminals_configured"] is True
+
+    def test_normalize_upgrades_old_session_from_3_to_10(self):
+        """旧 session max_terminals=3 且未配置时升级为 DEFAULT_MAX_TERMINALS"""
+        session_data = {
+            "status": "online",
+            "created_at": "2026-03-26T10:00:00Z",
+            "agent_online": False,
+            "views": {"mobile": 0, "desktop": 0},
+            "pty": {"rows": 24, "cols": 80},
+            "terminals": [],
+            "device": {
+                "device_id": "s2",
+                "name": "",
+                "platform": "",
+                "hostname": "",
+                "max_terminals": 3,
+                "max_terminals_configured": False,
+                "last_heartbeat_at": None,
+            },
+        }
+        normalized, changed = _normalize_session_data("s2", session_data)
+        assert normalized["device"]["max_terminals"] == DEFAULT_MAX_TERMINALS
+        assert changed is True
