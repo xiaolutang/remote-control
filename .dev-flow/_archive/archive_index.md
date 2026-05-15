@@ -19,3 +19,5 @@
 | R062 | scheduled-terminal-tasks | 2026-05-13 | 1-4 | 8/8 | _archive/R062_scheduled-terminal-tasks |
 | R063 | agent-scheduled-tasks | 2026-05-14 | 1-2 | 4/4 | _archive/R063_agent-scheduled-tasks |
 | R064 | desktop-cleanup-agent-aware | 2026-05-15 | 1 | 2/2 | _archive/R064_desktop-cleanup-agent-aware |
+| R065 | sidebar-overlay-layout | 2026-05-15 | 1 | 2/2 | _archive/R065_sidebar-overlay-layout |
+| R066 | terminal-scroll-preservation | 2026-05-15 | 1 | 2/2 | _archive/R066_terminal-scroll-preservation |
