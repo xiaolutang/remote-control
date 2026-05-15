@@ -272,6 +272,17 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
     return _offset.pixels;
   }
 
+  double get _effectiveScrollOffset {
+    return _scrollOffset.clamp(0.0, _maxScrollExtent).toDouble();
+  }
+
+  double get scrollOffsetForCursor {
+    final cursorBottom =
+        (_terminal.buffer.absoluteCursorY + 1) * _painter.cellSize.height;
+    final target = cursorBottom - _viewportHeight + _bottomAlignedTopInset;
+    return target.clamp(0.0, _maxScrollExtent).toDouble();
+  }
+
   /// The height of a terminal line in pixels. This includes the line spacing.
   /// Height of the entire terminal is expected to be a multiple of this value.
   double get lineHeight => _painter.cellSize.height;
@@ -284,14 +295,17 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
     final y = row * _painter.cellSize.height;
     return Offset(
       x + _padding.left,
-      y + _padding.top + _bottomAlignedTopInset - _scrollOffset,
+      y + _padding.top + _bottomAlignedTopInset - _effectiveScrollOffset,
     );
   }
 
   /// Get the [CellOffset] of the cell that [offset] is in.
   CellOffset getCellOffset(Offset offset) {
     final x = offset.dx - _padding.left;
-    final y = offset.dy - _padding.top + _scrollOffset - _bottomAlignedTopInset;
+    final y = offset.dy -
+        _padding.top +
+        _effectiveScrollOffset -
+        _bottomAlignedTopInset;
     final row = y ~/ _painter.cellSize.height;
     final col = x ~/ _painter.cellSize.width;
     return CellOffset(
@@ -417,7 +431,8 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
   }
 
   bool _isNearBottom(double offset) {
-    return offset >= _maxScrollExtent - _bottomScrollTolerance;
+    final effectiveOffset = offset.clamp(0.0, _maxScrollExtent).toDouble();
+    return effectiveOffset >= _maxScrollExtent - _bottomScrollTolerance;
   }
 
   double get _visibleContentHeight {
@@ -445,7 +460,7 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
   }
 
   double get _lineOffset {
-    return -_scrollOffset + _padding.top + _bottomAlignedTopInset;
+    return -_effectiveScrollOffset + _padding.top + _bottomAlignedTopInset;
   }
 
   /// The offset of the cursor from the top left corner of this render object.
@@ -482,8 +497,9 @@ class RenderTerminal extends RenderBox with RelayoutWhenSystemFontsChangeMixin {
     final lines = _terminal.buffer.lines;
     final charHeight = _painter.cellSize.height;
 
-    final firstLineOffset = _scrollOffset - _padding.top;
-    final lastLineOffset = _scrollOffset + size.height + _padding.bottom;
+    final firstLineOffset = _effectiveScrollOffset - _padding.top;
+    final lastLineOffset =
+        _effectiveScrollOffset + size.height + _padding.bottom;
 
     final firstLine = firstLineOffset ~/ charHeight;
     final lastLine = lastLineOffset ~/ charHeight;

@@ -67,7 +67,8 @@ class _SmartTerminalSidePanelContentState
   @override
   final List<StreamingTextEvent> _assistantMessages = [];
   @override
-  final StringBuffer _streamingTextBuffer = StringBuffer(); // F108: streaming text
+  final StringBuffer _streamingTextBuffer =
+      StringBuffer(); // F108: streaming text
   @override
   final List<ToolStepEvent> _toolSteps = []; // F108: tool step 列表
   @override
@@ -140,9 +141,11 @@ class _SmartTerminalSidePanelContentState
   @override
   int _usageRefreshSerial = 0;
   @override
-  final SessionUsageAccumulator _sessionUsageAccumulator = SessionUsageAccumulator();
+  final SessionUsageAccumulator _sessionUsageAccumulator =
+      SessionUsageAccumulator();
   @override
-  Map<String, String> _feedbackStatus = {}; // event_id/error_key -> feedback_type
+  Map<String, String> _feedbackStatus =
+      {}; // event_id/error_key -> feedback_type
   @override
   String? _feedbackSubmittingKey;
   @override
@@ -172,7 +175,8 @@ class _SmartTerminalSidePanelContentState
     _intentFocusNode.addListener(_handleIntentFocusChanged);
     _scrollController = ScrollController();
     _editingController = TextEditingController();
-    _feedbackSubmitter = widget.feedbackSubmitterOverride ?? _defaultFeedbackSubmitter;
+    _feedbackSubmitter =
+        widget.feedbackSubmitterOverride ?? _defaultFeedbackSubmitter;
   }
 
   /// 默认反馈提交实现（委托 FeedbackService）
@@ -235,23 +239,50 @@ class _SmartTerminalSidePanelContentState
     _loadedDeviceId = deviceId;
     _loadedTerminalId = terminalId;
     _loadedTerminalStatus = terminalStatus;
+    _reloadConversationScope(
+      controller: controller,
+      deviceId: deviceId,
+      terminalId: terminalId,
+      resetWhenMissing: true,
+    );
+  }
+
+  void _reloadConversationScope({
+    required RuntimeSelectionController? controller,
+    required String? deviceId,
+    required String? terminalId,
+    required bool resetWhenMissing,
+  }) {
+    final hasScope = deviceId != null &&
+        deviceId.isNotEmpty &&
+        terminalId != null &&
+        terminalId.isNotEmpty;
+    if (!hasScope) {
+      if (resetWhenMissing) {
+        unawaited(
+          _loadConversationProjection(
+            deviceId: deviceId,
+            terminalId: terminalId,
+          ),
+        );
+      }
+      return;
+    }
+
     unawaited(
       _loadConversationProjection(
         deviceId: deviceId,
         terminalId: terminalId,
       ),
     );
-    // Auto-refresh usage summary when scope changes
-    if (deviceId != null && deviceId.isNotEmpty) {
-      try {
-        final controller = context.read<RuntimeSelectionController>();
-        unawaited(_refreshUsageSummary(
-            controller: controller,
-            forceRefresh: false,
-            terminalId: terminalId));
-      } on ProviderNotFoundException {
-        // ignore
-      }
+    if (controller != null) {
+      unawaited(
+        _refreshUsageSummary(
+          controller: controller,
+          forceRefresh: false,
+          terminalId: terminalId,
+        ),
+      );
     }
   }
 
@@ -260,6 +291,23 @@ class _SmartTerminalSidePanelContentState
     if (_intentFocusNode.hasFocus) {
       _scheduleScrollToLatest();
     }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || !mounted) {
+      return;
+    }
+    final controller = _tryGetController<RuntimeSelectionController>();
+    final service = _tryGetController<WebSocketService>();
+    final deviceId = controller?.selectedDeviceId;
+    final terminalId = service?.terminalId;
+    _reloadConversationScope(
+      controller: controller,
+      deviceId: deviceId,
+      terminalId: terminalId,
+      resetWhenMissing: false,
+    );
   }
 
   @override
@@ -316,36 +364,36 @@ class _SmartTerminalSidePanelContentState
         ),
       ),
       child: AnimatedPadding(
-            duration: const Duration(milliseconds: 220),
-            curve: Curves.easeOutCubic,
-            padding: EdgeInsets.only(bottom: keyboardInset),
-            child: Column(
-              children: [
-                // Header
-                _buildHeader(colorScheme),
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        padding: EdgeInsets.only(bottom: keyboardInset),
+        child: Column(
+          children: [
+            // Header
+            _buildHeader(colorScheme),
 
-                // 消息体
-                Expanded(
-                  child: SingleChildScrollView(
-                    controller: _scrollController,
-                    primary: false,
-                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-                    child: _buildBody(colorScheme, connected),
-                  ),
-                ),
-
-                // 底部意图输入
-                _buildInputBar(colorScheme),
-
-                // 底部 usage 区域
-                if (!_terminalConversationClosed)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-                    child: _buildUsageSection(colorScheme),
-                  ),
-              ],
+            // 消息体
+            Expanded(
+              child: SingleChildScrollView(
+                controller: _scrollController,
+                primary: false,
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+                child: _buildBody(colorScheme, connected),
+              ),
             ),
-          ),
+
+            // 底部意图输入
+            _buildInputBar(colorScheme),
+
+            // 底部 usage 区域
+            if (!_terminalConversationClosed)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+                child: _buildUsageSection(colorScheme),
+              ),
+          ],
+        ),
+      ),
     );
   }
 
