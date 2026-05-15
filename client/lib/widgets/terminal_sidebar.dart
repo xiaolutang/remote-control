@@ -63,66 +63,52 @@ class _TerminalSidebarState extends State<TerminalSidebar> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    // F001: 双层结构 — 外层固定 48px MouseRegion 控制 hover 状态，
-    // 内层 AnimatedContainer 做宽度动画。
-    // 这样收起动画（160→48px）过程中，hit area 始终是固定 48px，
-    // 鼠标在 x=50~160 范围内不会误触发 onExit 导致抖动。
     return MouseRegion(
       onEnter: _onEnter,
       onExit: _onExit,
-      child: SizedBox(
-        width: _collapsedWidth,
-        child: ClipRect(
-          child: OverflowBox(
-            maxWidth: _expandedWidth,
-            alignment: Alignment.centerLeft,
-            child: AnimatedContainer(
-              duration: _animationDuration,
-              width: _isHovered ? _expandedWidth : _collapsedWidth,
-              curve: Curves.easeInOut,
-              decoration: BoxDecoration(
-                color: colorScheme.surface,
-                border: Border(
-                  right: BorderSide(
-                    color: colorScheme.outlineVariant,
-                    width: 1,
-                  ),
-                ),
-              ),
-              child: Column(
-                children: [
-                  Expanded(
-                    child: widget.terminals.isEmpty
-                        ? const SizedBox.shrink()
-                        : ListView.builder(
-                            padding: EdgeInsets.zero,
-                            itemCount: widget.terminals.length,
-                            itemBuilder: (context, index) {
-                              final terminal = widget.terminals[index];
-                              final isSelected =
-                                  terminal.terminalId ==
-                                      widget.selectedTerminalId;
-                              return _TerminalItem(
-                                key: Key('sidebar-${terminal.terminalId}'),
-                                terminal: terminal,
-                                isSelected: isSelected,
-                                isExpanded: _isHovered,
-                                onSwitch: widget.onSwitch,
-                                onContextMenu: widget.onContextMenu,
-                              );
-                            },
-                          ),
-                  ),
-                  const Divider(height: 1),
-                  TerminalCreateButton(
-                    key: const Key('sidebar-create'),
-                    onCreate: widget.onCreate,
-                    createDisabled: widget.createDisabled,
-                  ),
-                ],
-              ),
+      child: AnimatedContainer(
+        duration: _animationDuration,
+        width: _isHovered ? _expandedWidth : _collapsedWidth,
+        curve: Curves.easeInOut,
+        decoration: BoxDecoration(
+          color: colorScheme.surface,
+          border: Border(
+            right: BorderSide(
+              color: colorScheme.outlineVariant,
+              width: 1,
             ),
           ),
+        ),
+        child: Column(
+          children: [
+            Expanded(
+              child: widget.terminals.isEmpty
+                  ? const SizedBox.shrink()
+                  : ListView.builder(
+                      padding: EdgeInsets.zero,
+                      itemCount: widget.terminals.length,
+                      itemBuilder: (context, index) {
+                        final terminal = widget.terminals[index];
+                        final isSelected =
+                            terminal.terminalId == widget.selectedTerminalId;
+                        return _TerminalItem(
+                          key: Key('sidebar-${terminal.terminalId}'),
+                          terminal: terminal,
+                          isSelected: isSelected,
+                          isExpanded: _isHovered,
+                          onSwitch: widget.onSwitch,
+                          onContextMenu: widget.onContextMenu,
+                        );
+                      },
+                    ),
+            ),
+            const Divider(height: 1),
+            TerminalCreateButton(
+              key: const Key('sidebar-create'),
+              onCreate: widget.onCreate,
+              createDisabled: widget.createDisabled,
+            ),
+          ],
         ),
       ),
     );
