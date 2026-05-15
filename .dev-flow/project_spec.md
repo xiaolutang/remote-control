@@ -1,33 +1,38 @@
 # Remote Control 项目规格
 
-## 当前范围：R065 侧边栏浮层化
+## 当前范围：R066 终端 scroll 保持
 
-桌面端 TerminalSidebar hover 展开时挤压右侧终端，导致 xterm 内容重排/滚动。
+WebSocket 重连时终端内容滚动到顶部。
 
 ### 背景
 
-当前 `TerminalWorkspaceScreen` 使用 Row 布局：`[Sidebar(48→160px)] [Expanded(Terminal)]`。Sidebar hover 展开时宽度从 48px 变为 160px，右侧终端区域随之收窄 112px，触发 xterm 重排。
+`terminal_screen.dart:467` 的 `Consumer<WebSocketService>` 在 `reconnecting`/`connecting` 状态时返回 `_buildCenteredMessage` 替代 `TerminalView`，Flutter 销毁 `TerminalViewState`（含 `ViewportOffset`/scroll position）。重连成功后新建 TerminalView，scroll offset 从 0 开始。
+
+根因已由 Claude Code + Codex xlfoundry-code-review 双重确认。
 
 ### 修复方案
 
-将桌面端布局改为 Stack：终端区域用 `Padding(left: 48)` 固定起始位置，Sidebar 浮在 Stack 上层。展开时终端宽度不变。
+三层修复：
+1. **核心**：Consumer builder 始终构建 TerminalView（terminal 非空时），重连消息用 Stack overlay 覆盖
+2. **防护**：`shouldAutoResize` 在重连期间不切换，避免 `markNeedsLayout` 链路
+3. **清理**：移除 debug print（render.dart、desktop_workspace_controller.dart）
 
-### 范围（1 Phase，1 任务）
+### 范围（1 Phase，2 任务）
 
-- **Phase 1** — 客户端布局改造（F001）：Row → Stack
+- **Phase 1** — 客户端修复（F001 + F002）
 
 ### 产品定义
 
 | 维度 | 决策 |
 |------|------|
-| 收起态 | Sidebar 48px 占位，终端从 48px 开始 |
-| 展开态 | Sidebar 160px 浮层，覆盖终端左侧 112px |
-| 终端宽度 | 始终 = 窗口宽度 - 48px（不随 hover 变化） |
-| 动画 | 200ms AnimatedContainer，行为不变 |
-| 移动端 | 不受影响（无 Sidebar） |
+| 连接中 | TerminalView 保持 mounted + 半透明遮罩 + "正在连接..." |
+| 重连中 | TerminalView 保持 mounted + 半透明遮罩 + "正在重连..." |
+| 首次连接 | terminal=null 时仍显示 connecting message |
+| 正常连接 | 无遮罩，行为不变 |
+| scroll | 重连前后 scroll 位置保持一致 |
 
 ### 目标平台
 
 - Server: 不改动
-- Client: macOS arm64（桌面端）
+- Client: macOS arm64（桌面端）+ iOS/Android（移动端）
 - Agent: 不改动

@@ -4,7 +4,7 @@
   "updated_at": "2026-05-15T00:00:00+08:00",
   "status": "active",
   "workflow": {
-    "name": "R065",
+    "name": "R066",
     "mode": "A",
     "runtime": "skill_orchestrated",
     "review_provider": "local",
@@ -13,9 +13,9 @@
     "stop_hook_enabled": false
   },
   "active_requirement_cycle": {
-    "id": "R065",
-    "name": "sidebar-overlay-layout",
-    "branch": "feat/R065-sidebar-overlay-layout",
+    "id": "R066",
+    "name": "terminal-scroll-preservation",
+    "branch": "fix/R066-terminal-scroll-preservation",
     "status": "ready",
     "total_tasks": 2
   },
@@ -36,7 +36,8 @@
     {"id":"R061","name":"client-code-convergence","status":"completed","archive_dir":"_archive/R061_client-code-convergence","total_tasks":16},
     {"id":"R062","name":"scheduled-terminal-tasks","status":"completed","archive_dir":"_archive/R062_scheduled-terminal-tasks","total_tasks":8,"completed_at":"2026-05-13"},
     {"id":"R063","name":"agent-scheduled-tasks","status":"completed","archive_dir":"_archive/R063_agent-scheduled-tasks","total_tasks":4,"completed_at":"2026-05-14"},
-    {"id":"R064","name":"desktop-cleanup-agent-aware","status":"completed","archive_dir":"_archive/R064_desktop-cleanup-agent-aware","total_tasks":2,"completed_at":"2026-05-15"}
+    {"id":"R064","name":"desktop-cleanup-agent-aware","status":"completed","archive_dir":"_archive/R064_desktop-cleanup-agent-aware","total_tasks":2,"completed_at":"2026-05-15"},
+    {"id":"R065","name":"sidebar-overlay-layout","status":"completed","archive_dir":"_archive/R065_sidebar-overlay-layout","total_tasks":2,"completed_at":"2026-05-15"}
   ],
   "archived_phases": [],
   "features": [
@@ -44,49 +45,61 @@
       "id": "F001",
       "phase": 1,
       "module": "client",
-      "name": "侧边栏浮层化改造",
-      "description": "TerminalSidebar hover 展开时不再挤压右侧终端内容。将工作区布局从 Row 改为 Stack：终端区域使用 Positioned.fill + Padding(left: 48) 固定宽度（注意 _buildBody 内含 Expanded，不能直接放入 Stack，需 Positioned.fill 包裹），Sidebar 浮在 Stack 上层（AnimatedContainer 48→160px 动画不变）。消除 hover 展开时终端宽度变化导致的 xterm 内容重排。MouseRegion hit area 问题：AnimatedContainer 收起动画（160→48px）过程中鼠标在 x=50~160 范围内可能误触发 onExit 导致抖动，需改用固定 48px 宽的 Listener 或分离 hit area 与 visual width。",
+      "name": "重连时保持 TerminalView mounted",
+      "description": "修复 WebSocket 重连/连接中状态导致 TerminalView State 被销毁、scroll 位置丢失的问题。Consumer<WebSocketService> builder 改为始终构建 TerminalView（terminal 非空时），connecting/reconnecting 状态用 Stack + 半透明遮罩覆盖显示重连提示。同步修复 shouldAutoResize 在重连期间不切换的防护，以及清理 render.dart 和 desktop_workspace_controller.dart 中的 debug print。",
       "verification": "F1",
       "depends_on": [],
-      "status": "completed",
+      "status": "pending",
+      "priority": 1,
       "acceptance_criteria": [
-        "桌面端工作区布局从 Row 改为 Stack：底层 Positioned.fill + Padding(left: 48) + 终端内容，上层 TerminalSidebar",
-        "收起态（48px）：Sidebar 不遮挡终端（Sidebar 在左 48px，终端从 48px 开始），视觉与改动前一致",
-        "展开态（160px）：Sidebar 浮层覆盖终端左侧 112px，终端宽度不变、无内容重排",
-        "hover 进入 Sidebar 触发展开动画，鼠标离开触发收起动画，行为与改动前一致",
-        "Sidebar 展开时背景不透明（已有 colorScheme.surface），遮挡下层终端内容",
-        "移动端布局不受影响（isDesktopPlatform=false 时仍走原逻辑）",
-        "窗口 resize 时终端区域正确自适应，终端宽度 = 窗口宽度 - 48px",
-        "点击 Sidebar 终端项切换到对应终端，xterm 内容正确显示",
-        "点击 + 按钮创建新终端并自动选中",
-        "右键点击 Sidebar 终端项弹出上下文菜单"
+        "terminal_screen.dart: Consumer<WebSocketService> builder 在 terminal 非空时始终构建 TerminalView，不因 connecting/reconnecting 替换为 _buildCenteredMessage",
+        "connecting/reconnecting 状态下 TerminalView 上层覆盖半透明遮罩 + 重连提示文字",
+        "terminal == null（首次连接）仍显示 connecting message（无 Terminal 对象可构建）",
+        "shouldAutoResize 在重连期间不切换 autoResize 属性（connected 与 reconnecting 下返回值一致）",
+        "render.dart 和 desktop_workspace_controller.dart 中的 debug print 已移除",
+        "现有 flutter test 全部通过",
+        "桌面端/移动端正常连接、断连重连后终端 scroll 位置保持不变"
       ],
-      "risk_tags": [],
+      "risk_tags": ["network"],
+      "test_tasks": [
+        "正常连接 → 终端有输出 → 用户 scrollUp → mock status=reconnecting → scroll 位置不变",
+        "首次连接（terminal=null）→ 显示 connecting message → terminal 创建后显示 TerminalView",
+        "reconnecting → connected 恢复后 autoResize 值一致、无 resize 触发"
+      ],
+      "fix_level": "L2",
+      "root_cause_analysis": "Consumer<WebSocketService> 在 status=reconnecting/connecting 时返回 _buildCenteredMessage 替代 TerminalView，Flutter 框架销毁 TerminalViewState（含 ViewportOffset/scroll position）。重连成功后新建 TerminalView 从 scroll offset=0 开始。Codex xlfoundry-code-review 独立验证确认。",
+      "similar_locations": [
+        "client/lib/screens/terminal_screen.dart:467-520 (Consumer builder 条件分支)",
+        "client/lib/screens/terminal_screen_controller.dart:346-367 (_shouldFollowSharedPty / shouldAutoResize)"
+      ],
       "files": [
-        "client/lib/screens/desktop/terminal_workspace_screen.dart",
-        "client/lib/widgets/terminal_sidebar.dart"
+        "client/lib/screens/terminal_screen.dart",
+        "client/lib/screens/terminal_screen_controller.dart",
+        "client/third_party/xterm/lib/src/ui/render.dart",
+        "client/lib/services/desktop/desktop_workspace_controller.dart"
       ]
     },
     {
       "id": "F002",
       "phase": 1,
       "module": "client",
-      "name": "侧边栏浮层化 widget test",
-      "description": "为 F001 的 Stack 布局改造补充 widget test：验证终端宽度不随 sidebar 展开变化、MouseRegion hit-test 行为正确、收起/展开动画无抖动。",
+      "name": "scroll 保持 widget test",
+      "description": "为 F001 补充 widget test：mock WebSocketService 状态变化（connected → reconnecting → connected），验证 TerminalView State 不被销毁、scroll 位置保持。",
       "verification": "F1",
       "depends_on": ["F001"],
-      "status": "completed",
+      "status": "pending",
+      "priority": 2,
       "acceptance_criteria": [
-        "widget test 验证：sidebar 展开时终端区域宽度不变（= 窗口宽度 - 48px）",
-        "widget test 验证：收起时终端宽度同样 = 窗口宽度 - 48px",
-        "widget test 验证：移动端（isDesktopPlatform=false）布局不含 Stack",
+        "widget test: connected → scrollUp → reconnecting → connected，验证 TerminalView 的 State.preserve（可通过 Key 或 find.byType 断言 widget 未被替换）",
+        "widget test: 首次连接（terminal=null）显示 connecting message，terminal 创建后切换为 TerminalView",
+        "widget test: autoResize 在 reconnecting 状态下不改变",
         "flutter test 通过"
       ],
       "risk_tags": [],
       "files": [
-        "client/test/widgets/terminal_sidebar_overlay_test.dart"
+        "client/test/widgets/terminal_scroll_preservation_test.dart"
       ]
     }
   ],
-  "summary": { "total": 2, "completed": 2, "pending": 0, "blocked": 0 }
+  "summary": { "total": 2, "completed": 0, "pending": 2, "blocked": 0 }
 }

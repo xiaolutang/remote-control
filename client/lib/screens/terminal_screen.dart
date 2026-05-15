@@ -466,57 +466,85 @@ class _TerminalScreenState extends State<TerminalScreen> {
             color: terminalShellColor,
             child: Consumer<WebSocketService>(
               builder: (context, svc, _) {
-                if (svc.status == ConnectionStatus.reconnecting) {
+                final terminal = _ctrl.terminal;
+                final isConnecting = svc.status == ConnectionStatus.connecting ||
+                    svc.status == ConnectionStatus.reconnecting;
+
+                // 首次连接（terminal 尚未创建）→ 显示 connecting message
+                if (terminal == null) {
                   return _buildCenteredMessage(
-                      '正在重连... (${svc.errorMessage ?? ""})', colorScheme);
+                    svc.status == ConnectionStatus.reconnecting
+                        ? '正在重连... (${svc.errorMessage ?? ""})'
+                        : '正在连接...',
+                    colorScheme,
+                  );
                 }
-                if (svc.status == ConnectionStatus.connecting) {
-                  return _buildCenteredMessage('正在连接...', colorScheme);
-                }
-                return SafeArea(
-                  top: false,
-                  child: GestureDetector(
-                    key: const Key('terminal-touch-layer'),
-                    behavior: HitTestBehavior.translucent,
-                    onTap: _terminalFocusNode.requestFocus,
-                    child: Container(
-                      margin: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: terminalPanelColor,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: terminalBorderColor),
-                        boxShadow: [
-                          BoxShadow(
-                            color: colorScheme.shadow.withValues(alpha: 0.08),
-                            blurRadius: 18,
-                            offset: const Offset(0, 8),
+
+                // terminal 已存在 → 始终构建 TerminalView 保持 State
+                return Stack(
+                  children: [
+                    SafeArea(
+                      top: false,
+                      child: GestureDetector(
+                        key: const Key('terminal-touch-layer'),
+                        behavior: HitTestBehavior.translucent,
+                        onTap:
+                            isConnecting ? null : _terminalFocusNode.requestFocus,
+                        child: Container(
+                          margin: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: terminalPanelColor,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: terminalBorderColor),
+                            boxShadow: [
+                              BoxShadow(
+                                color:
+                                    colorScheme.shadow.withValues(alpha: 0.08),
+                                blurRadius: 18,
+                                offset: const Offset(0, 8),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(20),
-                        child: TerminalView(
-                          _ctrl.terminal!,
-                          controller: _ctrl.terminalController,
-                          focusNode: _terminalFocusNode,
-                          autofocus: vc.autofocus,
-                          autoResize: service != null &&
-                              _ctrl.shouldAutoResize(service),
-                          theme: terminalTheme,
-                          padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
-                          backgroundOpacity: 1,
-                          deleteDetection: true,
-                          keyboardType: TextInputType.text,
-                          inputAction: vc.inputAction,
-                          enableSuggestions: vc.enableSuggestions,
-                          enableIMEPersonalizedLearning:
-                              vc.enableIMEPersonalizedLearning,
-                          autocorrect: false,
-                          textStyle: vc.textStyle,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(20),
+                            child: TerminalView(
+                              terminal,
+                              controller: _ctrl.terminalController,
+                              focusNode: _terminalFocusNode,
+                              autofocus: vc.autofocus,
+                              autoResize: service != null &&
+                                  _ctrl.shouldAutoResize(service),
+                              theme: terminalTheme,
+                              padding:
+                                  const EdgeInsets.fromLTRB(12, 12, 12, 10),
+                              backgroundOpacity: 1,
+                              deleteDetection: true,
+                              keyboardType: TextInputType.text,
+                              inputAction: vc.inputAction,
+                              enableSuggestions: vc.enableSuggestions,
+                              enableIMEPersonalizedLearning:
+                                  vc.enableIMEPersonalizedLearning,
+                              autocorrect: false,
+                              textStyle: vc.textStyle,
+                            ),
+                          ),
                         ),
                       ),
                     ),
-                  ),
+                    // 重连遮罩：覆盖在 TerminalView 上层，保持 State 不被销毁
+                    if (isConnecting)
+                      Positioned.fill(
+                        child: Container(
+                          color: Colors.black54,
+                          child: _buildCenteredMessage(
+                            svc.status == ConnectionStatus.reconnecting
+                                ? '正在重连... (${svc.errorMessage ?? ""})'
+                                : '正在连接...',
+                            colorScheme,
+                          ),
+                        ),
+                      ),
+                  ],
                 );
               },
             ),
