@@ -1,29 +1,155 @@
 {
   "version": "1.4",
   "project": "remote-control",
-  "updated_at": "2026-05-15T00:00:00+08:00",
+  "updated_at": "2026-05-15T20:17:03.519096",
   "status": "idle",
   "archived_requirement_cycles": [
-    {"id":"R047","name":"agent-conversation-interaction-optimization","status":"completed","archive_dir":"_archive/R047_agent-conversation-interaction-optimization","total_tasks":31},
-    {"id":"R048","name":"architecture-deep-cleanup","status":"completed","archive_dir":"_archive/R048_architecture-deep-cleanup","total_tasks":20},
-    {"id":"R049","name":"brainstorm-bug-fixes","status":"completed","archive_dir":"_archive/R049_brainstorm-bug-fixes","total_tasks":3},
-    {"id":"R050","name":"token-usage-optimization","status":"completed","archive_dir":"_archive/R050_token-usage-optimization","total_tasks":3},
-    {"id":"R051","name":"eval-architecture-overhaul","status":"completed","archive_dir":"_archive/R051_eval-architecture-overhaul","total_tasks":11},
-    {"id":"R052","name":"open-source-release","status":"completed","archive_dir":"_archive/R052_open-source-release","total_tasks":5},
-    {"id":"R053","name":"desktop-agent-bundling","status":"completed","archive_dir":"_archive/R053_desktop-agent-bundling","total_tasks":3},
-    {"id":"R054","name":"code-quality-consolidation","status":"completed","archive_dir":"_archive/R054_code-quality-consolidation","total_tasks":11},
-    {"id":"R056","name":"auth-connection-optimize","status":"completed","archive_dir":"_archive/R056_auth-connection-optimize","total_tasks":2},
-    {"id":"R057","name":"tech-debt-cleanup","status":"completed","archive_dir":"_archive/R057_tech-debt-cleanup","total_tasks":23},
-    {"id":"R058","name":"code-optimization-perf","status":"completed","archive_dir":"_archive/R058_code-optimization-perf","total_tasks":23},
-    {"id":"R059","name":"terminal-tab-bar-ux","status":"completed","archive_dir":"_archive/R059_terminal-tab-bar-ux","total_tasks":10},
-    {"id":"R060","name":"terminal-navigation-redesign","status":"completed","archive_dir":"_archive/R060_terminal-navigation-redesign","total_tasks":5},
-    {"id":"R061","name":"client-code-convergence","status":"completed","archive_dir":"_archive/R061_client-code-convergence","total_tasks":16},
-    {"id":"R062","name":"scheduled-terminal-tasks","status":"completed","archive_dir":"_archive/R062_scheduled-terminal-tasks","total_tasks":8,"completed_at":"2026-05-13"},
-    {"id":"R063","name":"agent-scheduled-tasks","status":"completed","archive_dir":"_archive/R063_agent-scheduled-tasks","total_tasks":4,"completed_at":"2026-05-14"},
-    {"id":"R064","name":"desktop-cleanup-agent-aware","status":"completed","archive_dir":"_archive/R064_desktop-cleanup-agent-aware","total_tasks":2,"completed_at":"2026-05-15"},
-    {"id":"R065","name":"sidebar-overlay-layout","status":"completed","archive_dir":"_archive/R065_sidebar-overlay-layout","total_tasks":2,"completed_at":"2026-05-15"},
-    {"id":"R066","name":"terminal-scroll-preservation","status":"completed","archive_dir":"_archive/R066_terminal-scroll-preservation","total_tasks":2,"completed_at":"2026-05-15"},
-    {"id":"R067","name":"auth-dialog-reentry-fix","status":"completed","archive_dir":"_archive/R067_auth-dialog-reentry-fix","total_tasks":2,"completed_at":"2026-05-15"}
+    {
+      "id": "R047",
+      "name": "agent-conversation-interaction-optimization",
+      "status": "completed",
+      "archive_dir": "_archive/R047_agent-conversation-interaction-optimization",
+      "total_tasks": 31
+    },
+    {
+      "id": "R048",
+      "name": "architecture-deep-cleanup",
+      "status": "completed",
+      "archive_dir": "_archive/R048_architecture-deep-cleanup",
+      "total_tasks": 20
+    },
+    {
+      "id": "R049",
+      "name": "brainstorm-bug-fixes",
+      "status": "completed",
+      "archive_dir": "_archive/R049_brainstorm-bug-fixes",
+      "total_tasks": 3
+    },
+    {
+      "id": "R050",
+      "name": "token-usage-optimization",
+      "status": "completed",
+      "archive_dir": "_archive/R050_token-usage-optimization",
+      "total_tasks": 3
+    },
+    {
+      "id": "R051",
+      "name": "eval-architecture-overhaul",
+      "status": "completed",
+      "archive_dir": "_archive/R051_eval-architecture-overhaul",
+      "total_tasks": 11
+    },
+    {
+      "id": "R052",
+      "name": "open-source-release",
+      "status": "completed",
+      "archive_dir": "_archive/R052_open-source-release",
+      "total_tasks": 5
+    },
+    {
+      "id": "R053",
+      "name": "desktop-agent-bundling",
+      "status": "completed",
+      "archive_dir": "_archive/R053_desktop-agent-bundling",
+      "total_tasks": 3
+    },
+    {
+      "id": "R054",
+      "name": "code-quality-consolidation",
+      "status": "completed",
+      "archive_dir": "_archive/R054_code-quality-consolidation",
+      "total_tasks": 11
+    },
+    {
+      "id": "R056",
+      "name": "auth-connection-optimize",
+      "status": "completed",
+      "archive_dir": "_archive/R056_auth-connection-optimize",
+      "total_tasks": 2
+    },
+    {
+      "id": "R057",
+      "name": "tech-debt-cleanup",
+      "status": "completed",
+      "archive_dir": "_archive/R057_tech-debt-cleanup",
+      "total_tasks": 23
+    },
+    {
+      "id": "R058",
+      "name": "code-optimization-perf",
+      "status": "completed",
+      "archive_dir": "_archive/R058_code-optimization-perf",
+      "total_tasks": 23
+    },
+    {
+      "id": "R059",
+      "name": "terminal-tab-bar-ux",
+      "status": "completed",
+      "archive_dir": "_archive/R059_terminal-tab-bar-ux",
+      "total_tasks": 10
+    },
+    {
+      "id": "R060",
+      "name": "terminal-navigation-redesign",
+      "status": "completed",
+      "archive_dir": "_archive/R060_terminal-navigation-redesign",
+      "total_tasks": 5
+    },
+    {
+      "id": "R061",
+      "name": "client-code-convergence",
+      "status": "completed",
+      "archive_dir": "_archive/R061_client-code-convergence",
+      "total_tasks": 16
+    },
+    {
+      "id": "R062",
+      "name": "scheduled-terminal-tasks",
+      "status": "completed",
+      "archive_dir": "_archive/R062_scheduled-terminal-tasks",
+      "total_tasks": 8,
+      "completed_at": "2026-05-13"
+    },
+    {
+      "id": "R063",
+      "name": "agent-scheduled-tasks",
+      "status": "completed",
+      "archive_dir": "_archive/R063_agent-scheduled-tasks",
+      "total_tasks": 4,
+      "completed_at": "2026-05-14"
+    },
+    {
+      "id": "R064",
+      "name": "desktop-cleanup-agent-aware",
+      "status": "completed",
+      "archive_dir": "_archive/R064_desktop-cleanup-agent-aware",
+      "total_tasks": 2,
+      "completed_at": "2026-05-15"
+    },
+    {
+      "id": "R065",
+      "name": "sidebar-overlay-layout",
+      "status": "completed",
+      "archive_dir": "_archive/R065_sidebar-overlay-layout",
+      "total_tasks": 2,
+      "completed_at": "2026-05-15"
+    },
+    {
+      "id": "R066",
+      "name": "terminal-scroll-preservation",
+      "status": "completed",
+      "archive_dir": "_archive/R066_terminal-scroll-preservation",
+      "total_tasks": 2,
+      "completed_at": "2026-05-15"
+    },
+    {
+      "id": "R067",
+      "name": "auth-dialog-reentry-fix",
+      "status": "completed",
+      "archive_dir": "_archive/R067_auth-dialog-reentry-fix",
+      "total_tasks": 2,
+      "completed_at": "2026-05-15"
+    }
   ],
   "archived_phases": [],
   "features": []

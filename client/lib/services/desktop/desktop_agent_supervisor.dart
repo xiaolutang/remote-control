@@ -707,22 +707,21 @@ class DesktopAgentSupervisor {
     await _terminationSnapshotService.clearManagedAgentPid();
   }
 
-  Future<bool> _isProcessRunning(int pid) async {
-    try {
-      final output = await _commandLineForPid(pid);
-      return output != null && isAgentRunCommand(output);
-    } catch (e) {
-      _logAgent.info('_isProcessRunning failed: $e');
-      return false;
-    }
-  }
+  Future<bool> _isProcessRunning(int pid) =>
+      _isPidMatching(pid, isAgentRunCommand);
 
-  Future<bool> _isManagedProcessRunning(int pid) async {
+  Future<bool> _isManagedProcessRunning(int pid) =>
+      _isPidMatching(pid, _isManagedConfigCommand);
+
+  Future<bool> _isPidMatching(
+    int pid,
+    bool Function(String) classifier,
+  ) async {
     try {
       final output = await _commandLineForPid(pid);
-      return output != null && _isManagedConfigCommand(output);
+      return output != null && classifier(output);
     } catch (e) {
-      _logAgent.info('_isManagedProcessRunning failed: $e');
+      _logAgent.info('_isPidMatching failed: $e');
       return false;
     }
   }
@@ -872,6 +871,7 @@ class DesktopAgentSupervisor {
     return keep.pid;
   }
 
+  // Mirror: AppDelegate.swift isManagedAgentRunCommand — 修改匹配规则时必须同步
   bool _isManagedConfigCommand(String commandLine) {
     if (commandLine.isEmpty) return false;
     final home = _homeDirectory ?? Platform.environment['HOME'];

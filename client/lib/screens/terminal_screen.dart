@@ -23,6 +23,9 @@ import '../widgets/tui_selector.dart';
 import 'login_screen.dart';
 import 'terminal_screen_controller.dart';
 
+/// Auth 弹窗调度阶段：idle → scheduled → mounted → idle
+enum _AuthDialogPhase { idle, scheduled, mounted }
+
 /// 终端屏幕
 class TerminalScreen extends StatefulWidget {
   const TerminalScreen({
@@ -52,8 +55,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
   int _prevShortcutHash = 0;
   int _prevPresenceHash = 0;
 
-  bool _authDialogMounted = false;
-  bool _authDialogScheduled = false;
+  _AuthDialogPhase _authDialogPhase = _AuthDialogPhase.idle;
 
   @override
   void initState() {
@@ -93,18 +95,21 @@ class _TerminalScreenState extends State<TerminalScreen> {
     }
     if (_ctrl.authDialogShowing) {
       _scheduleAuthDialog();
-    } else if (!_authDialogScheduled) {
-      _authDialogMounted = false;
+    } else if (_authDialogPhase != _AuthDialogPhase.scheduled) {
+      _authDialogPhase = _AuthDialogPhase.idle;
     }
   }
 
   void _scheduleAuthDialog() {
-    if (_authDialogMounted || _authDialogScheduled) return;
-    _authDialogScheduled = true;
+    if (_authDialogPhase != _AuthDialogPhase.idle) return;
+    _authDialogPhase = _AuthDialogPhase.scheduled;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _authDialogScheduled = false;
-      if (!mounted || !_ctrl.authDialogShowing || _authDialogMounted) return;
-      _authDialogMounted = true;
+      if (!mounted || !_ctrl.authDialogShowing ||
+          _authDialogPhase != _AuthDialogPhase.scheduled) {
+        _authDialogPhase = _AuthDialogPhase.idle;
+        return;
+      }
+      _authDialogPhase = _AuthDialogPhase.mounted;
       _releaseInputFocus();
       final dialog = _ctrl.isDeviceKicked
           ? _showDeviceKickedDialog()
@@ -112,7 +117,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
       unawaited(
         dialog.whenComplete(() {
           if (mounted) {
-            _authDialogMounted = false;
+            _authDialogPhase = _AuthDialogPhase.idle;
           }
         }),
       );

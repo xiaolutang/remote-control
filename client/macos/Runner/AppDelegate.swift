@@ -36,6 +36,7 @@ class AppDelegate: FlutterAppDelegate {
     "\(NSHomeDirectory())/\(managedAgentConfigRelativePath)"
   }
 
+  // Mirror: DesktopAgentSupervisor._isManagedConfigCommand — 修改匹配规则时必须同步
   private func isManagedAgentRunCommand(_ command: String) -> Bool {
     let configArgument = "--config \(managedAgentConfigPath()) "
     guard command.contains(configArgument) else {
@@ -145,6 +146,8 @@ class AppDelegate: FlutterAppDelegate {
         continue
       }
 
+      // applicationWillTerminate 中 Flutter engine 可能已不可用，无法使用 Dart 端的轮询逻辑
+      // 改为固定等待（对比 Dart 端 TimingConstants.agentGracePeriod 的轮询模式）
       usleep(500_000)
       if kill(pid_t(pid), 0) == 0 {
         errno = 0
