@@ -2,23 +2,7 @@
   "version": "1.4",
   "project": "remote-control",
   "updated_at": "2026-05-15T00:00:00+08:00",
-  "status": "active",
-  "workflow": {
-    "name": "R067-auth-dialog-reentry-fix",
-    "mode": "A",
-    "runtime": "skill_orchestrated",
-    "review_provider": "local",
-    "audit_provider": "local",
-    "risk_provider": "local",
-    "stop_hook_enabled": false
-  },
-  "active_requirement_cycle": {
-    "id": "R067",
-    "name": "auth-dialog-reentry-fix",
-    "status": "active",
-    "branch": "fix/R067-auth-dialog-reentry-fix",
-    "total_tasks": 2
-  },
+  "status": "idle",
   "archived_requirement_cycles": [
     {"id":"R047","name":"agent-conversation-interaction-optimization","status":"completed","archive_dir":"_archive/R047_agent-conversation-interaction-optimization","total_tasks":31},
     {"id":"R048","name":"architecture-deep-cleanup","status":"completed","archive_dir":"_archive/R048_architecture-deep-cleanup","total_tasks":20},
@@ -38,72 +22,9 @@
     {"id":"R063","name":"agent-scheduled-tasks","status":"completed","archive_dir":"_archive/R063_agent-scheduled-tasks","total_tasks":4,"completed_at":"2026-05-14"},
     {"id":"R064","name":"desktop-cleanup-agent-aware","status":"completed","archive_dir":"_archive/R064_desktop-cleanup-agent-aware","total_tasks":2,"completed_at":"2026-05-15"},
     {"id":"R065","name":"sidebar-overlay-layout","status":"completed","archive_dir":"_archive/R065_sidebar-overlay-layout","total_tasks":2,"completed_at":"2026-05-15"},
-    {"id":"R066","name":"terminal-scroll-preservation","status":"completed","archive_dir":"_archive/R066_terminal-scroll-preservation","total_tasks":2,"completed_at":"2026-05-15"}
+    {"id":"R066","name":"terminal-scroll-preservation","status":"completed","archive_dir":"_archive/R066_terminal-scroll-preservation","total_tasks":2,"completed_at":"2026-05-15"},
+    {"id":"R067","name":"auth-dialog-reentry-fix","status":"completed","archive_dir":"_archive/R067_auth-dialog-reentry-fix","total_tasks":2,"completed_at":"2026-05-15"}
   ],
   "archived_phases": [],
-  "features": [
-    {
-      "id": "F001",
-      "phase": 1,
-      "module": "client",
-      "name": "修复 auth 弹窗重入 bug",
-      "description": "修复 confirmDeviceKicked 和 confirmTokenExpired 中 clearAuthDialog() 在 disconnect/teardown 之前调用的问题。disconnect 触发 _onStatusChanged，lastCloseCode 仍为 4011/4001，_authDialogShowing 已清零，导致弹窗重复弹出。\n\n修复方案：将 clearAuthDialog() 移到 disconnectAll()/performSessionTeardown() 之后，确保守卫在 teardown 期间始终有效。",
-      "verification": "F2",
-      "depends_on": [],
-      "status": "pending",
-      "priority": 1,
-      "acceptance_criteria": [
-        "confirmDeviceKicked 中 clearAuthDialog() 在 disconnectAll() 之后调用",
-        "confirmTokenExpired 中 clearAuthDialog() 在 performSessionTeardown() 之后调用",
-        "disconnectAll()/performSessionTeardown() 期间 _onStatusChanged 触发时 _authDialogShowing 仍为 true，守卫生效",
-        "被踢后弹窗不再重复弹出",
-        "点击确定后能正常跳转登录页"
-      ],
-      "risk_tags": ["auth"],
-      "fix_level": "L2",
-      "root_cause_analysis": "clearAuthDialog() 先于 disconnectAll()/performSessionTeardown() 调用，导致 _authDialogShowing 守卫在 teardown 触发的状态变更回调中失效。4011/4001 close code 未被清除，_onStatusChanged 再次匹配条件并调用 _onDeviceKicked/_handleTokenExpired，弹窗重复弹出。多个 showDialog 的 modal barrier 叠加产生黑色闪烁，Navigator 被新弹窗打断导致登录按钮无效。",
-      "similar_locations": [
-        "confirmTokenExpired (terminal_screen_controller.dart:415-430) — 同样的 clearAuthDialog+teardown 模式",
-        "_showTokenExpiredDialog (terminal_screen.dart:132-149) — token 过期弹窗，同属认证弹窗路径"
-      ],
-      "files": [
-        "client/lib/screens/terminal_screen_controller.dart"
-      ],
-      "test_tasks": [
-        "confirmDeviceKicked 不触发弹窗重入（disconnectAll 期间守卫有效）",
-        "confirmTokenExpired 不触发弹窗重入（performSessionTeardown 期间守卫有效）",
-        "被踢后点击确定能正常跳转登录页"
-      ]
-    },
-    {
-      "id": "F002",
-      "phase": 1,
-      "module": "client",
-      "name": "auth 弹窗重入 widget test",
-      "description": "补充 widget test 覆盖 4011 被踢后弹窗行为，验证不重复弹出且确定按钮能跳转。",
-      "verification": "F1",
-      "depends_on": ["F001"],
-      "status": "pending",
-      "priority": 2,
-      "acceptance_criteria": [
-        "测试：被踢（4011）后弹窗只出现一次，不重复",
-        "测试：token 过期（4001）后弹窗只出现一次，不重复",
-        "测试：被踢后点击确定正常跳转登录页",
-        "测试：token 过期后点击重新登录正常跳转",
-        "测试：disconnectAll/performSessionTeardown 期间状态变更不触发新弹窗"
-      ],
-      "risk_tags": ["auth"],
-      "files": [
-        "client/test/widgets/auth_dialog_reentry_test.dart"
-      ],
-      "test_tasks": [
-        "4011 被踢弹窗只出现一次",
-        "4001 token 过期弹窗只出现一次",
-        "被踢后点击确定跳转登录页",
-        "token 过期后点击重新登录跳转",
-        "disconnectAll/performSessionTeardown 期间状态变更不触发新弹窗"
-      ]
-    }
-  ],
-  "summary": { "total": 2, "completed": 0, "pending": 2, "blocked": 0 }
+  "features": []
 }

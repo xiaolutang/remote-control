@@ -21,3 +21,4 @@
 | R064 | desktop-cleanup-agent-aware | 2026-05-15 | 1 | 2/2 | _archive/R064_desktop-cleanup-agent-aware |
 | R065 | sidebar-overlay-layout | 2026-05-15 | 1 | 2/2 | _archive/R065_sidebar-overlay-layout |
 | R066 | terminal-scroll-preservation | 2026-05-15 | 1 | 2/2 | _archive/R066_terminal-scroll-preservation |
+| R067 | auth-dialog-reentry-fix | 2026-05-15 | 1 | 2/2 | _archive/R067_auth-dialog-reentry-fix |
