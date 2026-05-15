@@ -401,36 +401,48 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
                         );
                       },
                     ),
-                    // F003: 桌面端用 Row 包裹 Sidebar + Body
+                    // F001: 桌面端用 Stack 包裹 Sidebar(浮层) + Body
+                    // Sidebar 浮在终端区域上层，展开时不再挤压终端宽度
                     Expanded(
                       child: controller.isDesktopPlatform
-                          ? Row(
+                          ? Stack(
                               children: [
-                                TerminalSidebar(
-                                  terminals: terminals,
-                                  selectedTerminalId:
-                                      selectedTerminal?.terminalId,
-                                  onSwitch: handleSwitchTerminal,
-                                  onCreate: handleCreateTerminal,
-                                  createDisabled: device == null ||
-                                      isCreateDisabled(device, controller),
-                                  onContextMenu: (terminalId, position) {
-                                    showTabContextMenu(
-                                      context,
-                                      controller,
-                                      terminalId,
-                                      position,
-                                    );
-                                  },
+                                // 底层：终端内容，左留 48px 给收起态 sidebar
+                                Positioned.fill(
+                                  child: Padding(
+                                    padding: const EdgeInsets.only(left: 48),
+                                    child: _buildBody(
+                                      context: context,
+                                      controller: controller,
+                                      device: device,
+                                      terminal:
+                                          workspaceState.selectedTerminal,
+                                      terminals: terminals,
+                                      state: workspaceState,
+                                    ),
+                                  ),
                                 ),
-                                Expanded(
-                                  child: _buildBody(
-                                    context: context,
-                                    controller: controller,
-                                    device: device,
-                                    terminal: workspaceState.selectedTerminal,
+                                // 上层：Sidebar 浮层（展开时覆盖终端左侧）
+                                Positioned(
+                                  top: 0,
+                                  bottom: 0,
+                                  left: 0,
+                                  child: TerminalSidebar(
                                     terminals: terminals,
-                                    state: workspaceState,
+                                    selectedTerminalId:
+                                        selectedTerminal?.terminalId,
+                                    onSwitch: handleSwitchTerminal,
+                                    onCreate: handleCreateTerminal,
+                                    createDisabled: device == null ||
+                                        isCreateDisabled(device, controller),
+                                    onContextMenu: (terminalId, position) {
+                                      showTabContextMenu(
+                                        context,
+                                        controller,
+                                        terminalId,
+                                        position,
+                                      );
+                                    },
                                   ),
                                 ),
                               ],
