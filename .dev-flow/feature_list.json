@@ -17,7 +17,7 @@
     "name": "sidebar-overlay-layout",
     "branch": "feat/R065-sidebar-overlay-layout",
     "status": "ready",
-    "total_tasks": 1
+    "total_tasks": 2
   },
   "archived_requirement_cycles": [
     {"id":"R047","name":"agent-conversation-interaction-optimization","status":"completed","archive_dir":"_archive/R047_agent-conversation-interaction-optimization","total_tasks":31},
@@ -45,7 +45,7 @@
       "phase": 1,
       "module": "client",
       "name": "侧边栏浮层化改造",
-      "description": "TerminalSidebar hover 展开时不再挤压右侧终端内容。将工作区布局从 Row 改为 Stack：终端区域使用 Positioned.fill + Padding(left: 48) 固定宽度（注意 _buildBody 内含 Expanded，不能直接放入 Stack，需 Positioned.fill 包裹），Sidebar 浮在 Stack 上层（AnimatedContainer 48→160px 动画不变）。消除 hover 展开时终端宽度变化导致的 xterm 内容重排。",
+      "description": "TerminalSidebar hover 展开时不再挤压右侧终端内容。将工作区布局从 Row 改为 Stack：终端区域使用 Positioned.fill + Padding(left: 48) 固定宽度（注意 _buildBody 内含 Expanded，不能直接放入 Stack，需 Positioned.fill 包裹），Sidebar 浮在 Stack 上层（AnimatedContainer 48→160px 动画不变）。消除 hover 展开时终端宽度变化导致的 xterm 内容重排。MouseRegion hit area 问题：AnimatedContainer 收起动画（160→48px）过程中鼠标在 x=50~160 范围内可能误触发 onExit 导致抖动，需改用固定 48px 宽的 Listener 或分离 hit area 与 visual width。",
       "verification": "F1",
       "depends_on": [],
       "status": "pending",
@@ -63,9 +63,31 @@
       ],
       "risk_tags": [],
       "files": [
-        "client/lib/screens/desktop/terminal_workspace_screen.dart"
+        "client/lib/screens/desktop/terminal_workspace_screen.dart",
+        "client/lib/widgets/terminal_sidebar.dart"
+      ]
+    },
+    {
+      "id": "F002",
+      "phase": 1,
+      "module": "client",
+      "name": "侧边栏浮层化 widget test",
+      "description": "为 F001 的 Stack 布局改造补充 widget test：验证终端宽度不随 sidebar 展开变化、MouseRegion hit-test 行为正确、收起/展开动画无抖动。",
+      "verification": "F1",
+      "depends_on": ["F001"],
+      "status": "pending",
+      "priority": 2,
+      "acceptance_criteria": [
+        "widget test 验证：sidebar 展开时终端区域宽度不变（= 窗口宽度 - 48px）",
+        "widget test 验证：收起时终端宽度同样 = 窗口宽度 - 48px",
+        "widget test 验证：移动端（isDesktopPlatform=false）布局不含 Stack",
+        "flutter test 通过"
+      ],
+      "risk_tags": [],
+      "files": [
+        "client/test/widgets/terminal_sidebar_overlay_test.dart"
       ]
     }
   ],
-  "summary": { "total": 1, "completed": 0, "pending": 1, "blocked": 0 }
+  "summary": { "total": 2, "completed": 0, "pending": 2, "blocked": 0 }
 }
