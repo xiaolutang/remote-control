@@ -42,13 +42,21 @@ class TerminalScreen extends StatefulWidget {
   final VoidCallback? onScheduledTaskCreated;
 
   @override
-  State<TerminalScreen> createState() => _TerminalScreenState();
+  State<TerminalScreen> createState() => TerminalScreenState();
 }
 
-class _TerminalScreenState extends State<TerminalScreen> {
+class TerminalScreenState extends State<TerminalScreen> {
   late final TerminalScreenController _ctrl;
   late final TerminalViewConfig _viewConfig;
   final FocusNode _terminalFocusNode = FocusNode();
+
+  /// 供外部（如 workspace screen）请求键盘焦点转移到此终端。
+  /// 切换/创建/关闭终端后调用，确保输入发送到正确的终端。
+  void requestTerminalFocus() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _terminalFocusNode.requestFocus();
+    });
+  }
 
   // 缓存 controller 属性快照，避免 ChangeNotifier 每次通知都触发全量 rebuild
   bool _prevErrorBanner = false;
