@@ -13,6 +13,7 @@ from app.api.schemas import (
     UpdateDeviceRequest,
 )
 from app.api._helpers import device_online as _device_online
+from app.store.session_types import DEFAULT_MAX_TERMINALS
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ async def list_runtime_devices(
             platform=device.get("platform", ""),
             hostname=device.get("hostname", ""),
             last_heartbeat_at=device.get("last_heartbeat_at"),
-            max_terminals=device.get("max_terminals", 3),
+            max_terminals=device.get("max_terminals", DEFAULT_MAX_TERMINALS),
             active_terminals=active_terminals,
         ))
 
@@ -78,6 +79,6 @@ async def update_runtime_device(
         platform=updated["device"].get("platform", ""),
         hostname=updated["device"].get("hostname", ""),
         last_heartbeat_at=updated["device"].get("last_heartbeat_at"),
-        max_terminals=updated["device"].get("max_terminals", 3),
+        max_terminals=updated["device"].get("max_terminals", DEFAULT_MAX_TERMINALS),
         active_terminals=active_terminals,
     )
