@@ -195,4 +195,5 @@ SCHEMA_STATEMENTS = [
 MIGRATION_STATEMENTS = [
     "ALTER TABLE agent_conversations ADD COLUMN truncation_epoch INTEGER DEFAULT 0",
     "ALTER TABLE agent_usage_records ADD COLUMN terminal_id TEXT DEFAULT ''",
+    "ALTER TABLE users ADD COLUMN max_terminals INTEGER DEFAULT 10",
 ]

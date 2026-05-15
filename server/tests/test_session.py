@@ -183,7 +183,7 @@ class TestDeviceState:
         normalized, changed = _normalize_session_data("legacy-session", legacy)
 
         assert normalized["device"]["device_id"] == "legacy-session"
-        assert normalized["device"]["max_terminals"] == 3
+        assert normalized["device"]["max_terminals"] == 10
         assert normalized["views"] == {"mobile": 0, "desktop": 0}
         assert changed is True
 
@@ -254,7 +254,7 @@ class TestDeviceState:
         with patch.object(redis_conn, '_redis', mock_redis):
             result = await get_session("legacy-session")
 
-        assert result["device"]["max_terminals"] == 3
+        assert result["device"]["max_terminals"] == 10
         assert result["device"]["max_terminals_configured"] is False
         mock_redis.set.assert_awaited()
 

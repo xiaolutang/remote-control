@@ -1253,7 +1253,7 @@ class TestRuntimeDeviceApi:
                     "device_id": "mbp-01",
                     "name": "Tang MacBook Pro",
                     "last_heartbeat_at": "2026-03-29T02:00:00Z",
-                    "max_terminals": 3,
+                    "max_terminals": 10,
                 },
                 "terminals": [
                     {"status": "attached"},
@@ -1283,7 +1283,7 @@ class TestRuntimeDeviceApi:
                     "device_id": "mbp-01",
                     "name": "Tang MacBook Pro",
                     "last_heartbeat_at": "2026-03-29T02:00:00Z",
-                    "max_terminals": 3,
+                    "max_terminals": 10,
                 },
                 "terminals": [],
             }
@@ -1673,7 +1673,7 @@ class TestRuntimeDeviceApi:
                 "name": "Tang MacBook Pro",
                 "platform": "macos",
                 "hostname": "demo-mbp",
-                "max_terminals": 3,
+                "max_terminals": 10,
             },
         }
         planner_mock = AsyncMock(
@@ -1771,7 +1771,7 @@ class TestRuntimeDeviceApi:
                 "name": "Tang MacBook Pro",
                 "platform": "macos",
                 "hostname": "demo-mbp",
-                "max_terminals": 3,
+                "max_terminals": 10,
             },
         }
         planner_mock = AsyncMock(
@@ -1900,7 +1900,7 @@ class TestRuntimeDeviceApi:
                 "name": "Tang MacBook Pro",
                 "platform": "macos",
                 "hostname": "demo-mbp",
-                "max_terminals": 3,
+                "max_terminals": 10,
             },
         }
         planner_mock = AsyncMock(
@@ -2059,7 +2059,7 @@ class TestRuntimeDeviceApi:
             "session_id": "runtime-session-1",
             "owner": "user1",
             "agent_online": True,
-            "device": {"device_id": "mbp-01", "max_terminals": 3},
+            "device": {"device_id": "mbp-01", "max_terminals": 10},
         }
 
         with patch("app.api._deps.is_agent_connected", return_value=True):
@@ -2102,7 +2102,7 @@ class TestRuntimeDeviceApi:
             "session_id": "runtime-session-1",
             "owner": "user1",
             "agent_online": True,
-            "device": {"device_id": "mbp-01", "max_terminals": 3},
+            "device": {"device_id": "mbp-01", "max_terminals": 10},
         }
 
         with patch("app.api._deps.is_agent_connected", return_value=True):
@@ -2242,7 +2242,7 @@ class TestRuntimeDeviceApi:
                     "device_id": "mbp-01",
                     "name": "Tang MacBook Pro",
                     "last_heartbeat_at": "2026-03-29T02:00:00Z",
-                    "max_terminals": 3,
+                    "max_terminals": 10,
                 },
                 "terminals": [],
             }
@@ -2265,7 +2265,7 @@ class TestRuntimeDeviceApi:
                 "device_id": "mbp-01",
                 "name": "Old Name",
                 "last_heartbeat_at": "2026-03-29T02:00:00Z",
-                "max_terminals": 3,
+                "max_terminals": 10,
             },
             "terminals": [],
         }
@@ -2290,7 +2290,7 @@ class TestRuntimeDeviceApi:
         assert response.status_code == 200
         data = response.json()
         assert data["name"] == "New Name"
-        assert data["max_terminals"] == 3
+        assert data["max_terminals"] == 10
         update_mock.assert_awaited_once_with(
             "runtime-session-1",
             name="New Name",
@@ -2306,7 +2306,7 @@ class TestRuntimeDeviceApi:
                 "device_id": "mbp-01",
                 "name": "Old Name",
                 "last_heartbeat_at": "2026-03-29T02:00:00Z",
-                "max_terminals": 3,
+                "max_terminals": 10,
             },
             "terminals": [],
         }

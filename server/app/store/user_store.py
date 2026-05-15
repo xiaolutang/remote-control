@@ -49,6 +49,16 @@ class UserStoreMixin:
             )
             return [dict(row) for row in await cursor.fetchall()]
 
+    async def get_user_max_terminals(self, username: str) -> Optional[int]:
+        """获取用户的 max_terminals 配置。
+
+        用户不存在时返回 None，由调用方决定 fallback 行为。
+        """
+        user = await self.get_user(username)
+        if user is None:
+            return None
+        return user.get("max_terminals")
+
     async def add_user_device(self, username: str, device_info: Dict[str, Any]) -> None:
         """添加用户设备。"""
         async with self._connect() as db:
