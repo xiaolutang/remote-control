@@ -8,6 +8,9 @@ class AppDelegate: FlutterAppDelegate {
   private let keepRunningKey = "rc_desktop_keep_agent_running"
   private let managedAgentPidKey = "rc_desktop_managed_agent_pid"
   private let logPath = "/tmp/rc_desktop_exit.log"
+  private let managedAgentConfigRelativePath =
+    "Library/Application Support/com.aistudio.rcClient/managed-agent/config.json"
+  private var managedAgentTerminationAttempted = false
 
   private func log(_ message: String) {
     let line = "[\(ISO8601DateFormatter().string(from: Date()))] \(message)\n"
@@ -27,6 +30,157 @@ class AppDelegate: FlutterAppDelegate {
 
   private func resolvedManagedAgentPid(defaults: UserDefaults) -> Int {
     defaults.integer(forKey: managedAgentPidKey)
+  }
+
+  private func managedAgentConfigPath() -> String {
+    "\(NSHomeDirectory())/\(managedAgentConfigRelativePath)"
+  }
+
+  private func isManagedAgentRunCommand(_ command: String) -> Bool {
+    let configArgument = "--config \(managedAgentConfigPath()) "
+    guard command.contains(configArgument) else {
+      return false
+    }
+    guard command.contains("rc-agent") || command.contains("-m app.cli") else {
+      return false
+    }
+
+    let tokens = command.split(whereSeparator: { $0 == " " || $0 == "\t" })
+    return tokens.last == "run"
+  }
+
+  private func listManagedAgentPids() -> [Int] {
+    let task = Process()
+    task.executableURL = URL(fileURLWithPath: "/bin/ps")
+    task.arguments = ["axo", "pid=,command="]
+
+    let pipe = Pipe()
+    task.standardOutput = pipe
+    task.standardError = Pipe()
+
+    do {
+      try task.run()
+    } catch {
+      log("fallback ps failed error=\(error)")
+      return []
+    }
+
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    task.waitUntilExit()
+
+    guard task.terminationStatus == 0 else {
+      log("fallback ps exit=\(task.terminationStatus)")
+      return []
+    }
+
+    guard let output = String(data: data, encoding: .utf8) else {
+      log("fallback ps output decode failed")
+      return []
+    }
+
+    var pids: [Int] = []
+    for rawLine in output.split(separator: "\n") {
+      let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard let firstSpace = line.firstIndex(where: { $0 == " " || $0 == "\t" }) else {
+        continue
+      }
+      let pidText = line[..<firstSpace]
+      let command = line[firstSpace...].trimmingCharacters(in: .whitespacesAndNewlines)
+      guard let pid = Int(pidText), pid > 0 else {
+        continue
+      }
+      if isManagedAgentRunCommand(command) {
+        pids.append(pid)
+      }
+    }
+
+    log("fallback managed agent scan pids=\(pids.map(String.init).joined(separator: ","))")
+    return pids
+  }
+
+  private func commandLineForPid(_ pid: Int) -> String? {
+    let task = Process()
+    task.executableURL = URL(fileURLWithPath: "/bin/ps")
+    task.arguments = ["-p", "\(pid)", "-o", "command="]
+
+    let pipe = Pipe()
+    task.standardOutput = pipe
+    task.standardError = Pipe()
+
+    do {
+      try task.run()
+    } catch {
+      log("saved pid ps failed pid=\(pid) error=\(error)")
+      return nil
+    }
+
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    task.waitUntilExit()
+
+    guard task.terminationStatus == 0 else {
+      log("saved pid ps exit=\(task.terminationStatus) pid=\(pid)")
+      return nil
+    }
+    return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  private func isManagedAgentPid(_ pid: Int) -> Bool {
+    guard pid > 0, let command = commandLineForPid(pid) else {
+      return false
+    }
+    return isManagedAgentRunCommand(command)
+  }
+
+  private func terminateManagedAgentPids(_ pids: [Int]) {
+    var seen = Set<Int>()
+    for pid in pids where seen.insert(pid).inserted {
+      guard isManagedAgentPid(pid) else {
+        log("skip kill because pid is no longer managed pid=\(pid)")
+        continue
+      }
+      errno = 0
+      let termResult = kill(pid_t(pid), SIGTERM)
+      log("kill(SIGTERM) pid=\(pid) result=\(termResult) errno=\(errno)")
+      guard termResult == 0 else {
+        continue
+      }
+
+      usleep(500_000)
+      if kill(pid_t(pid), 0) == 0 {
+        errno = 0
+        let killResult = kill(pid_t(pid), SIGKILL)
+        log("kill(SIGKILL) pid=\(pid) result=\(killResult) errno=\(errno)")
+      }
+    }
+  }
+
+  private func terminateManagedAgentsIfNeeded(defaults: UserDefaults) {
+    if managedAgentTerminationAttempted {
+      log("skip kill because termination already attempted")
+      return
+    }
+    managedAgentTerminationAttempted = true
+
+    let keepRunning = defaults.object(forKey: keepRunningKey) as? Bool ?? false
+    let pid = resolvedManagedAgentPid(defaults: defaults)
+    log("terminateManagedAgentsIfNeeded keepRunning=\(keepRunning) pid=\(pid)")
+    guard !keepRunning else {
+      log("skip kill because keepRunning=true")
+      return
+    }
+
+    if isManagedAgentPid(pid) {
+      terminateManagedAgentPids([pid])
+      return
+    }
+
+    let pidsToTerminate = listManagedAgentPids()
+    guard !pidsToTerminate.isEmpty else {
+      log("skip kill because no managed agent pids found")
+      return
+    }
+
+    terminateManagedAgentPids(pidsToTerminate)
   }
 
   override func applicationDidFinishLaunching(_ notification: Notification) {
@@ -69,6 +223,7 @@ class AppDelegate: FlutterAppDelegate {
         result(FlutterMethodNotImplemented)
       }
     }
+    log("lifecycle channel registered")
   }
 
   override func applicationWillTerminate(_ notification: Notification) {
@@ -76,18 +231,13 @@ class AppDelegate: FlutterAppDelegate {
     let keepRunning = defaults.object(forKey: keepRunningKey) as? Bool ?? false
     let pid = resolvedManagedAgentPid(defaults: defaults)
     log("applicationWillTerminate keepRunning=\(keepRunning) pid=\(pid)")
-    guard !keepRunning else {
-      log("skip kill because keepRunning=true")
-      return
-    }
+    terminateManagedAgentsIfNeeded(defaults: defaults)
+  }
 
-    guard pid > 0 else {
-      log("skip kill because pid<=0")
-      return
-    }
-
-    let result = kill(pid_t(pid), SIGTERM)
-    log("kill(SIGTERM) result=\(result) errno=\(errno)")
+  override func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+    log("applicationShouldTerminate")
+    terminateManagedAgentsIfNeeded(defaults: UserDefaults.standard)
+    return .terminateNow
   }
 
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

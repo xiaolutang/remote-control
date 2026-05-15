@@ -52,6 +52,9 @@ class _TerminalScreenState extends State<TerminalScreen> {
   int _prevShortcutHash = 0;
   int _prevPresenceHash = 0;
 
+  bool _authDialogMounted = false;
+  bool _authDialogScheduled = false;
+
   @override
   void initState() {
     super.initState();
@@ -89,13 +92,31 @@ class _TerminalScreenState extends State<TerminalScreen> {
       setState(() {});
     }
     if (_ctrl.authDialogShowing) {
-      _releaseInputFocus();
-      if (_ctrl.isDeviceKicked) {
-        _showDeviceKickedDialog();
-      } else {
-        _showTokenExpiredDialog();
-      }
+      _scheduleAuthDialog();
+    } else if (!_authDialogScheduled) {
+      _authDialogMounted = false;
     }
+  }
+
+  void _scheduleAuthDialog() {
+    if (_authDialogMounted || _authDialogScheduled) return;
+    _authDialogScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _authDialogScheduled = false;
+      if (!mounted || !_ctrl.authDialogShowing || _authDialogMounted) return;
+      _authDialogMounted = true;
+      _releaseInputFocus();
+      final dialog = _ctrl.isDeviceKicked
+          ? _showDeviceKickedDialog()
+          : _showTokenExpiredDialog();
+      unawaited(
+        dialog.whenComplete(() {
+          if (mounted) {
+            _authDialogMounted = false;
+          }
+        }),
+      );
+    });
   }
 
   void _requestFocus() {
@@ -111,9 +132,9 @@ class _TerminalScreenState extends State<TerminalScreen> {
 
   // ─── 认证弹窗 ──────────────────────────────────────────────────
 
-  void _showDeviceKickedDialog() {
+  Future<void> _showDeviceKickedDialog() {
     final sessionManager = context.read<TerminalSessionManager>();
-    showDialog(
+    return showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
@@ -129,8 +150,8 @@ class _TerminalScreenState extends State<TerminalScreen> {
     );
   }
 
-  void _showTokenExpiredDialog() {
-    showDialog(
+  Future<void> _showTokenExpiredDialog() {
+    return showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
@@ -467,12 +488,13 @@ class _TerminalScreenState extends State<TerminalScreen> {
             child: Consumer<WebSocketService>(
               builder: (context, svc, _) {
                 final terminal = _ctrl.terminal;
-                final isConnecting = svc.status == ConnectionStatus.connecting ||
-                    svc.status == ConnectionStatus.reconnecting;
-                final connectingMessage = svc.status ==
-                        ConnectionStatus.reconnecting
-                    ? '正在重连... (${svc.errorMessage ?? ""})'
-                    : '正在连接...';
+                final isConnecting =
+                    svc.status == ConnectionStatus.connecting ||
+                        svc.status == ConnectionStatus.reconnecting;
+                final connectingMessage =
+                    svc.status == ConnectionStatus.reconnecting
+                        ? '正在重连... (${svc.errorMessage ?? ""})'
+                        : '正在连接...';
 
                 // 首次连接（terminal 尚未创建）→ 显示 connecting message
                 if (terminal == null) {
@@ -490,8 +512,9 @@ class _TerminalScreenState extends State<TerminalScreen> {
                       child: GestureDetector(
                         key: const Key('terminal-touch-layer'),
                         behavior: HitTestBehavior.translucent,
-                        onTap:
-                            isConnecting ? null : _terminalFocusNode.requestFocus,
+                        onTap: isConnecting
+                            ? null
+                            : _terminalFocusNode.requestFocus,
                         child: Container(
                           margin: const EdgeInsets.all(12),
                           decoration: BoxDecoration(

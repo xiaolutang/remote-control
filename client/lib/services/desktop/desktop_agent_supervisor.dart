@@ -45,6 +45,16 @@ class DesktopAgentStatus {
   final bool managedByDesktop;
 }
 
+class _AgentProcessInfo {
+  const _AgentProcessInfo({
+    required this.pid,
+    required this.commandLine,
+  });
+
+  final int pid;
+  final String commandLine;
+}
+
 class DesktopAgentSupervisor {
   DesktopAgentSupervisor({
     RuntimeDeviceService? runtimeService,
@@ -104,7 +114,7 @@ class DesktopAgentSupervisor {
     final current = _findDevice(devices, deviceId);
     final managedPid = await _loadManagedAgentPid();
     final managedRunning =
-        managedPid != null && await _isProcessRunning(managedPid);
+        managedPid != null && await _isManagedProcessRunning(managedPid);
     if (managedPid != null && !managedRunning) {
       await _clearManagedAgentPid();
     }
@@ -164,7 +174,7 @@ class DesktopAgentSupervisor {
       'ensureAgentOnline before agentOnline=${before?.agentOnline ?? false}',
     );
     if (before?.agentOnline ?? false) {
-      await _clearStaleManagedAgentPid();
+      await _reconcileManagedAgentProcesses();
       _logAgent.info('ensureAgentOnline device already online');
       return true;
     }
@@ -172,9 +182,9 @@ class DesktopAgentSupervisor {
     final managedPid = await _loadManagedAgentPid();
     _logAgent.info('ensureAgentOnline managedPid=${managedPid ?? -1}');
     if (managedPid != null) {
-      if (await _isProcessRunning(managedPid)) {
-        _logAgent.info(
-            'ensureAgentOnline waiting existing managed pid=$managedPid');
+      if (await _isManagedProcessRunning(managedPid)) {
+        _logAgent
+            .info('ensureAgentOnline waiting existing managed pid=$managedPid');
         final recovered = await _waitForAgentOnline(
           runtimeService: runtimeService,
           token: token,
@@ -198,18 +208,25 @@ class DesktopAgentSupervisor {
       }
     }
 
-    final existingLocalAgents = await _listLocalAgentPids();
+    final existingLocalAgents = await _listLocalAgentProcesses();
     _logAgent.info(
-      'ensureAgentOnline existingLocalAgents=${existingLocalAgents.join(",")}',
+      'ensureAgentOnline existingLocalAgents=${existingLocalAgents.map((p) => p.pid).join(",")}',
     );
     if (existingLocalAgents.isNotEmpty) {
+      final managedPid = await _pruneDuplicateManagedAgents(
+        existingLocalAgents,
+      );
       _logAgent.info('ensureAgentOnline waiting existing external agent');
-      return _waitForAgentOnline(
+      final recovered = await _waitForAgentOnline(
         runtimeService: runtimeService,
         token: token,
         deviceId: deviceId,
         timeout: timeout,
       );
+      if (recovered && managedPid != null) {
+        await _saveManagedAgentPid(managedPid);
+      }
+      return recovered;
     }
 
     final workdir = _resolveAgentWorkdir(preferredWorkdir: agentWorkdir);
@@ -228,8 +245,8 @@ class DesktopAgentSupervisor {
       if (isBundled) {
         // 使用内嵌 rc-agent 二进制启动
         final rcAgentPath = p.join(workdir.path, 'rc-agent');
-        _logAgent.info(
-            'ensureAgentOnline starting bundled agent: $rcAgentPath');
+        _logAgent
+            .info('ensureAgentOnline starting bundled agent: $rcAgentPath');
         try {
           process = await _processStarter(
             rcAgentPath,
@@ -274,8 +291,7 @@ class DesktopAgentSupervisor {
         }
       } else {
         // 回退到 python3 源码模式（向后兼容开发环境）
-        _logAgent.info(
-            'ensureAgentOnline starting python3 source mode');
+        _logAgent.info('ensureAgentOnline starting python3 source mode');
         process = await _processStarter(
           'python3',
           <String>[
@@ -401,10 +417,17 @@ class DesktopAgentSupervisor {
 
     final pid = await _loadManagedAgentPid();
     if (pid == null) {
-      return false;
+      final orphanedPids = await _listLocalManagedAgentPids();
+      if (orphanedPids.isEmpty) {
+        return false;
+      }
+      _logAgent.info(
+        'stopManagedAgent found orphaned managed agents=${orphanedPids.join(",")}',
+      );
+      return _stopManagedAgentPids(orphanedPids, timeout: timeout);
     }
 
-    if (!await _isProcessRunning(pid)) {
+    if (!await _isManagedProcessRunning(pid)) {
       await _clearManagedAgentPid();
       return true;
     }
@@ -432,11 +455,45 @@ class DesktopAgentSupervisor {
       }
     }
 
-    if (!await _isProcessRunning(pid)) {
+    if (!await _isManagedProcessRunning(pid)) {
       await _clearManagedAgentPid();
       return true;
     }
     return false;
+  }
+
+  Future<bool> _stopManagedAgentPids(
+    List<int> pids, {
+    required Duration timeout,
+  }) async {
+    final httpStopped = await _tryHttpStop(timeout: timeout);
+    if (httpStopped) {
+      final remaining = <int>[];
+      for (final pid in pids) {
+        if (await _isManagedProcessRunning(pid)) {
+          remaining.add(pid);
+        }
+      }
+      if (remaining.isEmpty) {
+        await _clearManagedAgentPid();
+        return true;
+      }
+      pids = remaining;
+    }
+
+    for (final pid in pids) {
+      if (await _isManagedProcessRunning(pid)) {
+        await _terminateProcess(pid);
+      }
+    }
+
+    for (final pid in pids) {
+      if (await _isManagedProcessRunning(pid)) {
+        return false;
+      }
+    }
+    await _clearManagedAgentPid();
+    return true;
   }
 
   /// 尝试通过 HTTP /stop 优雅关闭 Agent
@@ -523,7 +580,7 @@ class DesktopAgentSupervisor {
       final username = prefs.getString('rc_username');
 
       final managedConfigFile = File(
-        p.join(home, managedAgentConfigRelativePath),
+        _managedAgentConfigPath(home),
       );
       await managedConfigFile.parent.create(recursive: true);
 
@@ -565,7 +622,7 @@ class DesktopAgentSupervisor {
     final home = _homeDirectory ?? Platform.environment['HOME'];
     if (home == null || home.isEmpty) return;
 
-    final configPath = p.join(home, managedAgentConfigRelativePath);
+    final configPath = _managedAgentConfigPath(home);
     try {
       await File(configPath).delete();
       _logAgent.info('deleteManagedAgentConfig: deleted $configPath');
@@ -624,8 +681,17 @@ class DesktopAgentSupervisor {
     if (pid == null) {
       return;
     }
-    if (!await _isProcessRunning(pid)) {
+    if (!await _isManagedProcessRunning(pid)) {
       await _clearManagedAgentPid();
+    }
+  }
+
+  Future<void> _reconcileManagedAgentProcesses() async {
+    await _clearStaleManagedAgentPid();
+    final processes = await _listLocalAgentProcesses();
+    final managedPid = await _pruneDuplicateManagedAgents(processes);
+    if (managedPid != null) {
+      await _saveManagedAgentPid(managedPid);
     }
   }
 
@@ -643,15 +709,28 @@ class DesktopAgentSupervisor {
 
   Future<bool> _isProcessRunning(int pid) async {
     try {
-      final result =
-          await _processRunner('ps', ['-p', '$pid', '-o', 'command=']);
-      if (result.exitCode != 0) return false;
-      final output = result.stdout.toString().trim();
-      return isAgentRunCommand(output);
+      final output = await _commandLineForPid(pid);
+      return output != null && isAgentRunCommand(output);
     } catch (e) {
       _logAgent.info('_isProcessRunning failed: $e');
       return false;
     }
+  }
+
+  Future<bool> _isManagedProcessRunning(int pid) async {
+    try {
+      final output = await _commandLineForPid(pid);
+      return output != null && _isManagedConfigCommand(output);
+    } catch (e) {
+      _logAgent.info('_isManagedProcessRunning failed: $e');
+      return false;
+    }
+  }
+
+  Future<String?> _commandLineForPid(int pid) async {
+    final result = await _processRunner('ps', ['-p', '$pid', '-o', 'command=']);
+    if (result.exitCode != 0) return null;
+    return result.stdout.toString().trim();
   }
 
   /// 共享命令行分类器：判断命令行是否为 Agent 常驻 run 进程。
@@ -681,11 +760,13 @@ class DesktopAgentSupervisor {
     if (basename == 'rc-agent') return true;
 
     // 源码模式：python3 -m app.cli ... run
-    if (basename == 'python3' || basename == 'python') {
+    if (basename == 'python3' || basename == 'python' || basename == 'Python') {
       // 检查命令行是否包含 -m app.cli
       var i = 1;
       while (i < tokens.length - 1) {
-        if (tokens[i] == '-m' && i + 1 < tokens.length && tokens[i + 1] == 'app.cli') {
+        if (tokens[i] == '-m' &&
+            i + 1 < tokens.length &&
+            tokens[i + 1] == 'app.cli') {
           return true;
         }
         i++;
@@ -695,38 +776,42 @@ class DesktopAgentSupervisor {
     return false;
   }
 
-  Future<List<int>> _listLocalAgentPids() async {
+  Future<List<int>> _listLocalManagedAgentPids() async {
+    final processes = await _listLocalAgentProcesses();
+    return processes
+        .where((process) => _isManagedConfigCommand(process.commandLine))
+        .map((process) => process.pid)
+        .toList();
+  }
+
+  Future<List<_AgentProcessInfo>> _listLocalAgentProcesses() async {
     if (_processLister != null) {
-      return _processLister();
+      final pids = await _processLister();
+      return [
+        for (final pid in pids) _AgentProcessInfo(pid: pid, commandLine: ''),
+      ];
     }
     try {
-      final pids = <int>[];
       final seenPids = <int>{};
+      final processes = <_AgentProcessInfo>[];
 
       // 粗粒度 pgrep 获取 rc-agent 相关 PID
       // 不依赖 \b 等 macOS/BSD pgrep 不可靠的模式
-      final rcAgentResult =
-          await _processRunner('pgrep', ['-f', 'rc-agent']);
-      if (rcAgentResult.exitCode == 0) {
-        await _verifyAndAddPids(
-          rcAgentResult.stdout.toString(),
-          pids,
-          seenPids,
-        );
+      final results = await Future.wait<ProcessResult>([
+        _processRunner('pgrep', ['-f', 'rc-agent']),
+        _processRunner('pgrep', ['-f', 'app\\.cli']),
+      ]);
+      for (final result in results) {
+        if (result.exitCode == 0) {
+          await _verifyAndAddPids(
+            result.stdout.toString(),
+            processes,
+            seenPids,
+          );
+        }
       }
 
-      // 粗粒度 pgrep 获取 app.cli 相关 PID
-      final cliResult =
-          await _processRunner('pgrep', ['-f', 'app\\.cli']);
-      if (cliResult.exitCode == 0) {
-        await _verifyAndAddPids(
-          cliResult.stdout.toString(),
-          pids,
-          seenPids,
-        );
-      }
-
-      return pids;
+      return processes;
     } catch (e) {
       _logAgent.info('_listLocalAgentPids failed: $e');
       return const [];
@@ -737,7 +822,7 @@ class DesktopAgentSupervisor {
   /// 再用共享分类器 [isAgentRunCommand] 过滤非 daemon 进程。
   Future<void> _verifyAndAddPids(
     String pgrepOutput,
-    List<int> pids,
+    List<_AgentProcessInfo> processes,
     Set<int> seenPids,
   ) async {
     for (final line in pgrepOutput.split('\n')) {
@@ -755,7 +840,9 @@ class DesktopAgentSupervisor {
         if (psResult.exitCode != 0) continue;
         final commandLine = psResult.stdout.toString().trim();
         if (isAgentRunCommand(commandLine)) {
-          pids.add(pid);
+          processes.add(
+            _AgentProcessInfo(pid: pid, commandLine: commandLine),
+          );
         }
       } catch (e) {
         _logAgent.info('_verifyAndAddPids ps failed for pid=$pid: $e');
@@ -763,6 +850,40 @@ class DesktopAgentSupervisor {
       }
     }
   }
+
+  Future<int?> _pruneDuplicateManagedAgents(
+    List<_AgentProcessInfo> processes,
+  ) async {
+    final managed = processes
+        .where((process) => _isManagedConfigCommand(process.commandLine))
+        .toList();
+    if (managed.isEmpty) return null;
+    managed.sort((a, b) => a.pid.compareTo(b.pid));
+    final keep = managed.removeAt(0);
+    if (managed.isEmpty) return keep.pid;
+    _logAgent.info(
+      'prune duplicate managed agents keep=${keep.pid} kill=${managed.map((p) => p.pid).join(",")}',
+    );
+    for (final process in managed) {
+      if (await _isManagedProcessRunning(process.pid)) {
+        await _terminateProcess(process.pid);
+      }
+    }
+    return keep.pid;
+  }
+
+  bool _isManagedConfigCommand(String commandLine) {
+    if (commandLine.isEmpty) return false;
+    final home = _homeDirectory ?? Platform.environment['HOME'];
+    if (home == null || home.isEmpty) return false;
+    final trimmed = commandLine.trim();
+    if (!isAgentRunCommand(trimmed)) return false;
+    final configPath = _managedAgentConfigPath(home);
+    return trimmed.contains('--config $configPath ');
+  }
+
+  String _managedAgentConfigPath(String home) =>
+      p.join(home, managedAgentConfigRelativePath);
 
   Future<void> _terminateProcess(
     int pid, {
@@ -805,8 +926,7 @@ class DesktopAgentSupervisor {
   }
 
   Directory? _resolveAgentWorkdir({String? preferredWorkdir}) {
-    _logAgent.info(
-        '_resolveAgentWorkdir: preferredWorkdir=$preferredWorkdir');
+    _logAgent.info('_resolveAgentWorkdir: preferredWorkdir=$preferredWorkdir');
     for (final candidate
         in _candidateAgentDirs(preferredWorkdir: preferredWorkdir)) {
       final looksLike = _looksLikeAgentDir(candidate);
@@ -835,8 +955,8 @@ class DesktopAgentSupervisor {
     // 最高优先级：检查 .app bundle 内嵌 Agent（Contents/Resources/agent/）
     final bundledAgentDir = _resolveBundledAgentDir();
     if (bundledAgentDir != null) {
-      _logAgent.info(
-          '_candidateAgentDirs: bundledAgentDir=${bundledAgentDir.path}');
+      _logAgent
+          .info('_candidateAgentDirs: bundledAgentDir=${bundledAgentDir.path}');
       yield bundledAgentDir;
     }
 
@@ -850,8 +970,7 @@ class DesktopAgentSupervisor {
     }
 
     final executableDir = _resolveExecutableDirectory();
-    _logAgent.info(
-        '_candidateAgentDirs: executableDir=${executableDir?.path}');
+    _logAgent.info('_candidateAgentDirs: executableDir=${executableDir?.path}');
     if (executableDir != null) {
       yield* _searchAgentDirsFrom(executableDir);
     }

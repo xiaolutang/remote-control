@@ -68,6 +68,7 @@ void main() {
       () async {
     var started = false;
     final supervisor = DesktopAgentSupervisor(
+      homeDirectory: '/Users/test',
       runtimeService: _FakeRuntimeDeviceService([
         const [
           RuntimeDevice(
@@ -108,7 +109,12 @@ void main() {
         if (executable == 'pgrep') {
           return ProcessResult(0, 1, '', '');
         }
-        return ProcessResult(0, 0, 'python3 -m app.cli run', '');
+        return ProcessResult(
+          0,
+          0,
+          'python3 -m app.cli --config /Users/test/Library/Application Support/com.aistudio.rcClient/managed-agent/config.json run',
+          '',
+        );
       },
     );
 
@@ -134,6 +140,7 @@ void main() {
       () async {
     var started = false;
     final supervisor = DesktopAgentSupervisor(
+      homeDirectory: '/Users/test',
       runtimeService: _FakeRuntimeDeviceService([
         const [
           RuntimeDevice(
@@ -170,6 +177,126 @@ void main() {
 
     expect(result, isTrue);
     expect(started, isFalse);
+  });
+
+  test(
+      'ensureAgentOnline reconciles duplicate managed agents when already online',
+      () async {
+    final killed = <int>[];
+    final supervisor = DesktopAgentSupervisor(
+      homeDirectory: '/Users/test',
+      runtimeService: _FakeRuntimeDeviceService([
+        const [
+          RuntimeDevice(
+            deviceId: 'dev-1',
+            name: 'mac-phone',
+            owner: 'user',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 1,
+          ),
+        ],
+      ]),
+      processRunner: (executable, arguments) async {
+        if (executable == 'pgrep') {
+          final pattern = arguments.length > 1 ? arguments[1] : '';
+          if (pattern == 'rc-agent') {
+            return ProcessResult(0, 0, '222\n111\n', '');
+          }
+          return ProcessResult(0, 1, '', '');
+        }
+        if (executable == 'ps') {
+          final pid = int.tryParse(arguments[1]) ?? 0;
+          if (killed.contains(pid)) {
+            return ProcessResult(1, 1, '', '');
+          }
+          if (pid == 111 || pid == 222) {
+            return ProcessResult(
+              0,
+              0,
+              '/Applications/rc_client.app/Contents/Resources/agent/rc-agent --config /Users/test/Library/Application Support/com.aistudio.rcClient/managed-agent/config.json run',
+              '',
+            );
+          }
+          return ProcessResult(0, 1, '', '');
+        }
+        return ProcessResult(0, 1, '', '');
+      },
+      pidKiller: (pid, signal) {
+        killed.add(pid);
+        return true;
+      },
+    );
+
+    final result = await supervisor.ensureAgentOnline(
+      serverUrl: 'ws://localhost:8888',
+      token: 'token',
+      deviceId: 'dev-1',
+      timeout: const Duration(milliseconds: 100),
+    );
+
+    expect(result, isTrue);
+    expect(killed, contains(222));
+    expect(killed, isNot(contains(111)));
+  });
+
+  test('getStatus reports status without pruning orphaned managed agents',
+      () async {
+    final killed = <int>[];
+    final supervisor = DesktopAgentSupervisor(
+      homeDirectory: '/Users/test',
+      runtimeService: _FakeRuntimeDeviceService([
+        const [
+          RuntimeDevice(
+            deviceId: 'dev-1',
+            name: 'mac-phone',
+            owner: 'user',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 1,
+          ),
+        ],
+      ]),
+      processRunner: (executable, arguments) async {
+        if (executable == 'pgrep') {
+          final pattern = arguments.length > 1 ? arguments[1] : '';
+          if (pattern == 'rc-agent') {
+            return ProcessResult(0, 0, '111\n222\n', '');
+          }
+          return ProcessResult(0, 1, '', '');
+        }
+        if (executable == 'ps') {
+          final pid = int.tryParse(arguments[1]) ?? 0;
+          if (killed.contains(pid)) {
+            return ProcessResult(1, 1, '', '');
+          }
+          if (pid == 111 || pid == 222) {
+            return ProcessResult(
+              0,
+              0,
+              '/Applications/rc_client.app/Contents/Resources/agent/rc-agent --config /Users/test/Library/Application Support/com.aistudio.rcClient/managed-agent/config.json run',
+              '',
+            );
+          }
+          return ProcessResult(0, 1, '', '');
+        }
+        return ProcessResult(0, 1, '', '');
+      },
+      pidKiller: (pid, signal) {
+        killed.add(pid);
+        return true;
+      },
+    );
+
+    final status = await supervisor.getStatus(
+      serverUrl: 'ws://localhost:8888',
+      token: 'token',
+      deviceId: 'dev-1',
+    );
+
+    expect(status.online, isTrue);
+    expect(status.managedByDesktop, isFalse);
+    expect(killed, isEmpty);
   });
 
   test(
@@ -236,6 +363,7 @@ void main() {
     var started = false;
     final killed = <ProcessSignal>[];
     final supervisor = DesktopAgentSupervisor(
+      homeDirectory: '/Users/test',
       runtimeService: _FakeRuntimeDeviceService([
         const [
           RuntimeDevice(
@@ -286,7 +414,12 @@ void main() {
         if (executable == 'pgrep') {
           return ProcessResult(0, 1, '', '');
         }
-        return ProcessResult(0, 0, 'python3 -m app.cli run', '');
+        return ProcessResult(
+          0,
+          0,
+          'python3 -m app.cli --config /Users/test/Library/Application Support/com.aistudio.rcClient/managed-agent/config.json run',
+          '',
+        );
       },
       pidKiller: (pid, signal) {
         killed.add(signal);
@@ -309,6 +442,7 @@ void main() {
   test('stopManagedAgent only affects managed agent ownership', () async {
     final killed = <int>[];
     final supervisor = DesktopAgentSupervisor(
+      homeDirectory: '/Users/test',
       runtimeService: _FakeRuntimeDeviceService([
         const [
           RuntimeDevice(
@@ -358,7 +492,12 @@ void main() {
         if (executable == 'pgrep') {
           return ProcessResult(0, 1, '', '');
         }
-        return ProcessResult(0, 0, 'python3 -m app.cli run', '');
+        return ProcessResult(
+          0,
+          0,
+          'python3 -m app.cli --config /Users/test/Library/Application Support/com.aistudio.rcClient/managed-agent/config.json run',
+          '',
+        );
       },
       pidKiller: (pid, signal) {
         killed.add(pid);
@@ -386,6 +525,7 @@ void main() {
 
   test('handleDesktopExit keeps external agent running', () async {
     final supervisor = DesktopAgentSupervisor(
+      homeDirectory: '/Users/test',
       runtimeService: _FakeRuntimeDeviceService([
         const [
           RuntimeDevice(
@@ -398,6 +538,12 @@ void main() {
           ),
         ],
       ]),
+      processRunner: (executable, arguments) async {
+        if (executable == 'pgrep') {
+          return ProcessResult(0, 1, '', '');
+        }
+        return ProcessResult(0, 1, '', '');
+      },
     );
 
     final stopped = await supervisor.handleDesktopExit(
@@ -485,6 +631,7 @@ void main() {
     );
 
     final supervisor = DesktopAgentSupervisor(
+      homeDirectory: '/Users/test',
       runtimeService: _FakeRuntimeDeviceService([
         const [
           RuntimeDevice(
@@ -511,7 +658,12 @@ void main() {
         if (executable == 'pgrep') {
           return ProcessResult(0, 0, '12345\n', '');
         }
-        return ProcessResult(0, 0, 'python3 -m app.cli run', '');
+        return ProcessResult(
+          0,
+          0,
+          'python3 -m app.cli --config /Users/test/Library/Application Support/com.aistudio.rcClient/managed-agent/config.json run',
+          '',
+        );
       },
       pidKiller: (pid, signal) {
         killed.add(pid);
@@ -548,6 +700,7 @@ void main() {
     );
 
     final supervisor = DesktopAgentSupervisor(
+      homeDirectory: '/Users/test',
       runtimeService: _FakeRuntimeDeviceService([
         const [
           RuntimeDevice(
@@ -574,7 +727,12 @@ void main() {
         if (executable == 'pgrep') {
           return ProcessResult(0, 0, '12345\n', '');
         }
-        return ProcessResult(0, 0, 'python3 -m app.cli run', '');
+        return ProcessResult(
+          0,
+          0,
+          'python3 -m app.cli --config /Users/test/Library/Application Support/com.aistudio.rcClient/managed-agent/config.json run',
+          '',
+        );
       },
       pidKiller: (pid, signal) {
         killed.add(pid);
@@ -593,6 +751,119 @@ void main() {
     expect(stopped, isTrue);
     // HTTP 失败后应回退到 SIGTERM
     expect(killed, contains(12345));
+  });
+
+  test('stopManagedAgent does not kill saved pid owned by external config',
+      () async {
+    SharedPreferences.setMockInitialValues({
+      'rc_managed_agent_pid': 12345,
+    });
+
+    final killed = <int>[];
+    final supervisor = DesktopAgentSupervisor(
+      homeDirectory: '/Users/test',
+      runtimeService: _FakeRuntimeDeviceService([
+        const [
+          RuntimeDevice(
+            deviceId: 'dev-1',
+            name: 'mac-phone',
+            owner: 'user',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 1,
+          ),
+        ],
+      ]),
+      processRunner: (executable, arguments) async {
+        if (executable == 'ps') {
+          return ProcessResult(
+            0,
+            0,
+            '/opt/rc-agent --config /tmp/external/config.json run',
+            '',
+          );
+        }
+        if (executable == 'pgrep') {
+          return ProcessResult(0, 1, '', '');
+        }
+        return ProcessResult(0, 1, '', '');
+      },
+      pidKiller: (pid, signal) {
+        killed.add(pid);
+        return true;
+      },
+      httpClient: _FakeHttpClient(discoverResult: null),
+    );
+
+    final stopped = await supervisor.stopManagedAgent(
+      serverUrl: 'ws://localhost:8888',
+      token: 'token',
+      deviceId: 'dev-1',
+      timeout: const Duration(milliseconds: 100),
+    );
+
+    expect(stopped, isTrue);
+    expect(killed, isEmpty);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getInt('rc_managed_agent_pid'), isNull);
+  });
+
+  test(
+      'stopManagedAgent cleans orphaned managed agents when saved pid is missing',
+      () async {
+    final killed = <int>[];
+    final supervisor = DesktopAgentSupervisor(
+      homeDirectory: '/Users/test',
+      runtimeService: _FakeRuntimeDeviceService(const []),
+      processRunner: (executable, arguments) async {
+        if (executable == 'pgrep') {
+          final pattern = arguments.length > 1 ? arguments[1] : '';
+          if (pattern == 'rc-agent') {
+            return ProcessResult(0, 0, '111\n222\n', '');
+          }
+          return ProcessResult(0, 1, '', '');
+        }
+        if (executable == 'ps') {
+          final pid = int.tryParse(arguments[1]) ?? 0;
+          if (killed.contains(pid)) {
+            return ProcessResult(1, 1, '', '');
+          }
+          if (pid == 111) {
+            return ProcessResult(
+              0,
+              0,
+              '/Applications/rc_client.app/Contents/Resources/agent/rc-agent --config /Users/test/Library/Application Support/com.aistudio.rcClient/managed-agent/config.json run',
+              '',
+            );
+          }
+          if (pid == 222) {
+            return ProcessResult(
+              0,
+              0,
+              '/opt/rc-agent --config /tmp/external/config.json run',
+              '',
+            );
+          }
+        }
+        return ProcessResult(0, 1, '', '');
+      },
+      pidKiller: (pid, signal) {
+        killed.add(pid);
+        return true;
+      },
+      httpClient: _FakeHttpClient(discoverResult: null),
+    );
+
+    final stopped = await supervisor.stopManagedAgent(
+      serverUrl: 'ws://localhost:8888',
+      token: 'token',
+      deviceId: 'dev-1',
+      timeout: const Duration(milliseconds: 100),
+    );
+
+    expect(stopped, isTrue);
+    expect(killed, contains(111));
+    expect(killed, isNot(contains(222)));
   });
 
   group('syncAndEnsureOnline', () {
@@ -918,9 +1189,7 @@ void main() {
   });
 
   group('bundled agent discovery', () {
-    test(
-        '_isProcessRunning 对 rc-agent 进程返回 true（对旧 app.cli 也兼容）',
-        () async {
+    test('_isProcessRunning 对 rc-agent 进程返回 true（对旧 app.cli 也兼容）', () async {
       SharedPreferences.setMockInitialValues({'rc_managed_agent_pid': 55555});
 
       // 测试 rc-agent 命令行
@@ -979,8 +1248,7 @@ void main() {
       expect(result, isTrue);
 
       // 测试 app.cli 命令行兼容性
-      SharedPreferences.setMockInitialValues(
-          {'rc_managed_agent_pid': 55556});
+      SharedPreferences.setMockInitialValues({'rc_managed_agent_pid': 55556});
       final supervisorCli = DesktopAgentSupervisor(
         runtimeService: _FakeRuntimeDeviceService([
           const [
@@ -1136,8 +1404,7 @@ void main() {
       expect(result, isFalse);
     });
 
-    test('discoverAgentWorkdir 使用 preferredWorkdir 回退到 python3 模式',
-        () async {
+    test('discoverAgentWorkdir 使用 preferredWorkdir 回退到 python3 模式', () async {
       // preferredWorkdir 不存在时，仍可能从当前工作目录找到 agent
       // 验证行为：如果 preferredWorkdir 无效，会回退搜索其他路径
       final supervisor = DesktopAgentSupervisor();
@@ -1151,15 +1418,12 @@ void main() {
   });
 
   group('bundled agent startup with workdir', () {
-    test(
-        '启动命令从 python3 -m app.cli 切换为 bundled agent 时使用正确参数',
-        () async {
+    test('启动命令从 python3 -m app.cli 切换为 bundled agent 时使用正确参数', () async {
       // 使用 preferredWorkdir 指向一个包含 rc-agent 二进制的临时目录
       final tempDir = Directory.systemTemp.createTempSync('f108_bundled_test_');
       try {
         // 创建 rc-agent 文件（模拟 bundled agent 目录）
-        final rcAgentFile = File(
-            '${tempDir.path}/rc-agent');
+        final rcAgentFile = File('${tempDir.path}/rc-agent');
         await rcAgentFile.writeAsString('#!/bin/bash\necho bundled');
         // 设置可执行权限
         await Process.run('chmod', ['+x', rcAgentFile.path]);
@@ -1235,9 +1499,7 @@ void main() {
       }
     });
 
-    test(
-        'bundled agent 启动命令正确传递 --config 参数',
-        () async {
+    test('bundled agent 启动命令正确传递 --config 参数', () async {
       final tempDir = Directory.systemTemp.createTempSync('f108_config_test_');
       try {
         final rcAgentFile = File('${tempDir.path}/rc-agent');
@@ -1308,9 +1570,7 @@ void main() {
       }
     });
 
-    test(
-        'python3 源码模式回退正确工作（无 bundled agent 时）',
-        () async {
+    test('python3 源码模式回退正确工作（无 bundled agent 时）', () async {
       // 使用一个只有 app/cli.py 的临时目录（无 rc-agent）
       final tempDir = Directory.systemTemp.createTempSync('f108_source_test_');
       try {
@@ -1387,7 +1647,8 @@ void main() {
 
     test('bundled agent 优先于 python3 源码模式', () async {
       // 目录同时包含 rc-agent 和 app/cli.py
-      final tempDir = Directory.systemTemp.createTempSync('f108_priority_test_');
+      final tempDir =
+          Directory.systemTemp.createTempSync('f108_priority_test_');
       try {
         final rcAgentFile = File('${tempDir.path}/rc-agent');
         await rcAgentFile.writeAsString('#!/bin/bash\necho bundled');
@@ -1502,16 +1763,14 @@ void main() {
             // ps -p {pid} -o command= 验证
             final pid = int.tryParse(arguments[1]) ?? 0;
             if (pid == 1111) {
-              return ProcessResult(0, 0,
-                  '/path/to/rc-agent --config /foo/config.json run', '');
+              return ProcessResult(
+                  0, 0, '/path/to/rc-agent --config /foo/config.json run', '');
             }
             if (pid == 2222) {
-              return ProcessResult(
-                  0, 0, '/path/to/rc-agent status', '');
+              return ProcessResult(0, 0, '/path/to/rc-agent status', '');
             }
             if (pid == 3333) {
-              return ProcessResult(
-                  0, 0, 'python3 -m app.cli run', '');
+              return ProcessResult(0, 0, 'python3 -m app.cli run', '');
             }
             return ProcessResult(0, 1, '', '');
           }
@@ -1544,6 +1803,75 @@ void main() {
       expect(result, isTrue);
     });
 
+    test('启动前收敛同一 managed config 的重复 agent', () async {
+      final killed = <int>[];
+      final supervisor = DesktopAgentSupervisor(
+        homeDirectory: '/Users/test',
+        runtimeService: _FakeRuntimeDeviceService([
+          const [
+            RuntimeDevice(
+              deviceId: 'dev-1',
+              name: 'mac-phone',
+              owner: 'user',
+              agentOnline: false,
+              maxTerminals: 3,
+              activeTerminals: 0,
+            ),
+          ],
+          const [
+            RuntimeDevice(
+              deviceId: 'dev-1',
+              name: 'mac-phone',
+              owner: 'user',
+              agentOnline: true,
+              maxTerminals: 3,
+              activeTerminals: 0,
+            ),
+          ],
+        ]),
+        processRunner: (executable, arguments) async {
+          if (executable == 'pgrep') {
+            final pattern = arguments.length > 1 ? arguments[1] : '';
+            if (pattern == 'rc-agent') {
+              return ProcessResult(0, 0, '222\n111\n', '');
+            }
+            return ProcessResult(0, 1, '', '');
+          }
+          if (executable == 'ps') {
+            final pid = int.tryParse(arguments[1]) ?? 0;
+            if (killed.contains(pid)) {
+              return ProcessResult(1, 1, '', '');
+            }
+            if (pid == 111 || pid == 222) {
+              return ProcessResult(
+                0,
+                0,
+                '/Applications/rc_client.app/Contents/Resources/agent/rc-agent --config /Users/test/Library/Application Support/com.aistudio.rcClient/managed-agent/config.json run',
+                '',
+              );
+            }
+            return ProcessResult(0, 1, '', '');
+          }
+          return ProcessResult(0, 1, '', '');
+        },
+        pidKiller: (pid, signal) {
+          killed.add(pid);
+          return true;
+        },
+      );
+
+      final result = await supervisor.ensureAgentOnline(
+        serverUrl: 'ws://localhost:8888',
+        token: 'token',
+        deviceId: 'dev-1',
+        timeout: const Duration(milliseconds: 100),
+      );
+
+      expect(result, isTrue);
+      expect(killed, contains(222));
+      expect(killed, isNot(contains(111)));
+    });
+
     test('rc-agent status/login 等瞬态命令不阻塞启动', () async {
       SharedPreferences.setMockInitialValues({'rc_managed_agent_pid': 55557});
 
@@ -1574,8 +1902,7 @@ void main() {
         processRunner: (executable, arguments) async {
           if (executable == 'ps') {
             // PID 存在但命令行是 rc-agent status（瞬态命令，不是 run）
-            return ProcessResult(
-                0, 0, '/path/to/rc-agent status', '');
+            return ProcessResult(0, 0, '/path/to/rc-agent status', '');
           }
           if (executable == 'pgrep') {
             // 粗粒度 pgrep 会匹配到 rc-agent，但 ps 验证后会被过滤
@@ -1718,6 +2045,12 @@ void main() {
             'python3 -m app.cli --config /foo/config.json run'),
         isTrue,
       );
+      expect(
+        DesktopAgentSupervisor.isAgentRunCommand(
+          '/Library/Frameworks/Python.framework/Versions/3.13/Resources/Python.app/Contents/MacOS/Python -m app.cli --config /foo/config.json run',
+        ),
+        isTrue,
+      );
     });
 
     test('rc-agent login/status/configure 不匹配', () {
@@ -1730,8 +2063,7 @@ void main() {
         isFalse,
       );
       expect(
-        DesktopAgentSupervisor.isAgentRunCommand(
-            '/path/to/rc-agent configure'),
+        DesktopAgentSupervisor.isAgentRunCommand('/path/to/rc-agent configure'),
         isFalse,
       );
       expect(
@@ -1742,13 +2074,11 @@ void main() {
 
     test('python3 -m app.cli login/status/configure 不匹配', () {
       expect(
-        DesktopAgentSupervisor.isAgentRunCommand(
-            'python3 -m app.cli status'),
+        DesktopAgentSupervisor.isAgentRunCommand('python3 -m app.cli status'),
         isFalse,
       );
       expect(
-        DesktopAgentSupervisor.isAgentRunCommand(
-            'python3 -m app.cli login'),
+        DesktopAgentSupervisor.isAgentRunCommand('python3 -m app.cli login'),
         isFalse,
       );
       expect(
@@ -1786,8 +2116,7 @@ void main() {
         final resourcesAgentDir = Directory(
             '${tempAppDir.path}/TestApp.app/Contents/Resources/agent');
         await resourcesAgentDir.create(recursive: true);
-        final rcAgentFile =
-            File('${resourcesAgentDir.path}/rc-agent');
+        final rcAgentFile = File('${resourcesAgentDir.path}/rc-agent');
         await rcAgentFile.writeAsString('#!/bin/bash\necho bundled');
         await Process.run('chmod', ['+x', rcAgentFile.path]);
 
@@ -1820,16 +2149,14 @@ void main() {
         await resourcesAgentDir.create(recursive: true);
 
         // 验证目录存在但不包含 rc-agent → 不被识别为 bundled agent
-        final rcAgentFile = File(
-            '${resourcesAgentDir.path}/rc-agent');
+        final rcAgentFile = File('${resourcesAgentDir.path}/rc-agent');
         expect(rcAgentFile.existsSync(), isFalse);
       } finally {
         tempAppDir.deleteSync(recursive: true);
       }
     });
 
-    test(
-        '_looksLikeBundledAgent returns false when rc-agent is a directory',
+    test('_looksLikeBundledAgent returns false when rc-agent is a directory',
         () async {
       final tempAppDir =
           Directory.systemTemp.createTempSync('f108_app_bundle_dir_');
@@ -1844,8 +2171,7 @@ void main() {
         // 验证 rc-agent 路径是目录 → 不应识别为 bundled agent
         final rcAgentEntry =
             FileSystemEntity.typeSync('${resourcesAgentDir.path}/rc-agent');
-        expect(
-            rcAgentEntry, equals(FileSystemEntityType.directory));
+        expect(rcAgentEntry, equals(FileSystemEntityType.directory));
         // 目录不应等于 file 类型
         expect(rcAgentEntry, isNot(equals(FileSystemEntityType.file)));
       } finally {
@@ -1855,8 +2181,7 @@ void main() {
   });
 
   group('_listLocalAgentPids filters out non-daemon processes', () {
-    test('pgrep 找到 rc-agent 但 ps 验证发现只有 status 命令 → 不阻塞启动',
-        () async {
+    test('pgrep 找到 rc-agent 但 ps 验证发现只有 status 命令 → 不阻塞启动', () async {
       var processStarted = false;
       final supervisor = DesktopAgentSupervisor(
         runtimeService: _FakeRuntimeDeviceService([
@@ -1927,9 +2252,7 @@ void main() {
       expect(processStarted, isTrue);
     });
 
-    test(
-        'pgrep 找到 app.cli 但 ps 验证发现只有 login 命令 → 不阻塞启动',
-        () async {
+    test('pgrep 找到 app.cli 但 ps 验证发现只有 login 命令 → 不阻塞启动', () async {
       var processStarted = false;
       final supervisor = DesktopAgentSupervisor(
         runtimeService: _FakeRuntimeDeviceService([
