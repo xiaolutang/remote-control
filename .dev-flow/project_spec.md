@@ -1,42 +1,33 @@
 # Remote Control 项目规格
 
-## 当前范围：R063 对话 Agent 定时任务能力
+## 当前范围：R065 侧边栏浮层化
 
-让 AI 对话 Agent 支持定时任务场景：用户通过自然语言描述定时意图 → Agent 识别并返回带调度信息的命令结果 → 用户确认 → 创建定时任务。Agent 还能查询和取消已有定时任务。
+桌面端 TerminalSidebar hover 展开时挤压右侧终端，导致 xterm 内容重排/滚动。
 
 ### 背景
 
-R062 已完成终端定时任务基础设施（REST API + 调度器 + 客户端 UI）。本轮复用这些基础设施，将其接入对话 Agent 的工具链。
+当前 `TerminalWorkspaceScreen` 使用 Row 布局：`[Sidebar(48→160px)] [Expanded(Terminal)]`。Sidebar hover 展开时宽度从 48px 变为 160px，右侧终端区域随之收窄 112px，触发 xterm 重排。
 
-### 范围（2 个 Phase，4 个任务）
+### 修复方案
 
-- **Phase 1** — 服务端（S001-B001）：AgentResult 扩展调度字段 + 新增 list/cancel 工具 + System Prompt 更新
-- **Phase 2** — 客户端（F001-F002）：事件模型扩展 + 定时确认 UI
+将桌面端布局改为 Stack：终端区域用 `Padding(left: 48)` 固定起始位置，Sidebar 浮在 Stack 上层。展开时终端宽度不变。
+
+### 范围（1 Phase，1 任务）
+
+- **Phase 1** — 客户端布局改造（F001）：Row → Stack
 
 ### 产品定义
 
 | 维度 | 决策 |
 |------|------|
-| 入口 | 用户对 Agent 说"每天凌晨3点拉代码" → Agent 自动识别 |
-| 确认 | Agent 返回带 schedule_at 的 command → 用户点确认 |
-| 查询 | Agent 可查询当前终端的定时任务列表 |
-| 取消 | Agent 可取消指定 task_id 的定时任务 |
-| 复用 | 复用 R062 的 ScheduledTaskStore 和 ScheduledTaskService |
+| 收起态 | Sidebar 48px 占位，终端从 48px 开始 |
+| 展开态 | Sidebar 160px 浮层，覆盖终端左侧 112px |
+| 终端宽度 | 始终 = 窗口宽度 - 48px（不随 hover 变化） |
+| 动画 | 200ms AnimatedContainer，行为不变 |
+| 移动端 | 不受影响（无 Sidebar） |
 
-### 用户路径
+### 目标平台
 
-1. 用户在 Agent 面板说"明天早上8点运行部署脚本"
-2. Agent 识别定时意图，使用 deliver_result 返回 command + schedule_at
-3. 客户端展示"定时任务确认"卡片（时间 + 命令 + 确认按钮）
-4. 用户点击确认 → 调 ScheduledTaskService.create() → SnackBar 提示成功
-5. 用户后续可问 Agent "我有哪些定时任务" → Agent 调 list_scheduled_tasks 查询
-
-### 依赖
-
-- R062 定时任务基础设施（已完成归档）
-
-## 目标平台
-
-- Server: Docker (Linux x86_64)
-- Client: macOS arm64 + Android
+- Server: 不改动
+- Client: macOS arm64（桌面端）
 - Agent: 不改动

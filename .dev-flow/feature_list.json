@@ -3,6 +3,22 @@
   "project": "remote-control",
   "updated_at": "2026-05-15T00:00:00+08:00",
   "status": "active",
+  "workflow": {
+    "name": "R065",
+    "mode": "A",
+    "runtime": "skill_orchestrated",
+    "review_provider": "local",
+    "audit_provider": "local",
+    "risk_provider": "local",
+    "stop_hook_enabled": false
+  },
+  "active_requirement_cycle": {
+    "id": "R065",
+    "name": "sidebar-overlay-layout",
+    "branch": "feat/R065-sidebar-overlay-layout",
+    "status": "ready",
+    "total_tasks": 1
+  },
   "archived_requirement_cycles": [
     {"id":"R047","name":"agent-conversation-interaction-optimization","status":"completed","archive_dir":"_archive/R047_agent-conversation-interaction-optimization","total_tasks":31},
     {"id":"R048","name":"architecture-deep-cleanup","status":"completed","archive_dir":"_archive/R048_architecture-deep-cleanup","total_tasks":20},
@@ -23,6 +39,33 @@
     {"id":"R064","name":"desktop-cleanup-agent-aware","status":"completed","archive_dir":"_archive/R064_desktop-cleanup-agent-aware","total_tasks":2,"completed_at":"2026-05-15"}
   ],
   "archived_phases": [],
-  "features": [],
-  "summary": { "total": 0, "completed": 0, "pending": 0, "blocked": 0 }
+  "features": [
+    {
+      "id": "F001",
+      "phase": 1,
+      "module": "client",
+      "name": "侧边栏浮层化改造",
+      "description": "TerminalSidebar hover 展开时不再挤压右侧终端内容。将工作区布局从 Row 改为 Stack：终端区域使用 Positioned.fill + Padding(left: 48) 固定宽度（注意 _buildBody 内含 Expanded，不能直接放入 Stack，需 Positioned.fill 包裹），Sidebar 浮在 Stack 上层（AnimatedContainer 48→160px 动画不变）。消除 hover 展开时终端宽度变化导致的 xterm 内容重排。",
+      "verification": "F1",
+      "depends_on": [],
+      "status": "pending",
+      "acceptance_criteria": [
+        "桌面端工作区布局从 Row 改为 Stack：底层 Positioned.fill + Padding(left: 48) + 终端内容，上层 TerminalSidebar",
+        "收起态（48px）：Sidebar 不遮挡终端（Sidebar 在左 48px，终端从 48px 开始），视觉与改动前一致",
+        "展开态（160px）：Sidebar 浮层覆盖终端左侧 112px，终端宽度不变、无内容重排",
+        "hover 进入 Sidebar 触发展开动画，鼠标离开触发收起动画，行为与改动前一致",
+        "Sidebar 展开时背景不透明（已有 colorScheme.surface），遮挡下层终端内容",
+        "移动端布局不受影响（isDesktopPlatform=false 时仍走原逻辑）",
+        "窗口 resize 时终端区域正确自适应，终端宽度 = 窗口宽度 - 48px",
+        "点击 Sidebar 终端项切换到对应终端，xterm 内容正确显示",
+        "点击 + 按钮创建新终端并自动选中",
+        "右键点击 Sidebar 终端项弹出上下文菜单"
+      ],
+      "risk_tags": [],
+      "files": [
+        "client/lib/screens/desktop/terminal_workspace_screen.dart"
+      ]
+    }
+  ],
+  "summary": { "total": 1, "completed": 0, "pending": 1, "blocked": 0 }
 }
