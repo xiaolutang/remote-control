@@ -406,6 +406,7 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
                     Expanded(
                       child: controller.isDesktopPlatform
                           ? Stack(
+                              clipBehavior: Clip.none,
                               children: [
                                 // 底层：终端内容，左留 48px 给收起态 sidebar
                                 Positioned.fill(
