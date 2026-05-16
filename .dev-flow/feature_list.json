@@ -1,8 +1,8 @@
 {
   "version": "1.4",
   "project": "remote-control",
-  "updated_at": "2026-05-15T21:00:00.000000",
-  "status": "planning",
+  "updated_at": "2026-05-16T23:55:00.000000",
+  "status": "active",
   "archived_requirement_cycles": [
     {
       "id": "R047",
@@ -149,161 +149,42 @@
       "archive_dir": "_archive/R067_auth-dialog-reentry-fix",
       "total_tasks": 2,
       "completed_at": "2026-05-15"
+    },
+    {
+      "id": "R068",
+      "name": "per-user-terminal-limit-and-terminal-switch-focus",
+      "status": "completed",
+      "archive_dir": "_archive/R068_per-user-terminal-limit",
+      "total_tasks": 4,
+      "completed_at": "2026-05-15"
+    },
+    {
+      "id": "R069",
+      "name": "xlfoundry-phase2-architecture",
+      "status": "completed",
+      "archive_dir": "_archive/R069_xlfoundry-phase2-architecture",
+      "total_tasks": 12,
+      "completed_at": "2026-05-16"
     }
   ],
   "archived_phases": [],
-  "active_requirement_cycle": {
-    "id": "R068",
-    "name": "per-user-terminal-limit-and-terminal-switch-focus",
-    "branch": "feat/R068-per-user-terminal-limit",
-    "status": "completed"
-  },
-  "workflow": {
-    "name": "per-user-terminal-limit-and-terminal-switch-focus",
-    "mode": "B",
-    "runtime": "skill_orchestrated",
-    "review_provider": "codex_plugin",
-    "audit_provider": "codex_plugin",
-    "risk_provider": "codex_plugin"
+  "active_requirement_cycle": null,
+  "workflow": {},
+  "execution_context": {
+    "tracking_repo": "remote-control",
+    "tracking_path": ".dev-flow/feature_list.json",
+    "target_repo": "/Users/tangxiaolu/project/ai_rules",
+    "target_path": "rules/xlfoundry-*/",
+    "branch_strategy": "tracking_repo 跟踪进度，实际代码变更在 ai_rules 仓库"
   },
   "summary": {
-    "total_tasks": 4,
+    "total_tasks": 12,
     "by_status": {
-      "completed": 4
+      "pending": 12
     },
     "by_priority": {
-      "P0": 4
+      "P0": 12
     }
   },
-  "features": [
-    {
-      "id": "B068-001",
-      "phase": 1,
-      "module": "server-store",
-      "name": "Schema + UserStore 扩展",
-      "description": "users 表加 max_terminals 列（DEFAULT 10），UserStore 加 get_user_max_terminals，DEFAULT_MAX_TERMINALS 环境变量默认值从 3 改为 10",
-      "verification": "L1",
-      "depends_on": [],
-      "status": "completed",
-      "priority": "P0",
-      "acceptance_criteria": [
-        "ALTER TABLE 迁移语句写入 MIGRATION_STATEMENTS",
-        "get_user_max_terminals(username) 返回用户 max_terminals，用户不存在时返回 DEFAULT_MAX_TERMINALS",
-        "database.py 添加 get_user_max_terminals 模块级便捷函数",
-        "DEFAULT_MAX_TERMINALS 环境变量默认值为 10",
-        "现有测试全部通过"
-      ],
-      "started_at": "2026-05-15T21:05:00.000000",
-      "completed_at": "2026-05-15T21:08:00.000000",
-      "commit": "40b5ef6",
-      "summary": "Schema + UserStore 扩展完成：DEFAULT_MAX_TERMINALS 3→10，users 表加 max_terminals 列，新增 get_user_max_terminals 方法",
-      "risk_tags": ["config"],
-      "files": [
-        "server/app/store/_schema.py",
-        "server/app/store/user_store.py",
-        "server/app/store/database.py",
-        "server/app/store/session_types.py"
-      ],
-      "test_tasks": [
-        "test_get_user_max_terminals_returns_user_value",
-        "test_get_user_max_terminals_fallback_to_default_when_user_missing"
-      ]
-    },
-    {
-      "id": "B068-002",
-      "phase": 1,
-      "module": "server-store",
-      "name": "Session 创建注入用户配置",
-      "description": "create_session 查询 users.max_terminals，覆盖 device 默认值并标记 max_terminals_configured=True",
-      "verification": "L1",
-      "depends_on": ["B068-001"],
-      "status": "completed",
-      "started_at": "2026-05-15T21:08:00.000000",
-      "completed_at": "2026-05-15T21:12:00.000000",
-      "commit": "94f00ca",
-      "summary": "create_session 注入用户专属 max_terminals，API fallback 改为常量引用",
-      "risk_tags": ["config"],
-      "priority": "P0",
-      "acceptance_criteria": [
-        "create_session 时查询 users 表获取 owner 的 max_terminals",
-        "device.max_terminals 设为用户专属值",
-        "device.max_terminals_configured 设为 True",
-        "用户不存在时 fallback 到 DEFAULT_MAX_TERMINALS",
-        "SQLite 查询异常时 fallback 到 DEFAULT_MAX_TERMINALS 并记录 warning",
-        "normalize 不会重置 max_terminals_configured=True 的值",
-        "API 层硬编码 3 改为引用 DEFAULT_MAX_TERMINALS 常量（device_api.py、assistant_plan_helpers.py）",
-        "已存在 session（max_terminals_configured=False）normalize 时从 3 自动升级到 10"
-      ],
-      "risk_tags": ["config"],
-      "files": [
-        "server/app/store/session_crud.py",
-        "server/app/api/device_api.py",
-        "server/app/api/assistant_plan_helpers.py"
-      ],
-      "test_tasks": [
-        "test_create_session_uses_user_max_terminals",
-        "test_create_session_fallback_when_user_missing",
-        "test_create_session_fallback_on_db_exception",
-        "test_normalize_respects_configured_max_terminals",
-        "test_normalize_upgrades_old_session_from_3_to_10"
-      ]
-    },
-    {
-      "id": "B068-003",
-      "phase": 1,
-      "module": "server-store",
-      "name": "单元测试",
-      "description": "覆盖 B068-001 和 B068-002 的验收条件，包括正常、边界、异常场景",
-      "verification": "L1",
-      "depends_on": ["B068-002"],
-      "status": "completed",
-      "started_at": "2026-05-15T21:12:00.000000",
-      "completed_at": "2026-05-15T21:18:00.000000",
-      "commit": "e60baac",
-      "summary": "7 个新测试全部通过，覆盖正常/fallback/异常/normalize 升级场景",
-      "priority": "P0",
-      "acceptance_criteria": [
-        "所有 test_tasks 通过",
-        "现有测试无回归"
-      ],
-      "files": [
-        "server/tests/test_session.py",
-        "server/tests/test_user_store.py"
-      ]
-    },
-    {
-      "id": "F068-001",
-      "phase": 2,
-      "module": "client-desktop",
-      "name": "终端切换焦点修复",
-      "description": "IndexedStack 模式下切换终端后键盘焦点未转移到新终端，导致输入跑到旧终端。切换后主动 requestFocus 到新终端的 FocusNode",
-      "verification": "F2",
-      "depends_on": [],
-      "status": "completed",
-      "started_at": "2026-05-15T21:12:00.000000",
-      "completed_at": "2026-05-15T21:18:00.000000",
-      "commit": "1d1530e",
-      "summary": "TerminalScreenState 暴露 requestTerminalFocus()，workspace 用 GlobalKey + 切换检测实现焦点转移",
-      "priority": "P0",
-      "acceptance_criteria": [
-        "切换终端后键盘焦点立即转移到新终端（通过 requestFocus）",
-        "切换后立即输入不会跑到旧终端",
-        "新创建终端后焦点转移到新终端",
-        "关闭当前终端后焦点转移到相邻终端",
-        "点击终端区域仍可正常获取焦点（不破坏现有焦点逻辑）"
-      ],
-      "risk_tags": [],
-      "files": [
-        "client/lib/screens/desktop/terminal_workspace_screen.dart",
-        "client/lib/services/desktop/desktop_workspace_controller.dart",
-        "client/lib/screens/terminal_screen.dart"
-      ],
-      "fix_level": "L2",
-      "root_cause_analysis": "IndexedStack 保持所有子 TerminalView 同时挂载，切换终端时 selectTerminal() 只更新 _selectedTerminalId 和 UI index，未转移键盘焦点。旧终端的 FocusNode 仍持有焦点，xterm onOutput 回调将输入发到旧终端的 WebSocket 连接",
-      "test_tasks": [
-        "test_switch_terminal_transfers_focus",
-        "test_input_goes_to_correct_terminal_after_switch"
-      ]
-    }
-  ]
+  "features": []
 }
