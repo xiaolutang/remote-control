@@ -23,6 +23,7 @@ from app.store.session_normalize import (
     _validate_session_id,
 )
 from app.store.session_terminal import _get_session_raw, _save_session
+from app.store import database as _db
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,16 @@ async def create_session(
         "pty": {"rows": 24, "cols": 80},
         "device": _default_device_state(session_id),
     }
+
+    # 注入用户专属 max_terminals
+    owner_name = owner or user_id
+    if owner_name:
+        try:
+            user_max = await _db.get_user_max_terminals(owner_name)
+            session_data["device"]["max_terminals"] = user_max
+            session_data["device"]["max_terminals_configured"] = True
+        except Exception:
+            logger.warning("Failed to lookup max_terminals for %s, using default", owner_name)
 
     await redis.set(key, json.dumps(session_data), ex=SESSION_TTL_SECONDS)
 

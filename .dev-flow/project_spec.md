@@ -1,38 +1,40 @@
 # Remote Control 项目规格
 
-## 当前范围：R067 认证弹窗重入修复
-
-被踢/Token 过期后弹窗重复弹出，黑色闪烁，登录按钮无效。
+## 当前范围：R068 按用户终端上限 + 切换焦点修复
 
 ### 背景
 
-桌面端双实例场景：测试包登录后踢掉正式包，正式包弹窗闪烁，点击登录无效。
+1. 终端最大数量目前由全局环境变量 `DEFAULT_MAX_TERMINALS`（默认 3）控制，所有用户统一。需要支持按用户级别配置不同的终端上限。
+2. 桌面端 IndexedStack 模式下切换终端时键盘焦点未转移，导致输入跑到旧终端。
 
-根因（Claude Code + Codex 双重确认）：
-- `confirmDeviceKicked` / `confirmTokenExpired` 中 `clearAuthDialog()` 先于 `disconnectAll()` / `performSessionTeardown()` 调用
-- disconnect 触发 `_onStatusChanged`，`lastCloseCode` 仍为 4011/4001
-- `_authDialogShowing` 已清零，守卫失效 → `_onDeviceKicked()` 再次触发
-- `showDialog` 堆叠 → 多个 modal barrier 叠加 → 黑色闪烁
-- `Navigator.pushAndRemoveUntil` 被新弹窗打断 → 登录按钮无效
+### 需求
 
-### 修复方案
+- `users` 表新增 `max_terminals` 列，每用户独立配置
+- 创建 session 时从 `users.max_terminals` 读取用户专属值
+- 默认值从 3 改为 10
+- normalize 尊重用户配置不重置
 
-将 `clearAuthDialog()` 移到 `disconnectAll()` / `performSessionTeardown()` 之后，确保守卫在 teardown 期间始终有效。
+### 范围外（后续需求包）
 
-### 范围（1 Phase，2 任务）
+- 管理员 API 配置界面
+- 客户端配置展示
 
-- **Phase 1** — 客户端修复（F001 + F002）
+### 范围（2 Phase，4 任务）
+
+- **Phase 1** — Server Store 层（B068-001 + B068-002 + B068-003）
+- **Phase 2** — Client 桌面端焦点修复（F068-001）
 
 ### 产品定义
 
-| 维度 | 修复前 | 修复后 |
+| 维度 | 修改前 | 修改后 |
 |------|--------|--------|
-| 被踢弹窗 | 重复弹出 + 黑色闪烁 | 只弹一次 |
-| Token 过期弹窗 | 可能重复弹出 | 只弹一次 |
-| 确定按钮 | 无效（Navigator 被打断） | 正常跳转登录页 |
+| 默认终端上限 | 3（全局环境变量） | 10（用户级别） |
+| 配置粒度 | 全局统一 | 每用户独立 |
+| 管理方式 | 改环境变量 | 改 DB（后续加 API） |
+| 终端切换输入 | 切换后输入跑到旧终端 | 切换后焦点立即转移，输入正确 |
 
 ### 目标平台
 
-- Server: 不改动
-- Client: macOS（桌面端）+ iOS/Android（移动端）
+- Server: Store 层变更
+- Client: 不改动（数据来源自动跟随）
 - Agent: 不改动

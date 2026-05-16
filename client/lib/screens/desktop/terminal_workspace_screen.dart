@@ -106,6 +106,12 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
   bool _authDialogShowing = false;
   String? _pollerSessionId;
 
+  /// 每个终端对应的 GlobalKey，用于切换后请求焦点转移。
+  final Map<String, GlobalKey<TerminalScreenState>> _terminalKeys = {};
+
+  /// 上一帧选中的终端 ID，用于检测切换。
+  String? _prevSelectedTerminalId;
+
   @override
   DesktopWorkspaceController get workspaceController => _workspaceController;
 
@@ -147,6 +153,7 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
     _scheduledTaskPoller.dispose();
     unawaited(_workspaceController.handleViewDispose());
     _workspaceController.dispose();
+    _terminalKeys.clear();
     super.dispose();
   }
 
@@ -321,6 +328,18 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
             final terminals = allTerminals.where((t) => !t.isClosed).toList();
             final workspaceState = _workspaceController.state;
             final selectedTerminal = _workspaceController.selectedTerminal;
+
+            // F068: 切换终端后主动请求焦点转移到新终端
+            final currentTerminalId = selectedTerminal?.terminalId;
+            if (currentTerminalId != null &&
+                currentTerminalId != _prevSelectedTerminalId) {
+              _prevSelectedTerminalId = currentTerminalId;
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted) return;
+                final key = _terminalKeys[currentTerminalId];
+                key?.currentState?.requestTerminalFocus();
+              });
+            }
 
             return Scaffold(
               key: const Key('workspace-scaffold'),
@@ -666,9 +685,15 @@ class _TerminalWorkspaceViewState extends State<_TerminalWorkspaceView>
           terminal.terminalId,
           () => controller.buildTerminalService(terminal),
         );
+    // F068: 为每个终端维护 GlobalKey，用于切换后请求焦点
+    final key = _terminalKeys.putIfAbsent(
+      terminal.terminalId,
+      () => GlobalKey<TerminalScreenState>(),
+    );
     return ChangeNotifierProvider<WebSocketService>.value(
       value: service,
       child: TerminalScreen(
+        key: key,
         embedded: true,
         onScheduledTaskCreated: () => _scheduledTaskPoller.refresh(),
       ),

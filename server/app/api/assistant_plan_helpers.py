@@ -9,6 +9,7 @@ import logging
 
 from app.services.assistant_planner import _is_dangerous_command
 from app.store.session import get_redis
+from app.store.session_types import DEFAULT_MAX_TERMINALS
 
 logger = logging.getLogger(__name__)
 
@@ -257,7 +258,7 @@ async def _build_assistant_project_context(
             "name": device.get("name", ""),
             "platform": device.get("platform", ""),
             "hostname": device.get("hostname", ""),
-            "max_terminals": device.get("max_terminals", 3),
+            "max_terminals": device.get("max_terminals", DEFAULT_MAX_TERMINALS),
             "active_terminals": active_terminals,
         },
         "recent_terminals": [

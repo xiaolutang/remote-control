@@ -29,6 +29,7 @@ from .conversation_store import ConversationStoreMixin
 from .usage_store import UsageStoreMixin
 from .scheduled_task import ScheduledTaskStoreMixin
 from .project_alias_store import ProjectAliasStoreMixin
+from .session_types import DEFAULT_MAX_TERMINALS
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +136,12 @@ async def get_user_devices(username: str) -> List[Dict[str, Any]]:
 
 async def add_user_device(username: str, device_info: Dict[str, Any]) -> None:
     await _get_db().add_user_device(username, device_info)
+
+
+async def get_user_max_terminals(username: str) -> int:
+    """获取用户的 max_terminals，用户不存在时返回 DEFAULT_MAX_TERMINALS。"""
+    result = await _get_db().get_user_max_terminals(username)
+    return result if result is not None else DEFAULT_MAX_TERMINALS
 
 
 async def get_pinned_projects(username: str, device_id: str) -> List[Dict[str, Any]]:

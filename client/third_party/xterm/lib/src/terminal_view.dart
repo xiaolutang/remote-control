@@ -236,6 +236,7 @@ class TerminalViewState extends State<TerminalView> {
     Widget child = Scrollable(
       key: _scrollableKey,
       controller: _scrollController,
+      physics: const ClampingScrollPhysics(),
       viewportBuilder: (context, offset) {
         return _TerminalView(
           key: _viewportKey,
@@ -470,10 +471,30 @@ class TerminalViewState extends State<TerminalView> {
   }
 
   void _scrollToBottom() {
-    final position = _scrollableKey.currentState?.position;
-    if (position != null) {
-      position.jumpTo(position.maxScrollExtent);
+    void jumpToCursor() {
+      if (!mounted) {
+        return;
+      }
+      final position = _scrollableKey.currentState?.position;
+      final viewportContext = _viewportKey.currentContext;
+      if (position == null || viewportContext == null) {
+        return;
+      }
+      final renderObject = viewportContext.findRenderObject();
+      if (renderObject is! RenderTerminal) {
+        return;
+      }
+      final target = renderObject.scrollOffsetForCursor.clamp(
+        position.minScrollExtent,
+        position.maxScrollExtent,
+      );
+      if ((position.pixels - target).abs() > 0.5) {
+        position.jumpTo(target);
+      }
     }
+
+    jumpToCursor();
+    WidgetsBinding.instance.addPostFrameCallback((_) => jumpToCursor());
   }
 }
 

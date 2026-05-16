@@ -290,7 +290,8 @@ void main() {
   });
 
   group('Agent SSE interaction', () {
-    testWidgets('shows usage section with total and current tokens', (tester) async {
+    testWidgets('shows usage section with total and current tokens',
+        (tester) async {
       final controller = _AgentFakeController();
       final usageService = _FakeUsageSummaryService(
         onFetch: (_, __, ___) async => const UsageSummaryData(
@@ -343,17 +344,20 @@ void main() {
       expect(find.byKey(const Key('side-panel-usage-section')), findsOneWidget);
 
       // Initially collapsed
-      expect(find.byKey(const Key('side-panel-usage-total-label')), findsNothing);
+      expect(
+          find.byKey(const Key('side-panel-usage-total-label')), findsNothing);
 
       // Tap to expand
       await tester.tap(find.byKey(const Key('side-panel-usage-toggle')));
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('side-panel-usage-total-label')), findsOneWidget);
+      expect(find.byKey(const Key('side-panel-usage-total-label')),
+          findsOneWidget);
 
       // Tap to collapse
       await tester.tap(find.byKey(const Key('side-panel-usage-toggle')));
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('side-panel-usage-total-label')), findsNothing);
+      expect(
+          find.byKey(const Key('side-panel-usage-total-label')), findsNothing);
     });
 
     testWidgets('refreshes usage summary after agent result arrives',
@@ -445,7 +449,8 @@ void main() {
       // Error or summary should be present (no crash)
       final errorKey = find.byKey(const Key('side-panel-usage-error'));
       final summaryKey = find.byKey(const Key('side-panel-usage-summary'));
-      expect(errorKey.evaluate().isNotEmpty || summaryKey.evaluate().isNotEmpty, isTrue);
+      expect(errorKey.evaluate().isNotEmpty || summaryKey.evaluate().isNotEmpty,
+          isTrue);
     });
 
     testWidgets('exploring state shows trace expansion tile', (tester) async {
@@ -842,6 +847,50 @@ void main() {
       expect(find.text('Which project?'), findsOneWidget);
       expect(find.text('remote-control'), findsAtLeast(1));
       unawaited(streamController.close());
+    });
+
+    testWidgets('resumed lifecycle reloads conversation projection and stream',
+        (tester) async {
+      final controller = _AgentFakeController();
+      final streamControllers =
+          <StreamController<AgentConversationEventItem>>[];
+      final agentService = _FakeAgentSessionService(
+        events: const [],
+        onFetchConversation: (_, __) async => const AgentConversationProjection(
+          conversationId: 'conv-resume',
+          deviceId: 'device-1',
+          terminalId: 'term-1',
+          status: 'active',
+          nextEventIndex: 0,
+          activeSessionId: null,
+          events: [],
+        ),
+        onStreamConversation: (_) {
+          final controller = StreamController<AgentConversationEventItem>();
+          streamControllers.add(controller);
+          return controller.stream;
+        },
+      );
+
+      await tester.pumpWidget(_buildTestApp(
+        controller: controller,
+        agentSessionServiceBuilder: (_) => agentService,
+      ));
+      await tester.pumpAndSettle();
+
+      expect(agentService.fetchConversationCount, 1);
+      expect(agentService.streamConversationCount, 1);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(agentService.fetchConversationCount, 2);
+      expect(agentService.streamConversationCount, 2);
+
+      for (final controller in streamControllers) {
+        unawaited(controller.close());
+      }
     });
 
     testWidgets(
@@ -1913,7 +1962,8 @@ void main() {
             source: 'recommended',
             needConfirm: true,
             aliases: {},
-            responseType: AgentResponseType.command, // unknown falls back to command
+            responseType:
+                AgentResponseType.command, // unknown falls back to command
           ),
         ],
       );

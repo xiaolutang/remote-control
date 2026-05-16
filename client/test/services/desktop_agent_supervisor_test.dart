@@ -135,6 +135,92 @@ void main() {
     expect(status.managedByDesktop, isTrue);
   });
 
+  test('ensureAgentOnline starts macOS sleep inhibitor for managed agent',
+      () async {
+    var sleepInhibitorExecutable = '';
+    var sleepInhibitorArguments = <String>[];
+    final supervisor = DesktopAgentSupervisor(
+      homeDirectory: '/Users/test',
+      runtimeService: _FakeRuntimeDeviceService([
+        const [
+          RuntimeDevice(
+            deviceId: 'dev-1',
+            name: 'mac-phone',
+            owner: 'user',
+            agentOnline: false,
+            maxTerminals: 3,
+            activeTerminals: 0,
+          ),
+        ],
+        const [
+          RuntimeDevice(
+            deviceId: 'dev-1',
+            name: 'mac-phone',
+            owner: 'user',
+            agentOnline: true,
+            maxTerminals: 3,
+            activeTerminals: 0,
+          ),
+        ],
+      ]),
+      processStarter: (
+        String executable,
+        List<String> arguments, {
+        String? workingDirectory,
+        Map<String, String>? environment,
+        ProcessStartMode mode = ProcessStartMode.normal,
+      }) async {
+        return Process.start(
+          'sleep',
+          const ['1'],
+          mode: ProcessStartMode.detached,
+        );
+      },
+      sleepInhibitorStarter: (
+        String executable,
+        List<String> arguments, {
+        String? workingDirectory,
+        Map<String, String>? environment,
+        ProcessStartMode mode = ProcessStartMode.normal,
+      }) async {
+        sleepInhibitorExecutable = executable;
+        sleepInhibitorArguments = arguments;
+        return Process.start(
+          'sleep',
+          const ['1'],
+          mode: ProcessStartMode.detached,
+        );
+      },
+      processRunner: (executable, arguments) async {
+        if (executable == 'pgrep') {
+          return ProcessResult(0, 1, '', '');
+        }
+        return ProcessResult(
+          0,
+          0,
+          'python3 -m app.cli --config /Users/test/Library/Application Support/com.aistudio.rcClient/managed-agent/config.json run',
+          '',
+        );
+      },
+    );
+
+    final result = await supervisor.ensureAgentOnline(
+      serverUrl: 'ws://localhost:8888',
+      token: 'token',
+      deviceId: 'dev-1',
+      timeout: const Duration(seconds: 1),
+    );
+
+    expect(result, isTrue);
+    if (Platform.isMacOS) {
+      expect(sleepInhibitorExecutable, 'caffeinate');
+      expect(sleepInhibitorArguments, contains('-im'));
+      expect(sleepInhibitorArguments, contains('-w'));
+    } else {
+      expect(sleepInhibitorExecutable, isEmpty);
+    }
+  });
+
   test(
       'ensureAgentOnline does not start duplicate agent when device already online',
       () async {

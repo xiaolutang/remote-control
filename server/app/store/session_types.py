@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
 HISTORY_TTL_DAYS = int(os.getenv("HISTORY_TTL_DAYS", "7"))  # 历史记录保留天数
-DEFAULT_MAX_TERMINALS = int(os.getenv("DEFAULT_MAX_TERMINALS", "3"))
+DEFAULT_MAX_TERMINALS = int(os.getenv("DEFAULT_MAX_TERMINALS", "10"))
 MAX_TERMINAL_RECORDS = int(os.getenv("MAX_TERMINAL_RECORDS", "5"))
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", str(24 * 60 * 60)))  # session 默认 24h 过期
 

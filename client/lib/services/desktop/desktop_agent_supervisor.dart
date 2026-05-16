@@ -59,6 +59,7 @@ class DesktopAgentSupervisor {
   DesktopAgentSupervisor({
     RuntimeDeviceService? runtimeService,
     AgentProcessStarter? processStarter,
+    AgentProcessStarter? sleepInhibitorStarter,
     AgentProcessRunner? processRunner,
     AgentPidKiller? pidKiller,
     AgentProcessLister? processLister,
@@ -66,8 +67,12 @@ class DesktopAgentSupervisor {
     SecureStorageService? secureStorageService,
     DesktopTerminationSnapshotService? terminationSnapshotService,
     String? homeDirectory,
+    bool preventSleepWhileManagedAgentRuns = true,
   })  : _runtimeService = runtimeService,
         _processStarter = processStarter ?? Process.start,
+        _sleepInhibitorStarter = sleepInhibitorStarter ?? Process.start,
+        _processStarterIsDefault = processStarter == null,
+        _sleepInhibitorStarterIsDefault = sleepInhibitorStarter == null,
         _processRunner = processRunner ?? Process.run,
         _pidKiller = pidKiller ?? Process.killPid,
         _processLister = processLister,
@@ -75,10 +80,14 @@ class DesktopAgentSupervisor {
         _secureStorage = secureStorageService ?? SecureStorageService.instance,
         _terminationSnapshotService =
             terminationSnapshotService ?? DesktopTerminationSnapshotService(),
-        _homeDirectory = homeDirectory;
+        _homeDirectory = homeDirectory,
+        _preventSleepWhileManagedAgentRuns = preventSleepWhileManagedAgentRuns;
 
   final RuntimeDeviceService? _runtimeService;
   final AgentProcessStarter _processStarter;
+  final AgentProcessStarter _sleepInhibitorStarter;
+  final bool _processStarterIsDefault;
+  final bool _sleepInhibitorStarterIsDefault;
   final AgentProcessRunner _processRunner;
   final AgentPidKiller _pidKiller;
   final AgentProcessLister? _processLister;
@@ -86,8 +95,10 @@ class DesktopAgentSupervisor {
   final SecureStorageService _secureStorage;
   final DesktopTerminationSnapshotService _terminationSnapshotService;
   final String? _homeDirectory;
+  final bool _preventSleepWhileManagedAgentRuns;
   Future<bool>? _pendingEnsureFuture;
   String? _pendingEnsureKey;
+  int? _sleepInhibitorAttachedAgentPid;
   SharedPreferences? _prefs;
 
   Future<SharedPreferences> _ensurePrefs() async =>
@@ -175,6 +186,10 @@ class DesktopAgentSupervisor {
     );
     if (before?.agentOnline ?? false) {
       await _reconcileManagedAgentProcesses();
+      final managedPid = await _loadManagedAgentPid();
+      if (managedPid != null && await _isManagedProcessRunning(managedPid)) {
+        await _ensureSleepInhibitedForManagedAgent(managedPid);
+      }
       _logAgent.info('ensureAgentOnline device already online');
       return true;
     }
@@ -195,6 +210,7 @@ class DesktopAgentSupervisor {
           'ensureAgentOnline existing managed wait result=$recovered',
         );
         if (recovered) {
+          await _ensureSleepInhibitedForManagedAgent(managedPid);
           return true;
         }
         _logAgent.info(
@@ -225,6 +241,7 @@ class DesktopAgentSupervisor {
       );
       if (recovered && managedPid != null) {
         await _saveManagedAgentPid(managedPid);
+        await _ensureSleepInhibitedForManagedAgent(managedPid);
       }
       return recovered;
     }
@@ -313,6 +330,7 @@ class DesktopAgentSupervisor {
         );
       }
       await _saveManagedAgentPid(process.pid);
+      await _ensureSleepInhibitedForManagedAgent(process.pid);
       _logAgent.info('ensureAgentOnline started pid=${process.pid}');
       unawaited(_captureManagedRuntimeOutput(process));
     } catch (e) {
@@ -695,6 +713,39 @@ class DesktopAgentSupervisor {
     }
   }
 
+  Future<void> _ensureSleepInhibitedForManagedAgent(int agentPid) async {
+    if (!_preventSleepWhileManagedAgentRuns || !Platform.isMacOS) {
+      return;
+    }
+    if (_sleepInhibitorAttachedAgentPid == agentPid) {
+      return;
+    }
+    // Tests often inject a fake agent starter; do not launch a real
+    // caffeinate process unless production Process.start is in use or the
+    // test explicitly injects a sleep inhibitor starter.
+    if (!_processStarterIsDefault && _sleepInhibitorStarterIsDefault) {
+      return;
+    }
+    try {
+      final inhibitor = await _sleepInhibitorStarter(
+        'caffeinate',
+        <String>[
+          // Keep CPU/disk awake while allowing display sleep.
+          '-im',
+          '-w',
+          '$agentPid',
+        ],
+        mode: ProcessStartMode.detached,
+      );
+      _sleepInhibitorAttachedAgentPid = agentPid;
+      _logAgent.info(
+        'started sleep inhibitor pid=${inhibitor.pid} agentPid=$agentPid',
+      );
+    } catch (e) {
+      _logAgent.info('failed to start sleep inhibitor for pid=$agentPid: $e');
+    }
+  }
+
   Future<int?> _loadManagedAgentPid() async {
     return _terminationSnapshotService.loadManagedAgentPid();
   }
@@ -704,6 +755,7 @@ class DesktopAgentSupervisor {
   }
 
   Future<void> _clearManagedAgentPid() async {
+    _sleepInhibitorAttachedAgentPid = null;
     await _terminationSnapshotService.clearManagedAgentPid();
   }
 
@@ -889,6 +941,9 @@ class DesktopAgentSupervisor {
     int pid, {
     Duration gracePeriod = TimingConstants.agentGracePeriod,
   }) async {
+    if (_sleepInhibitorAttachedAgentPid == pid) {
+      _sleepInhibitorAttachedAgentPid = null;
+    }
     _pidKiller(pid, ProcessSignal.sigterm);
     final deadline = DateTime.now().add(gracePeriod);
     while (DateTime.now().isBefore(deadline)) {

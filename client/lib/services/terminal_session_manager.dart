@@ -21,6 +21,7 @@ class TerminalSessionManager extends ChangeNotifier
   final Map<String, _TerminalState> _terminals = {};
   final Map<String, _TerminalBinding> _terminalBindings = {};
   final Map<String, int> _bindingGenerations = {};
+  final Map<String, Future<void>> _networkRecoveryFutures = {};
 
   /// 暂停前已连接的 session keys，用于 resumeAll 时重连
   Set<String> _pausedKeys = {};
@@ -96,29 +97,37 @@ class TerminalSessionManager extends ChangeNotifier
 
   /// App 回到前台时调用：对暂停前已连接的 service 并行恢复。
   /// F076: 使用 recoverWithRetry 状态机而非直接 service.connect()。
-  /// 手动 disconnect 或 pause 后新增的 service 不受影响。
+  /// 同时兜底恢复非永久失败的断线 service：桌面睡眠/网络切换时
+  /// WebSocket 可能在没有 paused 生命周期事件的情况下耗尽自动重连，
+  /// 此时终端 buffer 仍存在但 transport 已不可写。
   /// 单个 service connect 失败不阻塞其他 service。
   Future<void> resumeAll() async {
-    final keysToResume = _pausedKeys;
+    final keysToResume = <String>{..._pausedKeys};
     _pausedKeys = {};
+    for (final entry in _sessions.entries) {
+      final service = entry.value;
+      if (_isRecoverableTerminalSession(entry.key, service)) {
+        keysToResume.add(entry.key);
+      }
+    }
     await Future.wait(
       keysToResume.map((key) async {
         final service = _sessions[key];
-        if (service != null && service.status != ConnectionStatus.connected) {
-          final state = _terminals[key];
-          if (state != null) {
-            // F076: 通过带重试的恢复路径
-            final parts = key.split('::');
-            await recoverWithRetry(
-              parts.isNotEmpty ? parts[0] : null,
-              parts.length > 1 ? parts.sublist(1).join('::') : key,
-            );
-          }
-          // 无 terminal state 的 service 不走恢复路径：
-          // 需要先 bindTerminalOutput 创建 terminal state 后才能恢复。
+        if (service != null && _isRecoverableTerminalSession(key, service)) {
+          await _recoverKeyWithRetry(key);
         }
+        // 无 terminal state 的 service 不走恢复路径：
+        // 需要先 bindTerminalOutput 创建 terminal state 后才能恢复。
       }),
     );
+  }
+
+  bool _isRecoverableTerminalSession(String key, WebSocketService service) {
+    if (service.status == ConnectionStatus.connected ||
+        service.isPermanentlyFailed) {
+      return false;
+    }
+    return _terminals.containsKey(key);
   }
 
   String _key(String? deviceId, String terminalId) =>
@@ -265,6 +274,7 @@ class TerminalSessionManager extends ChangeNotifier
     final binding = _terminalBindings.remove(key);
     _bindingGenerations.remove(key);
     _networkRetryCount.remove(key);
+    _networkRecoveryFutures.remove(key);
     if (binding != null) {
       unawaited(binding.cancel());
     }
@@ -398,8 +408,26 @@ class TerminalSessionManager extends ChangeNotifier
   static const Duration _networkRetryDelay = Duration(seconds: 2);
   final Map<String, int> _networkRetryCount = {};
 
-  Future<void> recoverWithRetry(String? deviceId, String terminalId) async {
-    final key = _key(deviceId, terminalId);
+  Future<void> recoverWithRetry(String? deviceId, String terminalId) {
+    return _recoverKeyWithRetry(_key(deviceId, terminalId));
+  }
+
+  Future<void> _recoverKeyWithRetry(String key) {
+    final existing = _networkRecoveryFutures[key];
+    if (existing != null) {
+      return existing;
+    }
+    final future = _recoverKeyWithRetryInternal(key);
+    _networkRecoveryFutures[key] = future;
+    future.whenComplete(() {
+      if (identical(_networkRecoveryFutures[key], future)) {
+        _networkRecoveryFutures.remove(key);
+      }
+    });
+    return future;
+  }
+
+  Future<void> _recoverKeyWithRetryInternal(String key) async {
     final state = _terminals[key];
     final service = _sessions[key];
     if (state == null || service == null) {
@@ -430,7 +458,7 @@ class TerminalSessionManager extends ChangeNotifier
           'recovery connect returned but not connected for $key',
         );
         await Future.delayed(_networkRetryDelay);
-        await recoverWithRetry(deviceId, terminalId);
+        await _recoverKeyWithRetryInternal(key);
       }
     } catch (e) {
       _log.error(
@@ -438,7 +466,7 @@ class TerminalSessionManager extends ChangeNotifier
       );
       // 延迟后重试
       await Future.delayed(_networkRetryDelay);
-      await recoverWithRetry(deviceId, terminalId);
+      await _recoverKeyWithRetryInternal(key);
     }
   }
 
@@ -467,6 +495,7 @@ class TerminalSessionManager extends ChangeNotifier
     }
     // F076: 清理恢复编排状态，防止 disposed manager 继续推进恢复
     _networkRetryCount.clear();
+    _networkRecoveryFutures.clear();
     for (final key in _terminals.keys.toList(growable: false)) {
       _disposeTerminalState(key);
     }
