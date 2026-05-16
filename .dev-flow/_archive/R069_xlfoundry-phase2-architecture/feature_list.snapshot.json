@@ -1,0 +1,672 @@
+{
+  "version": "1.4",
+  "project": "remote-control",
+  "updated_at": "2026-05-16T22:00:00.000000",
+  "status": "active",
+  "archived_requirement_cycles": [
+    {
+      "id": "R047",
+      "name": "agent-conversation-interaction-optimization",
+      "status": "completed",
+      "archive_dir": "_archive/R047_agent-conversation-interaction-optimization",
+      "total_tasks": 31
+    },
+    {
+      "id": "R048",
+      "name": "architecture-deep-cleanup",
+      "status": "completed",
+      "archive_dir": "_archive/R048_architecture-deep-cleanup",
+      "total_tasks": 20
+    },
+    {
+      "id": "R049",
+      "name": "brainstorm-bug-fixes",
+      "status": "completed",
+      "archive_dir": "_archive/R049_brainstorm-bug-fixes",
+      "total_tasks": 3
+    },
+    {
+      "id": "R050",
+      "name": "token-usage-optimization",
+      "status": "completed",
+      "archive_dir": "_archive/R050_token-usage-optimization",
+      "total_tasks": 3
+    },
+    {
+      "id": "R051",
+      "name": "eval-architecture-overhaul",
+      "status": "completed",
+      "archive_dir": "_archive/R051_eval-architecture-overhaul",
+      "total_tasks": 11
+    },
+    {
+      "id": "R052",
+      "name": "open-source-release",
+      "status": "completed",
+      "archive_dir": "_archive/R052_open-source-release",
+      "total_tasks": 5
+    },
+    {
+      "id": "R053",
+      "name": "desktop-agent-bundling",
+      "status": "completed",
+      "archive_dir": "_archive/R053_desktop-agent-bundling",
+      "total_tasks": 3
+    },
+    {
+      "id": "R054",
+      "name": "code-quality-consolidation",
+      "status": "completed",
+      "archive_dir": "_archive/R054_code-quality-consolidation",
+      "total_tasks": 11
+    },
+    {
+      "id": "R056",
+      "name": "auth-connection-optimize",
+      "status": "completed",
+      "archive_dir": "_archive/R056_auth-connection-optimize",
+      "total_tasks": 2
+    },
+    {
+      "id": "R057",
+      "name": "tech-debt-cleanup",
+      "status": "completed",
+      "archive_dir": "_archive/R057_tech-debt-cleanup",
+      "total_tasks": 23
+    },
+    {
+      "id": "R058",
+      "name": "code-optimization-perf",
+      "status": "completed",
+      "archive_dir": "_archive/R058_code-optimization-perf",
+      "total_tasks": 23
+    },
+    {
+      "id": "R059",
+      "name": "terminal-tab-bar-ux",
+      "status": "completed",
+      "archive_dir": "_archive/R059_terminal-tab-bar-ux",
+      "total_tasks": 10
+    },
+    {
+      "id": "R060",
+      "name": "terminal-navigation-redesign",
+      "status": "completed",
+      "archive_dir": "_archive/R060_terminal-navigation-redesign",
+      "total_tasks": 5
+    },
+    {
+      "id": "R061",
+      "name": "client-code-convergence",
+      "status": "completed",
+      "archive_dir": "_archive/R061_client-code-convergence",
+      "total_tasks": 16
+    },
+    {
+      "id": "R062",
+      "name": "scheduled-terminal-tasks",
+      "status": "completed",
+      "archive_dir": "_archive/R062_scheduled-terminal-tasks",
+      "total_tasks": 8,
+      "completed_at": "2026-05-13"
+    },
+    {
+      "id": "R063",
+      "name": "agent-scheduled-tasks",
+      "status": "completed",
+      "archive_dir": "_archive/R063_agent-scheduled-tasks",
+      "total_tasks": 4,
+      "completed_at": "2026-05-14"
+    },
+    {
+      "id": "R064",
+      "name": "desktop-cleanup-agent-aware",
+      "status": "completed",
+      "archive_dir": "_archive/R064_desktop-cleanup-agent-aware",
+      "total_tasks": 2,
+      "completed_at": "2026-05-15"
+    },
+    {
+      "id": "R065",
+      "name": "sidebar-overlay-layout",
+      "status": "completed",
+      "archive_dir": "_archive/R065_sidebar-overlay-layout",
+      "total_tasks": 2,
+      "completed_at": "2026-05-15"
+    },
+    {
+      "id": "R066",
+      "name": "terminal-scroll-preservation",
+      "status": "completed",
+      "archive_dir": "_archive/R066_terminal-scroll-preservation",
+      "total_tasks": 2,
+      "completed_at": "2026-05-15"
+    },
+    {
+      "id": "R067",
+      "name": "auth-dialog-reentry-fix",
+      "status": "completed",
+      "archive_dir": "_archive/R067_auth-dialog-reentry-fix",
+      "total_tasks": 2,
+      "completed_at": "2026-05-15"
+    },
+    {
+      "id": "R068",
+      "name": "per-user-terminal-limit-and-terminal-switch-focus",
+      "status": "completed",
+      "archive_dir": "_archive/R068_per-user-terminal-limit",
+      "total_tasks": 4,
+      "completed_at": "2026-05-15"
+    }
+  ],
+  "archived_phases": [],
+  "active_requirement_cycle": {
+    "id": "R069",
+    "name": "xlfoundry-phase2-architecture",
+    "branch": "feat/R069-xlfoundry-phase2-architecture",
+    "status": "ready",
+    "plan_format_exemption": "R069 是元系统改造任务，豁免 user_stories/success_picture 格式要求，使用 acceptance_criteria。plan-review 跳过 A1/A2 对本需求包的校验。"
+  },
+  "workflow": {
+    "name": "xlfoundry-phase2-architecture",
+    "mode": "B",
+    "runtime": "skill_orchestrated",
+    "review_provider": "codex_plugin",
+    "audit_provider": "codex_plugin",
+    "risk_provider": "codex_plugin",
+    "plan_review_provider": "codex_plugin",
+    "evaluate_provider": "codex_plugin"
+  },
+  "execution_context": {
+    "tracking_repo": "remote-control",
+    "tracking_path": ".dev-flow/feature_list.json",
+    "target_repo": "/Users/tangxiaolu/project/ai_rules",
+    "target_path": "rules/xlfoundry-*/",
+    "branch_strategy": "tracking_repo 跟踪进度，实际代码变更在 ai_rules 仓库"
+  },
+  "summary": {
+    "total_tasks": 12,
+    "by_status": {
+      "pending": 12
+    },
+    "by_priority": {
+      "P0": 12
+    }
+  },
+  "features": [
+    {
+      "id": "B069-000",
+      "phase": 0,
+      "module": "architecture",
+      "status": "completed",
+      "started_at": "2026-05-16T22:00:00.000000",
+      "completed_at": "2026-05-16T22:00:00.000000",
+      "commit": "8e841bb",
+      "summary": "architecture.md 追加 xlfoundry 工作流拓扑 section（生成器-评估器对、文件契约通信、Sprint Contract 规范、Provider 边界、域内角色拆分），113 行。feature_list.json 12 个任务均补充 user_stories + success_picture。",
+      "description": "在 remote-control 的 architecture.md 中追加 xlfoundry Phase 2 新拓扑 section（三对生成器-评估器、文件契约通信、provider 边界、域内角色拆分）。定义 Sprint Contract 的规范化文件路径（.dev-flow/contracts/{task_id}.md）、命名、状态流转和读写权威。补充 R069 当前 plan 的 user_stories + success_picture 字段以自洽新 plan-review 标准。",
+      "verification": "L1",
+      "depends_on": [],
+      "priority": "P0",
+      "user_stories": [
+        "作为 xlfoundry 使用者，我需要 architecture.md 记录新的工作流拓扑，以便团队理解 Phase 2 架构决策",
+        "作为 skill 开发者，我需要 Sprint Contract 的文件路径和读写权威被明确规范，以便各 skill 无歧义地读写契约文件"
+      ],
+      "success_picture": "architecture.md 包含完整的 xlfoundry 工作流拓扑 section，Sprint Contract 规范可被 contract-negotiate、implementer、execute 直接引用",
+      "acceptance_criteria": [
+        "architecture.md 追加 '## xlfoundry 工作流拓扑' section，包含：三对生成器-评估器、文件契约通信模式、provider 边界、域内角色拆分",
+        "architecture.md 总行数不超过 120 行",
+        "Sprint Contract 规范定义：文件路径 .dev-flow/contracts/{task_id}.md、命名规则、状态（draft/negotiating/agreed）、读写权威（contract-negotiate 写入，implementer/evaluate 读取）",
+        "contract-negotiate 的 provider 配置明确：继承 workflow.evaluate_provider",
+        "当前 feature_list.json 的 R069 任务补充 user_stories 和 success_picture 字段"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        "architecture.md 新增 section 不违反现有不变量和禁止模式",
+        "Sprint Contract 文件路径规范可被 contract-negotiate、implementer、execute 引用无歧义"
+      ],
+      "files": [
+        ".dev-flow/architecture.md",
+        ".dev-flow/feature_list.json"
+      ]
+    },
+    {
+      "id": "B069-001",
+      "phase": 1,
+      "module": "xlfoundry-shared",
+      "status": "completed",
+      "started_at": "2026-05-16T22:10:00.000000",
+      "completed_at": "2026-05-16T22:00:00.000000",
+      "commit": "1387332",
+      "summary": "创建 Sprint Contract 模板（202行），包含 4 个 section + UI/Backend 双套 Scored Criteria + 状态流转注释",
+      "description": "在 /Users/tangxiaolu/project/ai_rules/rules/ 下创建共享模板目录，定义 Sprint Contract markdown 格式（Hard Gates + Scored Criteria），包含 UI task 和 backend task 的差异化评分维度模板。供 contract-negotiate 和 evaluate 引用。",
+      "verification": "L1",
+      "depends_on": [],
+      "priority": "P0",
+      "user_stories": [
+        "作为 contract-negotiate skill，我需要一个标准化的 Sprint Contract 模板，以便协商产出结构一致的契约文件",
+        "作为 evaluate skill，我需要模板中定义明确的 Hard Gates 和 Scored Criteria 维度，以便执行双层验收"
+      ],
+      "success_picture": "Sprint Contract 模板文件包含 Task Reference、Hard Gates、Scored Criteria 三个 section，UI 和 backend 各有独立评分维度",
+      "acceptance_criteria": [
+        "Sprint Contract markdown 模板文件创建在 xlfoundry-shared/references/sprint-contract-template.md",
+        "模板包含 Task Reference（task_id, domain, assignee）、Implementation Scope、Hard Gates、Scored Criteria 四个 section",
+        "Hard Gates 包含：unit_test_pass、integration_test_pass、simplify_pass、architecture_md_consistency",
+        "Implementation Scope section：实现者描述要做什么，评估者挑战的输入",
+        "UI task Scored Criteria 维度：功能完整性（4/5）/ 视觉质量（3/5）/ 交互质量（3/5）/ 平台适配（3/5）",
+        "Backend task Scored Criteria 维度：API 正确性（4/5）/ 错误处理（3/5）/ 代码质量（3/5）",
+        "模板可被 xlfoundry-contract-negotiate 和 xlfoundry-evaluate 直接引用",
+        "Sprint Contract 状态流转定义：draft → negotiating → agreed（在模板注释中说明）"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        "Sprint Contract 模板包含所有 required section（Task Reference / Hard Gates / Scored Criteria）",
+        "Hard Gates 与 evaluate 的 Hard Gates 完全一致（含 architecture_md_consistency）",
+        "UI 和 Backend 两套 Scored Criteria 维度完整且阈值明确"
+      ],
+      "files": [
+        "/Users/tangxiaolu/project/ai_rules/rules/xlfoundry-shared/references/sprint-contract-template.md"
+      ]
+    },
+    {
+      "id": "B069-002",
+      "phase": 1,
+      "module": "xlfoundry-plan",
+      "name": "Plan 产物格式改造",
+      "description": "改造 xlfoundry-plan SKILL.md，Plan 产物从 acceptance_criteria 改为 user_stories + success_picture，删除 implementation_notes 和 test_coverage 产出。Plan 只管用户视角，不涉及 domain 标注和技术拆分。保留对旧 acceptance_criteria 格式的向后兼容（已归档的 feature_list 仍含旧字段）。",
+      "verification": "L1",
+      "depends_on": [],
+      "status": "completed",
+      "started_at": "2026-05-16T22:15:00.000000",
+      "completed_at": "2026-05-16T22:22:00.000000",
+      "commit": "87c35f7",
+      "summary": "Plan 产物格式从 acceptance_criteria 改为 user_stories + success_picture，删除 test_coverage 产出，添加向后兼容说明。v3.2.0→v3.3.0。feature-list-schema.md 同步更新。",
+      "priority": "P0",
+      "user_stories": [
+        "作为 plan skill 使用者，我希望 Plan 产物聚焦用户视角（user_stories + success_picture），而非技术验收清单",
+        "作为 plan-review 评估者，我需要 Plan 产出标准化的 user_stories 和 success_picture，以便评估需求覆盖度和可验证性"
+      ],
+      "success_picture": "xlfoundry-plan 产出包含 user_stories 和 success_picture 的任务定义，旧格式 feature_list 仍可被正确读取",
+      "acceptance_criteria": [
+        "SKILL.md Step 4（生成计划）中的 Plan 产物格式改为 user_stories + success_picture + dependencies + risk_tags",
+        "删除 acceptance_criteria、implementation_notes、test_coverage 作为 Plan 产物",
+        "feature-list-schema.md 同步更新，Plan 产出的任务字段反映新格式",
+        "Plan 不再产出 domain 标注和技术拆分（由 contract-negotiate 承接）",
+        "版本号更新（minor bump）"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        "旧 feature_list.json（含 acceptance_criteria）能被正确读取，不会因缺少 user_stories 而报错",
+        "新生成的任务必须包含 user_stories 和 success_picture，不能为空"
+      ],
+      "files": [
+        "/Users/tangxiaolu/project/ai_rules/rules/xlfoundry-plan/SKILL.md",
+        "/Users/tangxiaolu/project/ai_rules/rules/feature-list-schema.md"
+      ]
+    },
+    {
+      "id": "B069-003",
+      "phase": 1,
+      "module": "xlfoundry-plan-review",
+      "name": "Plan-review 评估器改造",
+      "verification": "L1",
+      "depends_on": [
+        "B069-002"
+      ],
+      "status": "completed",
+      "started_at": "2026-05-16T22:22:00.000000",
+      "completed_at": "2026-05-16T22:00:00.000000",
+      "commit": "9ab8b74",
+      "summary": "plan-review 从 5 维度审核改为 A1-A5 硬性条件 + B1-B5 评分项双层评估，支持 local/codex_plugin 双模式，R069 豁免机制。v2.2.0→v2.3.0",
+      "description": "改造 xlfoundry-plan-review，从维度审核变为 plan 的评估器角色。增加硬性条件（A1-A5，binary gate）和评分项（B1-B5，threshold scoring），支持 local/codex_plugin 双模式。评估对象为 Plan 的新产物格式（user_stories + success_picture）。",
+      "priority": "P0",
+      "user_stories": [
+        "作为 plan-review 评估者，我需要明确的硬性条件和评分维度，以便客观判定 Plan 质量而非主观判断",
+        "作为 plan skill 使用者，我希望 review fail 时获得具体修改建议（指向哪个 A/B 项不通过），以便精准修正"
+      ],
+      "success_picture": "plan-review 执行硬性条件 A1-A5 + 评分 B1-B5 的双层评估，fail 时输出指向具体项的修改建议",
+      "acceptance_criteria": [
+        "SKILL.md 重写评估标准：硬性条件 A1-A5（user_stories / success_picture / dependency 无循环 / 不违反 architecture.md / 依赖有理由）",
+        "评分项 B1-B5（需求覆盖 4/5 / 拆解粒度 3/5 / 可验证性 3/5 / 依赖合理性 3/5 / 野心与可行性 3/5）",
+        "支持双模式：local（Agent tool subagent）/ codex_plugin（Bash 调用 codex-companion）",
+        "fail 时输出具体修改建议（指向哪个 A/B 项不通过）",
+        "版本号更新（minor bump）"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        "plan-review 评估缺少 user_stories 的 plan → A1 不通过",
+        "plan-review 评估 dependency 循环的 plan → A3 不通过",
+        "plan-review 评估符合标准的 plan → B1-B5 均过阈值 → pass"
+      ],
+      "files": [
+        "/Users/tangxiaolu/project/ai_rules/rules/xlfoundry-plan-review/SKILL.md",
+        "/Users/tangxiaolu/project/ai_rules/rules/xlfoundry-plan-review/references/review-checklist.md"
+      ]
+    },
+    {
+      "id": "B069-004",
+      "phase": 2,
+      "module": "xlfoundry-evaluate-core",
+      "name": "Evaluate 核心 skill 创建",
+      "description": "创建 xlfoundry-evaluate SKILL.md 核心定义：Hard Gates（binary）+ Scored Criteria（Sprint Contract 逐条打分）双层验收。支持 local/codex_plugin 双模式。定义 evaluate 结论格式。不含域内 UI/后端分流逻辑（B069-004b 负责）。",
+      "verification": "L1",
+      "depends_on": [
+        "B069-001"
+      ],
+      "status": "completed",
+      "started_at": "2026-05-16T22:30:00.000000",
+      "completed_at": "2026-05-16T22:38:00.000000",
+      "commit": "46433aa",
+      "summary": "创建 xlfoundry-evaluate SKILL.md（Hard Gates + Scored Criteria 双层验收），支持 local/codex_plugin 双模式",
+      "priority": "P0",
+      "user_stories": [
+        "作为 execute 编排者，我需要一个统一的 evaluate skill 执行代码验收，替代旧的 code-review + audit 流程",
+        "作为实现者，我希望 evaluate fail 时得到明确的失败原因（Hard Gate 或具体 Scored Criteria 项），以便针对性修复"
+      ],
+      "success_picture": "evaluate skill 对实现产物执行 Hard Gates + Scored Criteria 双层验收，产出 pass/fail + findings 结构化结论",
+      "acceptance_criteria": [
+        "SKILL.md 创建，定义 evaluate 角色为 subagent 模式",
+        "Hard Gates（binary，不过直接 fail）：单元测试通过、集成测试通过、simplify 自检通过、architecture.md 一致性",
+        "Scored Criteria：读取 Sprint Contract 逐条打分，过阈值通过",
+        "architecture.md 一致性检查：改了代码但没更新 architecture.md → fail",
+        "支持双模式：local / codex_plugin",
+        "evaluate 结论格式：pass / fail + findings + scored_criteria_results"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        "evaluate 检测到 Hard Gate 不通过（如单元测试失败）→ 直接 fail，不做 Scored Criteria",
+        "evaluate 所有 Hard Gates 通过但 Scored Criteria 低于阈值 → fail 并指出具体 C 项",
+        "evaluate provider=local 和 provider=codex_plugin 的分流路由正确"
+      ],
+      "files": [
+        "/Users/tangxiaolu/project/ai_rules/rules/xlfoundry-evaluate/SKILL.md"
+      ]
+    },
+    {
+      "id": "B069-004b",
+      "phase": 2,
+      "module": "xlfoundry-evaluate-domains",
+      "name": "Evaluate 域内角色分流",
+      "description": "为 evaluate 补充域内角色拆分逻辑：domain=client-ui 时按 UI 评估流程（自操作应用截图 + 对照设计参考），domain=backend 时按后端评估流程（API 测试 + 代码审查）。作为 evaluate 的 references 文件。",
+      "verification": "L1",
+      "depends_on": [
+        "B069-004"
+      ],
+      "status": "completed",
+      "started_at": "2026-05-16T22:38:00.000000",
+      "completed_at": "2026-05-16T22:45:00.000000",
+      "commit": "e14dce4",
+      "summary": "创建 domain-evaluation.md，定义 UI（截图+设计参考）和后端（API测试+代码审查）两套评估流程，domain 缺失 fallback 后端",
+      "priority": "P0",
+      "user_stories": [
+        "作为 UI 任务评估者，我需要自操作应用截图并对照设计参考来评估视觉和交互质量",
+        "作为后端任务评估者，我需要跑 API 测试并审查代码来评估 API 正确性和错误处理"
+      ],
+      "success_picture": "evaluate 根据 domain 字段自动分流到 UI 或后端评估流程，domain 缺失时 fallback 到后端流程",
+      "acceptance_criteria": [
+        "创建 references/domain-evaluation.md，定义 UI 和后端两套评估流程",
+        "UI 评估流程：读取 sprint contract + 代码 diff → 自己启动应用 → 导航 → 构造状态 → 截图 → 对照设计参考 → 评分",
+        "后端评估流程：读取 sprint contract + 代码 diff → 自己跑 API 测试 → 看代码 → 评分",
+        "SKILL.md 引用该 references 文件，按 domain 字段分流"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        "domain=client-ui 时执行 UI 评估流程分支",
+        "domain=backend 时执行后端评估流程分支",
+        "domain 缺失时 fallback 到后端评估流程"
+      ],
+      "files": [
+        "/Users/tangxiaolu/project/ai_rules/rules/xlfoundry-evaluate/references/domain-evaluation.md"
+      ]
+    },
+    {
+      "id": "B069-005",
+      "phase": 2,
+      "module": "xlfoundry-contract-negotiate",
+      "name": "Contract-negotiate skill 创建",
+      "description": "创建 xlfoundry-contract-negotiate skill，实现实现前 Sprint Contract 协商。实现者描述实现范围，评估者挑战可测性。产出：Sprint Contract + domain + assignee + api_contracts.md 条目。最多 2 轮协商。api_contracts.md 的权威写入方为 contract-negotiate（初始），后续由 implementer 和 evaluate 维护。",
+      "verification": "L1",
+      "depends_on": [
+        "B069-001"
+      ],
+      "status": "completed",
+      "started_at": "2026-05-16T22:30:00.000000",
+      "completed_at": "2026-05-16T22:38:00.000000",
+      "commit": "46433aa",
+      "summary": "创建 xlfoundry-contract-negotiate SKILL.md（2 轮协商制，产出 Sprint Contract + domain + api_contracts.md 条目），provider 继承 evaluate_provider",
+      "priority": "P0",
+      "user_stories": [
+        "作为实现者，我希望在编码前与评估者协商实现范围和验收标准，避免实现后发现方向偏差",
+        "作为评估者，我需要在实现前挑战实现范围的可测性，确保产出可被客观验收"
+      ],
+      "success_picture": "contract-negotiate 产出包含 Hard Gates + Scored Criteria 的 Sprint Contract，跨域任务额外产出 api_contracts.md 条目",
+      "acceptance_criteria": [
+        "SKILL.md 创建，定义 contract-negotiate 角色为 subagent 模式",
+        "协商流程：实现者描述 Implementation Scope → 评估者挑战可测性 → 补充边界 → 产出 Sprint Contract",
+        "产出写入文件：Sprint Contract + domain + assignee + api_contracts.md 条目",
+        "最多 2 轮协商，每轮有明确的输出格式",
+        "协商基于 Sprint Contract 模板（引用 B069-001 定义的格式）",
+        "识别跨域边界，混合任务产出 api_contracts.md 条目桥接前后端",
+        "api_contracts.md 权威写入方明确：contract-negotiate 产出初始条目，implementer/evaluate 后续维护"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        "协商产出包含完整 Sprint Contract（Task Reference + Hard Gates + Scored Criteria）",
+        "跨域任务产出 api_contracts.md 条目",
+        "2 轮协商后仍未达一致 → 标记为 blocked 并返回"
+      ],
+      "files": [
+        "/Users/tangxiaolu/project/ai_rules/rules/xlfoundry-contract-negotiate/SKILL.md"
+      ]
+    },
+    {
+      "id": "B069-006",
+      "phase": 2,
+      "module": "xlfoundry-implementer",
+      "name": "Implementer 改造",
+      "description": "改造 xlfoundry-implementer SUBAGENT.md：内置 simplify 调用（必经，非条件触发）；代码变更涉及架构时同步更新 architecture.md；读取 Sprint Contract 获取实现范围。",
+      "verification": "L1",
+      "depends_on": [
+        "B069-001"
+      ],
+      "status": "completed",
+      "started_at": "2026-05-16T22:38:00.000000",
+      "completed_at": "2026-05-16T22:45:00.000000",
+      "commit": "e14dce4",
+      "summary": "simplify 必经调用 + architecture.md 维护逻辑 + Sprint Contract 读取（向后兼容）。v3.1.0→v3.2.0",
+      "priority": "P0",
+      "user_stories": [
+        "作为实现者，我需要在编码前读取 Sprint Contract 获取实现范围，确保实现不超出协商边界",
+        "作为 execute 编排者，我希望 simplify 成为实现者的必经步骤，确保代码质量自动保障"
+      ],
+      "success_picture": "implementer 从 Sprint Contract 获取 Implementation Scope，必经 simplify 步骤，涉及架构变更时同步更新 architecture.md",
+      "acceptance_criteria": [
+        "SUBAGENT.md 更新：simplify 为必经内部调用，非条件触发",
+        "增加 architecture.md 维护逻辑：代码变更涉及架构时同步更新，不更新则 evaluate 会 fail",
+        "实现前读取 Sprint Contract 获取 Implementation Scope",
+        "实现完成后输出结构化 evidence 摘要（包含 simplify 结果、architecture.md 更新情况）",
+        "版本号更新（minor bump）"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        "无 Sprint Contract 文件时 fallback 到旧流程（向后兼容）",
+        "Sprint Contract 存在时正确读取 Implementation Scope",
+        "simplify 作为必经步骤被调用，不可跳过",
+        "代码变更涉及架构但未更新 architecture.md → evidence 中标记 warning",
+        "架构未更新时 evaluate 应 fail（与 evaluate Hard Gate 联动）"
+      ],
+      "files": [
+        "/Users/tangxiaolu/project/ai_rules/rules/xlfoundry-implementer/SUBAGENT.md"
+      ]
+    },
+    {
+      "id": "B069-007",
+      "phase": 3,
+      "module": "xlfoundry-execute",
+      "name": "Execute 编排改造",
+      "description": "改造 xlfoundry-execute SKILL.md，实现新质量门流程（contract-negotiate → implementer → evaluate）、domain 路由（Gemini UI / Claude 后端）、更新结构化摘要格式。",
+      "verification": "L1",
+      "depends_on": [
+        "B069-004",
+        "B069-004b",
+        "B069-005",
+        "B069-006"
+      ],
+      "status": "completed",
+      "started_at": "2026-05-16T22:45:00.000000",
+      "completed_at": "2026-05-16T22:55:00.000000",
+      "commit": "a64075e",
+      "summary": "三阶段质量门（contract-negotiate→implementer→evaluate）+ domain 路由 + evaluate_provider + 旧流程向后兼容。v3.1.0→v3.2.0",
+      "priority": "P0",
+      "user_stories": [
+        "作为 execute 编排者，我需要按 contract-negotiate → implementer → evaluate 的质量门流程编排任务执行",
+        "作为使用者，我希望 UI 任务路由给 Gemini、后端任务路由给 Claude，以利用各模型的域内优势"
+      ],
+      "success_picture": "execute 按 domain 字段路由任务到对应 provider，evaluate fail 时回到 implementer 循环而非回到 simplify",
+      "acceptance_criteria": [
+        "质量门流程更新：contract-negotiate → implementer（含 simplify）→ evaluate，替换旧的 code-review + audit 流程",
+        "domain 路由：读取 Sprint Contract 的 domain 字段，domain=client-ui 路由给 Gemini，domain=backend 路由给 Claude",
+        "结构化摘要格式更新：evaluate 替换 code_review + audit 字段",
+        "增加 evaluate_provider 配置支持（local / codex_plugin）",
+        "evaluate fail 时回到 implementer（不回到 simplify）",
+        "provider-routing.md 更新：evaluate 的三路分流路由",
+        "版本号更新（minor bump）"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        "旧 workflow（review_provider + audit_provider）仍可工作（向后兼容）",
+        "新 workflow（evaluate_provider）正确路由到 evaluate",
+        "evaluate fail → 回到 implementer 循环，不回到 simplify",
+        "domain=client-ui 和 domain=backend 的路由分流正确",
+        "contract-negotiate blocked 时 execute 跳过当前 task 继续下一个",
+        "Sprint Contract 缺失或损坏时 fallback 报错而非崩溃",
+        "domain/assignee 非法值时 graceful 错误处理"
+      ],
+      "files": [
+        "/Users/tangxiaolu/project/ai_rules/rules/xlfoundry-execute/SKILL.md",
+        "/Users/tangxiaolu/project/ai_rules/rules/xlfoundry-execute/references/provider-routing.md",
+        "/Users/tangxiaolu/project/ai_rules/rules/xlfoundry-execute/references/quality-gates.md",
+        "/Users/tangxiaolu/project/ai_rules/rules/xlfoundry-execute/references/task-package.md"
+      ]
+    },
+    {
+      "id": "B069-008",
+      "phase": 4,
+      "module": "xlfoundry-system",
+      "name": "注册新 skill + 创建 symlink",
+      "description": "更新 xlfoundry-system.json（注册 evaluate 和 contract-negotiate），创建新 symlink。不删除旧 skill。",
+      "verification": "L1",
+      "depends_on": [
+        "B069-007"
+      ],
+      "status": "completed",
+      "started_at": "2026-05-16T22:55:00.000000",
+      "completed_at": "2026-05-16T23:00:00.000000",
+      "commit": "5b083bc",
+      "summary": "注册 evaluate 1.0.0 + contract-negotiate 1.0.0，创建 symlink，系统版本 2.5.0→2.6.0",
+      "priority": "P0",
+      "user_stories": [
+        "作为 xlfoundry 使用者，我需要新 skill 在系统中注册并被 Claude Code 发现，以便在 execute 中调用",
+        "作为系统维护者，我需要新旧 skill 共存过渡，不删除旧 skill 以保持向后兼容"
+      ],
+      "success_picture": "xlfoundry-evaluate 和 xlfoundry-contract-negotiate 在 xlfoundry-system.json 中注册，symlink 可解析",
+      "acceptance_criteria": [
+        "xlfoundry-system.json 更新：注册 xlfoundry-evaluate 和 xlfoundry-contract-negotiate，更新相关 skill 版本号",
+        "~/.claude/skills/ 下创建 xlfoundry-evaluate 和 xlfoundry-contract-negotiate 的 symlink 指向 ai_rules/rules/",
+        "新 symlink 可解析，Claude Code 可发现新 skill"
+      ],
+      "risk_tags": [
+        "config"
+      ],
+      "test_tasks": [
+        "新 symlink 存在且指向正确",
+        "xlfoundry-system.json JSON 合法，新 skill 注册完整"
+      ],
+      "files": [
+        "/Users/tangxiaolu/project/ai_rules/rules/xlfoundry-system.json"
+      ]
+    },
+    {
+      "id": "B069-008b",
+      "phase": 4,
+      "module": "xlfoundry-system",
+      "name": "删除旧 skill + 引用清理",
+      "description": "删除 xlfoundry-code-review 和 xlfoundry-team-orchestrator 的 symlink 及源文件。清理 provider-routing.md、quality-gates.md、external-result-protocol.md 中所有旧 skill 引用。执行前必须人工确认删除清单。",
+      "verification": "L1",
+      "depends_on": [
+        "B069-008"
+      ],
+      "status": "completed",
+      "priority": "P0",
+      "started_at": "2026-05-16T22:30:00.000000",
+      "completed_at": "2026-05-16T23:15:00.000000",
+      "actual_minutes": 45,
+      "execution_notes": "删除旧 skill 源文件+symlink（3平台），清理所有旧引用，更新 simplify/contract-negotiate/evaluate/loading-protocol/acceptance-checklist/system.json/run-xlfoundry-skill.mjs",
+      "evidence_file": "evidence/B069-008b.md",
+      "commit": "fd0122b",
+      "summary": "删除 xlfoundry-code-review 和 xlfoundry-team-orchestrator 源文件及 3 平台 symlink，清理全系统旧引用",
+      "acceptance_criteria": [
+        "删除 ~/.claude/skills/xlfoundry-code-review symlink",
+        "删除 ~/.claude/skills/xlfoundry-team-orchestrator symlink",
+        "删除 /Users/tangxiaolu/project/ai_rules/rules/ 下对应源文件目录",
+        "清理 provider-routing.md 中 code-review / audit 的旧路由引用，替换为 evaluate",
+        "清理 quality-gates.md 中 code-review + audit 顺序，替换为 evaluate",
+        "清理 external-result-protocol.md 中旧字段",
+        "执行前输出删除清单供确认，提供回滚方案（symlink 可重建、源文件 git 可恢复）",
+        "删除前必须人工确认（阻断式确认门），不可自动执行"
+      ],
+      "risk_tags": [
+        "config"
+      ],
+      "test_tasks": [
+        "symlink 删除后 ~/.claude/skills/ 下无 xlfoundry-code-review 和 xlfoundry-team-orchestrator",
+        "grep 源码确认无残留 code-review / team-orchestrator 引用",
+        "旧 skill 源文件目录不存在"
+      ],
+      "files": [
+        "/Users/tangxiaolu/project/ai_rules/rules/xlfoundry-code-review/",
+        "/Users/tangxiaolu/project/ai_rules/rules/xlfoundry-team-orchestrator/",
+        "/Users/tangxiaolu/project/ai_rules/rules/xlfoundry-execute/references/provider-routing.md",
+        "/Users/tangxiaolu/project/ai_rules/rules/xlfoundry-execute/references/quality-gates.md",
+        "/Users/tangxiaolu/project/ai_rules/rules/xlfoundry-execute/references/external-result-protocol.md"
+      ]
+    },
+    {
+      "id": "B069-009",
+      "phase": 4,
+      "module": "xlfoundry-system",
+      "name": "端到端流程验证",
+      "description": "用模拟场景验证完整 xlfoundry Phase 2 流程：plan → plan-review → contract-negotiate → implementer → evaluate，确认无逻辑断裂。包含正常通过路径和 evaluate fail → 回到 implementer 的回退路径。",
+      "verification": "L1",
+      "depends_on": [
+        "B069-008b"
+      ],
+      "status": "completed",
+      "priority": "P0",
+      "started_at": "2026-05-16T23:15:00.000000",
+      "completed_at": "2026-05-16T23:45:00.000000",
+      "actual_minutes": 30,
+      "execution_notes": "端到端验证发现 5 个链路口，全部修复：Sprint Contract 路径统一、domain 路由映射兼容、acceptance_criteria 遗留清理、旧 audit 引用更新",
+      "evidence_file": "evidence/B069-009.md",
+      "commit": "b667476",
+      "summary": "端到端流程验证通过，修复 5 个链路口（路径/格式/字段/引用不一致）",
+      "user_stories": [
+        "作为 xlfoundry 使用者，我需要验证完整 Phase 2 流程无逻辑断裂，确保正式使用时不会中途卡住",
+        "作为 xlfoundry 使用者，我需要验证 evaluate fail 后能正确回到 implementer 循环，确保回退路径可靠"
+      ],
+      "success_picture": "完整正向流程 plan→plan-review→contract-negotiate→implementer→evaluate 跑通，evaluate fail→implementer 回退路径跑通，旧格式向后兼容",
+      "acceptance_criteria": [
+        "完整正向流程验证：plan 产出 user_stories → plan-review 评分 pass → contract-negotiate 产出 Sprint Contract → implementer 实现（含 simplify）→ evaluate pass",
+        "回退流程验证：evaluate fail → 回到 implementer → 重新实现 → evaluate pass",
+        "domain 路由验证：domain=client-ui 和 domain=backend 分别走对应评估流程",
+        "向后兼容验证：旧格式 feature_list（含 acceptance_criteria）仍能被 execute 正确处理"
+      ],
+      "risk_tags": [],
+      "test_tasks": [
+        "正向流程全链路跑通",
+        "evaluate fail 后回到 implementer 而非 simplify",
+        "旧 feature_list 格式不报错"
+      ],
+      "files": []
+    }
+  ]
+}
