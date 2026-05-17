@@ -61,8 +61,9 @@
       "description": "在 architecture.md 追加 3 条不变量：SSE 端点必须事件驱动、长连接重连前必须关闭旧连接、Widget dispose 不触发不可逆操作。这些不变量来自 OPS-001/OPS-002/Mac 合并屏幕三个真实使用缺陷的逃逸分析。",
       "verification": "L1",
       "depends_on": [],
-      "status": "pending",
+      "status": "in_progress",
       "priority": "P1",
+      "started_at": "2026-05-17T10:05:00.000000",
       "user_stories": [
         "作为系统维护者，我需要 architecture.md 记录这 3 条不变量，以便未来规划和评估时自动检查同类问题",
         "作为实现者，我需要明确知道 SSE 端点和长连接的设计约束，避免再次引入 busy-loop 或连接泄漏"
