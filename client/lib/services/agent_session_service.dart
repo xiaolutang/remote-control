@@ -76,17 +76,6 @@ class AgentSessionService extends ApiServiceBase {
     int afterIndex = -1,
   }) {
     final controller = StreamController<AgentConversationEventItem>();
-    http.StreamedResponse? responseRef;
-
-    // onCancel 在两种场景触发：
-    // 1. 外部主动 cancel subscription → 需要释放底层 response
-    // 2. controller.close() 正常结束 → response stream 已被消费，无需 drain
-    // 通过检查 controller.isClosed 区分：场景 2 时 isClosed=true
-    controller.onCancel = () {
-      if (!controller.isClosed) {
-        responseRef?.stream.drain<void>();
-      }
-    };
 
     () async {
       try {
@@ -99,7 +88,6 @@ class AgentSessionService extends ApiServiceBase {
         )..headers.addAll(sseHeaders(token));
 
         final response = await client.send(request);
-        responseRef = response;
 
         if (response.statusCode != 200) {
           final responseBody = await response.stream.bytesToString();
@@ -227,13 +215,6 @@ class AgentSessionService extends ApiServiceBase {
     int? truncateAfterIndex, // -1 = 全部截断，null = 不截断
   }) {
     final controller = StreamController<AgentSessionEvent>();
-    http.StreamedResponse? responseRef;
-
-    controller.onCancel = () {
-      if (!controller.isClosed) {
-        responseRef?.stream.drain<void>();
-      }
-    };
 
     () async {
       try {
@@ -255,7 +236,6 @@ class AgentSessionService extends ApiServiceBase {
           ..body = jsonEncode(body);
 
         final response = await client.send(request);
-        responseRef = response;
 
         if (response.statusCode != 200) {
           final responseBody = await response.stream.bytesToString();
@@ -355,13 +335,6 @@ class AgentSessionService extends ApiServiceBase {
     required String token,
   }) {
     final controller = StreamController<AgentSessionEvent>();
-    http.StreamedResponse? responseRef;
-
-    controller.onCancel = () {
-      if (!controller.isClosed) {
-        responseRef?.stream.drain<void>();
-      }
-    };
 
     () async {
       try {
@@ -375,7 +348,6 @@ class AgentSessionService extends ApiServiceBase {
         )..headers.addAll(sseHeaders(token));
 
         final response = await client.send(request);
-        responseRef = response;
 
         if (response.statusCode != 200) {
           final responseBody = await response.stream.bytesToString();
