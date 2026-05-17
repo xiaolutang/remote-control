@@ -245,7 +245,7 @@ void main() {
   });
 
   test(
-      'handleViewDispose calls handleDesktopExit when keepAgentRunningInBackground is false',
+      'handleViewDispose does not call handleDesktopExit (Widget dispose is not user exit)',
       () async {
     final bootstrap = _FakeBootstrapService(
       resultState: const DesktopAgentState(
@@ -278,12 +278,49 @@ void main() {
     await controller.setKeepAgentRunningInBackground(false);
     await controller.handleViewDispose();
 
+    expect(bootstrap.handleExitCalls, 0);
+  });
+
+  test(
+      'handleAppExit calls handleDesktopExit when keepAgentRunningInBackground is false',
+      () async {
+    final bootstrap = _FakeBootstrapService(
+      resultState: const DesktopAgentState(
+        kind: DesktopAgentStateKind.managedOnline,
+      ),
+      loadStateValue: const DesktopAgentState(
+        kind: DesktopAgentStateKind.managedOnline,
+      ),
+    );
+    final runtime = _FakeRuntimeSelectionController(
+      devices: const [
+        RuntimeDevice(
+          deviceId: 'mbp-01',
+          name: 'mac-phone',
+          owner: 'user1',
+          agentOnline: true,
+          maxTerminals: 3,
+          activeTerminals: 1,
+        ),
+      ],
+      terminals: const [],
+    );
+    final controller = DesktopWorkspaceController(
+      serverUrl: 'ws://localhost:8888',
+      token: 'token',
+      agentBootstrapService: bootstrap,
+    );
+
+    controller.attachRuntimeController(runtime);
+    await controller.setKeepAgentRunningInBackground(false);
+    await controller.handleAppExit();
+
     expect(bootstrap.handleExitCalls, 1);
     expect(bootstrap.lastKeepRunningValue, false);
   });
 
   test(
-      'handleViewDispose does not call handleDesktopExit when keepAgentRunningInBackground is true',
+      'handleViewDispose does not call handleDesktopExit even when keepAgentRunningInBackground is true',
       () async {
     final bootstrap = _FakeBootstrapService(
       resultState: const DesktopAgentState(

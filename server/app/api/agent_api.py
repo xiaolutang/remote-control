@@ -82,7 +82,7 @@ async def stream_terminal_agent_conversation(
     after_index: int = -1,
     user_id: str = Depends(get_current_user_id),
 ):
-    """Poll-backed SSE stream for terminal conversation events after `after_index`."""
+    """Event-driven SSE stream for terminal conversation events."""
     await _get_owned_active_terminal(device_id, terminal_id, user_id)
 
     async def _event_stream():
@@ -90,66 +90,60 @@ async def stream_terminal_agent_conversation(
         stream_key = event_bus.conversation_stream_key(user_id, device_id, terminal_id)
         queue: asyncio.Queue = asyncio.Queue()
         _conversation_stream_subscribers.setdefault(stream_key, set()).add(queue)
-        last_index = int(after_index)
         last_epoch: Optional[int] = None
         try:
             while True:
                 if await http_request.is_disconnected():
                     break
-                projection = await _build_agent_conversation_projection(
-                    user_id=user_id, device_id=device_id, terminal_id=terminal_id,
-                    after_index=last_index,
-                )
 
-                current_epoch = projection.truncation_epoch
-                if last_epoch is not None and current_epoch != last_epoch:
-                    reset_event = {
-                        "event_index": -1,
-                        "event_id": f"reset-{uuid4().hex[:8]}",
-                        "event_type": "conversation_reset",
-                        "role": "system",
-                        "payload": {},
-                    }
-                    yield (
-                        "event: conversation_event\n"
-                        f"data: {_agent_conversation_event_item(reset_event).model_dump_json()}\n\n"
-                    )
-                    full_projection = await _build_agent_conversation_projection(
-                        user_id=user_id, device_id=device_id, terminal_id=terminal_id,
-                    )
-                    for event in full_projection.events:
-                        last_index = max(last_index, event.event_index)
-                        yield (
-                            "event: conversation_event\n"
-                            f"data: {event.model_dump_json()}\n\n"
-                        )
-                    last_epoch = current_epoch
-                    continue
-
-                if last_epoch is None:
-                    last_epoch = current_epoch
-
-                if projection.events:
-                    for event in projection.events:
-                        last_index = max(last_index, event.event_index)
-                        yield (
-                            "event: conversation_event\n"
-                            f"data: {event.model_dump_json()}\n\n"
-                        )
-                    continue
+                # 等待 Queue 事件（30 秒超时）
                 try:
-                    event = await asyncio.wait_for(queue.get(), timeout=1.0)
+                    event = await asyncio.wait_for(queue.get(), timeout=30.0)
                 except asyncio.TimeoutError:
                     yield ": keepalive\n\n"
                     continue
+
+                # 收到 closed 事件 → 结束流
                 event_item = _agent_conversation_event_item(event)
-                last_index = max(last_index, event_item.event_index)
+                if event_item.type == "closed":
+                    yield (
+                        "event: conversation_event\n"
+                        f"data: {event_item.model_dump_json()}\n\n"
+                    )
+                    break
+
+                # truncation_epoch 变更 → 发 reset + 全量数据
+                current_epoch = event.get("truncation_epoch")
+                if current_epoch is not None:
+                    if last_epoch is not None and current_epoch != last_epoch:
+                        reset_event = {
+                            "event_index": -1,
+                            "event_id": f"reset-{uuid4().hex[:8]}",
+                            "event_type": "conversation_reset",
+                            "role": "system",
+                            "payload": {},
+                        }
+                        yield (
+                            "event: conversation_event\n"
+                            f"data: {_agent_conversation_event_item(reset_event).model_dump_json()}\n\n"
+                        )
+                        full_projection = await _build_agent_conversation_projection(
+                            user_id=user_id, device_id=device_id, terminal_id=terminal_id,
+                        )
+                        for e in full_projection.events:
+                            yield (
+                                "event: conversation_event\n"
+                                f"data: {e.model_dump_json()}\n\n"
+                            )
+                        last_epoch = current_epoch
+                        continue
+                    last_epoch = current_epoch
+
+                # 普通事件 → 直接推送
                 yield (
                     "event: conversation_event\n"
                     f"data: {event_item.model_dump_json()}\n\n"
                 )
-                if event_item.type == "closed":
-                    break
         finally:
             subscribers = _conversation_stream_subscribers.get(stream_key)
             if subscribers is not None:

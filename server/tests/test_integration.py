@@ -837,30 +837,43 @@ class TestTerminalBoundAgentApi:
 
     @pytest.mark.asyncio
     async def test_terminal_conversation_stream_only_events_after_index(self):
-        from app.api.runtime_api import stream_terminal_agent_conversation
+        """B070: SSE stream 现在是事件驱动，不再首次连接就查 DB。
+
+        通过 Queue 推送事件来验证 stream 能正确转发。
+        """
+        from app.api.runtime_api import (
+            _publish_conversation_stream_event,
+            stream_terminal_agent_conversation,
+        )
 
         class FakeRequest:
             async def is_disconnected(self):
                 return False
 
-        events = [
-            {
-                "event_index": 2,
-                "event_id": "evt-2",
-                "event_type": "answer",
-                "role": "user",
-                "session_id": "ts-term-1",
-                "question_id": "q-1",
-                "client_event_id": "answer-1",
-                "payload": {"text": "remote-control"},
-                "created_at": "2026-04-23T12:00:02+00:00",
-            }
-        ]
+        pushed_event = {
+            "event_index": 2,
+            "event_id": "evt-2",
+            "event_type": "answer",
+            "role": "user",
+            "session_id": "ts-term-1",
+            "question_id": "q-1",
+            "client_event_id": "answer-1",
+            "payload": {"text": "remote-control"},
+            "created_at": "2026-04-23T12:00:02+00:00",
+        }
+
+        closed_event = {
+            "event_index": 3,
+            "event_id": "evt-closed",
+            "event_type": "closed",
+            "role": "system",
+            "payload": {"reason": "test_done"},
+        }
 
         with patch("app.api._deps.get_session_by_device_id", new=AsyncMock(return_value=self._session())):
             with patch("app.api._deps.get_session_terminal", new=AsyncMock(return_value=self._terminal())):
                 with patch("app.api._deps.get_agent_conversation", new=AsyncMock(return_value=self._conversation())):
-                    with patch("app.api._deps.list_agent_conversation_events", new=AsyncMock(return_value=events)) as list_events:
+                    with patch("app.api._deps.list_agent_conversation_events", new=AsyncMock(return_value=[])):
                         response = await stream_terminal_agent_conversation(
                             "mbp-01",
                             "term-1",
@@ -868,12 +881,17 @@ class TestTerminalBoundAgentApi:
                             after_index=1,
                             user_id="user1",
                         )
-                        chunk = await response.body_iterator.__anext__()
+                        # 推送一个 answer 事件
+                        next_chunk = asyncio.create_task(response.body_iterator.__anext__())
+                        await asyncio.sleep(0.01)
+                        await _publish_conversation_stream_event(
+                            "user1", "mbp-01", "term-1", pushed_event,
+                        )
+                        chunk = await asyncio.wait_for(next_chunk, timeout=2.0)
 
         assert "event: conversation_event" in chunk
         assert '"event_index":2' in chunk
         assert '"type":"answer"' in chunk
-        assert list_events.await_args.kwargs["after_index"] == 1
 
     def test_terminal_agent_run_rebuilds_message_history_from_server_events(self):
         from app.services.agent_session_manager import AgentSessionManager

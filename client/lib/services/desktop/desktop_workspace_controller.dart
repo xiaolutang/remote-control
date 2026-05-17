@@ -293,7 +293,20 @@ class DesktopWorkspaceController extends ChangeNotifier {
     _notify();
   }
 
+  /// Widget dispose 不触发不可逆操作（Agent 停止）。
+  ///
+  /// macOS 合并屏幕/全屏切换会触发 Widget 树 dispose → rebuild，
+  /// 如果在这里停止 Agent，PTY 进程会被杀死。
+  /// Agent 停止由 App 级退出信号触发（见 main.dart _AppShell）。
   Future<void> handleViewDispose() async {
+    // Widget dispose 不触发不可逆操作（Agent 停止）
+    // Agent 停止由 App 级退出信号触发（见 App lifecycle manager）
+    // 参考 architecture.md 禁止模式：Widget dispose 不触发不可逆操作
+  }
+
+  /// App 确认退出时调用（非 Widget dispose）。
+  /// 只有用户明确关闭窗口才触发 Agent 停止。
+  Future<void> handleAppExit() async {
     if (_lastWasDesktopPlatform &&
         _lastKnownDeviceId != null &&
         !_keepAgentRunningInBackground) {
