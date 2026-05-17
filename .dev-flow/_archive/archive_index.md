@@ -22,4 +22,5 @@
 | R065 | sidebar-overlay-layout | 2026-05-15 | 1 | 2/2 | _archive/R065_sidebar-overlay-layout |
 | R066 | terminal-scroll-preservation | 2026-05-15 | 1 | 2/2 | _archive/R066_terminal-scroll-preservation |
 | R067 | auth-dialog-reentry-fix | 2026-05-15 | 1 | 2/2 | _archive/R067_auth-dialog-reentry-fix |
-| R069 xlfoundry-phase2-architecture | completed | 12 | _archive/R069_xlfoundry-phase2-architecture |
+| R069 | xlfoundry-phase2-architecture | 2026-05-16 | 1-5 | 12/12 | _archive/R069_xlfoundry-phase2-architecture |
+| R070 | sse-perf-and-desktop-lifecycle-fix | 2026-05-17 | 0-3 | 5/5 | _archive/R070_sse-perf-and-desktop-lifecycle-fix |
