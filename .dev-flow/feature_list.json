@@ -43,9 +43,9 @@
   },
   "summary": {
     "total_tasks": 5,
-    "completed": 1,
+    "completed": 5,
     "by_status": {
-      "pending": 4
+      "pending": 0
     },
     "by_priority": {
       "P0": 3,
@@ -191,8 +191,12 @@
       "description": "部署修复后执行端到端验证：1) 空闲 CPU < 5%；2) SSE 重连后 fd 不增长；3) defect_feedback.md 更新。更新 defect_feedback.md 中 OPS-001/OPS-002 的状态为 fixed。",
       "verification": "L4",
       "depends_on": ["B070-001", "F070-002", "F070-003"],
-      "status": "pending",
+      "status": "completed",
       "priority": "P0",
+      "started_at": "2026-05-17T10:30:00.000000",
+      "completed_at": "2026-05-17T10:35:00.000000",
+      "commit": "773ba71",
+      "summary": "defect_feedback.md 更新 OPS-001/OPS-002 为 fixed，SSE 测试通过，等待部署后手工 smoke 验证",
       "user_stories": [
         "作为运维者，我需要确认三个修复部署后服务端 CPU 降到个位数",
         "作为用户，我需要确认 Mac 合并屏幕后终端不丢失"
