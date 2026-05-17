@@ -1,190 +1,197 @@
 {
   "version": "1.4",
   "project": "remote-control",
-  "updated_at": "2026-05-16T23:55:00.000000",
+  "updated_at": "2026-05-17T10:00:00.000000",
   "status": "active",
   "archived_requirement_cycles": [
-    {
-      "id": "R047",
-      "name": "agent-conversation-interaction-optimization",
-      "status": "completed",
-      "archive_dir": "_archive/R047_agent-conversation-interaction-optimization",
-      "total_tasks": 31
-    },
-    {
-      "id": "R048",
-      "name": "architecture-deep-cleanup",
-      "status": "completed",
-      "archive_dir": "_archive/R048_architecture-deep-cleanup",
-      "total_tasks": 20
-    },
-    {
-      "id": "R049",
-      "name": "brainstorm-bug-fixes",
-      "status": "completed",
-      "archive_dir": "_archive/R049_brainstorm-bug-fixes",
-      "total_tasks": 3
-    },
-    {
-      "id": "R050",
-      "name": "token-usage-optimization",
-      "status": "completed",
-      "archive_dir": "_archive/R050_token-usage-optimization",
-      "total_tasks": 3
-    },
-    {
-      "id": "R051",
-      "name": "eval-architecture-overhaul",
-      "status": "completed",
-      "archive_dir": "_archive/R051_eval-architecture-overhaul",
-      "total_tasks": 11
-    },
-    {
-      "id": "R052",
-      "name": "open-source-release",
-      "status": "completed",
-      "archive_dir": "_archive/R052_open-source-release",
-      "total_tasks": 5
-    },
-    {
-      "id": "R053",
-      "name": "desktop-agent-bundling",
-      "status": "completed",
-      "archive_dir": "_archive/R053_desktop-agent-bundling",
-      "total_tasks": 3
-    },
-    {
-      "id": "R054",
-      "name": "code-quality-consolidation",
-      "status": "completed",
-      "archive_dir": "_archive/R054_code-quality-consolidation",
-      "total_tasks": 11
-    },
-    {
-      "id": "R056",
-      "name": "auth-connection-optimize",
-      "status": "completed",
-      "archive_dir": "_archive/R056_auth-connection-optimize",
-      "total_tasks": 2
-    },
-    {
-      "id": "R057",
-      "name": "tech-debt-cleanup",
-      "status": "completed",
-      "archive_dir": "_archive/R057_tech-debt-cleanup",
-      "total_tasks": 23
-    },
-    {
-      "id": "R058",
-      "name": "code-optimization-perf",
-      "status": "completed",
-      "archive_dir": "_archive/R058_code-optimization-perf",
-      "total_tasks": 23
-    },
-    {
-      "id": "R059",
-      "name": "terminal-tab-bar-ux",
-      "status": "completed",
-      "archive_dir": "_archive/R059_terminal-tab-bar-ux",
-      "total_tasks": 10
-    },
-    {
-      "id": "R060",
-      "name": "terminal-navigation-redesign",
-      "status": "completed",
-      "archive_dir": "_archive/R060_terminal-navigation-redesign",
-      "total_tasks": 5
-    },
-    {
-      "id": "R061",
-      "name": "client-code-convergence",
-      "status": "completed",
-      "archive_dir": "_archive/R061_client-code-convergence",
-      "total_tasks": 16
-    },
-    {
-      "id": "R062",
-      "name": "scheduled-terminal-tasks",
-      "status": "completed",
-      "archive_dir": "_archive/R062_scheduled-terminal-tasks",
-      "total_tasks": 8,
-      "completed_at": "2026-05-13"
-    },
-    {
-      "id": "R063",
-      "name": "agent-scheduled-tasks",
-      "status": "completed",
-      "archive_dir": "_archive/R063_agent-scheduled-tasks",
-      "total_tasks": 4,
-      "completed_at": "2026-05-14"
-    },
-    {
-      "id": "R064",
-      "name": "desktop-cleanup-agent-aware",
-      "status": "completed",
-      "archive_dir": "_archive/R064_desktop-cleanup-agent-aware",
-      "total_tasks": 2,
-      "completed_at": "2026-05-15"
-    },
-    {
-      "id": "R065",
-      "name": "sidebar-overlay-layout",
-      "status": "completed",
-      "archive_dir": "_archive/R065_sidebar-overlay-layout",
-      "total_tasks": 2,
-      "completed_at": "2026-05-15"
-    },
-    {
-      "id": "R066",
-      "name": "terminal-scroll-preservation",
-      "status": "completed",
-      "archive_dir": "_archive/R066_terminal-scroll-preservation",
-      "total_tasks": 2,
-      "completed_at": "2026-05-15"
-    },
-    {
-      "id": "R067",
-      "name": "auth-dialog-reentry-fix",
-      "status": "completed",
-      "archive_dir": "_archive/R067_auth-dialog-reentry-fix",
-      "total_tasks": 2,
-      "completed_at": "2026-05-15"
-    },
-    {
-      "id": "R068",
-      "name": "per-user-terminal-limit-and-terminal-switch-focus",
-      "status": "completed",
-      "archive_dir": "_archive/R068_per-user-terminal-limit",
-      "total_tasks": 4,
-      "completed_at": "2026-05-15"
-    },
-    {
-      "id": "R069",
-      "name": "xlfoundry-phase2-architecture",
-      "status": "completed",
-      "archive_dir": "_archive/R069_xlfoundry-phase2-architecture",
-      "total_tasks": 12,
-      "completed_at": "2026-05-16"
-    }
+    {"id":"R069","name":"xlfoundry-phase2-architecture","status":"completed","archive_dir":"_archive/R069_xlfoundry-phase2-architecture","total_tasks":12,"completed_at":"2026-05-16"},
+    {"id":"R047","name":"agent-conversation-interaction-optimization","status":"completed","archive_dir":"_archive/R047_agent-conversation-interaction-optimization","total_tasks":31},
+    {"id":"R048","name":"architecture-deep-cleanup","status":"completed","archive_dir":"_archive/R048_architecture-deep-cleanup","total_tasks":20},
+    {"id":"R049","name":"brainstorm-bug-fixes","status":"completed","archive_dir":"_archive/R049_brainstorm-bug-fixes","total_tasks":3},
+    {"id":"R050","name":"token-usage-optimization","status":"completed","archive_dir":"_archive/R050_token-usage-optimization","total_tasks":3},
+    {"id":"R051","name":"eval-architecture-overhaul","status":"completed","archive_dir":"_archive/R051_eval-architecture-overhaul","total_tasks":11},
+    {"id":"R052","name":"open-source-release","status":"completed","archive_dir":"_archive/R052_open-source-release","total_tasks":5},
+    {"id":"R053","name":"desktop-agent-bundling","status":"completed","archive_dir":"_archive/R053_desktop-agent-bundling","total_tasks":3},
+    {"id":"R054","name":"code-quality-consolidation","status":"completed","archive_dir":"_archive/R054_code-quality-consolidation","total_tasks":11},
+    {"id":"R056","name":"auth-connection-optimize","status":"completed","archive_dir":"_archive/R056_auth-connection-optimize","total_tasks":2},
+    {"id":"R057","name":"tech-debt-cleanup","status":"completed","archive_dir":"_archive/R057_tech-debt-cleanup","total_tasks":23},
+    {"id":"R058","name":"code-optimization-perf","status":"completed","archive_dir":"_archive/R058_code-optimization-perf","total_tasks":23},
+    {"id":"R059","name":"terminal-tab-bar-ux","status":"completed","archive_dir":"_archive/R059_terminal-tab-bar-ux","total_tasks":10},
+    {"id":"R060","name":"terminal-navigation-redesign","status":"completed","archive_dir":"_archive/R060_terminal-navigation-redesign","total_tasks":5},
+    {"id":"R061","name":"client-code-convergence","status":"completed","archive_dir":"_archive/R061_client-code-convergence","total_tasks":16},
+    {"id":"R062","name":"scheduled-terminal-tasks","status":"completed","archive_dir":"_archive/R062_scheduled-terminal-tasks","total_tasks":8,"completed_at":"2026-05-13"},
+    {"id":"R063","name":"agent-scheduled-tasks","status":"completed","archive_dir":"_archive/R063_agent-scheduled-tasks","total_tasks":4,"completed_at":"2026-05-14"},
+    {"id":"R064","name":"desktop-cleanup-agent-aware","status":"completed","archive_dir":"_archive/R064_desktop-cleanup-agent-aware","total_tasks":2,"completed_at":"2026-05-15"},
+    {"id":"R065","name":"sidebar-overlay-layout","status":"completed","archive_dir":"_archive/R065_sidebar-overlay-layout","total_tasks":2,"completed_at":"2026-05-15"},
+    {"id":"R066","name":"terminal-scroll-preservation","status":"completed","archive_dir":"_archive/R066_terminal-scroll-preservation","total_tasks":2,"completed_at":"2026-05-15"},
+    {"id":"R067","name":"auth-dialog-reentry-fix","status":"completed","archive_dir":"_archive/R067_auth-dialog-reentry-fix","total_tasks":2,"completed_at":"2026-05-15"},
+    {"id":"R068","name":"per-user-terminal-limit-and-terminal-switch-focus","status":"completed","archive_dir":"_archive/R068_per-user-terminal-limit","total_tasks":4,"completed_at":"2026-05-15"}
   ],
   "archived_phases": [],
-  "active_requirement_cycle": null,
-  "workflow": {},
-  "execution_context": {
-    "tracking_repo": "remote-control",
-    "tracking_path": ".dev-flow/feature_list.json",
-    "target_repo": "/Users/tangxiaolu/project/ai_rules",
-    "target_path": "rules/xlfoundry-*/",
-    "branch_strategy": "tracking_repo 跟踪进度，实际代码变更在 ai_rules 仓库"
+  "active_requirement_cycle": {
+    "id": "R070",
+    "name": "sse-perf-and-desktop-lifecycle-fix",
+    "branch": "fix/R070-sse-perf-desktop-lifecycle",
+    "status": "active"
+  },
+  "workflow": {
+    "name": "sse-perf-and-desktop-lifecycle-fix",
+    "mode": "A",
+    "runtime": "skill_orchestrated",
+    "evaluate_provider": "local",
+    "risk_provider": "local"
   },
   "summary": {
-    "total_tasks": 12,
+    "total_tasks": 5,
+    "completed": 0,
     "by_status": {
-      "pending": 12
+      "pending": 5
     },
     "by_priority": {
-      "P0": 12
+      "P0": 3,
+      "P1": 2
     }
   },
-  "features": []
+  "features": [
+    {
+      "id": "B070-000",
+      "phase": 0,
+      "module": "architecture",
+      "name": "Architecture 不变量追加",
+      "description": "在 architecture.md 追加 3 条不变量：SSE 端点必须事件驱动、长连接重连前必须关闭旧连接、Widget dispose 不触发不可逆操作。这些不变量来自 OPS-001/OPS-002/Mac 合并屏幕三个真实使用缺陷的逃逸分析。",
+      "verification": "L1",
+      "depends_on": [],
+      "status": "pending",
+      "priority": "P1",
+      "user_stories": [
+        "作为系统维护者，我需要 architecture.md 记录这 3 条不变量，以便未来规划和评估时自动检查同类问题",
+        "作为实现者，我需要明确知道 SSE 端点和长连接的设计约束，避免再次引入 busy-loop 或连接泄漏"
+      ],
+      "success_picture": "architecture.md 不变量 section 包含 3 条新规则，总行数不超过 120 行",
+      "risk_tags": [],
+      "test_tasks": [
+        "新增不变量不与现有禁止模式冲突",
+        "architecture.md 总行数 ≤ 120"
+      ],
+      "files": [
+        ".dev-flow/architecture.md"
+      ]
+    },
+    {
+      "id": "B070-001",
+      "phase": 1,
+      "module": "server-sse",
+      "name": "SSE stream 事件驱动重构",
+      "description": "将 agent_api.py 中 _event_stream() 从 busy-loop（每秒查 DB）改为事件驱动（等 Queue → 推送）。核心改动：先等 Queue 事件，收到后直接推送，无需再查数据库。保留 truncation_epoch 处理（改为通过 Queue 传递 reset 事件）。keepalive 间隔从 1s 改为 30s。移除循环内的 _build_agent_conversation_projection 调用。",
+      "verification": "L2",
+      "depends_on": ["B070-000"],
+      "status": "pending",
+      "priority": "P0",
+      "user_stories": [
+        "作为服务器运维者，我希望 SSE 端点空闲时 CPU 占用接近零，而不是持续 30-40%",
+        "作为用户，我希望 SSE 连接稳定不频繁断连，以便 Agent 对话流不中断"
+      ],
+      "success_picture": "SSE 连接空闲时每 30 秒发一次 keepalive，有事件时通过 Queue 即时推送，不再轮询数据库。rc-server 容器空闲 CPU < 5%。",
+      "risk_tags": ["network", "startup"],
+      "test_tasks": [
+        "空闲负载测试：SSE 连接 60 秒不发事件，断言 DB 查询次数 ≤ 2",
+        "事件完整性测试：连续写入 10 个事件，验证 SSE 客户端收到全部 10 个、顺序正确",
+        "truncation epoch 重置：模拟 epoch 变更，验证推送 conversation_reset 事件",
+        "多终端 SSE 连接并行测试：3 个终端同时连接，验证互不干扰",
+        "客户端断开后 Queue subscriber 被正确清理"
+      ],
+      "smoke_required": true,
+      "fix_level": "L2",
+      "root_cause_analysis": "_event_stream() 采用 busy-loop 模式，每轮都查数据库 + 1s keepalive。TTL 缓存因 after_index 参数被绕过。Queue 机制已存在（与 DB 写入同步），但 stream 不信任 Queue。",
+      "similar_locations": "检查是否有其他 SSE/stream 端点使用类似轮询模式",
+      "files": [
+        "server/app/api/agent_api.py",
+        "server/app/api/agent_conversation_helpers.py"
+      ]
+    },
+    {
+      "id": "F070-002",
+      "phase": 1,
+      "module": "client-sse",
+      "name": "SSE 重连连接泄漏修复",
+      "description": "修复 agent_session_service.dart 中 streamConversationResilient 重连时的 fd 泄漏。在 streamConversation 的 StreamController.onCancel 回调中关闭底层 HTTP Response，确保重连前旧连接完全释放。配合 B070-001 修复后断连频率大幅降低。",
+      "verification": "F2",
+      "depends_on": [],
+      "status": "pending",
+      "priority": "P1",
+      "user_stories": [
+        "作为用户，我希望 SSE 重连时不会累积文件描述符，以免长时间使用后出现 'Too many open files'",
+        "作为开发者，我希望长连接的生命周期管理清晰，重连 = 关闭旧连接 + 建立新连接"
+      ],
+      "success_picture": "SSE 重连后活跃 HTTP 连接数始终为 1，多轮重连后 fd 数不线性增长",
+      "risk_tags": ["network"],
+      "test_tasks": [
+        "单元测试：cancel streamConversation 的 subscription 后，底层 HTTP Response 被关闭（mock 验证）",
+        "重连后旧连接关闭：建立 SSE → 模拟断连 → 等待重连 → 断言活跃连接数 == 1",
+        "多轮重连 fd 增长测试：10 轮断连重连，断言 fd 增长 ≤ 2"
+      ],
+      "fix_level": "L2",
+      "root_cause_analysis": "streamConversationResilient 的 dispose() 只取消 StreamSubscription，不 abort 底层 HTTP Response。旧连接的 socket 未关闭，fd 累积。",
+      "files": [
+        "client/lib/services/agent_session_service.dart"
+      ]
+    },
+    {
+      "id": "F070-003",
+      "phase": 2,
+      "module": "client-desktop",
+      "name": "桌面端 Agent 生命周期修复",
+      "description": "修复 Mac 合并屏幕/全屏切换时终端被清理的问题。handleViewDispose() 不再直接停止 Agent。改为：1) Widget dispose 时只断开客户端连接，不动 Agent；2) App 真正退出（窗口关闭）时才停止 Agent。通过 WidgetsBindingObserver 或 window closing 回调区分'窗口临时重建'和'用户退出'。不可逆操作（PTY 进程销毁）必须有明确的用户意图信号。",
+      "verification": "F2",
+      "depends_on": ["B070-000"],
+      "status": "pending",
+      "priority": "P0",
+      "user_stories": [
+        "作为 Mac 桌面端用户，我希望合并屏幕、全屏切换、外接显示器拔插时终端不被清理，我的工作内容不丢失",
+        "作为 Mac 桌面端用户，我希望关闭 App 窗口时 Agent 正确停止，不留僵尸进程"
+      ],
+      "success_picture": "Mac 合并屏幕后终端仍在运行，关闭 App 窗口后 Agent 进程正确停止",
+      "risk_tags": ["startup", "first_use"],
+      "test_tasks": [
+        "单元测试：handleViewDispose 调用后 stopManagedAgent 未被调用（mock 验证）",
+        "Widget 测试：dispose + remount 后终端状态为 connected，Agent 未停止",
+        "App 退出测试：模拟窗口关闭 → stopManagedAgent 被调用",
+        "外接显示器场景（手工 smoke）：拔插显示器后终端仍在"
+      ],
+      "smoke_required": true,
+      "fix_level": "L2",
+      "root_cause_analysis": "handleViewDispose() 把所有 Widget dispose 等同于用户退出。macOS 合并屏幕触发 Widget 树 dispose→rebuild，导致 Agent 被停止、PTY 进程被杀死、terminals 立即 closed（无 grace period）。",
+      "similar_locations": "检查 DesktopStartupTerminalCleanupService 是否也受影响",
+      "files": [
+        "client/lib/services/desktop/desktop_workspace_controller.dart",
+        "client/lib/screens/desktop/terminal_workspace_screen.dart"
+      ]
+    },
+    {
+      "id": "B070-004",
+      "phase": 3,
+      "module": "verification",
+      "name": "端到端验证 + 回归测试",
+      "description": "部署修复后执行端到端验证：1) 空闲 CPU < 5%；2) SSE 重连后 fd 不增长；3) defect_feedback.md 更新。更新 defect_feedback.md 中 OPS-001/OPS-002 的状态为 fixed。",
+      "verification": "L4",
+      "depends_on": ["B070-001", "F070-002", "F070-003"],
+      "status": "pending",
+      "priority": "P0",
+      "user_stories": [
+        "作为运维者，我需要确认三个修复部署后服务端 CPU 降到个位数",
+        "作为用户，我需要确认 Mac 合并屏幕后终端不丢失"
+      ],
+      "success_picture": "部署后 docker stats 显示 rc-server CPU < 5%（空闲），Mac 合并屏幕后终端仍在，defect_feedback.md 中三个 OPS 问题状态更新为 fixed",
+      "risk_tags": ["network", "startup"],
+      "test_tasks": [
+        "docker stats rc-server 空闲 CPU < 5%",
+        "Mac 合并屏幕终端保持（手工 smoke）",
+        "defect_feedback.md OPS-001/OPS-002 状态更新为 fixed"
+      ],
+      "smoke_required": true,
+      "files": [
+        ".dev-flow/defect_feedback.md"
+      ]
+    }
+  ]
 }
